@@ -34,18 +34,19 @@ class AnalysisEngine:
     # Category weights
     WEIGHTS = {"structure": 0.40, "quality": 0.30, "architecture": 0.30}
 
-    def __init__(self, neo4j_client: Neo4jClient):
+    def __init__(self, neo4j_client: Neo4jClient, detector_config: Dict = None):
         """Initialize analysis engine.
 
         Args:
             neo4j_client: Neo4j database client
+            detector_config: Optional detector configuration dict
         """
         self.db = neo4j_client
         # Register all detectors
         self.detectors = [
             CircularDependencyDetector(neo4j_client),
             DeadCodeDetector(neo4j_client),
-            GodClassDetector(neo4j_client),
+            GodClassDetector(neo4j_client, detector_config=detector_config),
         ]
 
     def analyze(self) -> CodebaseHealth:

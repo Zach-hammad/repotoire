@@ -1,7 +1,7 @@
 """God class detector - finds overly complex classes."""
 
 import uuid
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 
 from falkor.detectors.base import CodeSmellDetector
@@ -11,15 +11,35 @@ from falkor.models import Finding, Severity
 class GodClassDetector(CodeSmellDetector):
     """Detects god classes (classes with too many responsibilities)."""
 
-    # Thresholds for god class detection
-    HIGH_METHOD_COUNT = 20
-    MEDIUM_METHOD_COUNT = 15
-    HIGH_COMPLEXITY = 100
-    MEDIUM_COMPLEXITY = 50
-    HIGH_LOC = 500
-    MEDIUM_LOC = 300
-    HIGH_LCOM = 0.8  # Lack of cohesion (0-1, higher is worse)
-    MEDIUM_LCOM = 0.6
+    # Default thresholds for god class detection
+    DEFAULT_HIGH_METHOD_COUNT = 20
+    DEFAULT_MEDIUM_METHOD_COUNT = 15
+    DEFAULT_HIGH_COMPLEXITY = 100
+    DEFAULT_MEDIUM_COMPLEXITY = 50
+    DEFAULT_HIGH_LOC = 500
+    DEFAULT_MEDIUM_LOC = 300
+    DEFAULT_HIGH_LCOM = 0.8  # Lack of cohesion (0-1, higher is worse)
+    DEFAULT_MEDIUM_LCOM = 0.6
+
+    def __init__(self, neo4j_client, detector_config: Optional[dict] = None):
+        """Initialize god class detector with configurable thresholds.
+
+        Args:
+            neo4j_client: Neo4j database client
+            detector_config: Optional dict with detector configuration
+        """
+        super().__init__(neo4j_client)
+
+        # Load thresholds from config or use defaults
+        config = detector_config or {}
+        self.high_method_count = config.get("god_class_high_method_count", self.DEFAULT_HIGH_METHOD_COUNT)
+        self.medium_method_count = config.get("god_class_medium_method_count", self.DEFAULT_MEDIUM_METHOD_COUNT)
+        self.high_complexity = config.get("god_class_high_complexity", self.DEFAULT_HIGH_COMPLEXITY)
+        self.medium_complexity = config.get("god_class_medium_complexity", self.DEFAULT_MEDIUM_COMPLEXITY)
+        self.high_loc = config.get("god_class_high_loc", self.DEFAULT_HIGH_LOC)
+        self.medium_loc = config.get("god_class_medium_loc", self.DEFAULT_MEDIUM_LOC)
+        self.high_lcom = config.get("god_class_high_lcom", self.DEFAULT_HIGH_LCOM)
+        self.medium_lcom = config.get("god_class_medium_lcom", self.DEFAULT_MEDIUM_LCOM)
 
     def detect(self) -> List[Finding]:
         """Find god classes in the codebase.
@@ -35,7 +55,7 @@ class GodClassDetector(CodeSmellDetector):
         """
         findings: List[Finding] = []
 
-        query = """
+        query = f"""
         MATCH (file:File)-[:CONTAINS]->(c:Class)
         WITH c, file
         MATCH (file)-[:CONTAINS]->(m:Function)
@@ -45,7 +65,7 @@ class GodClassDetector(CodeSmellDetector):
              sum(m.complexity) AS total_complexity,
              COALESCE(c.lineEnd, 0) - COALESCE(c.lineStart, 0) AS loc
         WITH c, file, methods, size(methods) AS method_count, total_complexity, loc
-        WHERE method_count >= 15 OR total_complexity >= 50 OR loc >= 300
+        WHERE method_count >= {self.medium_method_count} OR total_complexity >= {self.medium_complexity} OR loc >= {self.medium_loc}
         UNWIND methods AS m
         OPTIONAL MATCH (m)-[:CALLS]->(called)
         WITH c, file, methods, method_count, total_complexity, loc,
@@ -166,14 +186,14 @@ class GodClassDetector(CodeSmellDetector):
         """
         reasons = []
 
-        if method_count >= self.HIGH_METHOD_COUNT:
+        if method_count >= self.high_method_count:
             reasons.append(f"very high method count ({method_count})")
-        elif method_count >= self.MEDIUM_METHOD_COUNT:
+        elif method_count >= self.medium_method_count:
             reasons.append(f"high method count ({method_count})")
 
-        if total_complexity >= self.HIGH_COMPLEXITY:
+        if total_complexity >= self.high_complexity:
             reasons.append(f"very high complexity ({total_complexity})")
-        elif total_complexity >= self.MEDIUM_COMPLEXITY:
+        elif total_complexity >= self.medium_complexity:
             reasons.append(f"high complexity ({total_complexity})")
 
         if coupling_count >= 50:
@@ -181,24 +201,24 @@ class GodClassDetector(CodeSmellDetector):
         elif coupling_count >= 30:
             reasons.append(f"high coupling ({coupling_count})")
 
-        if loc >= self.HIGH_LOC:
+        if loc >= self.high_loc:
             reasons.append(f"very large class ({loc} LOC)")
-        elif loc >= self.MEDIUM_LOC:
+        elif loc >= self.medium_loc:
             reasons.append(f"large class ({loc} LOC)")
 
-        if lcom >= self.HIGH_LCOM:
+        if lcom >= self.high_lcom:
             reasons.append(f"very low cohesion (LCOM: {lcom:.2f})")
-        elif lcom >= self.MEDIUM_LCOM:
+        elif lcom >= self.medium_lcom:
             reasons.append(f"low cohesion (LCOM: {lcom:.2f})")
 
         # God class if multiple moderate issues or one severe issue
         if len(reasons) >= 2:
             return True, ", ".join(reasons)
-        elif method_count >= self.HIGH_METHOD_COUNT:
+        elif method_count >= self.high_method_count:
             return True, reasons[0] if reasons else "high method count"
-        elif total_complexity >= self.HIGH_COMPLEXITY:
+        elif total_complexity >= self.high_complexity:
             return True, reasons[0] if reasons else "high complexity"
-        elif loc >= self.HIGH_LOC:
+        elif loc >= self.high_loc:
             return True, reasons[0] if reasons else "very large class"
 
         return False, ""
@@ -249,7 +269,7 @@ class GodClassDetector(CodeSmellDetector):
             total_complexity >= 150,
             coupling_count >= 70,
             loc >= 1000,
-            lcom >= self.HIGH_LCOM,
+            lcom >= self.high_lcom,
         ])
 
         if critical_count >= 2:
@@ -257,11 +277,11 @@ class GodClassDetector(CodeSmellDetector):
 
         # High if one critical violation or multiple high violations
         high_count = sum([
-            method_count >= self.HIGH_METHOD_COUNT,
-            total_complexity >= self.HIGH_COMPLEXITY,
+            method_count >= self.high_method_count,
+            total_complexity >= self.high_complexity,
             coupling_count >= 50,
-            loc >= self.HIGH_LOC,
-            lcom >= self.MEDIUM_LCOM,
+            loc >= self.high_loc,
+            lcom >= self.medium_lcom,
         ])
 
         if high_count >= 2:
@@ -269,10 +289,10 @@ class GodClassDetector(CodeSmellDetector):
 
         # Medium for moderate violations
         medium_count = sum([
-            method_count >= self.MEDIUM_METHOD_COUNT,
-            total_complexity >= self.MEDIUM_COMPLEXITY,
+            method_count >= self.medium_method_count,
+            total_complexity >= self.medium_complexity,
             coupling_count >= 30,
-            loc >= self.MEDIUM_LOC,
+            loc >= self.medium_loc,
         ])
 
         if medium_count >= 2:
@@ -326,7 +346,7 @@ class GodClassDetector(CodeSmellDetector):
                 f"   - Consider facade or mediator patterns"
             )
 
-        if loc >= self.HIGH_LOC:
+        if loc >= self.high_loc:
             suggestions.append(
                 f"4. Break down the large class ({loc} LOC)\n"
                 f"   - Split into smaller, focused classes\n"
@@ -334,7 +354,7 @@ class GodClassDetector(CodeSmellDetector):
                 f"   - Extract data classes for complex state"
             )
 
-        if lcom >= self.MEDIUM_LCOM:
+        if lcom >= self.medium_lcom:
             suggestions.append(
                 f"5. Improve cohesion (current LCOM: {lcom:.2f})\n"
                 f"   - Group methods that use the same fields\n"

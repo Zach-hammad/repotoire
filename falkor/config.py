@@ -132,6 +132,20 @@ class AnalysisConfig:
 
 
 @dataclass
+class DetectorConfig:
+    """Detector thresholds configuration."""
+    # God class detector thresholds
+    god_class_high_method_count: int = 20
+    god_class_medium_method_count: int = 15
+    god_class_high_complexity: int = 100
+    god_class_medium_complexity: int = 50
+    god_class_high_loc: int = 500
+    god_class_medium_loc: int = 300
+    god_class_high_lcom: float = 0.8  # Lack of cohesion (0-1, higher is worse)
+    god_class_medium_lcom: float = 0.6
+
+
+@dataclass
 class LoggingConfig:
     """Logging configuration."""
     level: str = "INFO"
@@ -145,6 +159,7 @@ class FalkorConfig:
     neo4j: Neo4jConfig = field(default_factory=Neo4jConfig)
     ingestion: IngestionConfig = field(default_factory=IngestionConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
+    detectors: DetectorConfig = field(default_factory=DetectorConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
     @classmethod
@@ -164,6 +179,7 @@ class FalkorConfig:
             neo4j=Neo4jConfig(**data.get("neo4j", {})),
             ingestion=IngestionConfig(**data.get("ingestion", {})),
             analysis=AnalysisConfig(**data.get("analysis", {})),
+            detectors=DetectorConfig(**data.get("detectors", {})),
             logging=LoggingConfig(**data.get("logging", {})),
         )
 
@@ -188,6 +204,16 @@ class FalkorConfig:
             "analysis": {
                 "min_modularity": self.analysis.min_modularity,
                 "max_coupling": self.analysis.max_coupling,
+            },
+            "detectors": {
+                "god_class_high_method_count": self.detectors.god_class_high_method_count,
+                "god_class_medium_method_count": self.detectors.god_class_medium_method_count,
+                "god_class_high_complexity": self.detectors.god_class_high_complexity,
+                "god_class_medium_complexity": self.detectors.god_class_medium_complexity,
+                "god_class_high_loc": self.detectors.god_class_high_loc,
+                "god_class_medium_loc": self.detectors.god_class_medium_loc,
+                "god_class_high_lcom": self.detectors.god_class_high_lcom,
+                "god_class_medium_lcom": self.detectors.god_class_medium_lcom,
             },
             "logging": {
                 "level": self.logging.level,

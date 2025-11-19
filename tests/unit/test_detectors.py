@@ -391,3 +391,50 @@ class TestGodClassDetector:
 
         # Should return neutral value on error
         assert lcom == 0.5
+
+    def test_configurable_thresholds(self, mock_db):
+        """Test that detector respects custom threshold configuration."""
+        # Create detector with custom thresholds (much lower than defaults)
+        custom_config = {
+            "god_class_high_method_count": 10,  # Default: 20
+            "god_class_medium_method_count": 5,  # Default: 15
+            "god_class_high_complexity": 50,  # Default: 100
+            "god_class_medium_complexity": 25,  # Default: 50
+            "god_class_high_loc": 200,  # Default: 500
+            "god_class_medium_loc": 100,  # Default: 300
+            "god_class_high_lcom": 0.7,  # Default: 0.8
+            "god_class_medium_lcom": 0.5,  # Default: 0.6
+        }
+
+        detector = GodClassDetector(mock_db, detector_config=custom_config)
+
+        # Verify thresholds were set
+        assert detector.high_method_count == 10
+        assert detector.medium_method_count == 5
+        assert detector.high_complexity == 50
+        assert detector.medium_complexity == 25
+        assert detector.high_loc == 200
+        assert detector.medium_loc == 100
+        assert detector.high_lcom == 0.7
+        assert detector.medium_lcom == 0.5
+
+        # Test that a class with 8 methods is now detected (above medium threshold of 5)
+        is_god, reason = detector._is_god_class(8, 30, 20, 150, 0.4)
+        # With default thresholds (15), this wouldn't be detected
+        # With custom thresholds (5), this should be detected
+        assert is_god is True
+        assert "high method count" in reason
+
+    def test_default_thresholds_when_no_config(self, mock_db):
+        """Test that detector uses defaults when no config is provided."""
+        detector = GodClassDetector(mock_db)
+
+        # Verify default thresholds
+        assert detector.high_method_count == 20
+        assert detector.medium_method_count == 15
+        assert detector.high_complexity == 100
+        assert detector.medium_complexity == 50
+        assert detector.high_loc == 500
+        assert detector.medium_loc == 300
+        assert detector.high_lcom == 0.8
+        assert detector.medium_lcom == 0.6

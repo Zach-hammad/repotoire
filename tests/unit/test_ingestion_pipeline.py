@@ -86,6 +86,18 @@ class TestInitialization:
         assert "javascript" in pipeline.parsers
         assert pipeline.parsers["javascript"] == mock_parser
 
+    def test_configurable_batch_size(self, mock_neo4j_client, temp_repo):
+        """Test that pipeline respects custom batch size configuration."""
+        # Test with custom batch size
+        custom_batch_size = 50
+        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client, batch_size=custom_batch_size)
+
+        assert pipeline.batch_size == custom_batch_size
+
+        # Test with default batch size
+        pipeline_default = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        assert pipeline_default.batch_size == IngestionPipeline.DEFAULT_BATCH_SIZE
+
 
 class TestFileScanning:
     """Test file scanning functionality."""

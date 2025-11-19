@@ -2,6 +2,7 @@
 
 import click
 import os
+from dataclasses import asdict
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
@@ -170,7 +171,8 @@ def ingest(
                     repo_path,
                     db,
                     follow_symlinks=final_follow_symlinks,
-                    max_file_size_mb=final_max_file_size
+                    max_file_size_mb=final_max_file_size,
+                    batch_size=config.ingestion.batch_size
                 )
                 pipeline.ingest(patterns=final_patterns)
 
@@ -247,7 +249,9 @@ def analyze(
             logger.info("Starting analysis")
 
             with Neo4jClient(final_neo4j_uri, final_neo4j_user, final_neo4j_password) as db:
-                engine = AnalysisEngine(db)
+                # Convert detector config to dict for detectors
+                detector_config_dict = asdict(config.detectors)
+                engine = AnalysisEngine(db, detector_config=detector_config_dict)
                 health = engine.analyze()
 
                 logger.info("Analysis complete", extra={

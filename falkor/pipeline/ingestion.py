@@ -23,13 +23,15 @@ class IngestionPipeline:
     # Security limits
     MAX_FILE_SIZE_MB = 10  # Maximum file size to process
     DEFAULT_FOLLOW_SYMLINKS = False  # Don't follow symlinks by default
+    DEFAULT_BATCH_SIZE = 100  # Default batch size for loading entities
 
     def __init__(
         self,
         repo_path: str,
         neo4j_client: Neo4jClient,
         follow_symlinks: bool = DEFAULT_FOLLOW_SYMLINKS,
-        max_file_size_mb: float = MAX_FILE_SIZE_MB
+        max_file_size_mb: float = MAX_FILE_SIZE_MB,
+        batch_size: int = DEFAULT_BATCH_SIZE
     ):
         """Initialize ingestion pipeline with security validation.
 
@@ -38,6 +40,7 @@ class IngestionPipeline:
             neo4j_client: Neo4j database client
             follow_symlinks: Whether to follow symbolic links (default: False for security)
             max_file_size_mb: Maximum file size in MB to process (default: 10MB)
+            batch_size: Number of entities to batch before loading to graph (default: 100)
 
         Raises:
             ValueError: If repository path is invalid
@@ -61,6 +64,7 @@ class IngestionPipeline:
         self.parsers: Dict[str, CodeParser] = {}
         self.follow_symlinks = follow_symlinks
         self.max_file_size_mb = max_file_size_mb
+        self.batch_size = batch_size
 
         # Track skipped files for reporting
         self.skipped_files: List[Dict[str, str]] = []
@@ -356,8 +360,8 @@ class IngestionPipeline:
                 else:
                     files_failed += 1
 
-                # Batch load every 100 entities for better performance
-                if len(all_entities) >= 100:
+                # Batch load entities for better performance
+                if len(all_entities) >= self.batch_size:
                     batch_start = time.time()
                     self.load_to_graph(all_entities, all_relationships)
                     batch_duration = time.time() - batch_start
