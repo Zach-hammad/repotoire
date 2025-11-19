@@ -317,7 +317,14 @@ def ingest(
     help="Neo4j password (overrides config, prompts if not provided)",
 )
 @click.option(
-    "--output", "-o", type=click.Path(), help="Output file for JSON report"
+    "--output", "-o", type=click.Path(), help="Output file for report"
+)
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["json", "html"], case_sensitive=False),
+    default="json",
+    help="Output format (json or html)",
 )
 @click.option(
     "--quiet",
@@ -334,6 +341,7 @@ def analyze(
     neo4j_user: str | None,
     neo4j_password: str | None,
     output: str | None,
+    format: str,
     quiet: bool,
 ) -> None:
     """Analyze codebase health and generate report."""
@@ -426,12 +434,18 @@ def analyze(
 
                 # Save to file if requested
                 if validated_output:
-                    import json
-
-                    with open(validated_output, "w") as f:
-                        json.dump(health.to_dict(), f, indent=2)
-                    logger.info(f"Report saved to {validated_output}")
-                    console.print(f"\n✅ Report saved to {validated_output}")
+                    if format.lower() == "html":
+                        from falkor.reporters import HTMLReporter
+                        reporter = HTMLReporter(repo_path=validated_repo_path)
+                        reporter.generate(health, validated_output)
+                        logger.info(f"HTML report saved to {validated_output}")
+                        console.print(f"\n✅ HTML report saved to {validated_output}")
+                    else:  # JSON format
+                        import json
+                        with open(validated_output, "w") as f:
+                            json.dump(health.to_dict(), f, indent=2)
+                        logger.info(f"JSON report saved to {validated_output}")
+                        console.print(f"\n✅ JSON report saved to {validated_output}")
 
     except Exception as e:
         logger.exception("Error during analysis")
