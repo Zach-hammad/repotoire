@@ -2,7 +2,7 @@
 
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Callable
 
 from falkor.graph import Neo4jClient, GraphSchema
 from falkor.parsers import CodeParser, PythonParser
@@ -309,12 +309,18 @@ class IngestionPipeline:
             logger.error(f"Failed to load data to graph: {e}")
 
     @log_operation("ingest")
-    def ingest(self, incremental: bool = False, patterns: Optional[List[str]] = None) -> None:
+    def ingest(
+        self,
+        incremental: bool = False,
+        patterns: Optional[List[str]] = None,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None
+    ) -> None:
         """Run the complete ingestion pipeline with security validation.
 
         Args:
             incremental: If True, only process changed files
             patterns: File patterns to match
+            progress_callback: Optional callback function(current, total, filename) for progress tracking
         """
         start_time = time.time()
 
@@ -350,6 +356,10 @@ class IngestionPipeline:
         for i, file_path in enumerate(files, 1):
             with LogContext(operation="parse_file", file=str(file_path), progress=f"{i}/{len(files)}"):
                 logger.debug(f"Processing file {i}/{len(files)}: {file_path}")
+
+                # Call progress callback if provided
+                if progress_callback:
+                    progress_callback(i, len(files), str(file_path))
 
                 entities, relationships = self.parse_and_extract(file_path)
 

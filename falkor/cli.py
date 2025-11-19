@@ -7,6 +7,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
 
 from falkor.pipeline import IngestionPipeline
 from falkor.graph import Neo4jClient
@@ -133,6 +134,13 @@ def cli(ctx: click.Context, config: str | None, log_level: str | None, log_forma
     default=None,
     help="Maximum file size in MB (overrides config)",
 )
+@click.option(
+    "--quiet",
+    "-q",
+    is_flag=True,
+    default=False,
+    help="Disable progress bars and reduce output",
+)
 @click.pass_context
 def ingest(
     ctx: click.Context,
@@ -143,6 +151,7 @@ def ingest(
     pattern: tuple | None,
     follow_symlinks: bool | None,
     max_file_size: float | None,
+    quiet: bool,
 ) -> None:
     """Ingest a codebase into the knowledge graph with security validation.
 
@@ -229,7 +238,37 @@ def ingest(
                     max_file_size_mb=final_max_file_size,
                     batch_size=validated_batch_size
                 )
-                pipeline.ingest(patterns=final_patterns)
+
+                # Setup progress bar if not in quiet mode
+                if not quiet:
+                    with Progress(
+                        SpinnerColumn(),
+                        TextColumn("[progress.description]{task.description}"),
+                        BarColumn(),
+                        TaskProgressColumn(),
+                        TimeRemainingColumn(),
+                        console=console,
+                    ) as progress:
+                        # Create a task that will be updated by the callback
+                        task_id = progress.add_task("[cyan]Ingesting files...", total=None)
+
+                        def progress_callback(current: int, total: int, filename: str) -> None:
+                            """Update progress bar with current file processing status."""
+                            # Update task total if not set yet
+                            if progress.tasks[task_id].total is None:
+                                progress.update(task_id, total=total)
+
+                            # Update progress with current file
+                            progress.update(
+                                task_id,
+                                completed=current,
+                                description=f"[cyan]Processing:[/cyan] {filename}"
+                            )
+
+                        pipeline.ingest(patterns=final_patterns, progress_callback=progress_callback)
+                else:
+                    # No progress bar in quiet mode
+                    pipeline.ingest(patterns=final_patterns)
 
                 # Show stats
                 stats = db.get_stats()
@@ -275,6 +314,13 @@ def ingest(
 @click.option(
     "--output", "-o", type=click.Path(), help="Output file for JSON report"
 )
+@click.option(
+    "--quiet",
+    "-q",
+    is_flag=True,
+    default=False,
+    help="Disable progress indicators and reduce output",
+)
 @click.pass_context
 def analyze(
     ctx: click.Context,
@@ -283,6 +329,7 @@ def analyze(
     neo4j_user: str | None,
     neo4j_password: str | None,
     output: str | None,
+    quiet: bool,
 ) -> None:
     """Analyze codebase health and generate report."""
     # Get config from context
@@ -350,7 +397,18 @@ def analyze(
                 # Convert detector config to dict for detectors
                 detector_config_dict = asdict(config.detectors)
                 engine = AnalysisEngine(db, detector_config=detector_config_dict)
-                health = engine.analyze()
+
+                # Run analysis with progress indication
+                if not quiet:
+                    with Progress(
+                        SpinnerColumn(),
+                        TextColumn("[progress.description]{task.description}"),
+                        console=console,
+                    ) as progress:
+                        progress.add_task("[cyan]Running detectors and analyzing codebase...", total=None)
+                        health = engine.analyze()
+                else:
+                    health = engine.analyze()
 
                 logger.info("Analysis complete", extra={
                     "grade": health.grade,
