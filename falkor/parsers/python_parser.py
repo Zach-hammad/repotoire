@@ -602,11 +602,11 @@ class PythonParser(CodeParser):
             file_path: Path to source file
             relationships: List to append relationships to
         """
-        # Build a set of class names defined in this file
-        local_classes = set()
+        # Build a map of class names to their line numbers
+        local_classes = {}  # {class_name: line_number}
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
-                local_classes.add(node.name)
+                local_classes[node.name] = node.lineno
 
         # Now extract inheritance relationships
         for node in ast.walk(tree):
@@ -621,12 +621,10 @@ class PythonParser(CodeParser):
                     if base_name:
                         # Determine the target qualified name
                         # If base class is defined in this file, need to find its line number
-                        # For now, use just the name for external classes
                         if base_name in local_classes:
-                            # Intra-file inheritance - base_name is just the class name
-                            # We'll need to look up the full qualified name in entity_map
-                            # For now, use a simple pattern - this will be resolved in graph loading
-                            base_qualified = f"{file_path}::{base_name}"
+                            # Intra-file inheritance - include line number to match qualified name format
+                            base_lineno = local_classes[base_name]
+                            base_qualified = f"{file_path}::{base_name}:{base_lineno}"
                         else:
                             # Imported or external base class
                             # Use the name as extracted (e.g., "ABC", "typing.Generic", etc.)

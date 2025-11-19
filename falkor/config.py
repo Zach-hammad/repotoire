@@ -206,6 +206,9 @@ class FalkorConfig:
                 "uri": self.neo4j.uri,
                 "user": self.neo4j.user,
                 "password": self.neo4j.password,
+                "max_retries": self.neo4j.max_retries,
+                "retry_backoff_factor": self.neo4j.retry_backoff_factor,
+                "retry_base_delay": self.neo4j.retry_base_delay,
             },
             "ingestion": {
                 "patterns": self.ingestion.patterns,
