@@ -5,6 +5,9 @@ import re
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ValidationError(Exception):
@@ -349,3 +352,63 @@ def validate_retry_config(max_retries: int, backoff_factor: float, base_delay: f
         )
 
     return max_retries, backoff_factor, base_delay
+
+
+def validate_neo4j_connection(uri: str, username: str, password: str) -> None:
+    """Test Neo4j connection is actually reachable.
+
+    Args:
+        uri: Neo4j connection URI
+        username: Neo4j username
+        password: Neo4j password
+
+    Raises:
+        ValidationError: If connection cannot be established
+    """
+    # Validate parameters first
+    uri = validate_neo4j_uri(uri)
+    username, password = validate_neo4j_credentials(username, password)
+
+    try:
+        from neo4j import GraphDatabase
+        from neo4j.exceptions import ServiceUnavailable, AuthError
+
+        # Try to connect with a short timeout
+        driver = GraphDatabase.driver(uri, auth=(username, password))
+
+        try:
+            # Verify connectivity
+            driver.verify_connectivity()
+            logger.debug(f"Successfully validated Neo4j connection to {uri}")
+        except AuthError as e:
+            raise ValidationError(
+                f"Neo4j authentication failed for user '{username}'",
+                "Check your Neo4j credentials:\n"
+                "  - Verify the username is correct (default: neo4j)\n"
+                "  - Verify the password is correct\n"
+                "  - Check FALKOR_NEO4J_PASSWORD environment variable\n"
+                "  - Or set password in config file"
+            ) from e
+        except ServiceUnavailable as e:
+            raise ValidationError(
+                f"Cannot connect to Neo4j at {uri}",
+                "Ensure Neo4j is running and accessible:\n"
+                "  - Start Neo4j: docker run -p 7687:7687 neo4j:latest\n"
+                "  - Check firewall settings\n"
+                "  - Verify the URI is correct"
+            ) from e
+        finally:
+            driver.close()
+
+    except ImportError:
+        raise ValidationError(
+            "Neo4j driver not installed",
+            "Install the neo4j package: pip install neo4j"
+        )
+    except Exception as e:
+        if isinstance(e, ValidationError):
+            raise
+        raise ValidationError(
+            f"Failed to connect to Neo4j: {e}",
+            "Check your Neo4j configuration and ensure the database is accessible"
+        ) from e

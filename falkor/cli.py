@@ -18,6 +18,7 @@ from falkor.validation import (
     validate_repository_path,
     validate_neo4j_uri,
     validate_neo4j_credentials,
+    validate_neo4j_connection,
     validate_output_path,
     validate_file_size_limit,
     validate_batch_size,
@@ -179,6 +180,11 @@ def ingest(
             final_neo4j_user, final_neo4j_password
         )
 
+        # Test Neo4j connection is reachable
+        console.print("[dim]Checking Neo4j connectivity...[/dim]")
+        validate_neo4j_connection(final_neo4j_uri, final_neo4j_user, final_neo4j_password)
+        console.print("[green]✓[/green] Neo4j connection validated\n")
+
         # Validate file size limit
         final_max_file_size = validate_file_size_limit(final_max_file_size)
 
@@ -303,6 +309,11 @@ def analyze(
         final_neo4j_user, final_neo4j_password = validate_neo4j_credentials(
             final_neo4j_user, final_neo4j_password
         )
+
+        # Test Neo4j connection is reachable
+        console.print("[dim]Checking Neo4j connectivity...[/dim]")
+        validate_neo4j_connection(final_neo4j_uri, final_neo4j_user, final_neo4j_password)
+        console.print("[green]✓[/green] Neo4j connection validated\n")
 
         # Validate output path if provided
         validated_output = None

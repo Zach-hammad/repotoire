@@ -3,7 +3,7 @@
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -12,6 +12,7 @@ from falkor.validation import (
     validate_repository_path,
     validate_neo4j_uri,
     validate_neo4j_credentials,
+    validate_neo4j_connection,
     validate_output_path,
     validate_file_size_limit,
     validate_batch_size,
@@ -475,3 +476,120 @@ class TestRetryConfigValidation:
         assert max_retries == 10
         assert backoff == 3.0
         assert delay == 0.5
+
+
+class TestNeo4jConnectionValidation:
+    """Test Neo4j connection validation."""
+
+    def test_successful_connection(self):
+        """Test validation succeeds with valid connection."""
+        with patch('neo4j.GraphDatabase') as mock_gd:
+            mock_driver = MagicMock()
+            mock_gd.driver.return_value = mock_driver
+            mock_driver.verify_connectivity.return_value = None
+
+            # Should not raise
+            validate_neo4j_connection(
+                "bolt://localhost:7687",
+                "neo4j",
+                "password"
+            )
+
+            mock_gd.driver.assert_called_once()
+            mock_driver.verify_connectivity.assert_called_once()
+            mock_driver.close.assert_called_once()
+
+    def test_invalid_uri_format(self):
+        """Test validation fails with invalid URI format."""
+        with pytest.raises(ValidationError) as exc_info:
+            validate_neo4j_connection(
+                "invalid-uri",
+                "neo4j",
+                "password"
+            )
+        assert "scheme" in exc_info.value.message.lower()
+
+    def test_authentication_failure(self):
+        """Test validation fails with wrong credentials."""
+        with patch('neo4j.GraphDatabase') as mock_gd:
+            from neo4j.exceptions import AuthError
+
+            mock_driver = MagicMock()
+            mock_gd.driver.return_value = mock_driver
+            mock_driver.verify_connectivity.side_effect = AuthError("Authentication failed")
+
+            with pytest.raises(ValidationError) as exc_info:
+                validate_neo4j_connection(
+                    "bolt://localhost:7687",
+                    "neo4j",
+                    "wrong_password"
+                )
+
+            assert "authentication failed" in exc_info.value.message.lower()
+            assert "credentials" in exc_info.value.suggestion.lower()
+            mock_driver.close.assert_called_once()
+
+    def test_service_unavailable(self):
+        """Test validation fails when Neo4j is not running."""
+        with patch('neo4j.GraphDatabase') as mock_gd:
+            from neo4j.exceptions import ServiceUnavailable
+
+            mock_driver = MagicMock()
+            mock_gd.driver.return_value = mock_driver
+            mock_driver.verify_connectivity.side_effect = ServiceUnavailable("Connection refused")
+
+            with pytest.raises(ValidationError) as exc_info:
+                validate_neo4j_connection(
+                    "bolt://localhost:7687",
+                    "neo4j",
+                    "password"
+                )
+
+            assert "cannot connect" in exc_info.value.message.lower()
+            assert "neo4j is running" in exc_info.value.suggestion.lower()
+            mock_driver.close.assert_called_once()
+
+    def test_neo4j_not_installed(self):
+        """Test validation fails when neo4j package not installed."""
+        # Mock the import to raise ImportError
+        import sys
+        with patch.dict('sys.modules', {'neo4j': None}):
+            with patch('builtins.__import__', side_effect=ImportError("No module named 'neo4j'")):
+                with pytest.raises(ValidationError) as exc_info:
+                    validate_neo4j_connection(
+                        "bolt://localhost:7687",
+                        "neo4j",
+                        "password"
+                    )
+
+                assert "not installed" in exc_info.value.message.lower()
+                assert "pip install neo4j" in exc_info.value.suggestion
+
+    def test_empty_credentials(self):
+        """Test validation fails with empty credentials."""
+        with pytest.raises(ValidationError) as exc_info:
+            validate_neo4j_connection(
+                "bolt://localhost:7687",
+                "",
+                "password"
+            )
+        assert "username cannot be empty" in exc_info.value.message.lower()
+
+    def test_connection_cleanup_on_error(self):
+        """Test driver is closed even when error occurs."""
+        with patch('neo4j.GraphDatabase') as mock_gd:
+            from neo4j.exceptions import ServiceUnavailable
+
+            mock_driver = MagicMock()
+            mock_gd.driver.return_value = mock_driver
+            mock_driver.verify_connectivity.side_effect = ServiceUnavailable("Connection refused")
+
+            with pytest.raises(ValidationError):
+                validate_neo4j_connection(
+                    "bolt://localhost:7687",
+                    "neo4j",
+                    "password"
+                )
+
+            # Driver should be closed even though there was an error
+            mock_driver.close.assert_called_once()
