@@ -153,7 +153,7 @@ def _display_health_report(health) -> None:
         ("Classes", m.total_classes, ""),
         ("Functions", m.total_functions, ""),
         ("Modularity", f"{m.modularity:.2f}", "Good" if m.modularity > 0.6 else "Low"),
-        ("Avg Coupling", f"{m.avg_coupling:.1f}", ""),
+        ("Avg Coupling", f"{m.avg_coupling:.1f}" if m.avg_coupling is not None else "N/A", ""),
         ("Circular Dependencies", m.circular_dependencies, "⚠️" if m.circular_dependencies > 0 else "✓"),
         ("God Classes", m.god_class_count, "⚠️" if m.god_class_count > 0 else "✓"),
     ]

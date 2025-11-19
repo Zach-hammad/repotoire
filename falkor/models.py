@@ -200,6 +200,9 @@ class CodebaseHealth:
     metrics: MetricsBreakdown
     findings_summary: FindingsSummary
 
+    # Detailed findings list
+    findings: List[Finding] = field(default_factory=list)
+
     # Timestamp
     analyzed_at: datetime = field(default_factory=datetime.now)
 
@@ -211,12 +214,27 @@ class CodebaseHealth:
             "structure_score": self.structure_score,
             "quality_score": self.quality_score,
             "architecture_score": self.architecture_score,
-            "findings": {
+            "findings_summary": {
                 "critical": self.findings_summary.critical,
                 "high": self.findings_summary.high,
                 "medium": self.findings_summary.medium,
                 "low": self.findings_summary.low,
                 "total": self.findings_summary.total,
             },
+            "findings": [
+                {
+                    "id": f.id,
+                    "detector": f.detector,
+                    "severity": f.severity.value,
+                    "title": f.title,
+                    "description": f.description,
+                    "affected_files": f.affected_files,
+                    "affected_nodes": f.affected_nodes,
+                    "graph_context": f.graph_context,
+                    "suggested_fix": f.suggested_fix,
+                    "estimated_effort": f.estimated_effort,
+                }
+                for f in self.findings
+            ],
             "analyzed_at": self.analyzed_at.isoformat(),
         }

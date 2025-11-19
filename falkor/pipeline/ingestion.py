@@ -110,10 +110,17 @@ class IngestionPipeline:
 
             # Convert relationships to use elementId (create new objects to avoid mutation)
             resolved_rels = []
+            logger.debug(f"Processing {len(relationships)} relationships")
+            logger.debug(f"ID mapping has {len(id_mapping)} entries")
+
             for rel in relationships:
                 # Map qualified_name to elementId
                 source_id = id_mapping.get(rel.source_id, rel.source_id)
                 target_id = id_mapping.get(rel.target_id, rel.target_id)
+
+                logger.debug(f"Relationship: {rel.rel_type} from {rel.source_id[:50]}... to {rel.target_id[:50]}...")
+                logger.debug(f"  Source mapped: {source_id[:50] if isinstance(source_id, str) else source_id}...")
+                logger.debug(f"  Target mapped: {target_id[:50] if isinstance(target_id, str) else target_id}...")
 
                 # Create new relationship with resolved IDs
                 resolved_rel = Relationship(
@@ -125,8 +132,11 @@ class IngestionPipeline:
                 resolved_rels.append(resolved_rel)
 
             # Batch create all relationships at once
-            self.db.batch_create_relationships(resolved_rels)
-            logger.info(f"Created {len(relationships)} relationships")
+            if resolved_rels:
+                self.db.batch_create_relationships(resolved_rels)
+                logger.info(f"Created {len(relationships)} relationships")
+            else:
+                logger.warning("No relationships to create")
 
         except Exception as e:
             logger.error(f"Failed to load data to graph: {e}")

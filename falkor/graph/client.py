@@ -148,12 +148,23 @@ class Neo4jClient:
             # Validate it's a valid node type string
             assert node_type in [nt.value for nt in NodeType], f"Invalid node type: {node_type}"
 
-            query = f"""
-            UNWIND $entities AS entity
-            CREATE (n:{node_type})
-            SET n = entity
-            RETURN elementId(n) as id, entity.qualifiedName as qualifiedName
-            """
+            # Use MERGE for Module nodes to avoid duplicates (multiple files import same module)
+            # Use CREATE for other node types
+            if node_type == "Module":
+                query = f"""
+                UNWIND $entities AS entity
+                MERGE (n:{node_type} {{qualifiedName: entity.qualifiedName}})
+                ON CREATE SET n = entity
+                ON MATCH SET n += entity
+                RETURN elementId(n) as id, entity.qualifiedName as qualifiedName
+                """
+            else:
+                query = f"""
+                UNWIND $entities AS entity
+                CREATE (n:{node_type})
+                SET n = entity
+                RETURN elementId(n) as id, entity.qualifiedName as qualifiedName
+                """
 
             # Convert entities to dicts, including all type-specific fields
             entity_dicts = []
