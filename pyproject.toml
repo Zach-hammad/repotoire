@@ -1,0 +1,95 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "falkor"
+version = "0.1.0"
+description = "Graph-Powered Code Health Platform"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Falkor Team"}
+]
+keywords = ["code-analysis", "knowledge-graph", "technical-debt", "neo4j", "static-analysis"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+dependencies = [
+    "neo4j>=5.14.0",
+    "openai>=1.0.0",
+    "spacy>=3.7.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "pydantic>=2.0.0",
+    "networkx>=3.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+]
+
+gds = [
+    "graphdatascience>=1.9.0",  # Neo4j Graph Data Science
+]
+
+all-languages = [
+    "tree-sitter>=0.20.0",
+    "tree-sitter-python>=0.20.0",
+    "tree-sitter-javascript>=0.20.0",
+    "tree-sitter-typescript>=0.20.0",
+]
+
+[project.scripts]
+falkor = "falkor.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/falkor"
+Documentation = "https://falkor.readthedocs.io"
+Repository = "https://github.com/yourusername/falkor"
+Issues = "https://github.com/yourusername/falkor/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["falkor*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]  # Line too long (handled by black)
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--cov=falkor",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
