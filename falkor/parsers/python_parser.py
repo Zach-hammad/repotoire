@@ -243,6 +243,10 @@ class PythonParser(CodeParser):
         # Extract __all__ exports
         exports = self._extract_exports(tree)
 
+        # Get last modification time
+        from datetime import datetime
+        last_modified = datetime.fromtimestamp(path_obj.stat().st_mtime)
+
         return FileEntity(
             name=path_obj.name,
             qualified_name=file_path,
@@ -252,6 +256,7 @@ class PythonParser(CodeParser):
             language="python",
             loc=loc,
             hash=file_hash,
+            last_modified=last_modified,
             exports=exports,
         )
 

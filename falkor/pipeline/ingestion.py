@@ -350,19 +350,73 @@ class IngestionPipeline:
                 self._report_skipped_files()
             return
 
+        # Incremental ingestion: filter files based on hash comparison
+        files_to_process = []
+        files_unchanged = 0
+        files_changed = 0
+        files_new = 0
+
+        if incremental:
+            logger.info("Running incremental ingestion (comparing file hashes)")
+            for file_path in files:
+                rel_path = self._get_relative_path(file_path)
+                metadata = self.db.get_file_metadata(rel_path)
+
+                if metadata is None:
+                    # New file, need to ingest
+                    files_to_process.append(file_path)
+                    files_new += 1
+                else:
+                    # File exists in database, compare hashes
+                    # Need to compute current hash
+                    import hashlib
+                    with open(file_path, "rb") as f:
+                        current_hash = hashlib.md5(f.read()).hexdigest()
+
+                    if current_hash == metadata["hash"]:
+                        # File unchanged, skip
+                        logger.debug(f"Skipping unchanged file: {rel_path}")
+                        files_unchanged += 1
+                    else:
+                        # File changed, need to re-ingest
+                        logger.debug(f"File changed (hash mismatch): {rel_path}")
+                        # Delete old data first
+                        self.db.delete_file_entities(rel_path)
+                        files_to_process.append(file_path)
+                        files_changed += 1
+
+            logger.info(f"Incremental scan: {files_new} new, {files_changed} changed, {files_unchanged} unchanged")
+
+            # Clean up deleted files (files in DB but not on filesystem)
+            all_scanned_paths = {self._get_relative_path(f) for f in files}
+            all_db_paths = set(self.db.get_all_file_paths())
+            deleted_paths = all_db_paths - all_scanned_paths
+
+            if deleted_paths:
+                logger.info(f"Cleaning up {len(deleted_paths)} deleted files from graph")
+                for deleted_path in deleted_paths:
+                    self.db.delete_file_entities(deleted_path)
+        else:
+            # Full ingestion: process all files
+            files_to_process = files
+
+        if not files_to_process:
+            logger.info("No files to process (all files unchanged)")
+            return
+
         # Process each file
         all_entities = []
         all_relationships = []
         files_processed = 0
         files_failed = 0
 
-        for i, file_path in enumerate(files, 1):
-            with LogContext(operation="parse_file", file=str(file_path), progress=f"{i}/{len(files)}"):
-                logger.debug(f"Processing file {i}/{len(files)}: {file_path}")
+        for i, file_path in enumerate(files_to_process, 1):
+            with LogContext(operation="parse_file", file=str(file_path), progress=f"{i}/{len(files_to_process)}"):
+                logger.debug(f"Processing file {i}/{len(files_to_process)}: {file_path}")
 
                 # Call progress callback if provided
                 if progress_callback:
-                    progress_callback(i, len(files), str(file_path))
+                    progress_callback(i, len(files_to_process), str(file_path))
 
                 entities, relationships = self.parse_and_extract(file_path)
 
@@ -400,15 +454,25 @@ class IngestionPipeline:
         stats = self.db.get_stats()
         total_duration = time.time() - start_time
 
-        logger.info("Ingestion complete", extra={
+        log_extra = {
             "stats": stats,
             "files_total": len(files),
             "files_processed": files_processed,
             "files_failed": files_failed,
             "files_skipped": len(self.skipped_files),
             "duration_seconds": round(total_duration, 2),
-            "files_per_second": round(len(files) / total_duration, 2) if total_duration > 0 else 0
-        })
+            "files_per_second": round(len(files_to_process) / total_duration, 2) if total_duration > 0 else 0
+        }
+
+        # Add incremental stats if applicable
+        if incremental:
+            log_extra["incremental"] = {
+                "new": files_new,
+                "changed": files_changed,
+                "unchanged": files_unchanged,
+            }
+
+        logger.info("Ingestion complete", extra=log_extra)
 
         # Report skipped files if any
         if self.skipped_files:

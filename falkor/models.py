@@ -190,6 +190,7 @@ class FileEntity(Entity):
         language: Programming language (e.g., "python", "javascript")
         loc: Lines of code (non-blank, non-comment)
         hash: MD5 hash of file contents for change detection
+        last_modified: Last modification timestamp for incremental ingestion
         exports: List of symbols exported via __all__ or similar
 
     Example:
@@ -202,12 +203,14 @@ class FileEntity(Entity):
         ...     language="python",
         ...     loc=120,
         ...     hash="a1b2c3d4e5f6",
+        ...     last_modified=datetime.now(),
         ...     exports=["helper_function", "UtilityClass"]
         ... )
     """
     language: str = "python"
     loc: int = 0
     hash: str = ""
+    last_modified: Optional[datetime] = None
     exports: List[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:

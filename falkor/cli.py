@@ -147,6 +147,17 @@ def cli(ctx: click.Context, config: str | None, log_level: str | None, log_forma
     help="Policy for handling detected secrets (overrides config, default: redact)",
 )
 @click.option(
+    "--incremental/--no-incremental",
+    default=True,
+    help="Use incremental ingestion (skip unchanged files, default: enabled)",
+)
+@click.option(
+    "--force-full",
+    is_flag=True,
+    default=False,
+    help="Force full re-ingestion (ignore file hashes)",
+)
+@click.option(
     "--quiet",
     "-q",
     is_flag=True,
@@ -164,6 +175,8 @@ def ingest(
     follow_symlinks: bool | None,
     max_file_size: float | None,
     secrets_policy: str | None,
+    incremental: bool,
+    force_full: bool,
     quiet: bool,
 ) -> None:
     """Ingest a codebase into the knowledge graph with security validation.
@@ -283,10 +296,17 @@ def ingest(
                                 description=f"[cyan]Processing:[/cyan] {filename}"
                             )
 
-                        pipeline.ingest(patterns=final_patterns, progress_callback=progress_callback)
+                        pipeline.ingest(
+                            patterns=final_patterns,
+                            incremental=incremental and not force_full,
+                            progress_callback=progress_callback
+                        )
                 else:
                     # No progress bar in quiet mode
-                    pipeline.ingest(patterns=final_patterns)
+                    pipeline.ingest(
+                        patterns=final_patterns,
+                        incremental=incremental and not force_full
+                    )
 
                 # Show stats
                 stats = db.get_stats()

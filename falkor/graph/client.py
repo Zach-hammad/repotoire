@@ -298,6 +298,9 @@ class Neo4jClient:
                     entity_dict["hash"] = e.hash
                 if hasattr(e, "language"):  # File
                     entity_dict["language"] = e.language
+                if hasattr(e, "last_modified"):  # File
+                    # Convert datetime to ISO string for Neo4j
+                    entity_dict["lastModified"] = e.last_modified.isoformat() if e.last_modified else None
                 if hasattr(e, "exports"):  # File
                     entity_dict["exports"] = e.exports
                 if hasattr(e, "is_abstract"):  # Class
@@ -450,3 +453,55 @@ class Neo4jClient:
             stats[key] = result[0]["count"] if result else 0
 
         return stats
+
+    def get_all_file_paths(self) -> List[str]:
+        """Get all file paths currently in the graph.
+
+        Returns:
+            List of file paths
+        """
+        query = """
+        MATCH (f:File)
+        RETURN f.filePath as filePath
+        """
+        result = self.execute_query(query)
+        return [record["filePath"] for record in result]
+
+    def get_file_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Get file metadata for incremental ingestion.
+
+        Args:
+            file_path: Path to file
+
+        Returns:
+            Dictionary with hash and lastModified, or None if file not found
+        """
+        query = """
+        MATCH (f:File {filePath: $path})
+        RETURN f.hash as hash, f.lastModified as lastModified
+        """
+        result = self.execute_query(query, {"path": file_path})
+        return result[0] if result else None
+
+    def delete_file_entities(self, file_path: str) -> int:
+        """Delete a file and all its related entities from the graph.
+
+        This is used during incremental ingestion to remove outdated data
+        before re-ingesting a modified file.
+
+        Args:
+            file_path: Path to file to delete
+
+        Returns:
+            Number of nodes deleted
+        """
+        query = """
+        MATCH (f:File {filePath: $path})
+        OPTIONAL MATCH (f)-[:CONTAINS]->(entity)
+        DETACH DELETE f, entity
+        RETURN count(f) + count(entity) as deletedCount
+        """
+        result = self.execute_query(query, {"path": file_path})
+        deleted_count = result[0]["deletedCount"] if result else 0
+        logger.info(f"Deleted {deleted_count} nodes for file: {file_path}")
+        return deleted_count

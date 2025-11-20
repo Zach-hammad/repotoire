@@ -110,10 +110,12 @@ class TestIngestCommand:
 
     def test_ingest_command_basic(self, runner, temp_repo, mock_neo4j_client):
         """Test basic ingest command execution."""
-        with patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
+        with patch('falkor.cli.validate_neo4j_connection'), \
+             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
              patch('falkor.cli.IngestionPipeline') as mock_pipeline:
 
             mock_pipeline_instance = Mock()
+            mock_pipeline_instance.skipped_files = []
             mock_pipeline.return_value = mock_pipeline_instance
 
             result = runner.invoke(cli, [
@@ -137,10 +139,12 @@ class TestIngestCommand:
 
     def test_ingest_with_custom_pattern(self, runner, temp_repo, mock_neo4j_client):
         """Test ingest with custom file patterns."""
-        with patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
+        with patch('falkor.cli.validate_neo4j_connection'), \
+             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
              patch('falkor.cli.IngestionPipeline') as mock_pipeline:
 
             mock_pipeline_instance = Mock()
+            mock_pipeline_instance.skipped_files = []
             mock_pipeline.return_value = mock_pipeline_instance
 
             result = runner.invoke(cli, [
@@ -162,7 +166,8 @@ class TestIngestCommand:
 
     def test_ingest_with_custom_neo4j_uri(self, runner, temp_repo, mock_neo4j_client):
         """Test ingest with custom Neo4j URI."""
-        with patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client) as mock_client_class, \
+        with patch('falkor.cli.validate_neo4j_connection'), \
+             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client) as mock_client_class, \
              patch('falkor.cli.IngestionPipeline'):
 
             result = runner.invoke(cli, [
@@ -179,12 +184,16 @@ class TestIngestCommand:
             mock_client_class.assert_called_with(
                 'bolt://custom:7687',
                 'admin',
-                'secret'
+                'secret',
+                max_retries=3,
+                retry_backoff_factor=2.0,
+                retry_base_delay=1.0
             )
 
     def test_ingest_displays_stats_table(self, runner, temp_repo, mock_neo4j_client):
         """Test ingest displays stats table."""
-        with patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
+        with patch('falkor.cli.validate_neo4j_connection'), \
+             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
              patch('falkor.cli.IngestionPipeline'):
 
             result = runner.invoke(cli, [
@@ -216,7 +225,8 @@ class TestAnalyzeCommand:
 
     def test_analyze_command_basic(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
         """Test basic analyze command execution."""
-        with patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
+        with patch('falkor.cli.validate_neo4j_connection'), \
+             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
              patch('falkor.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
@@ -242,7 +252,8 @@ class TestAnalyzeCommand:
 
     def test_analyze_displays_grade(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
         """Test analyze displays overall grade."""
-        with patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
+        with patch('falkor.cli.validate_neo4j_connection'), \
+             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
              patch('falkor.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
@@ -263,7 +274,8 @@ class TestAnalyzeCommand:
 
     def test_analyze_displays_category_scores(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
         """Test analyze displays category scores."""
-        with patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
+        with patch('falkor.cli.validate_neo4j_connection'), \
+             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
              patch('falkor.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
@@ -284,7 +296,8 @@ class TestAnalyzeCommand:
 
     def test_analyze_displays_metrics(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
         """Test analyze displays key metrics."""
-        with patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
+        with patch('falkor.cli.validate_neo4j_connection'), \
+             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
              patch('falkor.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
@@ -305,7 +318,8 @@ class TestAnalyzeCommand:
 
     def test_analyze_displays_findings(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
         """Test analyze displays findings summary."""
-        with patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
+        with patch('falkor.cli.validate_neo4j_connection'), \
+             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
              patch('falkor.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
@@ -326,7 +340,8 @@ class TestAnalyzeCommand:
 
     def test_analyze_with_json_output(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
         """Test analyze with JSON output file."""
-        with patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
+        with patch('falkor.cli.validate_neo4j_connection'), \
+             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
              patch('falkor.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
