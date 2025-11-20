@@ -874,6 +874,99 @@ def test_end_to_end_analysis(test_repo, neo4j_client):
 - **Large projects** (10k-100k files): 1-10 minutes
 - **Very large** (>100k files): May need chunking or incremental analysis
 
+### Neo4j Connection Pool Configuration
+
+The Neo4jClient supports advanced connection pooling for production deployments. Configure via environment variables or constructor parameters:
+
+#### Environment Variables
+
+```bash
+# Connection pool size (default: 50)
+NEO4J_MAX_POOL_SIZE=50
+
+# Connection acquisition timeout in seconds (default: 30.0)
+NEO4J_CONNECTION_TIMEOUT=30.0
+
+# Maximum connection lifetime in seconds (default: 3600)
+NEO4J_MAX_CONNECTION_LIFETIME=3600
+
+# Query timeout in seconds (default: 60.0)
+NEO4J_QUERY_TIMEOUT=60.0
+
+# Enable TLS encryption (default: false for local dev)
+NEO4J_ENCRYPTED=false
+```
+
+#### Configuration Guidelines by Environment
+
+**MVP / Development (single user)**
+```python
+client = Neo4jClient(
+    max_connection_pool_size=20,      # Small pool for single user
+    query_timeout=60.0,                # Generous timeout for debugging
+    connection_timeout=30.0,           # Standard timeout
+    encrypted=False                    # Local development
+)
+```
+
+**v1.0 / Staging (multi-user)**
+```python
+client = Neo4jClient(
+    max_connection_pool_size=100,     # Support concurrent users
+    query_timeout=30.0,                # Shorter timeout for responsiveness
+    connection_timeout=15.0,           # Fail fast on connection issues
+    encrypted=True                     # Enable encryption
+)
+```
+
+**Production (high availability)**
+```python
+client = Neo4jClient(
+    max_connection_pool_size=200,     # Handle peak load
+    query_timeout=15.0,                # Prevent runaway queries
+    connection_timeout=10.0,           # Quick failure detection
+    max_connection_lifetime=1800,      # 30 min lifetime for load balancing
+    encrypted=True,                    # Always encrypted
+    max_retries=5,                     # More retries for transient errors
+    retry_base_delay=0.5               # Faster retry cadence
+)
+```
+
+#### Query Timeout Best Practices
+
+1. **Set appropriate defaults**: Use conservative timeouts (60s for dev, 15-30s for prod)
+2. **Override for long operations**: Pass custom timeout for known-slow queries
+   ```python
+   client.execute_query(expensive_query, timeout=120.0)
+   ```
+3. **Monitor timeout errors**: Log and investigate queries that frequently timeout
+4. **Optimize slow queries**: Use `EXPLAIN` to identify bottlenecks
+
+#### Connection Pool Monitoring
+
+Monitor pool health using `get_pool_metrics()`:
+
+```python
+metrics = client.get_pool_metrics()
+logger.info(f"Pool: {metrics['in_use']}/{metrics['max_size']} connections in use")
+
+# Alert if pool is nearly exhausted
+if metrics.get('in_use', 0) > metrics['max_size'] * 0.8:
+    logger.warning("Connection pool is 80% utilized")
+```
+
+#### Write Transactions
+
+Batch operations automatically use write transactions for atomicity:
+- `batch_create_nodes()` - Creates nodes in single transaction
+- `batch_create_relationships()` - Creates relationships in single transaction
+
+This ensures:
+- **Atomicity**: All-or-nothing commits
+- **Consistency**: Transaction boundaries prevent partial updates
+- **Performance**: Reduced network round-trips
+- **Retry safety**: Transient failures are automatically retried
+
 ## Security Considerations
 
 ### Input Validation
