@@ -173,16 +173,32 @@ class PythonParser(CodeParser):
 
                 for alias in node.names:
                     imported_name = alias.name
-                    # For "from foo import bar", create qualified name "foo.bar"
-                    if module_name:
-                        qualified_import = f"{module_name}.{imported_name}"
-                    else:
-                        qualified_import = imported_name
+
+                    # Try to resolve to actual entity
+                    target_qualified_name = None
+
+                    # Strategy 1: Check if entity is in current file
+                    for entity_qname, entity in entity_map.items():
+                        if entity.name == imported_name:
+                            target_qualified_name = entity_qname
+                            break
+
+                    # Strategy 2: For cross-file imports, store both the import-style name
+                    # and mark it for later resolution. The pipeline will need to fix these up.
+                    # For now, we create the relationship with a special format that includes
+                    # both the module path and the imported name, which Neo4j can match later.
+                    if not target_qualified_name:
+                        if module_name:
+                            # Create a combined identifier: "module.name|imported_name"
+                            # This allows matching against entities with that name in the right module
+                            target_qualified_name = f"{module_name}.{imported_name}"
+                        else:
+                            target_qualified_name = imported_name
 
                     relationships.append(
                         Relationship(
                             source_id=file_entity_name,
-                            target_id=qualified_import,
+                            target_id=target_qualified_name,
                             rel_type=RelationshipType.IMPORTS,
                             properties={
                                 "alias": alias.asname if alias.asname else None,
@@ -190,6 +206,7 @@ class PythonParser(CodeParser):
                                 "imported_name": imported_name,
                                 "relative_level": level,
                                 "line": node.lineno,
+                                "is_cross_file": target_qualified_name.startswith(module_name) if module_name else False,
                             },
                         )
                     )
@@ -206,13 +223,36 @@ class PythonParser(CodeParser):
         # Extract USES relationships (methods accessing attributes)
         self._extract_attribute_usage(tree, file_path, entity_map, relationships)
 
-        # Create CONTAINS relationships
+        # Create CONTAINS relationships (hierarchical: file→top-level, class→members)
         file_qualified_name = file_path
         for entity in entities:
-            if entity.node_type != NodeType.FILE:
+            if entity.node_type == NodeType.FILE:
+                continue  # Skip the file itself
+
+            # Determine parent from entity type and qualified name structure
+            parent_qname = None
+
+            if isinstance(entity, FunctionEntity) and entity.is_method:
+                # Method: parent is the class
+                # qualified_name format: "file.py::ClassName:line.method_name:line"
+                # Extract parent by splitting on last '.' and handling line number suffix
+                if '.' in entity.qualified_name:
+                    parent_qname = entity.qualified_name.rsplit('.', 1)[0]
+
+            elif isinstance(entity, AttributeEntity):
+                # Class attribute: parent is the class
+                # Similar format: "file.py::ClassName:line.attribute_name"
+                if '.' in entity.qualified_name:
+                    parent_qname = entity.qualified_name.rsplit('.', 1)[0]
+
+            else:
+                # Top-level entity (class, module, top-level function)
+                parent_qname = file_qualified_name
+
+            if parent_qname:
                 relationships.append(
                     Relationship(
-                        source_id=file_qualified_name,
+                        source_id=parent_qname,
                         target_id=entity.qualified_name,
                         rel_type=RelationshipType.CONTAINS,
                     )
@@ -412,6 +452,7 @@ class PythonParser(CodeParser):
             complexity=self._calculate_complexity(node),
             is_async=isinstance(node, ast.AsyncFunctionDef),
             decorators=decorators,
+            is_method=class_name is not None,  # Method if defined inside a class
         )
 
     def _calculate_complexity(self, node: ast.AST) -> int:
@@ -496,7 +537,7 @@ class PythonParser(CodeParser):
                 self.current_class: Optional[str] = None
                 self.current_class_line: Optional[int] = None
                 self.function_stack: List[tuple[str, int]] = []  # Stack for nested functions (name, line)
-                self.calls: List[tuple[str, str, int]] = []  # (caller, callee, line)
+                self.calls: List[tuple[str, str, int, bool]] = []  # (caller, callee, line, is_self_call)
 
             def visit_ClassDef(self, node: ast.ClassDef) -> None:
                 """Visit class definition."""
@@ -534,27 +575,33 @@ class PythonParser(CodeParser):
                         caller = f"{self.file_path}::{func_name}:{func_line}"
 
                     # Determine callee name (best effort)
-                    callee = self._get_call_name(node)
-                    if callee:
-                        self.calls.append((caller, callee, node.lineno))
+                    result = self._get_call_name(node)
+                    if result:
+                        callee, is_self_call = result
+                        self.calls.append((caller, callee, node.lineno, is_self_call))
 
                 self.generic_visit(node)
 
-            def _get_call_name(self, node: ast.Call) -> Optional[str]:
+            def _get_call_name(self, node: ast.Call) -> Optional[tuple[str, bool]]:
                 """Extract the name of what's being called.
 
                 Args:
                     node: Call AST node
 
                 Returns:
-                    Called name or None
+                    Tuple of (called name, is_self_call) or None
                 """
                 func = node.func
                 if isinstance(func, ast.Name):
                     # Simple call: foo()
-                    return func.id
+                    return (func.id, False)
                 elif isinstance(func, ast.Attribute):
                     # Method call: obj.method()
+                    # Check if it's a self call
+                    if isinstance(func.value, ast.Name) and func.value.id == "self":
+                        # self.method() -> return just method name and flag as self call
+                        return (func.attr, True)
+
                     # Try to build qualified name
                     parts = []
                     current = func
@@ -563,7 +610,7 @@ class PythonParser(CodeParser):
                         current = current.value
                     if isinstance(current, ast.Name):
                         parts.append(current.id)
-                    return ".".join(reversed(parts))
+                    return (".".join(reversed(parts)), False)
                 return None
 
         # Visit tree and collect calls
@@ -571,15 +618,46 @@ class PythonParser(CodeParser):
         visitor.visit(tree)
 
         # Create CALLS relationships
-        for caller, callee, line in visitor.calls:
+        for caller, callee, line, is_self_call in visitor.calls:
             # Try to resolve callee to a qualified name in our entity map
             callee_qualified = None
 
-            # Check if it's a direct reference to an entity in this file
-            for qname, entity in entity_map.items():
-                if entity.name == callee or qname.endswith(f"::{callee}"):
-                    callee_qualified = qname
-                    break
+            if is_self_call:
+                # For self.method() calls, resolve to the method in the current class
+                # Extract class from caller: "file.py::ClassName:123.method_name:456"
+                if "::" in caller and "." in caller:
+                    # Get the part between :: and the first .
+                    parts = caller.split("::")
+                    if len(parts) > 1:
+                        class_part = parts[1].split(".")[0]  # "ClassName:123"
+                        # Look for method in this class
+                        method_pattern = f"::{class_part}.{callee}:"
+                        for qname in entity_map.keys():
+                            if method_pattern in qname:
+                                callee_qualified = qname
+                                break
+
+            if not callee_qualified:
+                # Try different matching strategies
+                # 1. Exact name match
+                for qname, entity in entity_map.items():
+                    if entity.name == callee:
+                        callee_qualified = qname
+                        break
+
+            if not callee_qualified:
+                # 2. Check if callee ends with the qualified name pattern
+                for qname in entity_map.keys():
+                    if qname.endswith(f"::{callee}:") or qname.endswith(f".{callee}:"):
+                        callee_qualified = qname
+                        break
+
+            if not callee_qualified:
+                # 3. For simple function names, check if it's in the same file
+                for qname, entity in entity_map.items():
+                    if qname.startswith(file_path) and entity.name == callee:
+                        callee_qualified = qname
+                        break
 
             # If not found, use the callee name as-is (might be external)
             if not callee_qualified:
@@ -590,7 +668,7 @@ class PythonParser(CodeParser):
                     source_id=caller,
                     target_id=callee_qualified,
                     rel_type=RelationshipType.CALLS,
-                    properties={"line": line, "call_name": callee},
+                    properties={"line": line, "call_name": callee, "is_self_call": is_self_call},
                 )
             )
 
