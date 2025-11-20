@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from falkor.validation import (
+from repotoire.validation import (
     ValidationError,
     validate_repository_path,
     validate_neo4j_uri,

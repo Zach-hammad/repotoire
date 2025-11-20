@@ -1,15 +1,15 @@
-# Falkor 🐉
+# Repotoire 🐉
 
 **Graph-Powered Code Health Platform**
 
-Falkor automatically analyzes your codebase using knowledge graphs to detect code smells, architectural issues, and technical debt that traditional linters miss.
+Repotoire automatically analyzes your codebase using knowledge graphs to detect code smells, architectural issues, and technical debt that traditional linters miss.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-## What Makes Falkor Different?
+## What Makes Repotoire Different?
 
-Most code analysis tools examine files in isolation. Falkor builds a **knowledge graph** of your entire codebase, combining:
+Most code analysis tools examine files in isolation. Repotoire builds a **knowledge graph** of your entire codebase, combining:
 - **Structural analysis** (AST parsing)
 - **Semantic understanding** (NLP + AI)
 - **Relational patterns** (graph algorithms)
@@ -44,24 +44,24 @@ This enables detection of complex issues like circular dependencies, architectur
 ## Quick Start
 
 ```bash
-# 1. Install Falkor
+# 1. Install Repotoire
 pip install -e .
 
 # 2. Start Neo4j (required)
 docker run -d \
-  --name falkor-neo4j \
+  --name repotoire-neo4j \
   -p 7687:7687 -p 7474:7474 \
   -e NEO4J_AUTH=neo4j/your-password \
   neo4j:latest
 
 # 3. Set your password
-export FALKOR_NEO4J_PASSWORD=your-password
+export REPOTOIRE_NEO4J_PASSWORD=your-password
 
 # 4. Ingest your codebase
-falkor ingest /path/to/your/repo
+repotoire ingest /path/to/your/repo
 
 # 5. Analyze and get health report
-falkor analyze /path/to/your/repo
+repotoire analyze /path/to/your/repo
 ```
 
 ## Installation
@@ -75,8 +75,8 @@ falkor analyze /path/to/your/repo
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/falkor.git
-cd falkor
+git clone https://github.com/yourusername/repotoire.git
+cd repotoire
 
 # Install with all dependencies
 pip install -e ".[dev,config]"
@@ -91,7 +91,7 @@ pip install -e ".[dev,config,gds,all-languages]"
 
 ```bash
 docker run -d \
-  --name falkor-neo4j \
+  --name repotoire-neo4j \
   -p 7474:7474 -p 7687:7687 \
   -e NEO4J_AUTH=neo4j/your-secure-password \
   -e NEO4J_PLUGINS='["graph-data-science", "apoc"]' \
@@ -106,7 +106,7 @@ Download from [neo4j.com/download](https://neo4j.com/download/) and follow insta
 
 ### Configuration
 
-Create a `.falkorrc` file in your project or home directory:
+Create a `.repotoirerc` file in your project or home directory:
 
 ```yaml
 neo4j:
@@ -132,11 +132,11 @@ See [CONFIG.md](CONFIG.md) for complete configuration options.
 ### Command Overview
 
 ```bash
-falkor --help                    # Show all commands
-falkor validate                  # Validate configuration
-falkor ingest <path>             # Ingest codebase
-falkor analyze <path>            # Analyze and report
-falkor config --generate yaml    # Generate config template
+repotoire --help                    # Show all commands
+repotoire validate                  # Validate configuration
+repotoire ingest <path>             # Ingest codebase
+repotoire analyze <path>            # Analyze and report
+repotoire config --generate yaml    # Generate config template
 ```
 
 ### 1. Validate Configuration
@@ -144,7 +144,7 @@ falkor config --generate yaml    # Generate config template
 Before running analysis, validate your setup:
 
 ```bash
-falkor validate
+repotoire validate
 ```
 
 This checks:
@@ -156,7 +156,7 @@ This checks:
 
 **Example output:**
 ```
-🐉 Falkor Configuration Validation
+🐉 Repotoire Configuration Validation
 
 ✓ Configuration file valid
 ✓ Neo4j URI valid: bolt://localhost:7687
@@ -173,19 +173,19 @@ Load your code into the knowledge graph:
 
 ```bash
 # Basic ingestion
-falkor ingest /path/to/repo
+repotoire ingest /path/to/repo
 
 # With custom patterns
-falkor ingest /path/to/repo -p "**/*.py" -p "**/*.js"
+repotoire ingest /path/to/repo -p "**/*.py" -p "**/*.js"
 
 # With progress bars
-falkor ingest /path/to/repo  # Progress shown by default
+repotoire ingest /path/to/repo  # Progress shown by default
 
 # Quiet mode (no progress bars)
-falkor ingest /path/to/repo --quiet
+repotoire ingest /path/to/repo --quiet
 
 # With custom Neo4j connection
-falkor ingest /path/to/repo \
+repotoire ingest /path/to/repo \
   --neo4j-uri bolt://production:7687 \
   --neo4j-user myuser \
   --neo4j-password mypass
@@ -193,7 +193,7 @@ falkor ingest /path/to/repo \
 
 **Example output:**
 ```
-🐉 Falkor Ingestion
+🐉 Repotoire Ingestion
 
 Repository: /home/user/myproject
 Patterns: **/*.py
@@ -219,22 +219,22 @@ Generate health report with findings:
 
 ```bash
 # Terminal output
-falkor analyze /path/to/repo
+repotoire analyze /path/to/repo
 
 # Save JSON report
-falkor analyze /path/to/repo -o report.json
+repotoire analyze /path/to/repo -o report.json
 
 # Save HTML report with code snippets
-falkor analyze /path/to/repo -o report.html --format html
+repotoire analyze /path/to/repo -o report.html --format html
 
 # Quiet mode (minimal output)
-falkor analyze /path/to/repo --quiet
+repotoire analyze /path/to/repo --quiet
 ```
 
 **Example output:**
 ```
 ╔══════════════════════════════════════╗
-║  🐉 Falkor Health Report             ║
+║  🐉 Repotoire Health Report             ║
 ║                                      ║
 ║  Grade: B                            ║
 ║  Score: 82.5/100                     ║
@@ -277,36 +277,36 @@ Create a config file template:
 
 ```bash
 # YAML format (default)
-falkor config --generate yaml > .falkorrc
+repotoire config --generate yaml > .repotoirerc
 
 # TOML format
-falkor config --generate toml > falkor.toml
+repotoire config --generate toml > repotoire.toml
 
 # JSON format
-falkor config --generate json > .falkorrc
+repotoire config --generate json > .repotoirerc
 ```
 
 ## Configuration
 
-Falkor uses a priority chain for configuration (highest to lowest):
+Repotoire uses a priority chain for configuration (highest to lowest):
 
 1. **Command-line arguments** (`--neo4j-uri`, `--pattern`, etc.)
-2. **Environment variables** (`FALKOR_NEO4J_URI`, etc.)
-3. **Config file** (`.falkorrc`, `falkor.toml`)
+2. **Environment variables** (`REPOTOIRE_NEO4J_URI`, etc.)
+3. **Config file** (`.repotoirerc`, `repotoire.toml`)
 4. **Built-in defaults**
 
 ### Environment Variables
 
 ```bash
 # Neo4j connection
-export FALKOR_NEO4J_URI="bolt://localhost:7687"
-export FALKOR_NEO4J_USER="neo4j"
-export FALKOR_NEO4J_PASSWORD="your-password"
+export REPOTOIRE_NEO4J_URI="bolt://localhost:7687"
+export REPOTOIRE_NEO4J_USER="neo4j"
+export REPOTOIRE_NEO4J_PASSWORD="your-password"
 
 # Ingestion settings
-export FALKOR_INGESTION_PATTERNS="**/*.py,**/*.js"
-export FALKOR_INGESTION_MAX_FILE_SIZE_MB=10
-export FALKOR_INGESTION_BATCH_SIZE=100
+export REPOTOIRE_INGESTION_PATTERNS="**/*.py,**/*.js"
+export REPOTOIRE_INGESTION_MAX_FILE_SIZE_MB=10
+export REPOTOIRE_INGESTION_BATCH_SIZE=100
 
 # Logging
 export LOG_LEVEL=INFO
@@ -331,7 +331,7 @@ Rich, color-coded output with:
 Machine-readable format for CI/CD:
 
 ```bash
-falkor analyze /path/to/repo -o report.json
+repotoire analyze /path/to/repo -o report.json
 ```
 
 ```json
@@ -357,7 +357,7 @@ falkor analyze /path/to/repo -o report.json
 Professional report with code snippets:
 
 ```bash
-falkor analyze /path/to/repo -o report.html --format html
+repotoire analyze /path/to/repo -o report.html --format html
 ```
 
 Features:
@@ -379,7 +379,7 @@ name: Code Health Check
 on: [push, pull_request]
 
 jobs:
-  falkor-analysis:
+  repotoire-analysis:
     runs-on: ubuntu-latest
     services:
       neo4j:
@@ -397,30 +397,30 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Falkor
-        run: pip install falkor
+      - name: Install Repotoire
+        run: pip install repotoire
 
       - name: Validate configuration
-        run: falkor validate
+        run: repotoire validate
         env:
-          FALKOR_NEO4J_PASSWORD: test
+          REPOTOIRE_NEO4J_PASSWORD: test
 
       - name: Ingest codebase
-        run: falkor ingest . --quiet
+        run: repotoire ingest . --quiet
         env:
-          FALKOR_NEO4J_PASSWORD: test
+          REPOTOIRE_NEO4J_PASSWORD: test
 
       - name: Analyze and generate report
         run: |
-          falkor analyze . -o report.html --format html
-          falkor analyze . -o report.json --format json
+          repotoire analyze . -o report.html --format html
+          repotoire analyze . -o report.json --format json
         env:
-          FALKOR_NEO4J_PASSWORD: test
+          REPOTOIRE_NEO4J_PASSWORD: test
 
       - name: Upload reports
         uses: actions/upload-artifact@v3
         with:
-          name: falkor-reports
+          name: repotoire-reports
           path: |
             report.html
             report.json
@@ -437,21 +437,21 @@ jobs:
 **GitLab CI:**
 
 ```yaml
-falkor_analysis:
+repotoire_analysis:
   image: python:3.10
   services:
     - name: neo4j:latest
       alias: neo4j
   variables:
     NEO4J_AUTH: neo4j/test
-    FALKOR_NEO4J_URI: bolt://neo4j:7687
-    FALKOR_NEO4J_PASSWORD: test
+    REPOTOIRE_NEO4J_URI: bolt://neo4j:7687
+    REPOTOIRE_NEO4J_PASSWORD: test
   script:
-    - pip install falkor
-    - falkor validate
-    - falkor ingest . --quiet
-    - falkor analyze . -o report.json
-    - falkor analyze . -o report.html --format html
+    - pip install repotoire
+    - repotoire validate
+    - repotoire ingest . --quiet
+    - repotoire analyze . -o report.json
+    - repotoire analyze . -o report.html --format html
   artifacts:
     paths:
       - report.html
@@ -466,16 +466,16 @@ Add to `.git/hooks/pre-commit`:
 
 ```bash
 #!/bin/bash
-# Run Falkor analysis before committing
+# Run Repotoire analysis before committing
 
-echo "Running Falkor analysis..."
-falkor analyze . -o /tmp/falkor-report.json --quiet
+echo "Running Repotoire analysis..."
+repotoire analyze . -o /tmp/repotoire-report.json --quiet
 
-SCORE=$(python -c "import json; print(json.load(open('/tmp/falkor-report.json'))['overall_score'])")
+SCORE=$(python -c "import json; print(json.load(open('/tmp/repotoire-report.json'))['overall_score'])")
 
 if (( $(echo "$SCORE < 70" | bc -l) )); then
     echo "❌ Code health score ($SCORE) is below threshold (70)"
-    echo "Run 'falkor analyze .' for details"
+    echo "Run 'repotoire analyze .' for details"
     exit 1
 fi
 
@@ -491,15 +491,15 @@ echo "✅ Code health check passed (score: $SCORE)"
 **Solutions**:
 1. Verify Neo4j is running: `docker ps | grep neo4j`
 2. Check the port: `7687` for Bolt, not `7474` (HTTP)
-3. Test connection: `falkor validate`
+3. Test connection: `repotoire validate`
 4. Check firewall: `telnet localhost 7687`
-5. Verify credentials: Check `$FALKOR_NEO4J_PASSWORD`
+5. Verify credentials: Check `$REPOTOIRE_NEO4J_PASSWORD`
 
 **Problem**: `Authentication failed`
 
 **Solutions**:
 1. Verify password is correct
-2. Check environment variable: `echo $FALKOR_NEO4J_PASSWORD`
+2. Check environment variable: `echo $REPOTOIRE_NEO4J_PASSWORD`
 3. Reset Neo4j password if needed
 4. Use `--neo4j-password` flag to override
 
@@ -508,7 +508,7 @@ echo "✅ Code health check passed (score: $SCORE)"
 **Problem**: `No files found to process`
 
 **Solutions**:
-1. Check your patterns: `falkor ingest . -p "**/*.py"`
+1. Check your patterns: `repotoire ingest . -p "**/*.py"`
 2. Verify the path exists: `ls /path/to/repo`
 3. Check file permissions: `ls -la /path/to/repo`
 4. Look for skipped files in logs
@@ -544,16 +544,16 @@ echo "✅ Code health check passed (score: $SCORE)"
 **Problem**: Config file not found
 
 **Solutions**:
-1. Check file name: `.falkorrc` or `falkor.toml`
+1. Check file name: `.repotoirerc` or `repotoire.toml`
 2. Check location: Current dir, parents, or home dir
 3. Use `--config` flag for explicit path
-4. Generate template: `falkor config --generate yaml`
+4. Generate template: `repotoire config --generate yaml`
 
 **Problem**: Environment variables not working
 
 **Solutions**:
-1. Verify `FALKOR_` prefix: `echo $FALKOR_NEO4J_URI`
-2. Export variables: `export FALKOR_NEO4J_URI=...`
+1. Verify `REPOTOIRE_` prefix: `echo $REPOTOIRE_NEO4J_URI`
+2. Export variables: `export REPOTOIRE_NEO4J_URI=...`
 3. Check variable names in [CONFIG.md](CONFIG.md)
 4. Restart shell after setting
 
@@ -561,16 +561,16 @@ echo "✅ Code health check passed (score: $SCORE)"
 
 ### General
 
-**Q: What languages does Falkor support?**
+**Q: What languages does Repotoire support?**
 A: Currently Python with AST parsing. Multi-language support (TypeScript, Java, Go) is planned using tree-sitter.
 
 **Q: Do I need Neo4j Enterprise?**
 A: No, Community Edition works fine. Enterprise provides GDS for advanced graph algorithms.
 
-**Q: Can I run Falkor without Neo4j?**
+**Q: Can I run Repotoire without Neo4j?**
 A: No, Neo4j is required for the knowledge graph. We recommend Docker for easy setup.
 
-**Q: How much disk space does Falkor need?**
+**Q: How much disk space does Repotoire need?**
 A: Depends on codebase size. Roughly 10-50MB per 1000 files in Neo4j. A 100k LOC project uses ~500MB.
 
 ### Configuration
@@ -579,10 +579,10 @@ A: Depends on codebase size. Roughly 10-50MB per 1000 files in Neo4j. A 100k LOC
 A: Use environment variables: `password: ${NEO4J_PASSWORD}` in config, then `export NEO4J_PASSWORD=...`
 
 **Q: Can I use multiple config files?**
-A: Yes, Falkor merges configs from multiple locations (project, parent dirs, home).
+A: Yes, Repotoire merges configs from multiple locations (project, parent dirs, home).
 
-**Q: What's the difference between .falkorrc and falkor.toml?**
-A: `.falkorrc` supports YAML or JSON, `falkor.toml` is TOML format. Choose your preference.
+**Q: What's the difference between .repotoirerc and repotoire.toml?**
+A: `.repotoirerc` supports YAML or JSON, `repotoire.toml` is TOML format. Choose your preference.
 
 ### Analysis
 
@@ -601,7 +601,7 @@ A: Yes, use negative patterns: `patterns: ["**/*.py", "!**/tests/**"]`
 ### Reports
 
 **Q: Can I customize the HTML report template?**
-A: Custom templates are planned. Current template is embedded in `falkor/reporters/html_reporter.py`.
+A: Custom templates are planned. Current template is embedded in `repotoire/reporters/html_reporter.py`.
 
 **Q: How do I share reports with my team?**
 A: Generate HTML report and upload to GitHub Pages, S3, or your web server. Reports are static files.
@@ -617,13 +617,13 @@ A: Depends on codebase size. Roughly 1-5 seconds per 100 files for ingestion, <1
 **Q: Can I analyze incrementally?**
 A: Not yet, but planned. Currently, re-run full ingestion when code changes significantly.
 
-**Q: Will Falkor slow down my CI/CD?**
+**Q: Will Repotoire slow down my CI/CD?**
 A: Typical run: 30-60 seconds for medium projects (5k-10k LOC). Use caching and incremental analysis (planned).
 
 ### Troubleshooting
 
 **Q: Why am I getting "Security Error" messages?**
-A: Falkor validates paths for security. Ensure files are within repository boundaries and not symlinks (unless enabled).
+A: Repotoire validates paths for security. Ensure files are within repository boundaries and not symlinks (unless enabled).
 
 **Q: Import errors after installation?**
 A: Install all dependencies: `pip install -e ".[dev,config]"` or check `requirements.txt`.
@@ -637,7 +637,7 @@ A: Increase heap size: Add `-e NEO4J_server_memory_heap_max__size=4G` to Docker 
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                   FALKOR ARCHITECTURE                    │
+│                   REPOTOIRE ARCHITECTURE                    │
 └─────────────────────────────────────────────────────────┘
 
 ┌─────────────────┐       ┌──────────────────┐       ┌──────────────┐
@@ -664,35 +664,35 @@ See [CLAUDE.md](CLAUDE.md) for detailed architecture documentation.
 
 ## Contributing
 
-Falkor is in early development. Contributions are welcome!
+Repotoire is in early development. Contributions are welcome!
 
 ### Development Setup
 
 ```bash
 # Clone and install
-git clone https://github.com/yourusername/falkor.git
-cd falkor
+git clone https://github.com/yourusername/repotoire.git
+cd repotoire
 pip install -e ".[dev]"
 
 # Run tests
 pytest
 
 # Run with coverage
-pytest --cov=falkor --cov-report=html
+pytest --cov=repotoire --cov-report=html
 
 # Format code
-black falkor tests
+black repotoire tests
 
 # Lint
-ruff check falkor tests
+ruff check repotoire tests
 
 # Type check
-mypy falkor
+mypy repotoire
 ```
 
 ### Adding a New Detector
 
-1. Create class in `falkor/detectors/`
+1. Create class in `repotoire/detectors/`
 2. Inherit from `CodeSmellDetector`
 3. Implement `detect()` method with Cypher query
 4. Register in `AnalysisEngine`
@@ -704,9 +704,9 @@ See existing detectors for examples.
 
 - **Documentation**: [CONFIG.md](CONFIG.md), [CLAUDE.md](CLAUDE.md)
 - **Examples**: [examples/notebooks/](examples/notebooks/)
-- **Issue Tracker**: [GitHub Issues](https://github.com/yourusername/falkor/issues)
+- **Issue Tracker**: [GitHub Issues](https://github.com/yourusername/repotoire/issues)
 - **Neo4j Docs**: [neo4j.com/docs](https://neo4j.com/docs/)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/falkor/discussions)
+- **Discussions**: [GitHub Discussions](https://github.com/yourusername/repotoire/discussions)
 
 ## License
 

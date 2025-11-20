@@ -201,13 +201,13 @@ WITH f1,
 ### Verify CircularDependencyDetector
 ```bash
 # Should find cycles without hanging
-falkor analyze /large/codebase --neo4j-password <password>
+repotoire analyze /large/codebase --neo4j-password <password>
 ```
 
 ### Verify GodClassDetector
 ```bash
 # Check LCOM in output
-falkor analyze /path/to/repo | grep -A 10 "god class"
+repotoire analyze /path/to/repo | grep -A 10 "god class"
 # Should see: "Lack of cohesion (LCOM): 0.XX"
 ```
 
@@ -221,7 +221,7 @@ falkor analyze /path/to/repo | grep -A 10 "god class"
 ### Verify AnalysisEngine
 ```bash
 # Modularity should be calculated, not always 0.65
-falkor analyze /path/to/repo --neo4j-password <password> -o report.json
+repotoire analyze /path/to/repo --neo4j-password <password> -o report.json
 cat report.json | jq '.metrics.modularity'
 # Should vary based on actual codebase structure
 ```

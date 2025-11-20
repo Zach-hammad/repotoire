@@ -3,8 +3,8 @@
 import pytest
 from pathlib import Path
 
-from falkor.parsers.tree_sitter_python import TreeSitterPythonParser
-from falkor.models import RelationshipType
+from repotoire.parsers.tree_sitter_python import TreeSitterPythonParser
+from repotoire.models import RelationshipType
 
 
 @pytest.mark.skipif(

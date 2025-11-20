@@ -1,9 +1,9 @@
 """Tests for secrets detection functionality."""
 
 import pytest
-from falkor.security import SecretsScanner
-from falkor.security.secrets_scanner import apply_secrets_policy
-from falkor.models import SecretsPolicy
+from repotoire.security import SecretsScanner
+from repotoire.security.secrets_scanner import apply_secrets_policy
+from repotoire.models import SecretsPolicy
 
 
 class TestSecretsScanner:

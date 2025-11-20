@@ -54,22 +54,22 @@ Comprehensive detailed analysis covering everything.
 ### Critical Issues (4 identified)
 
 1. **Relationship Extraction Missing** (CRITICAL)
-   - File: `/falkor/parsers/python_parser.py` lines 98-110
+   - File: `/repotoire/parsers/python_parser.py` lines 98-110
    - Impact: Blocks Phase 2, 3, and 4
    - Status: 3 TODO comments in code
 
 2. **Hardcoded Placeholder Metrics** (CRITICAL)
-   - File: `/falkor/detectors/engine.py` lines 89-105
+   - File: `/repotoire/detectors/engine.py` lines 89-105
    - Impact: All health reports show identical fake scores
    - Status: Always returns modularity=0.65, coupling=3.5, zeros for others
 
 3. **Detector Registration Not Implemented** (HIGH)
-   - File: `/falkor/detectors/engine.py` line 40
+   - File: `/repotoire/detectors/engine.py` line 40
    - Impact: No detectors can be registered
    - Status: `self.detectors = []  # TODO: Register detectors`
 
 4. **Detector Execution Disabled** (HIGH)
-   - File: `/falkor/detectors/engine.py` line 54
+   - File: `/repotoire/detectors/engine.py` line 54
    - Impact: Even registered detectors won't run
    - Status: `findings = []  # self._run_detectors()`
 
@@ -142,17 +142,17 @@ Read all three documents in order:
 ## Key Files Referenced in Analysis
 
 ### Files with Critical Issues
-- `/falkor/parsers/python_parser.py` (lines 98-110) - Relationship extraction TODO
-- `/falkor/detectors/engine.py` (lines 40, 54, 89-105) - Multiple TODOs and fake data
-- `/falkor/ai/__init__.py` - Empty module
+- `/repotoire/parsers/python_parser.py` (lines 98-110) - Relationship extraction TODO
+- `/repotoire/detectors/engine.py` (lines 40, 54, 89-105) - Multiple TODOs and fake data
+- `/repotoire/ai/__init__.py` - Empty module
 
 ### Well-Implemented Files
-- `/falkor/models.py` - Complete and well-designed
-- `/falkor/graph/client.py` - Complete with batch operations
-- `/falkor/graph/schema.py` - Complete with constraints and indexes
-- `/falkor/pipeline/ingestion.py` - Complete pipeline
-- `/falkor/parsers/base.py` - Good abstract interface
-- `/falkor/cli.py` - Complete with Rich formatting
+- `/repotoire/models.py` - Complete and well-designed
+- `/repotoire/graph/client.py` - Complete with batch operations
+- `/repotoire/graph/schema.py` - Complete with constraints and indexes
+- `/repotoire/pipeline/ingestion.py` - Complete pipeline
+- `/repotoire/parsers/base.py` - Good abstract interface
+- `/repotoire/cli.py` - Complete with Rich formatting
 
 ---
 
@@ -208,5 +208,5 @@ The TODO.md roadmap structure is sound, but **Phase 1 completion claims are over
 ---
 
 Generated: 2025-11-19
-Analysis of: Falkor v0.1.0 (MVP)
-Repository: /home/zach/code/falkor
+Analysis of: Repotoire v0.1.0 (MVP)
+Repository: /home/zach/code/repotoire

@@ -19,7 +19,7 @@ Successfully implemented and tested the tree-sitter universal AST adapter for mu
 ## Issues Discovered and Fixed
 
 ### Issue #6: Tree-sitter API Breaking Change
-**File**: `falkor/parsers/tree_sitter_adapter.py:212-213`
+**File**: `repotoire/parsers/tree_sitter_adapter.py:212-213`
 **Error**: `AttributeError: 'tree_sitter.Parser' object has no attribute 'set_language'`
 
 **Root Cause**: New tree-sitter API changed from `parser.set_language()` pattern to passing language in constructor.
@@ -39,7 +39,7 @@ self.parser = Parser(language)
 ---
 
 ### Issue #7: PyCapsule vs Language Object
-**File**: `falkor/parsers/tree_sitter_adapter.py:207-209`
+**File**: `repotoire/parsers/tree_sitter_adapter.py:207-209`
 **Error**: `tree_sitter_python.language()` returns PyCapsule, not Language object
 
 **Root Cause**: tree-sitter-python returns PyCapsule that needs wrapping in Language object.
@@ -56,7 +56,7 @@ if not isinstance(language, Language):
 ---
 
 ### Issue #8: Wrong FileEntity Field Names
-**File**: `falkor/parsers/base_tree_sitter_parser.py:198-208`
+**File**: `repotoire/parsers/base_tree_sitter_parser.py:198-208`
 **Error**: `TypeError: FileEntity.__init__() got an unexpected keyword argument 'file_hash'`
 
 **Root Cause**: Used wrong parameter names when creating FileEntity. The model expects `hash` and `loc`, not `file_hash` and `lines_of_code`.
@@ -81,7 +81,7 @@ return FileEntity(
 ---
 
 ### Issue #9: Missing datetime Import
-**File**: `falkor/parsers/base_tree_sitter_parser.py:10`
+**File**: `repotoire/parsers/base_tree_sitter_parser.py:10`
 **Error**: `NameError: name 'datetime' is not defined`
 
 **Root Cause**: Used `datetime.fromtimestamp()` without importing datetime module.
@@ -96,7 +96,7 @@ from datetime import datetime
 ---
 
 ### Issue #10: ClassEntity base_classes Parameter
-**File**: `falkor/parsers/base_tree_sitter_parser.py:332-339`
+**File**: `repotoire/parsers/base_tree_sitter_parser.py:332-339`
 **Error**: `TypeError: ClassEntity.__init__() got an unexpected keyword argument 'base_classes'`
 
 **Root Cause**: ClassEntity model doesn't have a `base_classes` parameter. Base classes should be represented as INHERITS relationships in the graph, not as an attribute.
@@ -226,16 +226,16 @@ Successfully extracts three relationship types:
 ## Files Created/Modified
 
 ### Created Files
-1. `falkor/parsers/base_tree_sitter_parser.py` (596 lines) - Base parser with shared logic
-2. `falkor/parsers/tree_sitter_python.py` (151 lines) - Python reference implementation
+1. `repotoire/parsers/base_tree_sitter_parser.py` (596 lines) - Base parser with shared logic
+2. `repotoire/parsers/tree_sitter_python.py` (151 lines) - Python reference implementation
 3. `tests/unit/parsers/test_tree_sitter_parser.py` (169 lines) - Unit tests
 4. `tests/unit/parsers/test_relationship_extraction.py` (157 lines) - Relationship tests
 5. `tests/unit/parsers/test_parser_integration.py` (223 lines) - Integration tests
 6. `docs/ADDING_LANGUAGES.md` (378 lines) - Comprehensive guide for adding languages
 
 ### Modified Files
-1. `falkor/parsers/tree_sitter_adapter.py` - Fixed tree-sitter API compatibility
-2. `falkor/parsers/__init__.py` - Added exports for new classes
+1. `repotoire/parsers/tree_sitter_adapter.py` - Fixed tree-sitter API compatibility
+2. `repotoire/parsers/__init__.py` - Added exports for new classes
 
 ## Recommendations for Future Work
 

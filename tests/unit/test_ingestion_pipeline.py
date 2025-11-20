@@ -6,9 +6,9 @@ from unittest.mock import Mock, MagicMock, patch, call
 
 import pytest
 
-from falkor.pipeline.ingestion import IngestionPipeline
-from falkor.parsers import CodeParser
-from falkor.models import FileEntity, ClassEntity, Relationship, RelationshipType, NodeType
+from repotoire.pipeline.ingestion import IngestionPipeline
+from repotoire.parsers import CodeParser
+from repotoire.models import FileEntity, ClassEntity, Relationship, RelationshipType, NodeType
 
 
 @pytest.fixture

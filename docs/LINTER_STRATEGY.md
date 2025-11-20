@@ -1,10 +1,10 @@
-# Falkor Linter Integration Strategy
+# Repotoire Linter Integration Strategy
 
 ## Philosophy
 
-**Falkor is NOT a linter replacement — it's a linter complement.**
+**Repotoire is NOT a linter replacement — it's a linter complement.**
 
-Falkor detects architectural and relational issues that require graph analysis. Traditional linters detect syntax, style, and local issues.
+Repotoire detects architectural and relational issues that require graph analysis. Traditional linters detect syntax, style, and local issues.
 
 ## Positioning
 
@@ -16,7 +16,7 @@ Falkor detects architectural and relational issues that require graph analysis. 
 - Import sorting (isort)
 - Security patterns (Bandit, semgrep)
 
-### What Falkor Does Uniquely
+### What Repotoire Does Uniquely
 - Circular dependencies (requires graph traversal)
 - Architectural bottlenecks (requires centrality analysis)
 - God classes (requires relationship counting)
@@ -27,25 +27,25 @@ Falkor detects architectural and relational issues that require graph analysis. 
 
 ## Integration Strategy
 
-### Phase 1: Core Falkor (Current)
+### Phase 1: Core Repotoire (Current)
 Focus on graph-based detectors only. Market as complement to existing linters.
 
-**Messaging**: "Run Ruff for code style, Falkor for architecture"
+**Messaging**: "Run Ruff for code style, Repotoire for architecture"
 
 ### Phase 2: Aggregation Layer
 ```bash
 # Run multiple tools, aggregate results
-falkor analyze --with-tools ruff,mypy,bandit
+repotoire analyze --with-tools ruff,mypy,bandit
 
 # Output unified report
-falkor report --format html --include-all-tools
+repotoire report --format html --include-all-tools
 ```
 
 **Implementation**:
 ```python
-# falkor/integrations/linter_aggregator.py
+# repotoire/integrations/linter_aggregator.py
 from typing import List, Dict
-from falkor.models import Finding
+from repotoire.models import Finding
 
 class LinterAggregator:
     """Aggregate findings from external linters."""
@@ -70,7 +70,7 @@ class RuffIntegration:
     name = "ruff"
 
     def run(self, repo_path: str) -> List[Finding]:
-        """Run Ruff and convert to Falkor findings."""
+        """Run Ruff and convert to Repotoire findings."""
         import subprocess
         import json
 
@@ -101,7 +101,7 @@ class RuffIntegration:
         return findings
 
     def _map_severity(self, code: str) -> Severity:
-        """Map Ruff error codes to Falkor severity."""
+        """Map Ruff error codes to Repotoire severity."""
         if code.startswith('E9') or code.startswith('F'):
             return Severity.HIGH  # Syntax errors, undefined names
         elif code.startswith('E'):
@@ -115,7 +115,7 @@ class RuffIntegration:
 Use the graph to make linter checks more accurate:
 
 ```python
-# falkor/detectors/graph_linting.py
+# repotoire/detectors/graph_linting.py
 
 class GraphEnhancedLinting(CodeSmellDetector):
     """Use graph to improve linter-style checks."""
@@ -299,13 +299,13 @@ Abstract classes/interfaces with only one implementation.
 
 "Ruff catches style issues. mypy catches type errors. Bandit catches security vulnerabilities.
 
-Falkor catches architectural problems that require understanding your entire codebase:
+Repotoire catches architectural problems that require understanding your entire codebase:
 - Which classes have become too central to your architecture?
 - Where are the circular dependencies slowing down your builds?
 - Which dead code can be safely removed?
 - How coupled are your modules?
 
-**Use Falkor alongside your existing tools for complete code health visibility.**"
+**Use Repotoire alongside your existing tools for complete code health visibility.**"
 
 ## Conclusion
 
@@ -315,4 +315,4 @@ Falkor catches architectural problems that require understanding your entire cod
 2. **v1.0**: Add aggregation layer for unified reporting
 3. **v2.0**: Add graph-enhanced linting for advanced checks
 
-This positions Falkor as a premium add-on to the developer's existing toolchain, not a replacement.
+This positions Repotoire as a premium add-on to the developer's existing toolchain, not a replacement.

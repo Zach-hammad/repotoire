@@ -1,32 +1,32 @@
-# Falkor Configuration Guide
+# Repotoire Configuration Guide
 
-This guide covers all configuration options for Falkor, including examples for common scenarios.
+This guide covers all configuration options for Repotoire, including examples for common scenarios.
 
 ## Configuration Priority Chain
 
-Falkor uses a priority chain to resolve configuration values (highest to lowest):
+Repotoire uses a priority chain to resolve configuration values (highest to lowest):
 
 1. **Command-line arguments** (`--neo4j-uri`, `--log-level`, etc.)
-2. **Environment variables** (`FALKOR_NEO4J_URI`, `FALKOR_NEO4J_USER`, etc.)
-3. **Config file** (`.falkorrc`, `falkor.toml`)
+2. **Environment variables** (`REPOTOIRE_NEO4J_URI`, `REPOTOIRE_NEO4J_USER`, etc.)
+3. **Config file** (`.repotoirerc`, `repotoire.toml`)
 4. **Built-in defaults**
 
 ## Config File Locations
 
-Falkor searches for config files hierarchically:
+Repotoire searches for config files hierarchically:
 
-1. **Current directory**: `.falkorrc` or `falkor.toml`
+1. **Current directory**: `.repotoirerc` or `repotoire.toml`
 2. **Parent directories**: Searches up to root
-3. **Home directory**: `~/.falkorrc`
-4. **XDG config directory**: `~/.config/falkor.toml`
+3. **Home directory**: `~/.repotoirerc`
+4. **XDG config directory**: `~/.config/repotoire.toml`
 
 ## File Formats
 
-Falkor supports multiple configuration formats:
+Repotoire supports multiple configuration formats:
 
-- **YAML**: `.falkorrc`, `.yaml`, `.yml` (requires PyYAML)
-- **JSON**: `.falkorrc`, `.json`
-- **TOML**: `falkor.toml` (requires tomli or Python 3.11+)
+- **YAML**: `.repotoirerc`, `.yaml`, `.yml` (requires PyYAML)
+- **JSON**: `.repotoirerc`, `.json`
+- **TOML**: `repotoire.toml` (requires tomli or Python 3.11+)
 
 ## Configuration Sections
 
@@ -50,12 +50,12 @@ Connection and retry settings for Neo4j database.
 - `retry_base_delay`: > 0, recommended 0.5-2.0 seconds
 
 **Environment Variables:**
-- `FALKOR_NEO4J_URI`
-- `FALKOR_NEO4J_USER`
-- `FALKOR_NEO4J_PASSWORD`
-- `FALKOR_NEO4J_MAX_RETRIES`
-- `FALKOR_NEO4J_RETRY_BACKOFF_FACTOR`
-- `FALKOR_NEO4J_RETRY_BASE_DELAY`
+- `REPOTOIRE_NEO4J_URI`
+- `REPOTOIRE_NEO4J_USER`
+- `REPOTOIRE_NEO4J_PASSWORD`
+- `REPOTOIRE_NEO4J_MAX_RETRIES`
+- `REPOTOIRE_NEO4J_RETRY_BACKOFF_FACTOR`
+- `REPOTOIRE_NEO4J_RETRY_BASE_DELAY`
 
 ### Ingestion Configuration
 
@@ -75,10 +75,10 @@ Settings for code ingestion pipeline.
 - `batch_size`: 10-10000, recommended 100-500
 
 **Environment Variables:**
-- `FALKOR_INGESTION_PATTERNS` (comma-separated)
-- `FALKOR_INGESTION_FOLLOW_SYMLINKS` (true/false)
-- `FALKOR_INGESTION_MAX_FILE_SIZE_MB`
-- `FALKOR_INGESTION_BATCH_SIZE`
+- `REPOTOIRE_INGESTION_PATTERNS` (comma-separated)
+- `REPOTOIRE_INGESTION_FOLLOW_SYMLINKS` (true/false)
+- `REPOTOIRE_INGESTION_MAX_FILE_SIZE_MB`
+- `REPOTOIRE_INGESTION_BATCH_SIZE`
 
 ### Analysis Configuration
 
@@ -94,8 +94,8 @@ Settings for code analysis engine.
 - `max_coupling`: > 0, lower is better
 
 **Environment Variables:**
-- `FALKOR_ANALYSIS_MIN_MODULARITY`
-- `FALKOR_ANALYSIS_MAX_COUPLING`
+- `REPOTOIRE_ANALYSIS_MIN_MODULARITY`
+- `REPOTOIRE_ANALYSIS_MAX_COUPLING`
 
 ### Detector Configuration
 
@@ -118,8 +118,8 @@ Thresholds for code smell detectors.
 - High thresholds should be >= medium thresholds
 
 **Environment Variables:**
-- `FALKOR_DETECTOR_GOD_CLASS_HIGH_METHOD_COUNT`
-- `FALKOR_DETECTOR_GOD_CLASS_MEDIUM_METHOD_COUNT`
+- `REPOTOIRE_DETECTOR_GOD_CLASS_HIGH_METHOD_COUNT`
+- `REPOTOIRE_DETECTOR_GOD_CLASS_MEDIUM_METHOD_COUNT`
 - (etc. - all detector options support environment variables)
 
 ### Logging Configuration
@@ -138,15 +138,15 @@ Settings for logging output.
 - `file`: Must be writable path if specified
 
 **Environment Variables:**
-- `FALKOR_LOG_LEVEL` or `LOG_LEVEL`
-- `FALKOR_LOG_FORMAT` or `LOG_FORMAT`
-- `FALKOR_LOG_FILE` or `LOG_FILE`
+- `REPOTOIRE_LOG_LEVEL` or `LOG_LEVEL`
+- `REPOTOIRE_LOG_FORMAT` or `LOG_FORMAT`
+- `REPOTOIRE_LOG_FILE` or `LOG_FILE`
 
 ## Configuration Examples
 
 ### Example 1: Local Development (YAML)
 
-`.falkorrc`:
+`.repotoirerc`:
 ```yaml
 neo4j:
   uri: bolt://localhost:7687
@@ -171,7 +171,7 @@ logging:
 
 ### Example 2: Multi-Language Project (TOML)
 
-`falkor.toml`:
+`repotoire.toml`:
 ```toml
 [neo4j]
 uri = "bolt://localhost:7687"
@@ -195,12 +195,12 @@ god_class_medium_method_count = 18
 [logging]
 level = "DEBUG"
 format = "json"
-file = "logs/falkor.log"
+file = "logs/repotoire.log"
 ```
 
 ### Example 3: Production/CI Environment (JSON)
 
-`.falkorrc`:
+`.repotoirerc`:
 ```json
 {
   "neo4j": {
@@ -220,18 +220,18 @@ file = "logs/falkor.log"
   "logging": {
     "level": "WARNING",
     "format": "json",
-    "file": "/var/log/falkor/analysis.log"
+    "file": "/var/log/repotoire/analysis.log"
   }
 }
 ```
 
 ### Example 4: Large Codebase with Custom Detectors
 
-`falkor.toml`:
+`repotoire.toml`:
 ```toml
 [neo4j]
 uri = "bolt://production-neo4j:7687"
-user = "falkor_user"
+user = "repotoire_user"
 password = "${NEO4J_PASSWORD}"
 max_retries = 5
 retry_backoff_factor = 1.5
@@ -259,12 +259,12 @@ god_class_medium_loc = 500
 [logging]
 level = "INFO"
 format = "json"
-file = "logs/falkor-production.log"
+file = "logs/repotoire-production.log"
 ```
 
 ### Example 5: Security-Focused Configuration
 
-`.falkorrc`:
+`.repotoirerc`:
 ```yaml
 neo4j:
   uri: bolt+s://secure-neo4j:7687  # Secure connection
@@ -284,36 +284,36 @@ ingestion:
 logging:
   level: WARNING              # Minimal logging
   format: json                # Structured logging for SIEM
-  file: /var/log/falkor/secure.log
+  file: /var/log/repotoire/secure.log
 ```
 
 ## Environment Variable Reference
 
-All configuration options can be set via environment variables using the `FALKOR_` prefix:
+All configuration options can be set via environment variables using the `REPOTOIRE_` prefix:
 
 ```bash
 # Neo4j
-export FALKOR_NEO4J_URI="bolt://localhost:7687"
-export FALKOR_NEO4J_USER="neo4j"
-export FALKOR_NEO4J_PASSWORD="your-password"
-export FALKOR_NEO4J_MAX_RETRIES=3
-export FALKOR_NEO4J_RETRY_BACKOFF_FACTOR=2.0
-export FALKOR_NEO4J_RETRY_BASE_DELAY=1.0
+export REPOTOIRE_NEO4J_URI="bolt://localhost:7687"
+export REPOTOIRE_NEO4J_USER="neo4j"
+export REPOTOIRE_NEO4J_PASSWORD="your-password"
+export REPOTOIRE_NEO4J_MAX_RETRIES=3
+export REPOTOIRE_NEO4J_RETRY_BACKOFF_FACTOR=2.0
+export REPOTOIRE_NEO4J_RETRY_BASE_DELAY=1.0
 
 # Ingestion
-export FALKOR_INGESTION_PATTERNS="**/*.py,**/*.js"
-export FALKOR_INGESTION_FOLLOW_SYMLINKS=false
-export FALKOR_INGESTION_MAX_FILE_SIZE_MB=10
-export FALKOR_INGESTION_BATCH_SIZE=100
+export REPOTOIRE_INGESTION_PATTERNS="**/*.py,**/*.js"
+export REPOTOIRE_INGESTION_FOLLOW_SYMLINKS=false
+export REPOTOIRE_INGESTION_MAX_FILE_SIZE_MB=10
+export REPOTOIRE_INGESTION_BATCH_SIZE=100
 
 # Analysis
-export FALKOR_ANALYSIS_MIN_MODULARITY=0.3
-export FALKOR_ANALYSIS_MAX_COUPLING=5.0
+export REPOTOIRE_ANALYSIS_MIN_MODULARITY=0.3
+export REPOTOIRE_ANALYSIS_MAX_COUPLING=5.0
 
-# Logging (can use FALKOR_ prefix or unprefixed)
+# Logging (can use REPOTOIRE_ prefix or unprefixed)
 export LOG_LEVEL=INFO
 export LOG_FORMAT=human
-export LOG_FILE=logs/falkor.log
+export LOG_FILE=logs/repotoire.log
 ```
 
 ## Environment Variable Interpolation
@@ -338,13 +338,13 @@ Generate a config template in your preferred format:
 
 ```bash
 # Generate YAML template
-falkor config --generate yaml > .falkorrc
+repotoire config --generate yaml > .repotoirerc
 
 # Generate TOML template
-falkor config --generate toml > falkor.toml
+repotoire config --generate toml > repotoire.toml
 
 # Generate JSON template
-falkor config --generate json > .falkorrc
+repotoire config --generate json > .repotoirerc
 ```
 
 ## Validating Configuration
@@ -352,7 +352,7 @@ falkor config --generate json > .falkorrc
 Validate your configuration before running operations:
 
 ```bash
-falkor validate
+repotoire validate
 ```
 
 This checks:
@@ -390,12 +390,12 @@ logging:
 - No interactive prompts
 
 ```bash
-export FALKOR_NEO4J_URI="${CI_NEO4J_URI}"
-export FALKOR_NEO4J_PASSWORD="${CI_NEO4J_PASSWORD}"
+export REPOTOIRE_NEO4J_URI="${CI_NEO4J_URI}"
+export REPOTOIRE_NEO4J_PASSWORD="${CI_NEO4J_PASSWORD}"
 export LOG_FORMAT=json
 export LOG_LEVEL=WARNING
 
-falkor validate && falkor ingest . && falkor analyze .
+repotoire validate && repotoire ingest . && repotoire analyze .
 ```
 
 ### Pattern 3: Production Monitoring
@@ -417,25 +417,25 @@ batch_size = 500
 [logging]
 level = "INFO"
 format = "json"
-file = "/var/log/falkor/production.log"
+file = "/var/log/repotoire/production.log"
 ```
 
 ## Troubleshooting
 
 ### Config File Not Found
 
-If Falkor can't find your config file:
+If Repotoire can't find your config file:
 1. Check the search path (current dir, parents, home dir)
-2. Verify filename is `.falkorrc` or `falkor.toml`
+2. Verify filename is `.repotoirerc` or `repotoire.toml`
 3. Check file permissions (must be readable)
 4. Use `--config` flag to specify explicit path
 
 ### Environment Variables Not Working
 
 If environment variables aren't being recognized:
-1. Verify the `FALKOR_` prefix
+1. Verify the `REPOTOIRE_` prefix
 2. Check variable name matches documented format
-3. Ensure variables are exported: `export FALKOR_NEO4J_URI=...`
+3. Ensure variables are exported: `export REPOTOIRE_NEO4J_URI=...`
 4. Restart shell if variables were just set
 
 ### Password Interpolation Failing
@@ -461,10 +461,10 @@ Common validation errors:
 4. **Use secure connections** in production: `bolt+s://` or `neo4j+s://`
 5. **Set file size limits** to prevent DoS: `max_file_size_mb: 10`
 6. **Use JSON logging** for security monitoring: `format: json`
-7. **Restrict file permissions** on config files: `chmod 600 .falkorrc`
+7. **Restrict file permissions** on config files: `chmod 600 .repotoirerc`
 
 ## See Also
 
 - [JSON Schema](schema.json) - Machine-readable schema for validation
-- [Validation Guide](falkor/validation.py) - Input validation utilities
+- [Validation Guide](repotoire/validation.py) - Input validation utilities
 - [CLI Reference](README.md#cli-reference) - Command-line options

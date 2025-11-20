@@ -1,4 +1,4 @@
-# Falkor Setup Guide
+# Repotoire Setup Guide
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@
 
 ```bash
 docker run \
-    --name falkor-neo4j \
+    --name repotoire-neo4j \
     -p 7474:7474 -p 7687:7687 \
     -d \
     -e NEO4J_AUTH=neo4j/your-password \
@@ -22,12 +22,12 @@ docker run \
 
 Access Neo4j Browser at http://localhost:7474
 
-### 2. Install Falkor
+### 2. Install Repotoire
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/falkor.git
-cd falkor
+git clone https://github.com/yourusername/repotoire.git
+cd repotoire
 
 # Create virtual environment
 python -m venv venv
@@ -51,10 +51,10 @@ cp .env.example .env
 
 ```bash
 # Ingest a codebase
-falkor ingest /path/to/your/repo
+repotoire ingest /path/to/your/repo
 
 # Analyze health
-falkor analyze /path/to/your/repo
+repotoire analyze /path/to/your/repo
 ```
 
 ## Development Setup
@@ -75,27 +75,27 @@ pytest
 
 ```bash
 # Format code
-black falkor tests
+black repotoire tests
 
 # Lint
-ruff check falkor tests
+ruff check repotoire tests
 
 # Type check
-mypy falkor
+mypy repotoire
 ```
 
 ## Architecture
 
-Falkor consists of several key components:
+Repotoire consists of several key components:
 
-1. **Parsers** (`falkor/parsers/`) - Extract entities from source code
-2. **Graph** (`falkor/graph/`) - Neo4j client and schema management
-3. **Pipeline** (`falkor/pipeline/`) - Ingestion orchestration
-4. **Detectors** (`falkor/detectors/`) - Code smell detection algorithms
-5. **AI** (`falkor/ai/`) - Semantic analysis and fix generation
-6. **CLI** (`falkor/cli.py`) - Command-line interface
+1. **Parsers** (`repotoire/parsers/`) - Extract entities from source code
+2. **Graph** (`repotoire/graph/`) - Neo4j client and schema management
+3. **Pipeline** (`repotoire/pipeline/`) - Ingestion orchestration
+4. **Detectors** (`repotoire/detectors/`) - Code smell detection algorithms
+5. **AI** (`repotoire/ai/`) - Semantic analysis and fix generation
+6. **CLI** (`repotoire/cli.py`) - Command-line interface
 
-## Extending Falkor
+## Extending Repotoire
 
 ### Adding a New Language Parser
 
@@ -106,7 +106,7 @@ Falkor consists of several key components:
 Example:
 
 ```python
-from falkor.parsers import CodeParser
+from repotoire.parsers import CodeParser
 
 class TypeScriptParser(CodeParser):
     def parse(self, file_path: str):
@@ -131,7 +131,7 @@ class TypeScriptParser(CodeParser):
 Example:
 
 ```python
-from falkor.detectors.base import CodeSmellDetector
+from repotoire.detectors.base import CodeSmellDetector
 
 class LongMethodDetector(CodeSmellDetector):
     def detect(self):

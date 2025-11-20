@@ -11,7 +11,7 @@ Addresses: FAL-107
 """
 
 import pytest
-from falkor.models import (
+from repotoire.models import (
     FileEntity,
     ClassEntity,
     FunctionEntity,

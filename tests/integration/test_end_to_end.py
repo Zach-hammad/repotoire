@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from falkor.graph import Neo4jClient
-from falkor.pipeline.ingestion import IngestionPipeline
-from falkor.detectors.engine import AnalysisEngine
+from repotoire.graph import Neo4jClient
+from repotoire.pipeline.ingestion import IngestionPipeline
+from repotoire.detectors.engine import AnalysisEngine
 
 
 @pytest.fixture(scope="module")

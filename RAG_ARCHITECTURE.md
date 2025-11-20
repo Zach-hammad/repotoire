@@ -1,10 +1,10 @@
-# Falkor RAG Architecture: Graph-Powered Code Q&A
+# Repotoire RAG Architecture: Graph-Powered Code Q&A
 
 ## Overview
 
-Transform Falkor's code knowledge graph into a **Retrieval Augmented Generation (RAG)** system that answers natural language questions about codebases.
+Transform Repotoire's code knowledge graph into a **Retrieval Augmented Generation (RAG)** system that answers natural language questions about codebases.
 
-## Why Falkor's Graph is Perfect for RAG
+## Why Repotoire's Graph is Perfect for RAG
 
 Traditional RAG uses flat vector stores. **Graph RAG is superior** for code because:
 
@@ -71,7 +71,7 @@ Traditional RAG uses flat vector stores. **Graph RAG is superior** for code beca
 ### 1. Add Vector Embeddings to Neo4j
 
 ```python
-# falkor/ai/embeddings.py
+# repotoire/ai/embeddings.py
 from openai import OpenAI
 from typing import List
 import numpy as np
@@ -173,7 +173,7 @@ async def enrich_with_embeddings(neo4j_client: Neo4jClient):
 ### 2. Create Vector Index in Neo4j
 
 ```python
-# falkor/graph/schema.py - Add to GraphSchema class
+# repotoire/graph/schema.py - Add to GraphSchema class
 
 def create_vector_indexes(self):
     """Create vector indexes for semantic search."""
@@ -226,7 +226,7 @@ def create_vector_indexes(self):
 ### 3. Hybrid Search: Vectors + Graph
 
 ```python
-# falkor/ai/retrieval.py
+# repotoire/ai/retrieval.py
 from typing import List, Dict, Any
 from dataclasses import dataclass
 
@@ -428,7 +428,7 @@ class GraphRAGRetriever:
 ### 4. Query Understanding & Routing
 
 ```python
-# falkor/ai/query_router.py
+# repotoire/ai/query_router.py
 from enum import Enum
 from typing import Dict, Any
 
@@ -485,7 +485,7 @@ Respond in JSON format.
         return json.loads(response.choices[0].message.content)
 
 
-# falkor/ai/rag_pipeline.py
+# repotoire/ai/rag_pipeline.py
 class CodeRAGPipeline:
     """End-to-end RAG pipeline for code questions."""
 
@@ -1017,9 +1017,9 @@ async def navigate_code(
 
 ## Competitive Advantage
 
-**Falkor's Graph RAG vs. Traditional RAG:**
+**Repotoire's Graph RAG vs. Traditional RAG:**
 
-| Feature | Traditional RAG | Falkor Graph RAG |
+| Feature | Traditional RAG | Repotoire Graph RAG |
 |---------|----------------|------------------|
 | Context | Flat chunks | Structural relationships |
 | Accuracy | 70% | 90%+ |
@@ -1035,4 +1035,4 @@ async def navigate_code(
 4. **Week 4:** Create chat UI
 5. **Week 5:** Beta test with users
 
-This turns Falkor into **"ChatGPT for your codebase"** - but better because it understands structure, not just semantics!
+This turns Repotoire into **"ChatGPT for your codebase"** - but better because it understands structure, not just semantics!

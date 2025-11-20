@@ -3,8 +3,8 @@
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 
-from falkor.ai import SpacyClueGenerator
-from falkor.models import FunctionEntity, ClassEntity, FileEntity
+from repotoire.ai import SpacyClueGenerator
+from repotoire.models import FunctionEntity, ClassEntity, FileEntity
 
 
 @pytest.fixture

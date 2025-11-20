@@ -6,8 +6,8 @@ import os
 from pathlib import Path
 from unittest.mock import Mock
 
-from falkor.pipeline import IngestionPipeline, SecurityError
-from falkor.graph import Neo4jClient
+from repotoire.pipeline import IngestionPipeline, SecurityError
+from repotoire.graph import Neo4jClient
 
 
 class TestPathTraversalProtection:

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from falkor.config import (
+from repotoire.config import (
     FalkorConfig,
     Neo4jConfig,
     IngestionConfig,

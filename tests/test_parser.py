@@ -2,8 +2,8 @@
 
 import pytest
 from pathlib import Path
-from falkor.parsers import PythonParser
-from falkor.models import NodeType
+from repotoire.parsers import PythonParser
+from repotoire.models import NodeType
 
 
 def test_python_parser_extracts_functions():

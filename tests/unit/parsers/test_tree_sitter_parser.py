@@ -4,8 +4,8 @@ import pytest
 from pathlib import Path
 import tempfile
 
-from falkor.parsers.tree_sitter_adapter import UniversalASTNode, TreeSitterAdapter
-from falkor.parsers.tree_sitter_python import TreeSitterPythonParser
+from repotoire.parsers.tree_sitter_adapter import UniversalASTNode, TreeSitterAdapter
+from repotoire.parsers.tree_sitter_python import TreeSitterPythonParser
 
 
 class TestUniversalASTNode:

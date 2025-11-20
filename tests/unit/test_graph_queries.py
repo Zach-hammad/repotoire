@@ -2,9 +2,9 @@
 
 import pytest
 from unittest.mock import Mock, MagicMock
-from falkor.graph.queries.patterns import CypherPatterns
-from falkor.graph.queries.builders import QueryBuilder, DetectorQueryBuilder
-from falkor.graph.queries.traversal import GraphTraversal
+from repotoire.graph.queries.patterns import CypherPatterns
+from repotoire.graph.queries.builders import QueryBuilder, DetectorQueryBuilder
+from repotoire.graph.queries.traversal import GraphTraversal
 
 
 class TestQueryBuilder:

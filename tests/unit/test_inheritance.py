@@ -1,8 +1,8 @@
 """Comprehensive tests for class inheritance relationship extraction."""
 
 import pytest
-from falkor.parsers import PythonParser
-from falkor.models import RelationshipType
+from repotoire.parsers import PythonParser
+from repotoire.models import RelationshipType
 
 
 class TestInheritanceExtraction:

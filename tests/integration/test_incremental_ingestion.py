@@ -7,8 +7,8 @@ from datetime import datetime
 
 import pytest
 
-from falkor.pipeline.ingestion import IngestionPipeline
-from falkor.graph import Neo4jClient
+from repotoire.pipeline.ingestion import IngestionPipeline
+from repotoire.graph import Neo4jClient
 
 
 @pytest.fixture

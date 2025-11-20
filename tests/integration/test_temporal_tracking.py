@@ -4,9 +4,9 @@ import pytest
 from datetime import datetime
 from unittest.mock import Mock, MagicMock, patch
 
-from falkor.models import GitCommit, SessionEntity, MetricTrend, CodeHotspot
-from falkor.integrations.git import GitRepository
-from falkor.detectors.temporal_metrics import TemporalMetrics
+from repotoire.models import GitCommit, SessionEntity, MetricTrend, CodeHotspot
+from repotoire.integrations.git import GitRepository
+from repotoire.detectors.temporal_metrics import TemporalMetrics
 
 
 class TestGitRepository:

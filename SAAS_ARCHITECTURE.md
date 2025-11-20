@@ -1,14 +1,14 @@
-# Falkor SaaS Architecture Plan
+# Repotoire SaaS Architecture Plan
 
 ## Overview
-Transform Falkor from CLI tool to SaaS platform for continuous code health monitoring.
+Transform Repotoire from CLI tool to SaaS platform for continuous code health monitoring.
 
 ## Architecture Components
 
 ### 1. Web Application (Next.js + FastAPI)
 
 ```
-falkor/
+repotoire/
 ├── web/                          # New web frontend
 │   ├── app/                     # Next.js app directory
 │   │   ├── (auth)/             # Authentication routes
@@ -151,8 +151,8 @@ class GitHubService:
             sha=sha,
             state=state,
             description=description,
-            context="falkor/code-health",
-            target_url=f"https://app.falkor.dev/analysis/{sha}"
+            context="repotoire/code-health",
+            target_url=f"https://app.repotoire.dev/analysis/{sha}"
         )
 ```
 
@@ -161,10 +161,10 @@ class GitHubService:
 ```python
 # worker/tasks.py
 from celery import Celery
-from falkor.pipeline.ingestion import IngestionPipeline
-from falkor.detectors.engine import AnalysisEngine
+from repotoire.pipeline.ingestion import IngestionPipeline
+from repotoire.detectors.engine import AnalysisEngine
 
-app = Celery('falkor')
+app = Celery('repotoire')
 
 @app.task
 async def analyze_repository(
@@ -431,7 +431,7 @@ neo4j_client = Neo4jClient(
 ```python
 # Each enterprise customer gets dedicated Neo4j instance
 neo4j_client = Neo4jClient(
-    uri=f"bolt://neo4j-{org_id}.falkor.internal:7687",
+    uri=f"bolt://neo4j-{org_id}.repotoire.internal:7687",
     username="neo4j",
     password=get_encrypted_password(org_id)
 )

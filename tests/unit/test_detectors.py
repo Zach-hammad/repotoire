@@ -4,10 +4,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from falkor.detectors.circular_dependency import CircularDependencyDetector
-from falkor.detectors.dead_code import DeadCodeDetector
-from falkor.detectors.god_class import GodClassDetector
-from falkor.models import Severity
+from repotoire.detectors.circular_dependency import CircularDependencyDetector
+from repotoire.detectors.dead_code import DeadCodeDetector
+from repotoire.detectors.god_class import GodClassDetector
+from repotoire.models import Severity
 
 
 @pytest.fixture

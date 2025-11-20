@@ -3,8 +3,8 @@
 from unittest.mock import MagicMock, patch
 import pytest
 
-from falkor.detectors.engine import AnalysisEngine
-from falkor.models import (
+from repotoire.detectors.engine import AnalysisEngine
+from repotoire.models import (
     Finding,
     FindingsSummary,
     MetricsBreakdown,

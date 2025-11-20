@@ -1,9 +1,9 @@
 """Security tests for Cypher injection prevention."""
 
 import pytest
-from falkor.validation import ValidationError, validate_identifier
-from falkor.detectors.graph_algorithms import GraphAlgorithms
-from falkor.graph.client import Neo4jClient
+from repotoire.validation import ValidationError, validate_identifier
+from repotoire.detectors.graph_algorithms import GraphAlgorithms
+from repotoire.graph.client import Neo4jClient
 from unittest.mock import Mock, MagicMock
 
 
@@ -153,7 +153,7 @@ class TestParameterizedQueries:
 
     def test_get_high_betweenness_uses_parameters(self, mock_client):
         """Test that get_high_betweenness_functions uses parameterized queries."""
-        from falkor.detectors.graph_algorithms import GraphAlgorithms
+        from repotoire.detectors.graph_algorithms import GraphAlgorithms
 
         algo = GraphAlgorithms(mock_client)
         algo.get_high_betweenness_functions(threshold=0.5, limit=50)
@@ -185,8 +185,8 @@ class TestNodeTypeValidation:
 
     def test_invalid_node_type_rejected(self):
         """Test that invalid node types are rejected."""
-        from falkor.models import Entity, NodeType
-        from falkor.graph.client import Neo4jClient
+        from repotoire.models import Entity, NodeType
+        from repotoire.graph.client import Neo4jClient
         from unittest.mock import Mock
 
         # Create a mock entity with invalid node_type
@@ -233,7 +233,7 @@ class TestCypherPatternsInjectionPrevention:
     @pytest.fixture
     def patterns(self, mock_client):
         """Create CypherPatterns instance with mock client."""
-        from falkor.graph.queries.patterns import CypherPatterns
+        from repotoire.graph.queries.patterns import CypherPatterns
         return CypherPatterns(mock_client)
 
     def test_find_cycles_node_label_injection_prevented(self, patterns):
@@ -365,7 +365,7 @@ class TestGraphTraversalInjectionPrevention:
     @pytest.fixture
     def traversal(self, mock_client):
         """Create GraphTraversal instance with mock client."""
-        from falkor.graph.queries.traversal import GraphTraversal
+        from repotoire.graph.queries.traversal import GraphTraversal
         return GraphTraversal(mock_client)
 
     def test_get_neighbors_relationship_type_validation(self, traversal):

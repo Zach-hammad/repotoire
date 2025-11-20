@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from falkor.parsers.python_parser import PythonParser
-from falkor.models import NodeType, RelationshipType
+from repotoire.parsers.python_parser import PythonParser
+from repotoire.models import NodeType, RelationshipType
 
 
 @pytest.fixture

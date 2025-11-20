@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from falkor.graph import Neo4jClient
-from falkor.parsers.python_parser import PythonParser
-from falkor.models import NodeType
+from repotoire.graph import Neo4jClient
+from repotoire.parsers.python_parser import PythonParser
+from repotoire.models import NodeType
 
 
 @pytest.fixture(scope="module")

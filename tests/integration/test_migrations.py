@@ -3,8 +3,8 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
-from falkor.migrations import Migration, MigrationManager, MigrationError
-from falkor.graph import Neo4jClient
+from repotoire.migrations import Migration, MigrationManager, MigrationError
+from repotoire.graph import Neo4jClient
 
 
 class TestMigration001(Migration):

@@ -30,7 +30,7 @@ The original issue (FAL-86) requested adding indexes on relationship properties:
 
 ### 1. IMPORTS.module Property
 
-**File**: `falkor/parsers/base_tree_sitter_parser.py:149-167`
+**File**: `repotoire/parsers/base_tree_sitter_parser.py:149-167`
 
 **Purpose**: Store base module name separately from fully qualified import target.
 
@@ -79,7 +79,7 @@ RETURN r
 
 ### 2. CALLS.line_number Property
 
-**File**: `falkor/parsers/base_tree_sitter_parser.py:206-214`
+**File**: `repotoire/parsers/base_tree_sitter_parser.py:206-214`
 
 **Purpose**: Track where each function call occurs for debugging and code navigation.
 
@@ -112,7 +112,7 @@ RETURN r
 
 ### 3. INHERITS.order Property
 
-**File**: `falkor/parsers/base_tree_sitter_parser.py:175-194`
+**File**: `repotoire/parsers/base_tree_sitter_parser.py:175-194`
 
 **Purpose**: Track Method Resolution Order (MRO) for multiple inheritance.
 
@@ -170,7 +170,7 @@ ORDER BY r.order ASC
 
 ### 4. Schema Indexes
 
-**File**: `falkor/graph/schema.py:42-45`
+**File**: `repotoire/graph/schema.py:42-45`
 
 **Added Three Indexes**:
 ```python
@@ -370,12 +370,12 @@ The `order` property enables:
 
 ## Files Modified
 
-1. **`falkor/parsers/base_tree_sitter_parser.py`**:
+1. **`repotoire/parsers/base_tree_sitter_parser.py`**:
    - Lines 149-167: Added IMPORTS.module property
    - Lines 206-214: Added CALLS.line_number property
    - Lines 175-194: Added INHERITS.order property
 
-2. **`falkor/graph/schema.py`**:
+2. **`repotoire/graph/schema.py`**:
    - Lines 42-45: Added three relationship property indexes
 
 3. **`tests/unit/parsers/test_improvements.py`**:

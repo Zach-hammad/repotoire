@@ -3,8 +3,8 @@
 import pytest
 from pathlib import Path
 
-from falkor.parsers.tree_sitter_python import TreeSitterPythonParser
-from falkor.models import FileEntity, ClassEntity, FunctionEntity
+from repotoire.parsers.tree_sitter_python import TreeSitterPythonParser
+from repotoire.models import FileEntity, ClassEntity, FunctionEntity
 
 
 @pytest.mark.skipif(

@@ -8,8 +8,8 @@ from unittest.mock import Mock, MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from falkor.cli import cli, _display_health_report
-from falkor.models import (
+from repotoire.cli import cli, _display_health_report
+from repotoire.models import (
     CodebaseHealth,
     MetricsBreakdown,
     FindingsSummary,

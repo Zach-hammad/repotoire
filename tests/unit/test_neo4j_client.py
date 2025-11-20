@@ -6,8 +6,8 @@ import time
 import pytest
 from neo4j.exceptions import ServiceUnavailable, SessionExpired
 
-from falkor.graph.client import Neo4jClient
-from falkor.models import FileEntity, ClassEntity, FunctionEntity, Relationship, RelationshipType, NodeType
+from repotoire.graph.client import Neo4jClient
+from repotoire.models import FileEntity, ClassEntity, FunctionEntity, Relationship, RelationshipType, NodeType
 
 
 @pytest.fixture

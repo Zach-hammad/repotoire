@@ -472,77 +472,6 @@ wheels = [
 ]
 
 [[package]]
-name = "falkor"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "click" },
-    { name = "detect-secrets" },
-    { name = "gitpython" },
-    { name = "jinja2" },
-    { name = "neo4j" },
-    { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "networkx", version = "3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "openai" },
-    { name = "pydantic" },
-    { name = "rich" },
-    { name = "spacy" },
-]
-
-[package.optional-dependencies]
-all-languages = [
-    { name = "tree-sitter" },
-    { name = "tree-sitter-javascript" },
-    { name = "tree-sitter-python" },
-    { name = "tree-sitter-typescript" },
-]
-config = [
-    { name = "pyyaml" },
-    { name = "tomli", marker = "python_full_version < '3.11'" },
-]
-dev = [
-    { name = "black" },
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "pyyaml" },
-    { name = "ruff" },
-    { name = "tomli" },
-]
-gds = [
-    { name = "graphdatascience" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
-    { name = "click", specifier = ">=8.1.0" },
-    { name = "detect-secrets", specifier = ">=1.4.0" },
-    { name = "gitpython", specifier = ">=3.1.40" },
-    { name = "graphdatascience", marker = "extra == 'gds'", specifier = ">=1.9.0" },
-    { name = "jinja2", specifier = ">=3.1.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.7.0" },
-    { name = "neo4j", specifier = ">=5.14.0" },
-    { name = "networkx", specifier = ">=3.2.0" },
-    { name = "openai", specifier = ">=1.0.0" },
-    { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
-    { name = "pyyaml", marker = "extra == 'config'", specifier = ">=6.0" },
-    { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
-    { name = "rich", specifier = ">=13.0.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
-    { name = "spacy", specifier = ">=3.7.0" },
-    { name = "tomli", marker = "python_full_version < '3.11' and extra == 'config'", specifier = ">=2.0.0" },
-    { name = "tomli", marker = "extra == 'dev'", specifier = ">=2.0.0" },
-    { name = "tree-sitter", marker = "extra == 'all-languages'", specifier = ">=0.20.0" },
-    { name = "tree-sitter-javascript", marker = "extra == 'all-languages'", specifier = ">=0.20.0" },
-    { name = "tree-sitter-python", marker = "extra == 'all-languages'", specifier = ">=0.20.0" },
-    { name = "tree-sitter-typescript", marker = "extra == 'all-languages'", specifier = ">=0.20.0" },
-]
-provides-extras = ["dev", "config", "gds", "all-languages"]
-
-[[package]]
 name = "gitdb"
 version = "4.0.12"
 source = { registry = "https://pypi.org/simple" }
@@ -1580,6 +1509,77 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f0/7a/1c7270340330e575b92f397352af856a8c06f230aa3e76f86b39d01b416a/pyyaml-6.0.3-cp314-cp314t-win_amd64.whl", hash = "sha256:4ad1906908f2f5ae4e5a8ddfce73c320c2a1429ec52eafd27138b7f1cbe341c9", size = 174062, upload-time = "2025-09-25T21:32:55.767Z" },
     { url = "https://files.pythonhosted.org/packages/f1/12/de94a39c2ef588c7e6455cfbe7343d3b2dc9d6b6b2f40c4c6565744c873d/pyyaml-6.0.3-cp314-cp314t-win_arm64.whl", hash = "sha256:ebc55a14a21cb14062aa4162f906cd962b28e2e9ea38f9b4391244cd8de4ae0b", size = 149341, upload-time = "2025-09-25T21:32:56.828Z" },
 ]
+
+[[package]]
+name = "repotoire"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "click" },
+    { name = "detect-secrets" },
+    { name = "gitpython" },
+    { name = "jinja2" },
+    { name = "neo4j" },
+    { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "networkx", version = "3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "openai" },
+    { name = "pydantic" },
+    { name = "rich" },
+    { name = "spacy" },
+]
+
+[package.optional-dependencies]
+all-languages = [
+    { name = "tree-sitter" },
+    { name = "tree-sitter-javascript" },
+    { name = "tree-sitter-python" },
+    { name = "tree-sitter-typescript" },
+]
+config = [
+    { name = "pyyaml" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+]
+dev = [
+    { name = "black" },
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "pyyaml" },
+    { name = "ruff" },
+    { name = "tomli" },
+]
+gds = [
+    { name = "graphdatascience" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
+    { name = "click", specifier = ">=8.1.0" },
+    { name = "detect-secrets", specifier = ">=1.4.0" },
+    { name = "gitpython", specifier = ">=3.1.40" },
+    { name = "graphdatascience", marker = "extra == 'gds'", specifier = ">=1.9.0" },
+    { name = "jinja2", specifier = ">=3.1.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.7.0" },
+    { name = "neo4j", specifier = ">=5.14.0" },
+    { name = "networkx", specifier = ">=3.2.0" },
+    { name = "openai", specifier = ">=1.0.0" },
+    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
+    { name = "pyyaml", marker = "extra == 'config'", specifier = ">=6.0" },
+    { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
+    { name = "rich", specifier = ">=13.0.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+    { name = "spacy", specifier = ">=3.7.0" },
+    { name = "tomli", marker = "python_full_version < '3.11' and extra == 'config'", specifier = ">=2.0.0" },
+    { name = "tomli", marker = "extra == 'dev'", specifier = ">=2.0.0" },
+    { name = "tree-sitter", marker = "extra == 'all-languages'", specifier = ">=0.20.0" },
+    { name = "tree-sitter-javascript", marker = "extra == 'all-languages'", specifier = ">=0.20.0" },
+    { name = "tree-sitter-python", marker = "extra == 'all-languages'", specifier = ">=0.20.0" },
+    { name = "tree-sitter-typescript", marker = "extra == 'all-languages'", specifier = ">=0.20.0" },
+]
+provides-extras = ["dev", "config", "gds", "all-languages"]
 
 [[package]]
 name = "requests"

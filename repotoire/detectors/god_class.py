@@ -1,0 +1,465 @@
+"""God class detector - finds overly complex classes."""
+
+import uuid
+from typing import List, Optional
+from datetime import datetime
+
+from repotoire.detectors.base import CodeSmellDetector
+from repotoire.models import Finding, Severity
+
+
+class GodClassDetector(CodeSmellDetector):
+    """Detects god classes (classes with too many responsibilities)."""
+
+    # Default thresholds for god class detection
+    DEFAULT_HIGH_METHOD_COUNT = 20
+    DEFAULT_MEDIUM_METHOD_COUNT = 15
+    DEFAULT_HIGH_COMPLEXITY = 100
+    DEFAULT_MEDIUM_COMPLEXITY = 50
+    DEFAULT_HIGH_LOC = 500
+    DEFAULT_MEDIUM_LOC = 300
+    DEFAULT_HIGH_LCOM = 0.8  # Lack of cohesion (0-1, higher is worse)
+    DEFAULT_MEDIUM_LCOM = 0.6
+
+    def __init__(self, neo4j_client, detector_config: Optional[dict] = None):
+        """Initialize god class detector with configurable thresholds.
+
+        Args:
+            neo4j_client: Neo4j database client
+            detector_config: Optional dict with detector configuration
+        """
+        super().__init__(neo4j_client)
+
+        # Load thresholds from config or use defaults
+        config = detector_config or {}
+        self.high_method_count = config.get("god_class_high_method_count", self.DEFAULT_HIGH_METHOD_COUNT)
+        self.medium_method_count = config.get("god_class_medium_method_count", self.DEFAULT_MEDIUM_METHOD_COUNT)
+        self.high_complexity = config.get("god_class_high_complexity", self.DEFAULT_HIGH_COMPLEXITY)
+        self.medium_complexity = config.get("god_class_medium_complexity", self.DEFAULT_MEDIUM_COMPLEXITY)
+        self.high_loc = config.get("god_class_high_loc", self.DEFAULT_HIGH_LOC)
+        self.medium_loc = config.get("god_class_medium_loc", self.DEFAULT_MEDIUM_LOC)
+        self.high_lcom = config.get("god_class_high_lcom", self.DEFAULT_HIGH_LCOM)
+        self.medium_lcom = config.get("god_class_medium_lcom", self.DEFAULT_MEDIUM_LCOM)
+
+    def detect(self) -> List[Finding]:
+        """Find god classes in the codebase.
+
+        A god class is identified by:
+        - High number of methods (>20 methods)
+        - High total complexity (>100)
+        - High coupling (many outgoing calls)
+        - Combination of moderate metrics
+
+        Returns:
+            List of findings for god classes
+        """
+        findings: List[Finding] = []
+
+        # Use parameterized query to prevent injection
+        # Even though these are class attributes (not user input), parameterization
+        # is the correct and safe approach
+        query = """
+        MATCH (file:File)-[:CONTAINS]->(c:Class)
+        WITH c, file
+        MATCH (file)-[:CONTAINS]->(m:Function)
+        WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
+        WITH c, file,
+             collect(m) AS methods,
+             sum(m.complexity) AS total_complexity,
+             COALESCE(c.lineEnd, 0) - COALESCE(c.lineStart, 0) AS loc
+        WITH c, file, methods, size(methods) AS method_count, total_complexity, loc
+        WHERE method_count >= $medium_method_count OR total_complexity >= $medium_complexity OR loc >= $medium_loc
+        UNWIND methods AS m
+        OPTIONAL MATCH (m)-[:CALLS]->(called)
+        WITH c, file, methods, method_count, total_complexity, loc,
+             count(DISTINCT called) AS coupling_count
+        RETURN c.qualifiedName AS qualified_name,
+               c.name AS name,
+               c.filePath AS file_path,
+               c.lineStart AS line_start,
+               c.lineEnd AS line_end,
+               file.filePath AS containing_file,
+               method_count,
+               total_complexity,
+               coupling_count,
+               loc,
+               c.is_abstract AS is_abstract
+        ORDER BY method_count DESC, total_complexity DESC, loc DESC
+        LIMIT 50
+        """
+
+        results = self.db.execute_query(query, parameters={
+            "medium_method_count": self.medium_method_count,
+            "medium_complexity": self.medium_complexity,
+            "medium_loc": self.medium_loc
+        })
+
+        for record in results:
+            method_count = record["method_count"] or 0
+            total_complexity = record["total_complexity"] or 0
+            coupling_count = record["coupling_count"] or 0
+            loc = record["loc"] or 0
+            is_abstract = record.get("is_abstract", False)
+
+            # Skip abstract base classes (they're often large by design)
+            if is_abstract and method_count < 25:
+                continue
+
+            name = record["name"]
+
+            # Skip test classes (they naturally have many test methods)
+            if name.startswith("Test") or name.endswith("Test") or "Test" in name:
+                continue
+
+            # Calculate LCOM (Lack of Cohesion of Methods)
+            qualified_name = record["qualified_name"]
+            lcom = self._calculate_lcom(qualified_name)
+
+            # Calculate god class score
+            is_god_class, reason = self._is_god_class(
+                method_count, total_complexity, coupling_count, loc, lcom
+            )
+
+            if not is_god_class:
+                continue
+
+            file_path = record["containing_file"] or record["file_path"]
+            line_start = record["line_start"]
+            line_end = record["line_end"]
+
+            finding_id = str(uuid.uuid4())
+
+            severity = self._calculate_severity(
+                method_count, total_complexity, coupling_count, loc, lcom
+            )
+
+            finding = Finding(
+                id=finding_id,
+                detector="GodClassDetector",
+                severity=severity,
+                title=f"God class detected: {name}",
+                description=(
+                    f"Class '{name}' shows signs of being a god class: {reason}.\n\n"
+                    f"Metrics:\n"
+                    f"  - Methods: {method_count}\n"
+                    f"  - Total complexity: {total_complexity}\n"
+                    f"  - Coupling: {coupling_count}\n"
+                    f"  - Lines of code: {loc}\n"
+                    f"  - Lack of cohesion (LCOM): {lcom:.2f} (0=cohesive, 1=scattered)"
+                ),
+                affected_nodes=[qualified_name],
+                affected_files=[file_path],
+                graph_context={
+                    "type": "god_class",
+                    "name": name,
+                    "method_count": method_count,
+                    "total_complexity": total_complexity,
+                    "coupling_count": coupling_count,
+                    "loc": loc,
+                    "lcom": lcom,
+                    "line_start": line_start,
+                    "line_end": line_end,
+                },
+                suggested_fix=self._suggest_refactoring(
+                    name, method_count, total_complexity, coupling_count, loc, lcom
+                ),
+                estimated_effort=self._estimate_effort(method_count, total_complexity, loc),
+                created_at=datetime.now(),
+            )
+
+            findings.append(finding)
+
+        return findings
+
+    def _is_god_class(
+        self,
+        method_count: int,
+        total_complexity: int,
+        coupling_count: int,
+        loc: int,
+        lcom: float,
+    ) -> tuple[bool, str]:
+        """Determine if metrics indicate a god class.
+
+        Args:
+            method_count: Number of methods
+            total_complexity: Sum of all method complexities
+            coupling_count: Number of outgoing calls and imports
+            loc: Lines of code
+            lcom: Lack of cohesion metric (0-1)
+
+        Returns:
+            Tuple of (is_god_class, reason_description)
+        """
+        reasons = []
+
+        if method_count >= self.high_method_count:
+            reasons.append(f"very high method count ({method_count})")
+        elif method_count >= self.medium_method_count:
+            reasons.append(f"high method count ({method_count})")
+
+        if total_complexity >= self.high_complexity:
+            reasons.append(f"very high complexity ({total_complexity})")
+        elif total_complexity >= self.medium_complexity:
+            reasons.append(f"high complexity ({total_complexity})")
+
+        if coupling_count >= 50:
+            reasons.append(f"very high coupling ({coupling_count})")
+        elif coupling_count >= 30:
+            reasons.append(f"high coupling ({coupling_count})")
+
+        if loc >= self.high_loc:
+            reasons.append(f"very large class ({loc} LOC)")
+        elif loc >= self.medium_loc:
+            reasons.append(f"large class ({loc} LOC)")
+
+        if lcom >= self.high_lcom:
+            reasons.append(f"very low cohesion (LCOM: {lcom:.2f})")
+        elif lcom >= self.medium_lcom:
+            reasons.append(f"low cohesion (LCOM: {lcom:.2f})")
+
+        # God class if multiple moderate issues or one severe issue
+        if len(reasons) >= 2:
+            return True, ", ".join(reasons)
+        elif method_count >= self.high_method_count:
+            return True, reasons[0] if reasons else "high method count"
+        elif total_complexity >= self.high_complexity:
+            return True, reasons[0] if reasons else "high complexity"
+        elif loc >= self.high_loc:
+            return True, reasons[0] if reasons else "very large class"
+
+        return False, ""
+
+    def severity(self, finding: Finding) -> Severity:
+        """Calculate severity based on metrics.
+
+        Args:
+            finding: Finding to assess
+
+        Returns:
+            Severity level
+        """
+        context = finding.graph_context
+        method_count = context.get("method_count", 0)
+        total_complexity = context.get("total_complexity", 0)
+        coupling_count = context.get("coupling_count", 0)
+        loc = context.get("loc", 0)
+        lcom = context.get("lcom", 0.0)
+
+        return self._calculate_severity(
+            method_count, total_complexity, coupling_count, loc, lcom
+        )
+
+    def _calculate_severity(
+        self,
+        method_count: int,
+        total_complexity: int,
+        coupling_count: int,
+        loc: int,
+        lcom: float,
+    ) -> Severity:
+        """Calculate severity based on multiple metrics.
+
+        Args:
+            method_count: Number of methods
+            total_complexity: Total complexity
+            coupling_count: Coupling count
+            loc: Lines of code
+            lcom: Lack of cohesion metric
+
+        Returns:
+            Severity level
+        """
+        # Critical if multiple severe violations
+        critical_count = sum([
+            method_count >= 30,
+            total_complexity >= 150,
+            coupling_count >= 70,
+            loc >= 1000,
+            lcom >= self.high_lcom,
+        ])
+
+        if critical_count >= 2:
+            return Severity.CRITICAL
+
+        # High if one critical violation or multiple high violations
+        high_count = sum([
+            method_count >= self.high_method_count,
+            total_complexity >= self.high_complexity,
+            coupling_count >= 50,
+            loc >= self.high_loc,
+            lcom >= self.medium_lcom,
+        ])
+
+        if high_count >= 2:
+            return Severity.HIGH
+
+        # Medium for moderate violations
+        medium_count = sum([
+            method_count >= self.medium_method_count,
+            total_complexity >= self.medium_complexity,
+            coupling_count >= 30,
+            loc >= self.medium_loc,
+        ])
+
+        if medium_count >= 2:
+            return Severity.MEDIUM
+
+        return Severity.LOW
+
+    def _suggest_refactoring(
+        self,
+        name: str,
+        method_count: int,
+        total_complexity: int,
+        coupling_count: int,
+        loc: int,
+        lcom: float,
+    ) -> str:
+        """Suggest refactoring strategies.
+
+        Args:
+            name: Class name
+            method_count: Number of methods
+            total_complexity: Total complexity
+            coupling_count: Coupling count
+            loc: Lines of code
+            lcom: Lack of cohesion metric
+
+        Returns:
+            Refactoring suggestions
+        """
+        suggestions = [f"Refactor '{name}' to reduce its responsibilities:\n"]
+
+        if method_count >= 20:
+            suggestions.append(
+                f"1. Extract related methods into separate classes\n"
+                f"   - Look for method groups that work with the same data\n"
+                f"   - Create focused classes with single responsibilities"
+            )
+
+        if total_complexity >= 100:
+            suggestions.append(
+                f"2. Simplify complex methods\n"
+                f"   - Break down complex methods into smaller functions\n"
+                f"   - Consider using the Strategy or Command pattern"
+            )
+
+        if coupling_count >= 50:
+            suggestions.append(
+                f"3. Reduce coupling\n"
+                f"   - Apply dependency injection\n"
+                f"   - Use interfaces to decouple dependencies\n"
+                f"   - Consider facade or mediator patterns"
+            )
+
+        if loc >= self.high_loc:
+            suggestions.append(
+                f"4. Break down the large class ({loc} LOC)\n"
+                f"   - Split into smaller, focused classes\n"
+                f"   - Consider using composition over inheritance\n"
+                f"   - Extract data classes for complex state"
+            )
+
+        if lcom >= self.medium_lcom:
+            suggestions.append(
+                f"5. Improve cohesion (current LCOM: {lcom:.2f})\n"
+                f"   - Group methods that use the same fields\n"
+                f"   - Extract unrelated methods into separate classes\n"
+                f"   - Consider using the Extract Class refactoring"
+            )
+
+        suggestions.append(
+            f"\n6. Apply SOLID principles\n"
+            f"   - Single Responsibility: Each class should have one reason to change\n"
+            f"   - Open/Closed: Extend behavior without modifying existing code\n"
+            f"   - Liskov Substitution: Use inheritance properly\n"
+            f"   - Interface Segregation: Create specific interfaces\n"
+            f"   - Dependency Inversion: Depend on abstractions"
+        )
+
+        return "".join(suggestions)
+
+    def _estimate_effort(
+        self, method_count: int, total_complexity: int, loc: int
+    ) -> str:
+        """Estimate refactoring effort.
+
+        Args:
+            method_count: Number of methods
+            total_complexity: Total complexity
+            loc: Lines of code
+
+        Returns:
+            Effort estimate
+        """
+        if method_count >= 30 or total_complexity >= 150 or loc >= 1000:
+            return "Large (1-2 weeks)"
+        elif method_count >= 20 or total_complexity >= 100 or loc >= 500:
+            return "Medium (3-5 days)"
+        else:
+            return "Small (1-2 days)"
+
+    def _calculate_lcom(self, qualified_name: str) -> float:
+        """Calculate Lack of Cohesion of Methods (LCOM) metric.
+
+        LCOM measures how well methods in a class work together. A value near 0
+        indicates high cohesion (methods share fields), while a value near 1
+        indicates low cohesion (methods work independently).
+
+        This implements a simplified LCOM metric based on method-field relationships.
+
+        Args:
+            qualified_name: Qualified name of the class
+
+        Returns:
+            LCOM score between 0 (cohesive) and 1 (scattered)
+        """
+        # Query to get method-field usage patterns
+        query = """
+        MATCH (c:Class {qualifiedName: $qualified_name})
+        MATCH (file:File)-[:CONTAINS]->(c)
+        MATCH (file)-[:CONTAINS]->(m:Function)
+        WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
+        OPTIONAL MATCH (m)-[:USES]->(field)
+        WHERE field:Variable OR field:Attribute
+        WITH m, collect(DISTINCT field.name) AS fields
+        RETURN collect({method: m.name, fields: fields}) AS method_field_pairs,
+               count(m) AS method_count
+        """
+
+        try:
+            result = self.db.execute_query(query, {"qualified_name": qualified_name})
+            if not result:
+                return 0.0
+
+            record = result[0]
+            method_field_pairs = record.get("method_field_pairs", [])
+            method_count = record.get("method_count", 0)
+
+            if method_count <= 1:
+                return 0.0  # Single method is perfectly cohesive
+
+            # Count pairs of methods that share no fields
+            non_sharing_pairs = 0
+            total_pairs = 0
+
+            for i, pair1 in enumerate(method_field_pairs):
+                fields1 = set(pair1.get("fields", []))
+                for pair2 in method_field_pairs[i + 1 :]:
+                    fields2 = set(pair2.get("fields", []))
+                    total_pairs += 1
+
+                    # If methods share no fields, they lack cohesion
+                    if not fields1.intersection(fields2):
+                        non_sharing_pairs += 1
+
+            if total_pairs == 0:
+                return 0.0
+
+            # Return ratio of non-sharing pairs (0 = cohesive, 1 = scattered)
+            return non_sharing_pairs / total_pairs
+
+        except Exception as e:
+            # If LCOM calculation fails, return neutral value
+            return 0.5

@@ -1,10 +1,10 @@
 # CLAUDE.md
 
-This file provides comprehensive guidance to Claude Code (claude.ai/code) and developers working with the Falkor codebase.
+This file provides comprehensive guidance to Claude Code (claude.ai/code) and developers working with the Repotoire codebase.
 
 ## Project Overview
 
-Falkor is a graph-powered code health platform that analyzes codebases using knowledge graphs to detect code smells, architectural issues, and technical debt. Unlike traditional linters that examine files in isolation, Falkor builds a Neo4j knowledge graph combining:
+Repotoire is a graph-powered code health platform that analyzes codebases using knowledge graphs to detect code smells, architectural issues, and technical debt. Unlike traditional linters that examine files in isolation, Repotoire builds a Neo4j knowledge graph combining:
 - **Structural analysis** (AST parsing)
 - **Semantic understanding** (NLP + AI)
 - **Relational patterns** (graph algorithms)
@@ -32,7 +32,7 @@ Neo4j is required for the graph database. Start with Docker:
 
 ```bash
 docker run \
-    --name falkor-neo4j \
+    --name repotoire-neo4j \
     -p 7474:7474 -p 7687:7687 \
     -d \
     -e NEO4J_AUTH=neo4j/your-password \
@@ -42,7 +42,7 @@ docker run \
 
 Configure credentials:
 ```bash
-export FALKOR_NEO4J_PASSWORD=your-password
+export REPOTOIRE_NEO4J_PASSWORD=your-password
 ```
 
 ### Common Commands
@@ -52,25 +52,25 @@ export FALKOR_NEO4J_PASSWORD=your-password
 pytest
 
 # Run tests with coverage
-pytest --cov=falkor --cov-report=term-missing --cov-report=html
+pytest --cov=repotoire --cov-report=term-missing --cov-report=html
 
 # Format code
-black falkor tests
+black repotoire tests
 
 # Lint
-ruff check falkor tests
+ruff check repotoire tests
 
 # Type check
-mypy falkor
+mypy repotoire
 
 # Ingest a codebase into Neo4j
-falkor ingest /path/to/repo
+repotoire ingest /path/to/repo
 
 # Analyze codebase health
-falkor analyze /path/to/repo -o report.html --format html
+repotoire analyze /path/to/repo -o report.html --format html
 
 # Validate configuration
-falkor validate
+repotoire validate
 ```
 
 ## Architecture
@@ -79,20 +79,20 @@ falkor validate
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│                           FALKOR ARCHITECTURE                             │
+│                           REPOTOIRE ARCHITECTURE                             │
 └──────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  INPUT LAYER                                                             │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  • Source Code Repository                                               │
-│  • Configuration Files (.falkorrc, falkor.toml)                         │
-│  • Environment Variables (FALKOR_*)                                     │
+│  • Configuration Files (.repotoirerc, repotoire.toml)                         │
+│  • Environment Variables (REPOTOIRE_*)                                     │
 └────────────────────────────┬────────────────────────────────────────────┘
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  PARSING LAYER (falkor/parsers/)                                        │
+│  PARSING LAYER (repotoire/parsers/)                                        │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌──────────────┐  ┌──────────────┐                  │
 │  │  Python     │  │  TypeScript  │  │  Java        │                  │
@@ -109,7 +109,7 @@ falkor validate
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  INGESTION PIPELINE (falkor/pipeline/)                                  │
+│  INGESTION PIPELINE (repotoire/pipeline/)                                  │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  1. Scan Repository (glob patterns, security validation)               │
 │  2. Parse Files (extract entities & relationships)                     │
@@ -120,7 +120,7 @@ falkor validate
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  GRAPH LAYER (falkor/graph/)                                            │
+│  GRAPH LAYER (repotoire/graph/)                                            │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  ┌────────────────────────────────────────────────────────────────┐   │
 │  │                     NEO4J DATABASE                              │   │
@@ -141,7 +141,7 @@ falkor validate
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  ANALYSIS ENGINE (falkor/detectors/)                                    │
+│  ANALYSIS ENGINE (repotoire/detectors/)                                    │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  ┌───────────────────┐  ┌──────────────────┐  ┌─────────────────────┐ │
 │  │  Circular Dep     │  │  God Class       │  │  Dead Code          │ │
@@ -171,7 +171,7 @@ falkor validate
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  REPORTING LAYER (falkor/reporters/, falkor/cli.py)                     │
+│  REPORTING LAYER (repotoire/reporters/, repotoire/cli.py)                     │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌──────────────┐  ┌──────────────┐                  │
 │  │  Terminal   │  │  JSON        │  │  HTML        │                  │
@@ -204,7 +204,7 @@ falkor validate
 
 ## Component Structure (Detailed)
 
-### 1. Parsers (`falkor/parsers/`)
+### 1. Parsers (`repotoire/parsers/`)
 
 **Purpose**: Extract structured information from source code files.
 
@@ -234,7 +234,7 @@ class PythonParser(CodeParser):
         """Extract relationships from AST."""
 ```
 
-### 2. Graph Layer (`falkor/graph/`)
+### 2. Graph Layer (`repotoire/graph/`)
 
 **Purpose**: Manage Neo4j database connection and operations.
 
@@ -278,7 +278,7 @@ FOR (n:Class|Function) ON EACH [n.docstring];
 - Configurable via config file or environment variables
 - Only retries transient errors (connection failures, session expired)
 
-### 3. Pipeline (`falkor/pipeline/`)
+### 3. Pipeline (`repotoire/pipeline/`)
 
 **Purpose**: Orchestrate the complete ingestion process.
 
@@ -309,7 +309,7 @@ FOR (n:Class|Function) ON EACH [n.docstring];
 7. Repeat until all files processed
 ```
 
-### 4. Detectors (`falkor/detectors/`)
+### 4. Detectors (`repotoire/detectors/`)
 
 **Purpose**: Analyze graph to detect code smells and issues.
 
@@ -340,7 +340,7 @@ class CircularDependencyDetector(CodeSmellDetector):
         return [self._create_finding(result) for result in results]
 ```
 
-### 5. Models (`falkor/models.py`)
+### 5. Models (`repotoire/models.py`)
 
 **Purpose**: Define data structures for the entire system.
 
@@ -358,15 +358,15 @@ class CircularDependencyDetector(CodeSmellDetector):
 - **Enums for types**: NodeType, RelationshipType, Severity for type safety
 - **Immutable where possible**: Prevents accidental modifications
 
-### 6. CLI (`falkor/cli.py`)
+### 6. CLI (`repotoire/cli.py`)
 
 **Purpose**: Command-line interface for user interaction.
 
 **Commands**:
-1. **`falkor ingest`**: Load codebase into graph
-2. **`falkor analyze`**: Run detectors and generate report
-3. **`falkor validate`**: Validate configuration
-4. **`falkor config`**: Generate config templates
+1. **`repotoire ingest`**: Load codebase into graph
+2. **`repotoire analyze`**: Run detectors and generate report
+3. **`repotoire validate`**: Validate configuration
+4. **`repotoire config`**: Generate config templates
 
 **Design Decisions**:
 - **Click framework**: Industry standard, easy to extend
@@ -382,7 +382,7 @@ class CircularDependencyDetector(CodeSmellDetector):
 - Progress bars with color gradients
 - Status assessments (Excellent/Good/Poor)
 
-### 7. Reporters (`falkor/reporters/`)
+### 7. Reporters (`repotoire/reporters/`)
 
 **Purpose**: Generate analysis reports in various formats.
 
@@ -404,14 +404,14 @@ class CircularDependencyDetector(CodeSmellDetector):
 - Multi-language syntax support
 - Progress bars for metrics
 
-### 8. Configuration (`falkor/config.py`)
+### 8. Configuration (`repotoire/config.py`)
 
 **Purpose**: Manage all configuration options.
 
 **Configuration Sources** (priority order):
 1. Command-line arguments
-2. Environment variables (`FALKOR_*`)
-3. Config file (`.falkorrc`, `falkor.toml`)
+2. Environment variables (`REPOTOIRE_*`)
+3. Config file (`.repotoirerc`, `repotoire.toml`)
 4. Built-in defaults
 
 **Design Decisions**:
@@ -426,7 +426,7 @@ class CircularDependencyDetector(CodeSmellDetector):
 - Validate all paths and inputs
 - Disable symlinks by default
 
-### 9. Validation (`falkor/validation.py`)
+### 9. Validation (`repotoire/validation.py`)
 
 **Purpose**: Validate all user inputs with helpful error messages.
 
@@ -528,7 +528,7 @@ class CircularDependencyDetector(CodeSmellDetector):
 ### Adding a New Language Parser
 
 **Steps**:
-1. Create new file in `falkor/parsers/` (e.g., `typescript_parser.py`)
+1. Create new file in `repotoire/parsers/` (e.g., `typescript_parser.py`)
 2. Inherit from `CodeParser` base class
 3. Implement required methods:
    - `parse(file_path)` → AST or parse tree
@@ -540,8 +540,8 @@ class CircularDependencyDetector(CodeSmellDetector):
 
 **Example**:
 ```python
-from falkor.parsers.base import CodeParser
-from falkor.models import Entity, Relationship
+from repotoire.parsers.base import CodeParser
+from repotoire.models import Entity, Relationship
 
 class TypeScriptParser(CodeParser):
     def parse(self, file_path: str):
@@ -558,7 +558,7 @@ class TypeScriptParser(CodeParser):
 ### Adding a New Detector
 
 **Steps**:
-1. Create new file in `falkor/detectors/` (e.g., `feature_envy.py`)
+1. Create new file in `repotoire/detectors/` (e.g., `feature_envy.py`)
 2. Inherit from `CodeSmellDetector` base class
 3. Implement `detect(db: Neo4jClient) → List[Finding]`
 4. Write Cypher query to find pattern
@@ -569,8 +569,8 @@ class TypeScriptParser(CodeParser):
 
 **Example**:
 ```python
-from falkor.detectors.base import CodeSmellDetector
-from falkor.models import Finding, Severity
+from repotoire.detectors.base import CodeSmellDetector
+from repotoire.models import Finding, Severity
 
 class FeatureEnvyDetector(CodeSmellDetector):
     def detect(self, db: Neo4jClient) -> List[Finding]:
@@ -603,7 +603,7 @@ class FeatureEnvyDetector(CodeSmellDetector):
 ### Adding a New Report Format
 
 **Steps**:
-1. Create new file in `falkor/reporters/` (e.g., `pdf_reporter.py`)
+1. Create new file in `repotoire/reporters/` (e.g., `pdf_reporter.py`)
 2. Implement `generate(health: CodebaseHealth, output_path: Path)`
 3. Use appropriate library (e.g., ReportLab for PDF)
 4. Add to CLI's format choices in `analyze` command
@@ -616,7 +616,7 @@ class FeatureEnvyDetector(CodeSmellDetector):
 **Future**: External template file for customization.
 
 **Steps to customize**:
-1. Find `HTML_TEMPLATE` variable in `falkor/reporters/html_reporter.py`
+1. Find `HTML_TEMPLATE` variable in `repotoire/reporters/html_reporter.py`
 2. Modify HTML structure or CSS styling
 3. Template uses Jinja2 syntax: `{{ variable }}`, `{% for ... %}`
 4. Variables available: `health`, `findings`, `generated_at`, etc.
@@ -636,9 +636,9 @@ class FeatureEnvyDetector(CodeSmellDetector):
 1. Check Neo4j is running: `docker ps | grep neo4j`
 2. Verify port 7687 is accessible: `telnet localhost 7687`
 3. Check URI uses Bolt protocol: `bolt://` not `http://`
-4. Test with `falkor validate`
+4. Test with `repotoire validate`
 5. Check firewall rules
-6. Verify credentials: `echo $FALKOR_NEO4J_PASSWORD`
+6. Verify credentials: `echo $REPOTOIRE_NEO4J_PASSWORD`
 
 #### 2. Ingestion Performance Issues
 
@@ -688,9 +688,9 @@ class FeatureEnvyDetector(CodeSmellDetector):
 - Config file not found
 
 **Solutions**:
-1. Check file name: `.falkorrc` or `falkor.toml`
+1. Check file name: `.repotoirerc` or `repotoire.toml`
 2. Check file location: Current dir, parents, or `~/.config/`
-3. Validate syntax: Run `falkor validate`
+3. Validate syntax: Run `repotoire validate`
 4. Check file permissions: Must be readable
 5. Use `--config` flag for explicit path
 
@@ -744,7 +744,7 @@ tests/
 pytest
 
 # With coverage
-pytest --cov=falkor --cov-report=html
+pytest --cov=repotoire --cov-report=html
 
 # Specific test file
 pytest tests/unit/test_validation.py
@@ -978,11 +978,11 @@ This ensures:
 ### Credential Management
 - Never commit passwords
 - Use environment variables: `${NEO4J_PASSWORD}`
-- Restrict config file permissions: `chmod 600 .falkorrc`
+- Restrict config file permissions: `chmod 600 .repotoirerc`
 - Use secure Neo4j connections in production: `bolt+s://`
 
 ### Neo4j Access Control
-- Use dedicated Neo4j user for Falkor
+- Use dedicated Neo4j user for Repotoire
 - Limit permissions to necessary operations
 - Use authentication always
 - Enable encryption for production

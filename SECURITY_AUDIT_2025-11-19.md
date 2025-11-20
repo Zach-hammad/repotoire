@@ -1,4 +1,4 @@
-# Falkor Security Audit Report
+# Repotoire Security Audit Report
 **Date:** 2025-11-19
 **Auditor:** Claude (Contrarian Security Review)
 **Scope:** Cypher injection, path traversal, secrets handling
@@ -23,7 +23,7 @@ Multiple files use f-string interpolation to build Cypher queries instead of usi
 
 ### Affected Files
 
-#### 1. `falkor/detectors/graph_algorithms.py`
+#### 1. `repotoire/detectors/graph_algorithms.py`
 
 **Vulnerable Code:**
 
@@ -98,7 +98,7 @@ projection_name = "test') YIELD exists MATCH (n) DETACH DELETE n //"
 
 ---
 
-#### 2. `falkor/detectors/god_class.py`
+#### 2. `repotoire/detectors/god_class.py`
 
 **Vulnerable Code:**
 
@@ -123,7 +123,7 @@ WHERE method_count >= {self.medium_method_count} OR total_complexity >= {self.me
 
 ---
 
-#### 3. `falkor/detectors/temporal_metrics.py`
+#### 3. `repotoire/detectors/temporal_metrics.py`
 
 **Vulnerable Code:**
 
@@ -136,7 +136,7 @@ query = f"""..."""
 
 ---
 
-#### 4. `falkor/graph/client.py`
+#### 4. `repotoire/graph/client.py`
 
 **Vulnerable Code:**
 
@@ -208,12 +208,12 @@ The ingestion pipeline has robust path traversal protection:
 
 **Security Measures:**
 
-1. **Path Resolution** (`falkor/pipeline/ingestion.py:62`):
+1. **Path Resolution** (`repotoire/pipeline/ingestion.py:62`):
    ```python
    self.repo_path = repo_path_obj.resolve()
    ```
 
-2. **Boundary Validation** (`falkor/pipeline/ingestion.py:127-138`):
+2. **Boundary Validation** (`repotoire/pipeline/ingestion.py:127-138`):
    ```python
    def _validate_file_path(self, file_path: Path) -> None:
        """Validate file path is within repository boundary."""
@@ -260,7 +260,7 @@ No hardcoded secrets found in production code.
 **Findings:**
 
 1. **Test Files Only:**
-   - `test_ingestion.py:31` has `neo4j_password = "falkor-password"` (test fixture - acceptable)
+   - `test_ingestion.py:31` has `neo4j_password = "repotoire-password"` (test fixture - acceptable)
    - `tests/test_secrets_scanner.py` has example secrets for testing the scanner (expected)
 
 2. **Credential Handling:**
@@ -285,7 +285,7 @@ No hardcoded secrets found in production code.
 
 **Strengths:**
 
-1. **Comprehensive Validation Framework** (`falkor/validation.py`):
+1. **Comprehensive Validation Framework** (`repotoire/validation.py`):
    - Repository path validation
    - Neo4j URI validation
    - Credential validation
@@ -323,17 +323,17 @@ No hardcoded secrets found in production code.
 **Estimated Effort:** 4-6 hours
 
 **Files to Fix:**
-1. `falkor/detectors/graph_algorithms.py` (5 injection points)
-2. `falkor/graph/client.py` (1 injection point)
-3. `falkor/detectors/god_class.py` (1 injection point)
-4. `falkor/detectors/temporal_metrics.py` (verify and fix)
-5. `falkor/detectors/engine.py` (verify - may have queries)
+1. `repotoire/detectors/graph_algorithms.py` (5 injection points)
+2. `repotoire/graph/client.py` (1 injection point)
+3. `repotoire/detectors/god_class.py` (1 injection point)
+4. `repotoire/detectors/temporal_metrics.py` (verify and fix)
+5. `repotoire/detectors/engine.py` (verify - may have queries)
 
 **Implementation Steps:**
 
 1. **Add validation functions:**
    ```python
-   # falkor/validation.py
+   # repotoire/validation.py
    def validate_identifier(name: str, context: str = "identifier") -> str:
        """Validate identifier is alphanumeric + underscores/hyphens."""
        if not re.match(r'^[a-zA-Z0-9_-]+$', name):

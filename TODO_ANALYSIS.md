@@ -1,7 +1,7 @@
-# TODO.md Technical Accuracy Analysis - Falkor Project
+# TODO.md Technical Accuracy Analysis - Repotoire Project
 
 **Analysis Date:** 2025-11-19  
-**Repository:** /home/zach/code/falkor  
+**Repository:** /home/zach/code/repotoire  
 **Version:** 0.1.0 (MVP)
 
 ---
@@ -27,8 +27,8 @@ The TODO.md file claims Phase 1 (Foundation) is complete with 9 checkboxes marke
 **TODO Status:** [x] Project structure
 
 **Implementation Found:**
-- `/falkor/` main package with proper Python structure
-- `/falkor/parsers/`, `/falkor/graph/`, `/falkor/detectors/`, `/falkor/pipeline/`, `/falkor/ai/`
+- `/repotoire/` main package with proper Python structure
+- `/repotoire/parsers/`, `/repotoire/graph/`, `/repotoire/detectors/`, `/repotoire/pipeline/`, `/repotoire/ai/`
 - `/tests/` directory with test files
 - `/examples/` directory for samples
 - `/docs/` directory for documentation
@@ -42,7 +42,7 @@ The TODO.md file claims Phase 1 (Foundation) is complete with 9 checkboxes marke
 **TODO Status:** [x] Data models
 
 **Implementation Found:**
-- `/falkor/models.py` with comprehensive dataclasses:
+- `/repotoire/models.py` with comprehensive dataclasses:
   - `Entity` (base), `FileEntity`, `ClassEntity`, `FunctionEntity`
   - `Concept`, `Relationship`, `Finding`, `FixSuggestion`
   - `MetricsBreakdown`, `FindingsSummary`, `CodebaseHealth`
@@ -58,7 +58,7 @@ The TODO.md file claims Phase 1 (Foundation) is complete with 9 checkboxes marke
 **TODO Status:** [x] Neo4j client
 
 **Implementation Found:**
-- `/falkor/graph/client.py` with `Neo4jClient` class:
+- `/repotoire/graph/client.py` with `Neo4jClient` class:
   - Connection management with driver support
   - CRUD operations: `create_node()`, `batch_create_nodes()`, `create_relationship()`
   - Query execution: `execute_query()` with parameter support
@@ -75,7 +75,7 @@ The TODO.md file claims Phase 1 (Foundation) is complete with 9 checkboxes marke
 **TODO Status:** [x] Graph schema
 
 **Implementation Found:**
-- `/falkor/graph/schema.py` with `GraphSchema` class:
+- `/repotoire/graph/schema.py` with `GraphSchema` class:
   - Uniqueness constraints for File.filePath, Class/Function.qualifiedName
   - Performance indexes on file paths, qualified names
   - Full-text search indexes on docstrings
@@ -91,7 +91,7 @@ The TODO.md file claims Phase 1 (Foundation) is complete with 9 checkboxes marke
 **TODO Status:** [x] Base parser interface
 
 **Implementation Found:**
-- `/falkor/parsers/base.py` with abstract `CodeParser` class:
+- `/repotoire/parsers/base.py` with abstract `CodeParser` class:
   - Abstract methods: `parse()`, `extract_entities()`, `extract_relationships()`
   - Concrete method: `process_file()` orchestrating the workflow
   - Proper type hints with `List[Entity]` and `List[Relationship]`
@@ -105,7 +105,7 @@ The TODO.md file claims Phase 1 (Foundation) is complete with 9 checkboxes marke
 **TODO Status:** [x] Python parser (basic)
 
 **Implementation Found:**
-- `/falkor/parsers/python_parser.py` with `PythonParser` class implementing `CodeParser`:
+- `/repotoire/parsers/python_parser.py` with `PythonParser` class implementing `CodeParser`:
   - ✅ `parse()` - Implemented using Python AST module
   - ✅ `extract_entities()` - Extracts files, classes, functions with metadata
   - ⚠️ `extract_relationships()` - **CRITICAL: Marked as done but mostly unimplemented**
@@ -151,7 +151,7 @@ def extract_relationships(self, tree: ast.AST, file_path: str, entities: List[En
 **TODO Status:** [x] Ingestion pipeline
 
 **Implementation Found:**
-- `/falkor/pipeline/ingestion.py` with `IngestionPipeline` class:
+- `/repotoire/pipeline/ingestion.py` with `IngestionPipeline` class:
   - ✅ `scan()` - Finds files with glob patterns, filters ignored dirs
   - ✅ `parse_and_extract()` - Coordinates parsing with error handling
   - ✅ `load_to_graph()` - Loads entities and relationships to Neo4j
@@ -170,7 +170,7 @@ def extract_relationships(self, tree: ast.AST, file_path: str, entities: List[En
 **TODO Status:** [x] CLI skeleton
 
 **Implementation Found:**
-- `/falkor/cli.py` with Click-based CLI:
+- `/repotoire/cli.py` with Click-based CLI:
   - ✅ `ingest` command - Ingests codebase with options for Neo4j URI, auth, patterns
   - ✅ `analyze` command - Runs analysis and generates reports with JSON export
   - ✅ `_display_health_report()` - Displays formatted results with Rich tables/panels
@@ -188,7 +188,7 @@ def extract_relationships(self, tree: ast.AST, file_path: str, entities: List[En
 **TODO Status:** [x] Analysis engine skeleton
 
 **Implementation Found:**
-- `/falkor/detectors/engine.py` with `AnalysisEngine` class:
+- `/repotoire/detectors/engine.py` with `AnalysisEngine` class:
   - ✅ `analyze()` - Orchestrates complete analysis workflow
   - ✅ Scoring system: `_score_structure()`, `_score_quality()`, `_score_architecture()`
   - ✅ Grade calculation with thresholds (A-F)
@@ -267,7 +267,7 @@ Also in `_calculate_metrics()`:
 
 **Current Architecture:**
 ```python
-# /falkor/detectors/base.py - CodeSmellDetector interface
+# /repotoire/detectors/base.py - CodeSmellDetector interface
 class CodeSmellDetector(ABC):
     def detect(self) -> List[Finding]:
         """Run detection algorithm on the graph."""
@@ -316,7 +316,7 @@ class CodeSmellDetector(ABC):
 
 ### Implementation Status
 ❌ **NOT STARTED**
-- `/falkor/ai/__init__.py` is empty with all imports commented out
+- `/repotoire/ai/__init__.py` is empty with all imports commented out
 - No actual modules for:
   - ConceptExtractor
   - SummaryGenerator
@@ -423,7 +423,7 @@ class CodeSmellDetector(ABC):
 
 **Code Location:**
 ```python
-# /falkor/detectors/engine.py, line 40
+# /repotoire/detectors/engine.py, line 40
 self.detectors = []  # TODO: Register detectors
 ```
 
@@ -496,25 +496,25 @@ self.detectors = []  # TODO: Register detectors
 ### 🔴 ISSUE 1: Unimplemented Relationship Extraction
 **Severity:** CRITICAL
 **Impact:** Blocks entire Phase 3 and 4
-**Location:** `/falkor/parsers/python_parser.py` lines 101-110
+**Location:** `/repotoire/parsers/python_parser.py` lines 101-110
 **Fix:** Implement IMPORTS and CALLS relationship extraction
 
 ### 🔴 ISSUE 2: Hardcoded Metric Placeholder Values
 **Severity:** CRITICAL
 **Impact:** All health reports show fake data
-**Location:** `/falkor/detectors/engine.py` lines 89-105
+**Location:** `/repotoire/detectors/engine.py` lines 89-105
 **Fix:** Implement actual graph query calculations
 
 ### 🔴 ISSUE 3: Detector Registration Not Implemented
 **Severity:** HIGH
 **Impact:** Cannot run detectors even when implemented
-**Location:** `/falkor/detectors/engine.py` line 40
+**Location:** `/repotoire/detectors/engine.py` line 40
 **Fix:** Implement detector registration and execution
 
 ### 🔴 ISSUE 4: Analysis Engine Detector Call Commented Out
 **Severity:** HIGH
 **Impact:** Even if detectors registered, won't run
-**Location:** `/falkor/detectors/engine.py` line 54
+**Location:** `/repotoire/detectors/engine.py` line 54
 **Fix:** Uncomment and implement `_run_detectors()`
 
 ---

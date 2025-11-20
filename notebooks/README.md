@@ -1,13 +1,13 @@
-# Falkor Jupyter Notebooks
+# Repotoire Jupyter Notebooks
 
-This directory contains example Jupyter notebooks demonstrating Falkor's capabilities.
+This directory contains example Jupyter notebooks demonstrating Repotoire's capabilities.
 
 ## Notebooks
 
 ### 1. Basic Analysis (`01_basic_analysis.ipynb`)
 **Recommended starting point for new users**
 
-Learn the fundamental Falkor workflow:
+Learn the fundamental Repotoire workflow:
 - Setting up connections to Neo4j
 - Ingesting a codebase into the knowledge graph
 - Running analysis and interpreting results
@@ -76,7 +76,7 @@ Analyze and compare multiple codebases:
 
 ### Installation
 
-1. **Install Falkor with Jupyter support**:
+1. **Install Repotoire with Jupyter support**:
    ```bash
    pip install -e ".[dev]"
    pip install jupyter networkx matplotlib plotly pandas
@@ -84,19 +84,19 @@ Analyze and compare multiple codebases:
 
 2. **Start Neo4j**:
    ```bash
-   docker run --name falkor-neo4j \
+   docker run --name repotoire-neo4j \
        -p 7474:7474 -p 7687:7687 \
        -e NEO4J_AUTH=neo4j/your-password \
        neo4j:latest
    ```
 
-3. **Configure Falkor** (create `.env` or `.falkorrc`):
+3. **Configure Repotoire** (create `.env` or `.repotoirerc`):
    ```bash
    # Copy example config
    cp .env.example .env
 
    # Edit with your Neo4j credentials
-   FALKOR_NEO4J_PASSWORD=your-password
+   REPOTOIRE_NEO4J_PASSWORD=your-password
    ```
 
 ### Running Notebooks
@@ -112,7 +112,7 @@ Analyze and compare multiple codebases:
 
 ### Quick Start Path
 
-New to Falkor? Follow this learning path:
+New to Repotoire? Follow this learning path:
 
 1. Start with `01_basic_analysis.ipynb` to understand the workflow
 2. Read the generated reports to understand findings
@@ -124,10 +124,10 @@ New to Falkor? Follow this learning path:
 
 ## Configuration
 
-All notebooks use Falkor's configuration system. Configure via:
+All notebooks use Repotoire's configuration system. Configure via:
 
-- **Environment variables**: `FALKOR_NEO4J_URI`, `FALKOR_NEO4J_PASSWORD`, etc.
-- **Config file**: `.falkorrc` (YAML) or `falkor.toml`
+- **Environment variables**: `REPOTOIRE_NEO4J_URI`, `REPOTOIRE_NEO4J_PASSWORD`, etc.
+- **Config file**: `.repotoirerc` (YAML) or `repotoire.toml`
 - **Direct parameters**: Pass to `Neo4jClient()` constructor
 
 See `CONFIG.md` in the project root for full configuration reference.
@@ -147,11 +147,11 @@ See `CONFIG.md` in the project root for full configuration reference.
 
 ### Import Errors
 
-**Problem**: `ModuleNotFoundError: No module named 'falkor'`
+**Problem**: `ModuleNotFoundError: No module named 'repotoire'`
 
 **Solution**:
-- Install Falkor in development mode: `pip install -e .`
-- Verify installation: `python -c "import falkor; print(falkor.__file__)"`
+- Install Repotoire in development mode: `pip install -e .`
+- Verify installation: `python -c "import repotoire; print(repotoire.__file__)"`
 
 ### Visualization Issues
 
@@ -205,7 +205,7 @@ Notebooks generate various output files:
 
 ## Additional Resources
 
-- **Falkor Documentation**: See `README.md` and `CLAUDE.md`
+- **Repotoire Documentation**: See `README.md` and `CLAUDE.md`
 - **Neo4j Cypher Manual**: https://neo4j.com/docs/cypher-manual/
 - **Jupyter Documentation**: https://jupyter.org/documentation
 - **Example Datasets**: Use your own codebases or public repos
@@ -226,13 +226,13 @@ Found an issue or have an improvement?
 
 ## License
 
-These notebooks are part of the Falkor project and licensed under MIT License.
+These notebooks are part of the Repotoire project and licensed under MIT License.
 
 ---
 
 ## Support
 
-- **Issues**: https://github.com/yourusername/falkor/issues
+- **Issues**: https://github.com/yourusername/repotoire/issues
 - **Documentation**: See project README.md
 - **Community**: Join our discussions
 

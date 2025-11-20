@@ -1,4 +1,4 @@
-# Adding New Language Support to Falkor
+# Adding New Language Support to Repotoire
 
 This guide shows how to add support for a new programming language using the tree-sitter universal AST adapter pattern.
 
@@ -36,13 +36,13 @@ all-languages = [
 
 ### Step 2: Create Parser File
 
-Create `falkor/parsers/tree_sitter_typescript.py`:
+Create `repotoire/parsers/tree_sitter_typescript.py`:
 
 ```python
 """Tree-sitter TypeScript parser."""
 
-from falkor.parsers.base_tree_sitter_parser import BaseTreeSitterParser
-from falkor.parsers.tree_sitter_adapter import TreeSitterAdapter
+from repotoire.parsers.base_tree_sitter_parser import BaseTreeSitterParser
+from repotoire.parsers.tree_sitter_adapter import TreeSitterAdapter
 
 
 class TreeSitterTypeScriptParser(BaseTreeSitterParser):
@@ -99,10 +99,10 @@ class TreeSitterTypeScriptParser(BaseTreeSitterParser):
 
 ### Step 4: Register Parser in Pipeline
 
-Edit `falkor/pipeline/ingestion.py`:
+Edit `repotoire/pipeline/ingestion.py`:
 
 ```python
-from falkor.parsers.tree_sitter_typescript import TreeSitterTypeScriptParser
+from repotoire.parsers.tree_sitter_typescript import TreeSitterTypeScriptParser
 
 class IngestionPipeline:
     def __init__(self, ...):
@@ -120,7 +120,7 @@ Create `tests/unit/parsers/test_typescript_parser.py`:
 
 ```python
 import pytest
-from falkor.parsers.tree_sitter_typescript import TreeSitterTypeScriptParser
+from repotoire.parsers.tree_sitter_typescript import TreeSitterTypeScriptParser
 
 
 @pytest.mark.skipif(
@@ -269,9 +269,9 @@ def _extract_import_names(self, import_node):
 Here's a complete example adding Rust:
 
 ```python
-# falkor/parsers/tree_sitter_rust.py
-from falkor.parsers.base_tree_sitter_parser import BaseTreeSitterParser
-from falkor.parsers.tree_sitter_adapter import TreeSitterAdapter
+# repotoire/parsers/tree_sitter_rust.py
+from repotoire.parsers.base_tree_sitter_parser import BaseTreeSitterParser
+from repotoire.parsers.tree_sitter_adapter import TreeSitterAdapter
 from typing import List, Optional
 
 
@@ -354,7 +354,7 @@ Visit https://tree-sitter.github.io/tree-sitter/playground to:
 
 ```python
 import logging
-logging.getLogger("falkor.parsers").setLevel(logging.DEBUG)
+logging.getLogger("repotoire.parsers").setLevel(logging.DEBUG)
 
 parser = TreeSitterTypeScriptParser()
 # ... will now print debug messages
@@ -364,7 +364,7 @@ parser = TreeSitterTypeScriptParser()
 
 When adding a new language:
 
-1. Create parser file in `falkor/parsers/`
+1. Create parser file in `repotoire/parsers/`
 2. Add tests in `tests/unit/parsers/`
 3. Update `pyproject.toml` optional dependencies
 4. Update this documentation with node mappings

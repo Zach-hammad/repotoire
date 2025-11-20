@@ -1,4 +1,4 @@
-# Falkor Implementation Roadmap
+# Repotoire Implementation Roadmap
 
 ## MVP - Core Functionality (Python-only, 3-4 detectors, CLI reporting)
 
@@ -147,7 +147,7 @@
 - [ ] Configuration validation on startup
 
 **Configuration & Environment**
-- [ ] Support config file loading (.falkorrc, falkor.toml)
+- [ ] Support config file loading (.repotoirerc, repotoire.toml)
 - [ ] Environment variable fallback chains
 - [ ] Configurable batch sizes and thresholds
 - [ ] Config schema documentation
@@ -157,7 +157,7 @@
 - [ ] Add progress bars for ingestion/analysis
 - [ ] Export reports to JSON (already working)
 - [ ] Export reports to HTML (with templates)
-- [ ] Add `falkor validate` command (check config, Neo4j connection)
+- [ ] Add `repotoire validate` command (check config, Neo4j connection)
 
 **Documentation**
 - [ ] API documentation (docstrings for all public methods)
@@ -179,8 +179,8 @@
 - [ ] PyPI publication setup
 
 **Deployment**
-- [ ] Docker support for Falkor tool (not just Neo4j)
-- [ ] Docker Compose with Neo4j + Falkor
+- [ ] Docker support for Repotoire tool (not just Neo4j)
+- [ ] Docker Compose with Neo4j + Repotoire
 - [ ] CI/CD pipeline for testing on PRs
 - [ ] Security audit (code injection, Neo4j query injection)
 

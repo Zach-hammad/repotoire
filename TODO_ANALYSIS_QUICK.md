@@ -28,7 +28,7 @@ PHASE 1 COMPLETION: 67% (6 out of 9 items genuinely complete)
 ## Key Code Issues
 
 ### 1. Python Parser - RELATIONSHIP EXTRACTION MISSING
-**File:** `/falkor/parsers/python_parser.py` lines 98-110
+**File:** `/repotoire/parsers/python_parser.py` lines 98-110
 ```python
 for node in ast.walk(tree):
     if isinstance(node, ast.Import):
@@ -47,7 +47,7 @@ for node in ast.walk(tree):
 ---
 
 ### 2. Analysis Engine - FAKE METRICS
-**File:** `/falkor/detectors/engine.py` lines 89-105
+**File:** `/repotoire/detectors/engine.py` lines 89-105
 ```python
 return MetricsBreakdown(
     total_files=stats.get("total_files", 0),
@@ -66,7 +66,7 @@ return MetricsBreakdown(
 ---
 
 ### 3. Analysis Engine - DETECTORS NOT REGISTERED
-**File:** `/falkor/detectors/engine.py` line 40
+**File:** `/repotoire/detectors/engine.py` line 40
 ```python
 self.detectors = []  # TODO: Register detectors
 ```
@@ -76,7 +76,7 @@ self.detectors = []  # TODO: Register detectors
 ---
 
 ### 4. Analysis Engine - DETECTOR EXECUTION DISABLED
-**File:** `/falkor/detectors/engine.py` line 54
+**File:** `/repotoire/detectors/engine.py` line 54
 ```python
 findings = []  # self._run_detectors()  ← COMMENTED OUT
 ```

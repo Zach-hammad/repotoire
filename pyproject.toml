@@ -3,14 +3,14 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "falkor"
+name = "repotoire"
 version = "0.1.0"
 description = "Graph-Powered Code Health Platform"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "Falkor Team"}
+    {name = "Repotoire Team"}
 ]
 keywords = ["code-analysis", "knowledge-graph", "technical-debt", "neo4j", "static-analysis"]
 classifiers = [
@@ -49,7 +49,7 @@ dev = [
 ]
 
 config = [
-    "pyyaml>=6.0",  # YAML config file support (.falkorrc)
+    "pyyaml>=6.0",  # YAML config file support (.reporc)
     "tomli>=2.0.0; python_version < '3.11'",  # TOML support for older Python
 ]
 
@@ -65,17 +65,17 @@ all-languages = [
 ]
 
 [project.scripts]
-falkor = "falkor.cli:main"
+repotoire = "repotoire.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/falkor"
-Documentation = "https://falkor.readthedocs.io"
-Repository = "https://github.com/yourusername/falkor"
-Issues = "https://github.com/yourusername/falkor/issues"
+Homepage = "https://github.com/yourusername/repotoire"
+Documentation = "https://repotoire.readthedocs.io"
+Repository = "https://github.com/yourusername/repotoire"
+Issues = "https://github.com/yourusername/repotoire/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["falkor*"]
+include = ["repotoire*"]
 
 [tool.black]
 line-length = 100
@@ -99,7 +99,7 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 # addopts = [
-#     "--cov=falkor",
+#     "--cov=repotoire",
 #     "--cov-report=term-missing",
 #     "--cov-report=html",
 # ]
