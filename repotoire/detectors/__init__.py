@@ -14,8 +14,9 @@ from repotoire.detectors.middle_man import MiddleManDetector
 from repotoire.detectors.inappropriate_intimacy import InappropriateIntimacyDetector
 from repotoire.detectors.truly_unused_imports import TrulyUnusedImportsDetector
 
-# Hybrid detectors (ruff + graph)
+# Hybrid detectors (external tool + graph)
 from repotoire.detectors.ruff_import_detector import RuffImportDetector
+from repotoire.detectors.mypy_detector import MypyDetector
 
 __all__ = [
     "AnalysisEngine",
@@ -32,4 +33,5 @@ __all__ = [
     "TrulyUnusedImportsDetector",
     # Hybrid detectors
     "RuffImportDetector",
+    "MypyDetector",
 ]

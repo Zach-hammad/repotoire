@@ -22,8 +22,9 @@ from repotoire.detectors.shotgun_surgery import ShotgunSurgeryDetector
 from repotoire.detectors.middle_man import MiddleManDetector
 from repotoire.detectors.inappropriate_intimacy import InappropriateIntimacyDetector
 
-# Hybrid detectors (ruff + graph)
+# Hybrid detectors (external tool + graph)
 from repotoire.detectors.ruff_import_detector import RuffImportDetector
+from repotoire.detectors.mypy_detector import MypyDetector
 
 from repotoire.logging_config import get_logger, LogContext
 
@@ -70,8 +71,9 @@ class AnalysisEngine:
             InappropriateIntimacyDetector(neo4j_client, detector_config=config.get("inappropriate_intimacy")),
             # TrulyUnusedImportsDetector has high false positive rate - replaced by RuffImportDetector
             # TrulyUnusedImportsDetector(neo4j_client, detector_config=config.get("truly_unused_imports")),
-            # Hybrid detectors (ruff + graph)
+            # Hybrid detectors (external tool + graph)
             RuffImportDetector(neo4j_client, detector_config={"repository_path": repository_path}),
+            MypyDetector(neo4j_client, detector_config={"repository_path": repository_path}),
         ]
 
     def analyze(self) -> CodebaseHealth:
