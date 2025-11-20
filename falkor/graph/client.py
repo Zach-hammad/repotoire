@@ -7,6 +7,7 @@ import logging
 import time
 
 from falkor.models import Entity, Relationship, NodeType, RelationshipType
+from falkor.validation import validate_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,11 @@ class Neo4jClient:
         max_retries: int = 3,
         retry_backoff_factor: float = 2.0,
         retry_base_delay: float = 1.0,
+        max_connection_pool_size: int = 50,
+        connection_timeout: float = 30.0,
+        max_connection_lifetime: int = 3600,
+        query_timeout: float = 60.0,
+        encrypted: bool = False,
     ):
         """Initialize Neo4j client.
 
@@ -34,6 +40,11 @@ class Neo4jClient:
             max_retries: Maximum number of connection retry attempts (default: 3)
             retry_backoff_factor: Exponential backoff multiplier (default: 2.0)
             retry_base_delay: Base delay in seconds between retries (default: 1.0)
+            max_connection_pool_size: Maximum number of connections in pool (default: 50)
+            connection_timeout: Timeout for acquiring connection in seconds (default: 30.0)
+            max_connection_lifetime: Maximum connection lifetime in seconds (default: 3600)
+            query_timeout: Default query timeout in seconds (default: 60.0)
+            encrypted: Whether to use encrypted connection (default: False for local dev)
         """
         self.uri = uri
         self.username = username
@@ -41,10 +52,20 @@ class Neo4jClient:
         self.max_retries = max_retries
         self.retry_backoff_factor = retry_backoff_factor
         self.retry_base_delay = retry_base_delay
+        self.max_connection_pool_size = max_connection_pool_size
+        self.connection_timeout = connection_timeout
+        self.max_connection_lifetime = max_connection_lifetime
+        self.query_timeout = query_timeout
+        self.encrypted = encrypted
 
         # Connect with retry logic
         self.driver: Driver = self._connect_with_retry()
-        logger.info(f"Connected to Neo4j at {uri}")
+        logger.info(
+            f"Connected to Neo4j at {uri} "
+            f"(pool_size={max_connection_pool_size}, "
+            f"query_timeout={query_timeout}s, "
+            f"encrypted={encrypted})"
+        )
 
     def close(self) -> None:
         """Close database connection."""
@@ -71,7 +92,17 @@ class Neo4jClient:
 
         while attempt <= self.max_retries:
             try:
-                driver = GraphDatabase.driver(self.uri, auth=(self.username, self.password))
+                driver = GraphDatabase.driver(
+                    self.uri,
+                    auth=(self.username, self.password),
+                    max_connection_pool_size=self.max_connection_pool_size,
+                    connection_acquisition_timeout=self.connection_timeout,
+                    max_transaction_retry_time=15.0,
+                    connection_timeout=self.connection_timeout,
+                    max_connection_lifetime=self.max_connection_lifetime,
+                    keep_alive=True,
+                    encrypted=self.encrypted,
+                )
                 # Verify connectivity with a simple query
                 driver.verify_connectivity()
                 if attempt > 0:
@@ -145,19 +176,32 @@ class Neo4jClient:
         # Should never reach here, but for type safety
         raise last_exception or Exception(f"{operation_name} failed")
 
-    def execute_query(self, query: str, parameters: Optional[Dict] = None) -> List[Dict]:
-        """Execute a Cypher query and return results with retry logic.
+    def execute_query(
+        self,
+        query: str,
+        parameters: Optional[Dict] = None,
+        timeout: Optional[float] = None,
+    ) -> List[Dict]:
+        """Execute a Cypher query and return results with retry logic and timeout.
 
         Args:
             query: Cypher query string
             parameters: Query parameters
+            timeout: Query timeout in seconds (uses default if not specified)
 
         Returns:
             List of result records as dictionaries
+
+        Raises:
+            Exception: If query times out or fails after retries
         """
+        timeout_ms = int((timeout or self.query_timeout) * 1000)
+
         def _execute():
             with self.driver.session() as session:
-                result: Result = session.run(query, parameters or {})
+                result: Result = session.run(
+                    query, parameters or {}, timeout=timeout_ms
+                )
                 return [dict(record) for record in result]
 
         return self._retry_operation(_execute, operation_name="execute_query")
@@ -234,7 +278,7 @@ class Neo4jClient:
         )
 
     def batch_create_nodes(self, entities: List[Entity]) -> Dict[str, str]:
-        """Create multiple nodes in a single transaction.
+        """Create multiple nodes in a write transaction.
 
         Args:
             entities: List of entities to create
@@ -253,16 +297,22 @@ class Neo4jClient:
         id_mapping: Dict[str, str] = {}
 
         for node_type, entities_of_type in by_type.items():
-            # SECURITY: node_type is from NodeType enum value - safe for f-string
-            # Validate it's a valid node type string
-            assert node_type in [nt.value for nt in NodeType], f"Invalid node type: {node_type}"
+            # SECURITY: Validate node type to prevent Cypher injection
+            # node_type is from NodeType enum value, but we validate it anyway
+            # (assertions can be disabled with -O flag, so we use proper validation)
+            valid_node_types = {nt.value for nt in NodeType}
+            if node_type not in valid_node_types:
+                raise ValueError(f"Invalid node type: {node_type}. Must be one of {valid_node_types}")
+
+            # Additional validation: ensure it's a valid identifier
+            validated_node_type = validate_identifier(node_type, "node type")
 
             # Use MERGE for Module nodes to avoid duplicates (multiple files import same module)
             # Use CREATE for other node types
             if node_type == "Module":
                 query = f"""
                 UNWIND $entities AS entity
-                MERGE (n:{node_type} {{qualifiedName: entity.qualifiedName}})
+                MERGE (n:{validated_node_type} {{qualifiedName: entity.qualifiedName}})
                 ON CREATE SET n = entity
                 ON MATCH SET n += entity
                 RETURN elementId(n) as id, entity.qualifiedName as qualifiedName
@@ -270,7 +320,7 @@ class Neo4jClient:
             else:
                 query = f"""
                 UNWIND $entities AS entity
-                CREATE (n:{node_type})
+                CREATE (n:{validated_node_type})
                 SET n = entity
                 RETURN elementId(n) as id, entity.qualifiedName as qualifiedName
                 """
@@ -315,10 +365,21 @@ class Neo4jClient:
                     entity_dict["is_async"] = e.is_async
                 if hasattr(e, "decorators"):  # Function
                     entity_dict["decorators"] = e.decorators
+                if hasattr(e, "is_method"):  # Function
+                    entity_dict["is_method"] = e.is_method
 
                 entity_dicts.append(entity_dict)
 
-            results = self.execute_query(query, {"entities": entity_dicts})
+            # Use write transaction for batch node creation
+            def _create_batch(tx, q: str, params: Dict):
+                result = tx.run(q, params)
+                return [dict(record) for record in result]
+
+            def _execute_write():
+                with self.driver.session() as session:
+                    return session.execute_write(_create_batch, query, {"entities": entity_dicts})
+
+            results = self._retry_operation(_execute_write, operation_name="batch_create_nodes")
             for r in results:
                 id_mapping[r["qualifiedName"]] = r["id"]
 
@@ -326,7 +387,7 @@ class Neo4jClient:
         return id_mapping
 
     def batch_create_relationships(self, relationships: List[Relationship]) -> int:
-        """Create multiple relationships in a single transaction.
+        """Create multiple relationships in a write transaction.
 
         Accepts relationships with source_id and target_id as qualified names.
         Will match existing nodes by qualifiedName, and create external nodes
@@ -377,7 +438,16 @@ class Neo4jClient:
             SET r = rel.properties
             """
 
-            self.execute_query(query, {"rels": rel_data})
+            # Use write transaction for batch relationship creation
+            def _create_batch(tx, q: str, params: Dict):
+                result = tx.run(q, params)
+                return result.consume().counters.relationships_created
+
+            def _execute_write():
+                with self.driver.session() as session:
+                    return session.execute_write(_create_batch, query, {"rels": rel_data})
+
+            created_count = self._retry_operation(_execute_write, operation_name="batch_create_relationships")
             total_created += len(rels_of_type)
 
         logger.info(f"Batch created {total_created} relationships")
@@ -454,6 +524,88 @@ class Neo4jClient:
 
         return stats
 
+    def get_relationship_type_counts(self) -> Dict[str, int]:
+        """Get counts for each relationship type.
+
+        Returns:
+            Dictionary mapping relationship type to count
+        """
+        query = """
+        MATCH ()-[r]->()
+        RETURN type(r) as rel_type, count(r) as count
+        ORDER BY count DESC
+        """
+        result = self.execute_query(query)
+        return {record["rel_type"]: record["count"] for record in result}
+
+    def get_node_label_counts(self) -> Dict[str, int]:
+        """Get counts for each node label.
+
+        Returns:
+            Dictionary mapping node label to count
+        """
+        query = """
+        MATCH (n)
+        RETURN labels(n)[0] as label, count(n) as count
+        ORDER BY count DESC
+        """
+        result = self.execute_query(query)
+        return {record["label"]: record["count"] for record in result if record["label"]}
+
+    def sample_nodes(self, label: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Get sample nodes of a specific label.
+
+        Args:
+            label: Node label to sample
+            limit: Maximum number of samples
+
+        Returns:
+            List of node properties
+        """
+        query = f"""
+        MATCH (n:{label})
+        RETURN properties(n) as props
+        LIMIT {int(limit)}
+        """
+        result = self.execute_query(query)
+        return [record["props"] for record in result]
+
+    def validate_schema_integrity(self) -> Dict[str, Any]:
+        """Validate graph schema integrity.
+
+        Returns:
+            Dictionary with validation results
+        """
+        issues = {}
+
+        # Check for orphaned relationships
+        orphan_query = """
+        MATCH ()-[r]->()
+        WHERE NOT exists((startNode(r))) OR NOT exists((endNode(r)))
+        RETURN count(r) as count
+        """
+        orphan_result = self.execute_query(orphan_query)
+        orphan_count = orphan_result[0]["count"] if orphan_result else 0
+        if orphan_count > 0:
+            issues["orphaned_relationships"] = orphan_count
+
+        # Check for nodes missing required properties
+        # Function nodes should have complexity
+        missing_complexity_query = """
+        MATCH (f:Function)
+        WHERE f.complexity IS NULL
+        RETURN count(f) as count
+        """
+        result = self.execute_query(missing_complexity_query)
+        missing_complexity = result[0]["count"] if result else 0
+        if missing_complexity > 0:
+            issues["functions_missing_complexity"] = missing_complexity
+
+        return {
+            "valid": len(issues) == 0,
+            "issues": issues
+        }
+
     def get_all_file_paths(self) -> List[str]:
         """Get all file paths currently in the graph.
 
@@ -505,3 +657,50 @@ class Neo4jClient:
         deleted_count = result[0]["deletedCount"] if result else 0
         logger.info(f"Deleted {deleted_count} nodes for file: {file_path}")
         return deleted_count
+
+    def get_pool_metrics(self) -> Dict[str, Any]:
+        """Get connection pool metrics for monitoring.
+
+        Returns:
+            Dictionary with pool statistics including:
+            - in_use: Number of connections currently in use
+            - idle: Number of idle connections
+            - max_size: Maximum pool size
+            - acquisition_timeout: Connection acquisition timeout
+            - max_lifetime: Maximum connection lifetime
+
+        Example:
+            >>> client = Neo4jClient()
+            >>> metrics = client.get_pool_metrics()
+            >>> logger.info(f"Pool: {metrics['in_use']}/{metrics['max_size']} in use")
+        """
+        try:
+            # Get pool metrics from driver
+            pool = self.driver._pool
+
+            metrics = {
+                "max_size": self.max_connection_pool_size,
+                "acquisition_timeout": self.connection_timeout,
+                "max_lifetime": self.max_connection_lifetime,
+                "query_timeout": self.query_timeout,
+                "encrypted": self.encrypted,
+            }
+
+            # Try to get current pool statistics if available
+            if hasattr(pool, "in_use_connection_count"):
+                metrics["in_use"] = pool.in_use_connection_count
+            if hasattr(pool, "idle_count"):
+                metrics["idle"] = pool.idle_count
+
+            return metrics
+
+        except Exception as e:
+            logger.warning(f"Could not retrieve pool metrics: {e}")
+            return {
+                "max_size": self.max_connection_pool_size,
+                "acquisition_timeout": self.connection_timeout,
+                "max_lifetime": self.max_connection_lifetime,
+                "query_timeout": self.query_timeout,
+                "encrypted": self.encrypted,
+                "error": str(e),
+            }

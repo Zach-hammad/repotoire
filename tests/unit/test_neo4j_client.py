@@ -107,12 +107,19 @@ class TestNodeOperations:
     def test_batch_create_nodes_single_type(self, client, mock_driver):
         """Test batch creating nodes of single type."""
         mock_session = mock_driver.session.return_value.__enter__.return_value
-        mock_result = MagicMock()
-        mock_result.__iter__.return_value = [
-            {"id": "elem1", "qualifiedName": "test.py"},
-            {"id": "elem2", "qualifiedName": "test2.py"}
-        ]
-        mock_session.run.return_value = mock_result
+
+        # Mock execute_write to call the function with a mock transaction
+        def execute_write_side_effect(func, *args, **kwargs):
+            mock_tx = MagicMock()
+            mock_result = MagicMock()
+            mock_result.__iter__.return_value = [
+                {"id": "elem1", "qualifiedName": "test.py"},
+                {"id": "elem2", "qualifiedName": "test2.py"}
+            ]
+            mock_tx.run.return_value = mock_result
+            return func(mock_tx, *args, **kwargs)
+
+        mock_session.execute_write = MagicMock(side_effect=execute_write_side_effect)
 
         entities = [
             FileEntity(
@@ -140,19 +147,29 @@ class TestNodeOperations:
         assert len(id_mapping) == 2
         assert "test.py" in id_mapping
         assert "test2.py" in id_mapping
-        mock_session.run.assert_called()
+        mock_session.execute_write.assert_called()
 
     def test_batch_create_nodes_multiple_types(self, client, mock_driver):
         """Test batch creating nodes of multiple types."""
         mock_session = mock_driver.session.return_value.__enter__.return_value
-        mock_result = MagicMock()
-        # Return results for File, Class, and Function nodes
-        mock_result.__iter__.return_value = [
-            {"id": "elem1", "qualifiedName": "test.py"},
-            {"id": "elem2", "qualifiedName": "test.py::MyClass"},
-            {"id": "elem3", "qualifiedName": "test.py::my_func"}
+
+        # Track which type is being created to return appropriate results
+        call_count = [0]
+        results_by_call = [
+            [{"id": "elem1", "qualifiedName": "test.py"}],
+            [{"id": "elem2", "qualifiedName": "test.py::MyClass"}],
+            [{"id": "elem3", "qualifiedName": "test.py::my_func"}]
         ]
-        mock_session.run.return_value = mock_result
+
+        def execute_write_side_effect(func, *args, **kwargs):
+            mock_tx = MagicMock()
+            mock_result = MagicMock()
+            mock_result.__iter__.return_value = results_by_call[call_count[0]]
+            mock_tx.run.return_value = mock_result
+            call_count[0] += 1
+            return func(mock_tx, *args, **kwargs)
+
+        mock_session.execute_write = MagicMock(side_effect=execute_write_side_effect)
 
         entities = [
             FileEntity(
@@ -182,18 +199,19 @@ class TestNodeOperations:
 
         id_mapping = client.batch_create_nodes(entities)
 
-        # Should have called run for each node type (File, Class, Function)
-        assert mock_session.run.call_count >= 1
+        # Should have called execute_write for each node type (File, Class, Function)
+        assert mock_session.execute_write.call_count >= 1
         assert len(id_mapping) == 3
 
     def test_batch_create_nodes_empty_list(self, client, mock_driver):
         """Test batch creating with empty list."""
         mock_session = mock_driver.session.return_value.__enter__.return_value
+        mock_session.execute_write = MagicMock()
 
         id_mapping = client.batch_create_nodes([])
 
         assert len(id_mapping) == 0
-        mock_session.run.assert_not_called()
+        mock_session.execute_write.assert_not_called()
 
 
 class TestRelationshipOperations:
@@ -202,9 +220,17 @@ class TestRelationshipOperations:
     def test_batch_create_relationships(self, client, mock_driver):
         """Test batch creating relationships."""
         mock_session = mock_driver.session.return_value.__enter__.return_value
-        mock_result = MagicMock()
-        mock_result.__iter__.return_value = []
-        mock_session.run.return_value = mock_result
+
+        def execute_write_side_effect(func, *args, **kwargs):
+            mock_tx = MagicMock()
+            mock_result = MagicMock()
+            mock_consume_result = MagicMock()
+            mock_consume_result.counters.relationships_created = 1
+            mock_result.consume.return_value = mock_consume_result
+            mock_tx.run.return_value = mock_result
+            return func(mock_tx, *args, **kwargs)
+
+        mock_session.execute_write = MagicMock(side_effect=execute_write_side_effect)
 
         relationships = [
             Relationship(
@@ -225,23 +251,32 @@ class TestRelationshipOperations:
 
         assert count == 2
         # Should be called once per relationship type
-        assert mock_session.run.call_count >= 1
+        assert mock_session.execute_write.call_count >= 1
 
     def test_batch_create_relationships_empty(self, client, mock_driver):
         """Test batch creating with empty relationships list."""
         mock_session = mock_driver.session.return_value.__enter__.return_value
+        mock_session.execute_write = MagicMock()
 
         count = client.batch_create_relationships([])
 
         assert count == 0
-        mock_session.run.assert_not_called()
+        mock_session.execute_write.assert_not_called()
 
     def test_batch_create_relationships_groups_by_type(self, client, mock_driver):
         """Test relationships are grouped by type for efficiency."""
         mock_session = mock_driver.session.return_value.__enter__.return_value
-        mock_result = MagicMock()
-        mock_result.__iter__.return_value = []
-        mock_session.run.return_value = mock_result
+
+        def execute_write_side_effect(func, *args, **kwargs):
+            mock_tx = MagicMock()
+            mock_result = MagicMock()
+            mock_consume_result = MagicMock()
+            mock_consume_result.counters.relationships_created = 1
+            mock_result.consume.return_value = mock_consume_result
+            mock_tx.run.return_value = mock_result
+            return func(mock_tx, *args, **kwargs)
+
+        mock_session.execute_write = MagicMock(side_effect=execute_write_side_effect)
 
         relationships = [
             Relationship(
@@ -267,7 +302,7 @@ class TestRelationshipOperations:
         client.batch_create_relationships(relationships)
 
         # Should group by type: 2 IMPORTS in one batch, 1 CALLS in another
-        assert mock_session.run.call_count == 2
+        assert mock_session.execute_write.call_count == 2
 
 
 class TestUtilityMethods:
