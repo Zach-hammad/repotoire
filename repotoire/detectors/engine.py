@@ -23,6 +23,9 @@ from repotoire.detectors.middle_man import MiddleManDetector
 from repotoire.detectors.inappropriate_intimacy import InappropriateIntimacyDetector
 from repotoire.detectors.truly_unused_imports import TrulyUnusedImportsDetector
 
+# Hybrid detectors (ruff + graph)
+from repotoire.detectors.ruff_import_detector import RuffImportDetector
+
 from repotoire.logging_config import get_logger, LogContext
 
 logger = get_logger(__name__)
@@ -43,14 +46,16 @@ class AnalysisEngine:
     # Category weights
     WEIGHTS = {"structure": 0.40, "quality": 0.30, "architecture": 0.30}
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Dict = None):
+    def __init__(self, neo4j_client: Neo4jClient, detector_config: Dict = None, repository_path: str = "."):
         """Initialize analysis engine.
 
         Args:
             neo4j_client: Neo4j database client
             detector_config: Optional detector configuration dict
+            repository_path: Path to repository root (for hybrid detectors)
         """
         self.db = neo4j_client
+        self.repository_path = repository_path
         config = detector_config or {}
 
         # Register all detectors
@@ -64,7 +69,10 @@ class AnalysisEngine:
             ShotgunSurgeryDetector(neo4j_client, detector_config=config.get("shotgun_surgery")),
             MiddleManDetector(neo4j_client, detector_config=config.get("middle_man")),
             InappropriateIntimacyDetector(neo4j_client, detector_config=config.get("inappropriate_intimacy")),
-            TrulyUnusedImportsDetector(neo4j_client, detector_config=config.get("truly_unused_imports")),
+            # TrulyUnusedImportsDetector has high false positive rate - replaced by RuffImportDetector
+            # TrulyUnusedImportsDetector(neo4j_client, detector_config=config.get("truly_unused_imports")),
+            # Hybrid detectors (ruff + graph)
+            RuffImportDetector(neo4j_client, detector_config={"repository_path": repository_path}),
         ]
 
     def analyze(self) -> CodebaseHealth:
