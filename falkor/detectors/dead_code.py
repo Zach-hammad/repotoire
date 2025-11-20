@@ -113,10 +113,10 @@ class DeadCodeDetector(CodeSmellDetector):
           }
           // Filter out public API methods (not starting with _)
           AND (f.is_method = false OR f.name STARTS WITH '_')
-          // Filter out functions that are imported (check by name in import target)
+          // Filter out functions that are imported (check by name in import properties)
           AND NOT EXISTS {
-              MATCH ()-[imp:IMPORTS]->(target)
-              WHERE target = f.qualifiedName OR target ENDS WITH '.' + f.name
+              MATCH ()-[imp:IMPORTS]->()
+              WHERE imp.imported_name = f.name
           }
         OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
         WITH f, file, COALESCE(f.decorators, []) AS decorators
@@ -226,10 +226,10 @@ class DeadCodeDetector(CodeSmellDetector):
         WHERE NOT (c)<-[:CALLS]-()  // Not instantiated
           AND NOT (c)<-[:INHERITS]-()  // Not inherited from
           AND NOT (c)<-[:USES]-()  // Not used in type hints
-          // Filter out classes that are imported (check by name in import target)
+          // Filter out classes that are imported (check by name in import properties)
           AND NOT EXISTS {
-              MATCH ()-[imp:IMPORTS]->(target)
-              WHERE target = c.qualifiedName OR target ENDS WITH '.' + c.name
+              MATCH ()-[imp:IMPORTS]->()
+              WHERE imp.imported_name = c.name
           }
         OPTIONAL MATCH (file)-[:CONTAINS]->(m:Function)
         WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
