@@ -61,6 +61,11 @@ examples/output/
 # Analysis outputs
 *_analysis.json
 analysis_results.json
+falkor-*.html
+test.html
+
+# Generated scripts
+falkor.sh
 
 # Temporary test files
 test_ingestion.py
