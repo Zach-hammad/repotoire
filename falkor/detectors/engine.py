@@ -14,6 +14,15 @@ from falkor.models import (
 from falkor.detectors.circular_dependency import CircularDependencyDetector
 from falkor.detectors.dead_code import DeadCodeDetector
 from falkor.detectors.god_class import GodClassDetector
+from falkor.detectors.architectural_bottleneck import ArchitecturalBottleneckDetector
+
+# Graph-unique detectors (FAL-115)
+from falkor.detectors.feature_envy import FeatureEnvyDetector
+from falkor.detectors.shotgun_surgery import ShotgunSurgeryDetector
+from falkor.detectors.middle_man import MiddleManDetector
+from falkor.detectors.inappropriate_intimacy import InappropriateIntimacyDetector
+from falkor.detectors.truly_unused_imports import TrulyUnusedImportsDetector
+
 from falkor.logging_config import get_logger, LogContext
 
 logger = get_logger(__name__)
@@ -42,11 +51,20 @@ class AnalysisEngine:
             detector_config: Optional detector configuration dict
         """
         self.db = neo4j_client
+        config = detector_config or {}
+
         # Register all detectors
         self.detectors = [
             CircularDependencyDetector(neo4j_client),
             DeadCodeDetector(neo4j_client),
             GodClassDetector(neo4j_client, detector_config=detector_config),
+            ArchitecturalBottleneckDetector(neo4j_client),
+            # Graph-unique detectors (FAL-115: Graph-Enhanced Linting Strategy)
+            FeatureEnvyDetector(neo4j_client, detector_config=config.get("feature_envy")),
+            ShotgunSurgeryDetector(neo4j_client, detector_config=config.get("shotgun_surgery")),
+            MiddleManDetector(neo4j_client, detector_config=config.get("middle_man")),
+            InappropriateIntimacyDetector(neo4j_client, detector_config=config.get("inappropriate_intimacy")),
+            TrulyUnusedImportsDetector(neo4j_client, detector_config=config.get("truly_unused_imports")),
         ]
 
     def analyze(self) -> CodebaseHealth:

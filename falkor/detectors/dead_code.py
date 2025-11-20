@@ -66,6 +66,9 @@ class DeadCodeDetector(CodeSmellDetector):
         "__floordiv__",
         "__mod__",
         "__pow__",
+        "__post_init__",  # dataclass post-initialization
+        "__init_subclass__",  # subclass initialization
+        "__set_name__",  # descriptor protocol
     }
 
     def detect(self) -> List[Finding]:
@@ -100,8 +103,17 @@ class DeadCodeDetector(CodeSmellDetector):
         query = """
         MATCH (f:Function)
         WHERE NOT (f)<-[:CALLS]-()
+          AND NOT (f)<-[:IMPORTS]-()  // Filter out functions that are imported
           AND NOT (f.name STARTS WITH 'test_')
           AND NOT f.name IN ['main', '__main__', '__init__', 'setUp', 'tearDown']
+          // Filter out methods that override base class methods (polymorphism)
+          AND NOT EXISTS {
+              MATCH (c:Class)-[:CONTAINS]->(f)
+              MATCH (c)-[:INHERITS*]->(base:Class)
+              MATCH (base)-[:CONTAINS]->(base_method:Function {name: f.name})
+          }
+          // Filter out public API methods (not starting with _)
+          AND (f.is_method = false OR f.name STARTS WITH '_')
         OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
         WITH f, file, COALESCE(f.decorators, []) AS decorators
         // Filter out functions with decorators or in __all__
@@ -136,11 +148,29 @@ class DeadCodeDetector(CodeSmellDetector):
                 continue
 
             # Filter out loader/factory pattern methods (often called dynamically)
-            if any(pattern in name.lower() for pattern in ["load_data", "loader", "_loader"]):
+            if any(pattern in name.lower() for pattern in ["load_data", "loader", "_loader", "load_", "create_", "build_", "make_"]):
                 continue
 
             # Filter out parse/process methods that might be called via registry
             if name.startswith("_parse_") or name.startswith("_process_"):
+                continue
+
+            # Filter out common public API functions (config, setup, validation)
+            if any(pattern in name.lower() for pattern in ["load_config", "generate_", "validate_", "setup_", "initialize_"]):
+                continue
+
+            # Filter out converter/transformation methods
+            if any(pattern in name.lower() for pattern in ["to_dict", "to_json", "from_dict", "from_json", "serialize", "deserialize"]):
+                continue
+
+            # Filter out common internal helper method patterns
+            # These are private methods that are almost always called internally
+            # but may not have CALLS relationships due to incomplete extraction
+            if name.startswith("_extract_") or name.startswith("_find_") or name.startswith("_calculate_"):
+                continue
+
+            # Filter out other common internal patterns
+            if name.startswith("_get_") or name.startswith("_set_") or name.startswith("_check_"):
                 continue
 
             finding_id = str(uuid.uuid4())
@@ -192,6 +222,7 @@ class DeadCodeDetector(CodeSmellDetector):
         WHERE NOT (c)<-[:CALLS]-()  // Not instantiated
           AND NOT (c)<-[:INHERITS]-()  // Not inherited from
           AND NOT (c)<-[:USES]-()  // Not used in type hints
+          AND NOT (c)<-[:IMPORTS]-()  // Not imported by other files
         OPTIONAL MATCH (file)-[:CONTAINS]->(m:Function)
         WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
         WITH c, file, count(m) AS method_count, COALESCE(c.decorators, []) AS decorators

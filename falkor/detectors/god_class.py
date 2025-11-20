@@ -55,7 +55,10 @@ class GodClassDetector(CodeSmellDetector):
         """
         findings: List[Finding] = []
 
-        query = f"""
+        # Use parameterized query to prevent injection
+        # Even though these are class attributes (not user input), parameterization
+        # is the correct and safe approach
+        query = """
         MATCH (file:File)-[:CONTAINS]->(c:Class)
         WITH c, file
         MATCH (file)-[:CONTAINS]->(m:Function)
@@ -65,7 +68,7 @@ class GodClassDetector(CodeSmellDetector):
              sum(m.complexity) AS total_complexity,
              COALESCE(c.lineEnd, 0) - COALESCE(c.lineStart, 0) AS loc
         WITH c, file, methods, size(methods) AS method_count, total_complexity, loc
-        WHERE method_count >= {self.medium_method_count} OR total_complexity >= {self.medium_complexity} OR loc >= {self.medium_loc}
+        WHERE method_count >= $medium_method_count OR total_complexity >= $medium_complexity OR loc >= $medium_loc
         UNWIND methods AS m
         OPTIONAL MATCH (m)-[:CALLS]->(called)
         WITH c, file, methods, method_count, total_complexity, loc,
@@ -85,7 +88,11 @@ class GodClassDetector(CodeSmellDetector):
         LIMIT 50
         """
 
-        results = self.db.execute_query(query)
+        results = self.db.execute_query(query, parameters={
+            "medium_method_count": self.medium_method_count,
+            "medium_complexity": self.medium_complexity,
+            "medium_loc": self.medium_loc
+        })
 
         for record in results:
             method_count = record["method_count"] or 0
