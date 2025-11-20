@@ -103,7 +103,6 @@ class DeadCodeDetector(CodeSmellDetector):
         query = """
         MATCH (f:Function)
         WHERE NOT (f)<-[:CALLS]-()
-          AND NOT (f)<-[:IMPORTS]-()  // Filter out functions that are imported
           AND NOT (f.name STARTS WITH 'test_')
           AND NOT f.name IN ['main', '__main__', '__init__', 'setUp', 'tearDown']
           // Filter out methods that override base class methods (polymorphism)
@@ -114,6 +113,11 @@ class DeadCodeDetector(CodeSmellDetector):
           }
           // Filter out public API methods (not starting with _)
           AND (f.is_method = false OR f.name STARTS WITH '_')
+          // Filter out functions that are imported (check by name in import target)
+          AND NOT EXISTS {
+              MATCH ()-[imp:IMPORTS]->(target)
+              WHERE target = f.qualifiedName OR target ENDS WITH '.' + f.name
+          }
         OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
         WITH f, file, COALESCE(f.decorators, []) AS decorators
         // Filter out functions with decorators or in __all__
@@ -222,7 +226,11 @@ class DeadCodeDetector(CodeSmellDetector):
         WHERE NOT (c)<-[:CALLS]-()  // Not instantiated
           AND NOT (c)<-[:INHERITS]-()  // Not inherited from
           AND NOT (c)<-[:USES]-()  // Not used in type hints
-          AND NOT (c)<-[:IMPORTS]-()  // Not imported by other files
+          // Filter out classes that are imported (check by name in import target)
+          AND NOT EXISTS {
+              MATCH ()-[imp:IMPORTS]->(target)
+              WHERE target = c.qualifiedName OR target ENDS WITH '.' + c.name
+          }
         OPTIONAL MATCH (file)-[:CONTAINS]->(m:Function)
         WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
         WITH c, file, count(m) AS method_count, COALESCE(c.decorators, []) AS decorators

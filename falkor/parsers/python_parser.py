@@ -639,11 +639,22 @@ class PythonParser(CodeParser):
 
             if not callee_qualified:
                 # Try different matching strategies
-                # 1. Exact name match
-                for qname, entity in entity_map.items():
-                    if entity.name == callee:
-                        callee_qualified = qname
-                        break
+                # 1. Exact name match - prioritize classes for capitalized names
+                is_likely_class = callee and callee[0].isupper()
+
+                if is_likely_class:
+                    # First try to match a Class entity
+                    for qname, entity in entity_map.items():
+                        if entity.node_type == NodeType.CLASS and entity.name == callee:
+                            callee_qualified = qname
+                            break
+
+                if not callee_qualified:
+                    # Then try any entity with matching name
+                    for qname, entity in entity_map.items():
+                        if entity.name == callee:
+                            callee_qualified = qname
+                            break
 
             if not callee_qualified:
                 # 2. Check if callee ends with the qualified name pattern

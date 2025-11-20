@@ -515,12 +515,6 @@ class IngestionPipeline:
                 "relationships": len(all_relationships)
             })
 
-        # Post-processing: Fix up cross-file IMPORTS relationships
-        with LogContext(operation="fix_imports"):
-            fixed_count = self._fix_cross_file_imports()
-            if fixed_count > 0:
-                logger.info(f"Fixed {fixed_count} cross-file IMPORTS relationships")
-
         # Show stats
         stats = self.db.get_stats()
         total_duration = time.time() - start_time
