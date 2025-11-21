@@ -63,6 +63,46 @@ class GraphSchema:
         "CREATE INDEX function_has_yield_idx IF NOT EXISTS FOR (f:Function) ON (f.has_yield)",
     ]
 
+    # Vector indexes for RAG (Neo4j 5.18+)
+    VECTOR_INDEXES = [
+        # Function embeddings for semantic code search
+        """
+        CREATE VECTOR INDEX function_embeddings IF NOT EXISTS
+        FOR (f:Function)
+        ON f.embedding
+        OPTIONS {
+            indexConfig: {
+                `vector.dimensions`: 1536,
+                `vector.similarity_function`: 'cosine'
+            }
+        }
+        """,
+        # Class embeddings for semantic search
+        """
+        CREATE VECTOR INDEX class_embeddings IF NOT EXISTS
+        FOR (c:Class)
+        ON c.embedding
+        OPTIONS {
+            indexConfig: {
+                `vector.dimensions`: 1536,
+                `vector.similarity_function`: 'cosine'
+            }
+        }
+        """,
+        # File embeddings for document-level search
+        """
+        CREATE VECTOR INDEX file_embeddings IF NOT EXISTS
+        FOR (f:File)
+        ON f.embedding
+        OPTIONS {
+            indexConfig: {
+                `vector.dimensions`: 1536,
+                `vector.similarity_function`: 'cosine'
+            }
+        }
+        """,
+    ]
+
     def __init__(self, client: Neo4jClient):
         """Initialize schema manager.
 
@@ -87,11 +127,33 @@ class GraphSchema:
             except Exception as e:
                 print(f"Warning: Could not create index: {e}")
 
-    def initialize(self) -> None:
-        """Initialize complete schema."""
+    def create_vector_indexes(self) -> None:
+        """Create vector indexes for RAG semantic search.
+
+        Requires Neo4j 5.18+ with vector index support.
+        Silently skips if Neo4j version doesn't support vector indexes.
+        """
+        for vector_index in self.VECTOR_INDEXES:
+            try:
+                self.client.execute_query(vector_index)
+            except Exception as e:
+                # Vector indexes may not be supported in older Neo4j versions
+                print(f"Info: Could not create vector index (requires Neo4j 5.18+): {e}")
+
+    def initialize(self, enable_vector_search: bool = False) -> None:
+        """Initialize complete schema.
+
+        Args:
+            enable_vector_search: Whether to create vector indexes for RAG (requires Neo4j 5.18+)
+        """
         print("Creating graph schema...")
         self.create_constraints()
         self.create_indexes()
+
+        if enable_vector_search:
+            print("Creating vector indexes for RAG...")
+            self.create_vector_indexes()
+
         print("Schema created successfully!")
 
     def drop_all(self) -> None:

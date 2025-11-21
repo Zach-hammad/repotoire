@@ -163,6 +163,7 @@ class Entity:
         node_type: Type of node in the graph (File, Class, Function, etc.)
         docstring: Extracted docstring or documentation
         metadata: Additional arbitrary metadata
+        embedding: Optional vector embedding for semantic search (1536-dim for OpenAI embeddings)
 
     Example:
         >>> entity = Entity(
@@ -183,6 +184,7 @@ class Entity:
     node_type: Optional[NodeType] = None
     docstring: Optional[str] = None
     metadata: Dict = field(default_factory=dict)
+    embedding: Optional[List[float]] = None  # Vector embedding for RAG (1536-dim for OpenAI)
 
 
 @dataclass
