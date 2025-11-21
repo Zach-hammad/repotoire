@@ -526,6 +526,246 @@ class CircularDependencyDetector(CodeSmellDetector):
 - Additional validation overhead
 - More complex configuration
 
+## RAG (Retrieval-Augmented Generation) Workflow
+
+Repotoire includes a complete RAG system for natural language code intelligence, enabling developers to query codebases using plain English.
+
+### Architecture Overview
+
+```
+┌──────────────┐
+│ User Query   │  "How does authentication work?"
+└──────┬───────┘
+       │
+       ▼
+┌──────────────────────────────────────────────┐
+│  1. Query Embedding (OpenAI)                 │
+│     text-embedding-3-small                   │
+│     → 1536-dimensional vector                │
+└──────────────┬───────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────────┐
+│  2. Hybrid Retrieval                         │
+│     • Vector similarity search (Neo4j)       │
+│     • Graph traversal (relationships)        │
+│     • Ranked by relevance                    │
+└──────────────┬───────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────────┐
+│  3. Context Assembly                         │
+│     • Top-K code entities                    │
+│     • Related entities (IMPORTS, CALLS)      │
+│     • Code + docstrings + metadata           │
+└──────────────┬───────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────────┐
+│  4. LLM Generation (GPT-4o)                  │
+│     • Context + query → answer               │
+│     • Source citations                       │
+│     • Confidence scoring                     │
+└──────────────┬───────────────────────────────┘
+       │
+       ▼
+┌──────────────┐
+│   Answer     │  "The authentication system uses JWT..."
+└──────────────┘
+```
+
+### Key Components
+
+**1. CodeEmbedder** (`repotoire/ai/embeddings.py`)
+- Generates semantic embeddings for code entities
+- Enriches entities with context (docstrings, signatures, characteristics)
+- Batch processing for efficiency
+- Uses OpenAI text-embedding-3-small (1536 dimensions)
+
+**2. GraphRAGRetriever** (`repotoire/ai/retrieval.py`)
+- Hybrid search: vector similarity + graph traversal
+- Entity filtering (Function, Class, File)
+- Relationship traversal for context
+- Ranked results with confidence scores
+
+**3. FastAPI Endpoints** (`repotoire/api/`)
+- `POST /api/v1/code/search`: Semantic code search
+- `POST /api/v1/code/ask`: Q&A with GPT-4o
+- `GET /api/v1/code/embeddings/status`: Check coverage
+
+**4. Vector Indexes** (`repotoire/graph/schema.py`)
+- Neo4j vector indexes for fast similarity search
+- Cosine similarity for semantic matching
+- Indexes on Function, Class, and File entities
+
+### Usage
+
+**Enable RAG during ingestion:**
+
+```bash
+# Set OpenAI API key
+export OPENAI_API_KEY="sk-..."
+
+# Ingest with embedding generation
+repotoire ingest /path/to/repo --generate-embeddings
+
+# Or use Python API
+from repotoire.pipeline.ingestion import IngestionPipeline
+from repotoire.graph import Neo4jClient
+
+client = Neo4jClient(uri="bolt://localhost:7688", password="password")
+pipeline = IngestionPipeline(
+    repo_path="/path/to/repo",
+    neo4j_client=client,
+    generate_embeddings=True  # Enable RAG
+)
+pipeline.ingest()
+```
+
+**Query via API:**
+
+```bash
+# Start API server
+python -m repotoire.api.app
+
+# Search for code
+curl -X POST "http://localhost:8000/api/v1/code/search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "authentication functions",
+    "top_k": 5
+  }'
+
+# Ask questions
+curl -X POST "http://localhost:8000/api/v1/code/ask" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "How does authentication work?",
+    "top_k": 5
+  }'
+```
+
+**Use Python client:**
+
+```python
+from repotoire.ai import CodeEmbedder
+from repotoire.ai.retrieval import GraphRAGRetriever
+from repotoire.graph import Neo4jClient
+
+# Initialize
+client = Neo4jClient(uri="bolt://localhost:7688", password="password")
+embedder = CodeEmbedder()
+retriever = GraphRAGRetriever(neo4j_client=client, embedder=embedder)
+
+# Search
+results = retriever.retrieve(
+    query="How does authentication work?",
+    top_k=5,
+    include_related=True
+)
+
+for result in results:
+    print(f"{result.qualified_name} (score: {result.similarity_score:.2f})")
+    print(f"  {result.file_path}:{result.line_start}")
+```
+
+### Performance Characteristics
+
+**Embedding Generation:**
+- Time: ~10-20 entities/second (API rate limits)
+- Cost: ~$0.13 per 1M tokens (~200k LOC)
+- Storage: 1536 floats × 8 bytes = ~12KB per entity
+- One-time cost during ingestion
+
+**Query Performance:**
+- Vector search: < 100ms (with indexes)
+- Hybrid search: < 500ms (includes graph traversal)
+- GPT-4o generation: ~1-2 seconds
+- Total: < 2 seconds for typical queries
+
+**Scalability:**
+- Small codebase (<1k files): < 1 minute for embeddings
+- Medium codebase (1k-10k files): 5-15 minutes
+- Large codebase (10k+ files): 30-60 minutes
+- Embeddings cached in Neo4j, no regeneration needed
+
+### Cost Analysis
+
+**OpenAI API Costs:**
+
+| Component | Model | Cost | Usage |
+|-----------|-------|------|-------|
+| Embeddings | text-embedding-3-small | $0.13/1M tokens | One-time per entity |
+| Search | (none) | $0 | Uses cached embeddings |
+| Q&A | GPT-4o | ~$0.0075/query | Context + generation |
+
+**Example Costs:**
+- 1,000 files (~500k tokens): ~$0.065
+- 10,000 files (~5M tokens): ~$0.65
+- 100,000 files (~50M tokens): ~$6.50
+
+**Recommendations:**
+- Generate embeddings once during setup
+- Use search endpoint (free) when possible
+- Reserve Q&A for when explanations needed
+- Embeddings are cached, no ongoing cost
+
+### Design Decisions
+
+**Why text-embedding-3-small?**
+- Cost-effective ($0.13/1M vs $0.13/1M for ada-002)
+- Fast (< 100ms per request)
+- Good quality for code (1536 dimensions)
+- Industry standard for RAG
+
+**Why hybrid search?**
+- Vector search alone misses relationships
+- Graph traversal adds context (imports, calls)
+- Combined approach = best of both
+- Configurable: can disable for speed
+
+**Why Neo4j vector indexes?**
+- Native vector support in Neo4j 5.18+
+- Fast cosine similarity search
+- No separate vector database needed
+- Unified storage for graph + vectors
+
+**Why GPT-4o for Q&A?**
+- Best code understanding
+- Follows instructions well
+- Handles technical context
+- Good balance of cost/quality
+
+### Example Queries
+
+See [docs/RAG_API.md](docs/RAG_API.md) for comprehensive examples:
+
+- **Understanding**: "How does the parser work?"
+- **Finding**: "Where is JWT token generation?"
+- **Refactoring**: "What would break if I change User class?"
+- **Architecture**: "What design patterns are used?"
+
+### Troubleshooting
+
+**No results returned:**
+- Check embedding coverage: `GET /api/v1/code/embeddings/status`
+- Verify vector indexes exist
+- Try broader queries
+
+**Vector index errors:**
+```python
+from repotoire.graph.schema import GraphSchema
+schema = GraphSchema(client)
+schema.create_vector_indexes()
+```
+
+**Slow queries:**
+- Reduce `top_k` parameter
+- Disable `include_related` for speed
+- Check Neo4j memory settings
+
+For detailed troubleshooting, see [docs/RAG_API.md](docs/RAG_API.md#troubleshooting).
+
 ## Extension Points
 
 ### Adding a New Language Parser
