@@ -33,7 +33,8 @@ class IngestionPipeline:
         max_file_size_mb: float = MAX_FILE_SIZE_MB,
         batch_size: int = DEFAULT_BATCH_SIZE,
         secrets_policy: SecretsPolicy = SecretsPolicy.REDACT,
-        generate_clues: bool = False
+        generate_clues: bool = False,
+        generate_embeddings: bool = False
     ):
         """Initialize ingestion pipeline with security validation.
 
@@ -45,6 +46,7 @@ class IngestionPipeline:
             batch_size: Number of entities to batch before loading to graph (default: 100)
             secrets_policy: Policy for handling detected secrets (default: REDACT)
             generate_clues: Whether to generate AI semantic clues (default: False)
+            generate_embeddings: Whether to generate vector embeddings for RAG (default: False)
 
         Raises:
             ValueError: If repository path is invalid
@@ -71,6 +73,7 @@ class IngestionPipeline:
         self.batch_size = batch_size
         self.secrets_policy = secrets_policy
         self.generate_clues = generate_clues
+        self.generate_embeddings = generate_embeddings
 
         # Track skipped files for reporting
         self.skipped_files: List[Dict[str, str]] = []
@@ -86,6 +89,18 @@ class IngestionPipeline:
                 logger.warning(f"Could not initialize clue generator: {e}")
                 logger.warning("Continuing without clue generation")
                 self.generate_clues = False
+
+        # Initialize embedder if needed
+        self.embedder = None
+        if self.generate_embeddings:
+            try:
+                from repotoire.ai import CodeEmbedder
+                self.embedder = CodeEmbedder()
+                logger.info("Embedding generation enabled (using text-embedding-3-small)")
+            except Exception as e:
+                logger.warning(f"Could not initialize embedder: {e}")
+                logger.warning("Continuing without embedding generation")
+                self.generate_embeddings = False
 
         # Register default parsers with secrets policy
         self.register_parser("python", PythonParser(secrets_policy=secrets_policy))
@@ -342,6 +357,116 @@ class IngestionPipeline:
         logger.debug(f"Generated {len(clue_entities)} clues for {len(entities)} entities")
         return clue_entities, describes_relationships
 
+    def _generate_embeddings_for_all_entities(self) -> int:
+        """Generate vector embeddings for all entities in the graph.
+
+        Queries Neo4j for all Function, Class, and File nodes without embeddings,
+        generates embeddings in batches, and updates the nodes.
+
+        Returns:
+            Number of entities that received embeddings
+        """
+        if not self.embedder:
+            return 0
+
+        from repotoire.models import FunctionEntity, ClassEntity, FileEntity
+
+        entities_embedded = 0
+        embedding_batch_size = 50  # Smaller batches for API rate limits
+
+        # Process each entity type
+        for entity_type, entity_class in [
+            ("Function", FunctionEntity),
+            ("Class", ClassEntity),
+            ("File", FileEntity)
+        ]:
+            logger.info(f"Generating embeddings for {entity_type} entities...")
+
+            # Query entities without embeddings
+            query = f"""
+            MATCH (e:{entity_type})
+            WHERE e.embedding IS NULL
+            RETURN
+                elementId(e) as id,
+                e.name as name,
+                e.qualifiedName as qualified_name,
+                e.docstring as docstring,
+                e.filePath as file_path,
+                e.lineStart as line_start,
+                e.lineEnd as line_end
+            """
+
+            entities = self.db.execute_query(query)
+
+            if not entities:
+                logger.debug(f"No {entity_type} entities need embeddings")
+                continue
+
+            logger.info(f"Found {len(entities)} {entity_type} entities to embed")
+
+            # Process in batches
+            for i in range(0, len(entities), embedding_batch_size):
+                batch = entities[i:i + embedding_batch_size]
+
+                # Convert to entity objects for embedder
+                entity_objects = []
+                for e in batch:
+                    if entity_type == "Function":
+                        entity_obj = FunctionEntity(
+                            name=e["name"],
+                            qualified_name=e["qualified_name"],
+                            file_path=e["file_path"],
+                            line_start=e["line_start"],
+                            line_end=e["line_end"],
+                            docstring=e.get("docstring"),
+                            parameters=[],  # Not needed for embedding
+                        )
+                    elif entity_type == "Class":
+                        entity_obj = ClassEntity(
+                            name=e["name"],
+                            qualified_name=e["qualified_name"],
+                            file_path=e["file_path"],
+                            line_start=e["line_start"],
+                            line_end=e["line_end"],
+                            docstring=e.get("docstring")
+                        )
+                    else:  # File
+                        entity_obj = FileEntity(
+                            name=e["name"],
+                            qualified_name=e["qualified_name"],
+                            file_path=e["file_path"],
+                            line_start=e["line_start"],
+                            line_end=e["line_end"],
+                            language="python"  # Default, actual value not needed for embedding
+                        )
+
+                    entity_objects.append(entity_obj)
+
+                try:
+                    # Generate embeddings in batch
+                    embeddings = self.embedder.embed_entities_batch(entity_objects)
+
+                    # Update Neo4j with embeddings
+                    for entity, embedding in zip(batch, embeddings):
+                        update_query = f"""
+                        MATCH (e:{entity_type})
+                        WHERE elementId(e) = $id
+                        SET e.embedding = $embedding
+                        """
+                        self.db.execute_query(update_query, {
+                            "id": entity["id"],
+                            "embedding": embedding
+                        })
+
+                    entities_embedded += len(batch)
+                    logger.debug(f"Embedded batch of {len(batch)} {entity_type} entities ({entities_embedded}/{len(entities)})")
+
+                except Exception as e:
+                    logger.error(f"Failed to generate embeddings for batch: {e}")
+                    continue
+
+        return entities_embedded
+
     def load_to_graph(
         self, entities: List[Entity], relationships: List[Relationship]
     ) -> None:
@@ -536,6 +661,14 @@ class IngestionPipeline:
                 "changed": files_changed,
                 "unchanged": files_unchanged,
             }
+
+        # Generate embeddings for all entities if enabled
+        if self.generate_embeddings and self.embedder:
+            logger.info("Generating embeddings for all entities...")
+            embedding_start = time.time()
+            entities_embedded = self._generate_embeddings_for_all_entities()
+            embedding_duration = time.time() - embedding_start
+            logger.info(f"Embeddings generated for {entities_embedded} entities in {embedding_duration:.2f}s")
 
         logger.info("Ingestion complete", extra=log_extra)
 
