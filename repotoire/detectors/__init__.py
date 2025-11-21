@@ -22,6 +22,8 @@ from repotoire.detectors.pylint_detector import PylintDetector
 from repotoire.detectors.bandit_detector import BanditDetector
 from repotoire.detectors.radon_detector import RadonDetector
 from repotoire.detectors.jscpd_detector import JscpdDetector
+from repotoire.detectors.vulture_detector import VultureDetector
+from repotoire.detectors.semgrep_detector import SemgrepDetector
 
 __all__ = [
     "AnalysisEngine",
@@ -44,4 +46,6 @@ __all__ = [
     "BanditDetector",
     "RadonDetector",
     "JscpdDetector",
+    "VultureDetector",
+    "SemgrepDetector",
 ]

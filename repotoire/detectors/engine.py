@@ -31,6 +31,8 @@ from repotoire.detectors.pylint_detector import PylintDetector
 from repotoire.detectors.bandit_detector import BanditDetector
 from repotoire.detectors.radon_detector import RadonDetector
 from repotoire.detectors.jscpd_detector import JscpdDetector
+from repotoire.detectors.vulture_detector import VultureDetector
+from repotoire.detectors.semgrep_detector import SemgrepDetector
 
 from repotoire.logging_config import get_logger, LogContext
 
@@ -109,6 +111,10 @@ class AnalysisEngine:
             RadonDetector(neo4j_client, detector_config={"repository_path": repository_path}),
             # Duplicate code detection (fast, replaces slow Pylint R0801)
             JscpdDetector(neo4j_client, detector_config={"repository_path": repository_path}),
+            # Advanced unused code detection (more accurate than graph-based DeadCodeDetector)
+            VultureDetector(neo4j_client, detector_config={"repository_path": repository_path}),
+            # Advanced security patterns (more powerful than Bandit)
+            SemgrepDetector(neo4j_client, detector_config={"repository_path": repository_path}),
         ]
 
     def analyze(self) -> CodebaseHealth:
