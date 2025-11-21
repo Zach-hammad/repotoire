@@ -217,9 +217,8 @@ class CodeEmbedder:
         """
         parts = []
 
-        # Base classes
-        if cls.bases:
-            parts.append(f"Inherits from: {', '.join(cls.bases)}")
+        # Note: Base class information is stored in graph relationships (INHERITS),
+        # not as a property. To include inheritance info, would need graph query.
 
         # Class characteristics
         characteristics = []
