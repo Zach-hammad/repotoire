@@ -1,5 +1,6 @@
 """Analysis engine that orchestrates all detectors."""
 
+import os
 import time
 from typing import Dict, List
 
@@ -24,10 +25,12 @@ from repotoire.detectors.inappropriate_intimacy import InappropriateIntimacyDete
 
 # Hybrid detectors (external tool + graph)
 from repotoire.detectors.ruff_import_detector import RuffImportDetector
+from repotoire.detectors.ruff_lint_detector import RuffLintDetector
 from repotoire.detectors.mypy_detector import MypyDetector
 from repotoire.detectors.pylint_detector import PylintDetector
 from repotoire.detectors.bandit_detector import BanditDetector
 from repotoire.detectors.radon_detector import RadonDetector
+from repotoire.detectors.jscpd_detector import JscpdDetector
 
 from repotoire.logging_config import get_logger, LogContext
 
@@ -76,10 +79,36 @@ class AnalysisEngine:
             # TrulyUnusedImportsDetector(neo4j_client, detector_config=config.get("truly_unused_imports")),
             # Hybrid detectors (external tool + graph)
             RuffImportDetector(neo4j_client, detector_config={"repository_path": repository_path}),
+            RuffLintDetector(neo4j_client, detector_config={"repository_path": repository_path}),
             MypyDetector(neo4j_client, detector_config={"repository_path": repository_path}),
-            PylintDetector(neo4j_client, detector_config={"repository_path": repository_path}),
+            # PylintDetector in selective mode: only checks that Ruff doesn't cover (the 10%)
+            # Uses parallel processing for optimal performance on multi-core systems
+            # Note: R0801 (duplicate-code) removed - too slow (O(n²)), use RadonDetector instead
+            PylintDetector(neo4j_client, detector_config={
+                "repository_path": repository_path,
+                "enable_only": [
+                    # Design checks (class/module structure)
+                    "R0901",  # too-many-ancestors
+                    "R0902",  # too-many-instance-attributes
+                    "R0903",  # too-few-public-methods
+                    "R0904",  # too-many-public-methods
+                    "R0916",  # too-many-boolean-expressions
+                    # Advanced refactoring
+                    "R1710",  # inconsistent-return-statements
+                    "R1711",  # useless-return
+                    "R1703",  # simplifiable-if-statement
+                    "C0206",  # consider-using-dict-items
+                    # Import analysis
+                    "R0401",  # import-self
+                    "R0402",  # cyclic-import
+                ],
+                "max_findings": 50,  # Limit to keep it fast
+                "jobs": os.cpu_count() or 1  # Use all CPU cores for parallel processing
+            }),
             BanditDetector(neo4j_client, detector_config={"repository_path": repository_path}),
             RadonDetector(neo4j_client, detector_config={"repository_path": repository_path}),
+            # Duplicate code detection (fast, replaces slow Pylint R0801)
+            JscpdDetector(neo4j_client, detector_config={"repository_path": repository_path}),
         ]
 
     def analyze(self) -> CodebaseHealth:

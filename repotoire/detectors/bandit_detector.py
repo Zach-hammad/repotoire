@@ -219,7 +219,7 @@ class BanditDetector(CodeSmellDetector):
         OPTIONAL MATCH (file)-[:CONTAINS]->(entity)
         WHERE entity.lineStart <= $line AND entity.lineEnd >= $line
         RETURN
-            file.linesOfCode as file_loc,
+            file.loc as file_loc,
             file.language as language,
             collect(DISTINCT entity.qualifiedName) as affected_nodes,
             collect(DISTINCT entity.complexity) as complexities

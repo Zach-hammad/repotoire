@@ -54,6 +54,10 @@ Thumbs.db
 .env
 .env.local
 
+# Node.js / npm (for jscpd)
+node_modules/
+package-lock.json
+
 # Project specific
 examples/output/
 *.db

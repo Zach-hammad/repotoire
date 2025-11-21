@@ -329,7 +329,7 @@ class RadonDetector(CodeSmellDetector):
         OPTIONAL MATCH (file)-[:CONTAINS]->(entity)
         WHERE entity.lineStart <= $line AND entity.lineEnd >= $line
         RETURN
-            file.linesOfCode as file_loc,
+            file.loc as file_loc,
             collect(DISTINCT entity.qualifiedName) as affected_nodes,
             collect(DISTINCT entity.complexity) as complexities
         """
@@ -356,7 +356,7 @@ class RadonDetector(CodeSmellDetector):
         MATCH (file:File {filePath: $file_path})
         OPTIONAL MATCH (file)-[:CONTAINS]->(entity)
         RETURN
-            file.linesOfCode as file_loc,
+            file.loc as file_loc,
             collect(DISTINCT entity.qualifiedName) as affected_nodes,
             count(entity) as entity_count
         """

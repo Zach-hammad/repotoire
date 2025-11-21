@@ -16,6 +16,7 @@ This approach achieves:
 """
 
 import json
+import os
 import subprocess
 import uuid
 from datetime import datetime
@@ -34,12 +35,16 @@ class PylintDetector(CodeSmellDetector):
     """Detects code quality issues using pylint with graph enrichment.
 
     Uses pylint for comprehensive quality analysis and Neo4j for context enrichment.
+    Supports parallel processing for faster analysis on multi-core systems.
 
     Configuration:
         repository_path: Path to repository root (required)
         pylintrc_path: Optional path to pylintrc config
         max_findings: Maximum findings to report (default: 100)
         min_severity: Minimum severity to report (default: convention)
+        enable_only: List of specific message IDs to enable (selective mode)
+        disable: List of message IDs to disable
+        jobs: Number of parallel jobs (default: CPU count for optimal performance)
     """
 
     # Severity mapping: pylint message types to severity levels
@@ -62,6 +67,9 @@ class PylintDetector(CodeSmellDetector):
                 - pylintrc_path: Optional pylintrc config
                 - max_findings: Max findings to report
                 - min_severity: Minimum severity level
+                - enable_only: List of specific message IDs to enable (e.g., ["R0801", "R0401"])
+                - disable: List of message IDs to disable
+                - jobs: Number of parallel jobs (default: CPU count)
         """
         super().__init__(neo4j_client)
 
@@ -70,6 +78,9 @@ class PylintDetector(CodeSmellDetector):
         self.pylintrc_path = config.get("pylintrc_path")
         self.max_findings = config.get("max_findings", 100)
         self.min_severity = config.get("min_severity", "convention")
+        self.enable_only = config.get("enable_only", [])  # Selective mode: only enable these checks
+        self.disable = config.get("disable", [])  # Disable specific checks
+        self.jobs = config.get("jobs", os.cpu_count() or 1)  # Parallel jobs (default: all CPUs)
 
         if not self.repository_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repository_path}")
@@ -109,8 +120,23 @@ class PylintDetector(CodeSmellDetector):
             # Build pylint command
             cmd = ["pylint", "--output-format=json", "--recursive=y"]
 
+            # Enable parallel processing
+            if self.jobs > 1:
+                cmd.extend(["-j", str(self.jobs)])
+                logger.info(f"Running pylint with {self.jobs} parallel jobs")
+
             if self.pylintrc_path:
                 cmd.extend(["--rcfile", str(self.pylintrc_path)])
+
+            # Selective mode: only enable specific checks (e.g., Pylint-only checks not covered by Ruff)
+            if self.enable_only:
+                # Disable all checks first, then enable only specified ones
+                cmd.extend(["--disable=all"])
+                cmd.extend(["--enable", ",".join(self.enable_only)])
+                logger.info(f"Running pylint in selective mode: {len(self.enable_only)} checks enabled")
+            elif self.disable:
+                # Disable specific checks
+                cmd.extend(["--disable", ",".join(self.disable)])
 
             # Add repository path
             cmd.append(str(self.repository_path))
@@ -216,7 +242,7 @@ class PylintDetector(CodeSmellDetector):
         OPTIONAL MATCH (file)-[:CONTAINS]->(entity)
         WHERE entity.lineStart <= $line AND entity.lineEnd >= $line
         RETURN
-            file.linesOfCode as file_loc,
+            file.loc as file_loc,
             file.language as language,
             collect(DISTINCT entity.qualifiedName) as affected_nodes,
             collect(DISTINCT entity.complexity) as complexities
