@@ -546,15 +546,48 @@ if __name__ == "__main__":
         all_param_names = [p.name for p in user_params] + [p.name for p in di_params]
         params_str = ", ".join(all_param_names)
 
-        # Determine how to call (module function vs class method)
-        if pattern.is_method and pattern.class_name:
-            call_target = f"{pattern.class_name}.{func_name}"
-        else:
-            call_target = func_name
-
+        # Determine how to call (module function vs instance method vs class method)
         code.append(f"# Call function (may be async)")
         code.append(f"import inspect")
-        code.append(f"result = {call_target}({params_str})")
+
+        # Check if this is an instance method (needs object instantiation)
+        is_instance_method = (pattern.is_method and
+                            pattern.class_name and
+                            not pattern.is_staticmethod and
+                            not pattern.is_classmethod)
+
+        if is_instance_method:
+            # Instance method - need to create class instance first
+            code.append(f"# Instance method - instantiate {pattern.class_name}")
+
+            # First, ensure we have neo4j_client if the class needs it
+            # (most Repotoire classes need Neo4jClient)
+            needs_neo4j = pattern.class_name in ['AnalysisEngine', 'TemporalIngestionPipeline', 'DetectorQueryBuilder']
+
+            if needs_neo4j:
+                code.append("# Instantiate Neo4jClient for class constructor")
+                code.append("neo4j_client = Neo4jClient(")
+                code.append("    uri=os.getenv('REPOTOIRE_NEO4J_URI', 'bolt://localhost:7687'),")
+                code.append("    password=os.getenv('REPOTOIRE_NEO4J_PASSWORD', '')")
+                code.append(")")
+                code.append("")
+
+            instantiation = self._instantiate_class(pattern.class_name, di_params)
+            if instantiation:
+                code.append(instantiation)
+                code.append(f"result = _instance.{func_name}({params_str})")
+            else:
+                # Fallback: try to instantiate with no args
+                code.append(f"_instance = {pattern.class_name}()")
+                code.append(f"result = _instance.{func_name}({params_str})")
+        elif pattern.is_method and pattern.class_name:
+            # Static or class method - call directly on class
+            call_target = f"{pattern.class_name}.{func_name}"
+            code.append(f"result = {call_target}({params_str})")
+        else:
+            # Standalone function
+            code.append(f"result = {func_name}({params_str})")
+
         code.append(f"if inspect.iscoroutine(result):")
         code.append(f"    result = await result")
 
@@ -908,6 +941,38 @@ if __name__ == "__main__":
         # For other DI params, log a warning and set to None
         logger.warning(f"Unsupported dependency type for instantiation: {type_hint}")
         return f"{param_name} = None  # TODO: Instantiate {type_hint}"
+
+    def _instantiate_class(self, class_name: str, di_params: List) -> Optional[str]:
+        """Generate code to instantiate a class for instance method calls.
+
+        Args:
+            class_name: Name of the class to instantiate
+            di_params: List of DI parameters already instantiated
+
+        Returns:
+            Code line to instantiate the class, or None if not supported
+        """
+        # Common patterns for class instantiation
+        class_patterns = {
+            'AnalysisEngine': "_instance = AnalysisEngine(neo4j_client=neo4j_client, repository_path='.')",
+            'DetectorQueryBuilder': "_instance = DetectorQueryBuilder()",
+            'TemporalIngestionPipeline': "_instance = TemporalIngestionPipeline(repository_path='.', neo4j_client=neo4j_client)",
+        }
+
+        # Check if we have a known pattern
+        if class_name in class_patterns:
+            return class_patterns[class_name]
+
+        # Try to infer from DI params
+        # If we have neo4j_client instantiated, many classes need it
+        has_neo4j = any(p.name in ['client', 'neo4j_client'] or 'Neo4jClient' in (p.type_hint or '') for p in di_params)
+
+        if has_neo4j:
+            logger.debug(f"Instantiating {class_name} with neo4j_client")
+            return f"_instance = {class_name}(neo4j_client=neo4j_client)"
+
+        # Fallback: return None and let caller try no-arg constructor
+        return None
 
     def _format_schemas_dict(self, schemas: List[Dict[str, Any]]) -> str:
         """Format schemas as Python dictionary.
