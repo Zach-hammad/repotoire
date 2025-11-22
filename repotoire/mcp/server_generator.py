@@ -956,7 +956,7 @@ if __name__ == "__main__":
         class_patterns = {
             'AnalysisEngine': "_instance = AnalysisEngine(neo4j_client=neo4j_client, repository_path='.')",
             'DetectorQueryBuilder': "_instance = DetectorQueryBuilder()",
-            'TemporalIngestionPipeline': "_instance = TemporalIngestionPipeline(repository_path='.', neo4j_client=neo4j_client)",
+            'TemporalIngestionPipeline': "_instance = TemporalIngestionPipeline(repo_path='.', neo4j_client=neo4j_client)",
         }
 
         # Check if we have a known pattern
