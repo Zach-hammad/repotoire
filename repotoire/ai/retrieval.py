@@ -78,6 +78,69 @@ class GraphRAGRetriever:
 
         logger.info("Initialized GraphRAGRetriever")
 
+    def get_hot_rules_context(self, top_k: int = 10) -> str:
+        """Get context about hot custom rules for RAG prompts.
+
+        Fetches the most relevant custom quality rules based on usage
+        patterns and formats them for inclusion in the RAG system prompt.
+        This helps the AI assistant suggest relevant code improvements.
+
+        Args:
+            top_k: Number of hot rules to include (default: 10)
+
+        Returns:
+            Formatted string with rule context for RAG prompts
+        """
+        from repotoire.rules.engine import RuleEngine
+
+        try:
+            engine = RuleEngine(self.client)
+            hot_rules = engine.get_hot_rules(top_k=top_k)
+
+            if not hot_rules:
+                return ""
+
+            # Format rules for prompt
+            context_parts = [
+                "## Active Code Quality Rules",
+                "",
+                "The codebase is governed by the following custom quality rules "
+                "(ordered by priority and recent usage):",
+                ""
+            ]
+
+            for i, rule in enumerate(hot_rules, 1):
+                priority = rule.calculate_priority()
+                context_parts.extend([
+                    f"### {i}. {rule.name}",
+                    f"**ID**: {rule.id}",
+                    f"**Severity**: {rule.severity.value.upper()}",
+                    f"**Priority**: {priority:.1f} (accessed {rule.accessCount} times)",
+                    f"**Description**: {rule.description}",
+                    ""
+                ])
+
+                if rule.autoFix:
+                    context_parts.append(f"**Suggested Fix**: {rule.autoFix}")
+                    context_parts.append("")
+
+                if rule.tags:
+                    context_parts.append(f"**Tags**: {', '.join(rule.tags)}")
+                    context_parts.append("")
+
+            context_parts.extend([
+                "",
+                "When answering questions or making suggestions, consider these rules "
+                "and recommend fixes that align with them.",
+                ""
+            ])
+
+            return "\n".join(context_parts)
+
+        except Exception as e:
+            logger.warning(f"Could not fetch hot rules context: {e}")
+            return ""
+
     def retrieve(
         self,
         query: str,

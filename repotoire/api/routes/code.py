@@ -193,6 +193,9 @@ async def ask_code_question(
 
         context = "\n".join(context_parts)
 
+        # Step 2.5: Get hot rules context (REPO-125 Phase 4)
+        hot_rules_context = retriever.get_hot_rules_context(top_k=5)
+
         # Step 3: Generate answer with GPT-4o
         client = OpenAI()
 
@@ -204,22 +207,36 @@ async def ask_code_question(
             for msg in request.conversation_history[-5:]:  # Last 5 messages
                 messages.append(msg)
 
-        # Add system message with context
-        system_message = f"""You are an expert code assistant helping developers understand a codebase.
+        # Add system message with context (including hot rules)
+        system_message_parts = [
+            "You are an expert code assistant helping developers understand a codebase.",
+            "",
+            "Use the following code snippets retrieved from the knowledge graph to answer the question accurately and concisely.",
+            "",
+            "**Retrieved Code Context:**",
+            context,
+        ]
 
-Use the following code snippets retrieved from the knowledge graph to answer the question accurately and concisely.
+        # Include hot rules if available
+        if hot_rules_context:
+            system_message_parts.extend([
+                "",
+                hot_rules_context,
+            ])
 
-**Retrieved Code Context:**
-{context}
+        system_message_parts.extend([
+            "",
+            "**Instructions:**",
+            "- Base your answer ONLY on the provided code context",
+            "- Cite specific source numbers (e.g., \"As shown in Source 1...\")",
+            "- If the context doesn't contain enough information, say so",
+            "- Provide code examples from the sources when relevant",
+            "- When suggesting improvements, consider the active code quality rules",
+            "- Be concise but thorough",
+            "- Format code using markdown code blocks",
+        ])
 
-**Instructions:**
-- Base your answer ONLY on the provided code context
-- Cite specific source numbers (e.g., "As shown in Source 1...")
-- If the context doesn't contain enough information, say so
-- Provide code examples from the sources when relevant
-- Be concise but thorough
-- Format code using markdown code blocks
-"""
+        system_message = "\n".join(system_message_parts)
 
         messages.append({"role": "system", "content": system_message})
         messages.append({"role": "user", "content": request.question})

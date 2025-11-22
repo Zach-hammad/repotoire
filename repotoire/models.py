@@ -12,7 +12,7 @@ All models use dataclasses for immutability and type safety.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 class Severity(str, Enum):
@@ -813,6 +813,139 @@ class FixSuggestion:
     estimated_effort: str
     code_diff: Optional[str] = None
     confidence: float = 0.0
+
+
+@dataclass
+class Rule:
+    """Custom code quality rule stored as graph node (REPO-125).
+
+    Represents a user-defined or system rule for detecting code smells.
+    Rules have time-based priority that refreshes based on usage patterns.
+
+    Attributes:
+        id: Unique rule identifier (e.g., "no-god-classes")
+        name: Human-readable rule name
+        description: Detailed explanation of what the rule detects
+        pattern: Cypher query pattern to detect violations
+        severity: Issue severity level (CRITICAL, HIGH, MEDIUM, LOW, INFO)
+        enabled: Whether the rule is active
+        userPriority: User-defined base priority (0-1000)
+        lastUsed: Timestamp of last execution (auto-updated)
+        accessCount: Number of times rule has been executed
+        autoFix: Optional suggestion for fixing violations
+        tags: Optional categorization tags
+        createdAt: Rule creation timestamp
+        updatedAt: Last modification timestamp
+
+    Priority Calculation:
+        priority = userPriority + recency_score + frequency_score
+        - recency_score: 100 * exp(-hours_since_use / 24)
+        - frequency_score: log10(accessCount + 1) * 10
+
+    Example:
+        >>> rule = Rule(
+        ...     id="no-god-classes",
+        ...     name="Classes should have fewer than 20 methods",
+        ...     description="Large classes violate SRP and are hard to maintain",
+        ...     pattern="MATCH (c:Class)-[:CONTAINS]->(m:Function)...",
+        ...     severity=Severity.HIGH,
+        ...     userPriority=100
+        ... )
+    """
+    id: str
+    name: str
+    description: str
+    pattern: str  # Cypher query
+    severity: Severity
+    enabled: bool = True
+    userPriority: int = 50  # Default priority (0-1000 scale)
+    lastUsed: Optional[datetime] = None  # Auto-updated on execution
+    accessCount: int = 0  # Auto-incremented on execution
+    autoFix: Optional[str] = None  # Suggested fix description
+    tags: List[str] = field(default_factory=list)  # e.g., ["complexity", "architecture"]
+    createdAt: datetime = field(default_factory=datetime.now)
+    updatedAt: datetime = field(default_factory=datetime.now)
+
+    def calculate_priority(self) -> float:
+        """Calculate dynamic priority based on usage patterns.
+
+        Returns:
+            Priority score combining user preference, recency, and frequency
+        """
+        import math
+        from datetime import datetime, timezone
+
+        # Base priority (0-1000)
+        base = float(self.userPriority)
+
+        # Recency bonus (exponential decay)
+        if self.lastUsed:
+            hours_since_use = (datetime.now(timezone.utc) - self.lastUsed).total_seconds() / 3600
+            recency = 100 * math.exp(-hours_since_use / 24)  # Decays over days
+        else:
+            recency = 0.0
+
+        # Frequency bonus (logarithmic scale)
+        frequency = math.log10(self.accessCount + 1) * 10
+
+        return base + recency + frequency
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for Neo4j storage."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "pattern": self.pattern,
+            "severity": self.severity.value,
+            "enabled": self.enabled,
+            "userPriority": self.userPriority,
+            "lastUsed": self.lastUsed.isoformat() if self.lastUsed else None,
+            "accessCount": self.accessCount,
+            "autoFix": self.autoFix,
+            "tags": self.tags,
+            "createdAt": self.createdAt.isoformat(),
+            "updatedAt": self.updatedAt.isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Rule":
+        """Create Rule from Neo4j node properties."""
+        from datetime import datetime
+
+        def parse_datetime(value):
+            """Parse datetime from Neo4j (can be string or datetime object)."""
+            if value is None:
+                return None
+            if isinstance(value, datetime):
+                return value
+            if isinstance(value, str):
+                return datetime.fromisoformat(value)
+            # Handle Neo4j DateTime objects
+            if hasattr(value, 'to_native'):
+                return value.to_native()
+            return value
+
+        # Parse datetimes
+        last_used = parse_datetime(data.get("lastUsed"))
+        created_at = parse_datetime(data["createdAt"])
+        updated_at = parse_datetime(data["updatedAt"])
+
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            description=data["description"],
+            pattern=data["pattern"],
+            severity=Severity(data["severity"]),
+            enabled=data.get("enabled", True),
+            userPriority=data.get("userPriority", 50),
+            lastUsed=last_used,
+            accessCount=data.get("accessCount", 0),
+            autoFix=data.get("autoFix"),
+            tags=data.get("tags", []),
+            createdAt=created_at,
+            updatedAt=updated_at,
+        )
 
 
 @dataclass

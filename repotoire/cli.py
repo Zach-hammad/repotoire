@@ -2137,6 +2137,561 @@ def validate(
         raise click.Abort()
 
 
+# ============================================================================
+# Rule Management Commands (REPO-125)
+# ============================================================================
+
+@cli.group()
+def rule() -> None:
+    """Manage custom code quality rules (REPO-125).
+
+    Rules are stored as graph nodes with time-based priority refresh.
+    Frequently-used rules automatically bubble to the top for RAG context.
+
+    Examples:
+        repotoire rule list                    # List all rules
+        repotoire rule add rules.yaml          # Add rules from file
+        repotoire rule test no-god-classes     # Dry-run a rule
+        repotoire rule stats                   # Show rule statistics
+    """
+    pass
+
+
+@rule.command()
+@click.option("--enabled-only", is_flag=True, help="Only show enabled rules")
+@click.option("--tags", multiple=True, help="Filter by tags")
+@click.option("--sort-by", type=click.Choice(["priority", "name", "last-used"]), default="priority", help="Sort order")
+@click.option("--limit", type=int, help="Maximum rules to show")
+@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
+@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
+@click.pass_context
+def list(
+    ctx: click.Context,
+    enabled_only: bool,
+    tags: tuple,
+    sort_by: str,
+    limit: int | None,
+    neo4j_uri: str | None,
+    neo4j_password: str | None,
+) -> None:
+    """List all custom rules with priority scores."""
+    try:
+        from repotoire.rules.engine import RuleEngine
+
+        # Get Neo4j config
+        config = ctx.obj or get_config()
+        uri = neo4j_uri or config.neo4j_uri
+        password = neo4j_password or config.neo4j_password
+
+        # Connect
+        client = Neo4jClient(uri=uri, password=password)
+        engine = RuleEngine(client)
+
+        # Get rules
+        rules = engine.list_rules(
+            enabled_only=enabled_only,
+            tags=list(tags) if tags else None,
+            limit=limit
+        )
+
+        if not rules:
+            console.print("\n[yellow]No rules found.[/yellow]")
+            console.print("💡 Add rules with: [cyan]repotoire rule add rules.yaml[/cyan]\n")
+            return
+
+        # Calculate priorities and sort
+        rules_with_priority = [(rule, rule.calculate_priority()) for rule in rules]
+
+        if sort_by == "priority":
+            rules_with_priority.sort(key=lambda x: x[1], reverse=True)
+        elif sort_by == "name":
+            rules_with_priority.sort(key=lambda x: x[0].name)
+        elif sort_by == "last-used":
+            rules_with_priority.sort(key=lambda x: x[0].lastUsed or "", reverse=True)
+
+        # Display table
+        table = Table(title=f"Custom Rules ({len(rules)} found)", box=box.ROUNDED)
+        table.add_column("ID", style="cyan")
+        table.add_column("Name", style="bold")
+        table.add_column("Severity", style="yellow")
+        table.add_column("Priority", justify="right")
+        table.add_column("Accessed", justify="right")
+        table.add_column("Last Used", style="dim")
+        table.add_column("Enabled", justify="center")
+
+        for rule, priority in rules_with_priority:
+            # Format last used
+            last_used_str = "Never"
+            if rule.lastUsed:
+                from datetime import datetime, timezone
+                now = datetime.now(timezone.utc)
+                # Handle timezone-naive lastUsed
+                last_used = rule.lastUsed
+                if last_used.tzinfo is None:
+                    last_used = last_used.replace(tzinfo=timezone.utc)
+                delta = now - last_used
+
+                # Simple human-readable format
+                if delta.days > 365:
+                    last_used_str = f"{delta.days // 365}y ago"
+                elif delta.days > 30:
+                    last_used_str = f"{delta.days // 30}mo ago"
+                elif delta.days > 0:
+                    last_used_str = f"{delta.days}d ago"
+                elif delta.seconds > 3600:
+                    last_used_str = f"{delta.seconds // 3600}h ago"
+                elif delta.seconds > 60:
+                    last_used_str = f"{delta.seconds // 60}m ago"
+                else:
+                    last_used_str = "Just now"
+
+            # Enabled indicator
+            enabled_icon = "✓" if rule.enabled else "✗"
+            enabled_style = "green" if rule.enabled else "red"
+
+            table.add_row(
+                rule.id,
+                rule.name,
+                rule.severity.value.upper(),
+                f"{priority:.1f}",
+                str(rule.accessCount),
+                last_used_str,
+                f"[{enabled_style}]{enabled_icon}[/{enabled_style}]"
+            )
+
+        console.print()
+        console.print(table)
+        console.print()
+
+        client.close()
+
+    except Exception as e:
+        logger.error(f"Failed to list rules: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
+@rule.command()
+@click.argument("file_path", type=click.Path(exists=True))
+@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
+@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
+@click.pass_context
+def add(
+    ctx: click.Context,
+    file_path: str,
+    neo4j_uri: str | None,
+    neo4j_password: str | None,
+) -> None:
+    """Add rules from a YAML file.
+
+    The YAML file should contain a list of rules with the following structure:
+
+    \b
+    rules:
+      - id: no-god-classes
+        name: "Classes should have fewer than 20 methods"
+        description: "Large classes violate SRP"
+        pattern: |
+          MATCH (c:Class)-[:CONTAINS]->(m:Function)
+          WITH c, count(m) as method_count
+          WHERE method_count > 20
+          RETURN c.qualifiedName as class_name, method_count
+        severity: HIGH
+        userPriority: 100
+        tags: [complexity, architecture]
+        autoFix: "Split into smaller classes"
+    """
+    try:
+        import yaml
+        from repotoire.rules.engine import RuleEngine
+        from repotoire.rules.validator import RuleValidator
+        from repotoire.models import Rule, Severity
+
+        # Get Neo4j config
+        config = ctx.obj or get_config()
+        uri = neo4j_uri or config.neo4j_uri
+        password = neo4j_password or config.neo4j_password
+
+        # Connect
+        client = Neo4jClient(uri=uri, password=password)
+        engine = RuleEngine(client)
+        validator = RuleValidator(client)
+
+        # Load YAML
+        with open(file_path, 'r') as f:
+            data = yaml.safe_load(f)
+
+        rules_data = data.get('rules', [])
+        if not rules_data:
+            console.print(f"\n[yellow]No rules found in {file_path}[/yellow]")
+            return
+
+        console.print(f"\n[bold]Adding {len(rules_data)} rules from {file_path}...[/bold]\n")
+
+        success_count = 0
+        error_count = 0
+
+        for rule_data in rules_data:
+            rule_id = rule_data.get('id')
+            try:
+                # Validate pattern
+                pattern = rule_data.get('pattern')
+                is_valid, error = validator.validate_pattern(pattern)
+                if not is_valid:
+                    console.print(f"  [red]✗[/red] {rule_id}: Invalid pattern - {error}")
+                    error_count += 1
+                    continue
+
+                # Create Rule object
+                rule = Rule(
+                    id=rule_id,
+                    name=rule_data['name'],
+                    description=rule_data['description'],
+                    pattern=pattern,
+                    severity=Severity(rule_data.get('severity', 'medium').lower()),
+                    enabled=rule_data.get('enabled', True),
+                    userPriority=rule_data.get('userPriority', 50),
+                    autoFix=rule_data.get('autoFix'),
+                    tags=rule_data.get('tags', []),
+                )
+
+                # Create in database
+                engine.create_rule(rule)
+                console.print(f"  [green]✓[/green] {rule_id}: Added successfully")
+                success_count += 1
+
+            except ValueError as e:
+                if "already exists" in str(e):
+                    console.print(f"  [yellow]⚠[/yellow] {rule_id}: Already exists (skipping)")
+                else:
+                    console.print(f"  [red]✗[/red] {rule_id}: {e}")
+                    error_count += 1
+            except Exception as e:
+                console.print(f"  [red]✗[/red] {rule_id}: {e}")
+                error_count += 1
+
+        # Summary
+        console.print(f"\n[bold]Summary:[/bold]")
+        console.print(f"  [green]✓ Added:[/green] {success_count}")
+        console.print(f"  [red]✗ Failed:[/red] {error_count}")
+        console.print()
+
+        client.close()
+
+    except Exception as e:
+        logger.error(f"Failed to add rules: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
+@rule.command()
+@click.argument("rule_id")
+@click.option("--name", help="Update rule name")
+@click.option("--priority", type=int, help="Update user priority (0-1000)")
+@click.option("--enable/--disable", default=None, help="Enable or disable rule")
+@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
+@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
+@click.pass_context
+def edit(
+    ctx: click.Context,
+    rule_id: str,
+    name: str | None,
+    priority: int | None,
+    enable: bool | None,
+    neo4j_uri: str | None,
+    neo4j_password: str | None,
+) -> None:
+    """Edit an existing rule."""
+    try:
+        from repotoire.rules.engine import RuleEngine
+
+        # Get Neo4j config
+        config = ctx.obj or get_config()
+        uri = neo4j_uri or config.neo4j_uri
+        password = neo4j_password or config.neo4j_password
+
+        # Connect
+        client = Neo4jClient(uri=uri, password=password)
+        engine = RuleEngine(client)
+
+        # Check rule exists
+        rule = engine.get_rule(rule_id)
+        if not rule:
+            console.print(f"\n[red]❌ Rule '{rule_id}' not found[/red]\n")
+            return
+
+        # Build updates
+        updates = {}
+        if name:
+            updates['name'] = name
+        if priority is not None:
+            updates['userPriority'] = priority
+        if enable is not None:
+            updates['enabled'] = enable
+
+        if not updates:
+            console.print("\n[yellow]No updates specified. Use --name, --priority, or --enable/--disable[/yellow]\n")
+            return
+
+        # Update
+        updated_rule = engine.update_rule(rule_id, **updates)
+
+        console.print(f"\n[green]✓ Updated rule '{rule_id}'[/green]")
+        console.print(f"  Priority: {updated_rule.calculate_priority():.1f}")
+        console.print(f"  Enabled: {updated_rule.enabled}\n")
+
+        client.close()
+
+    except Exception as e:
+        logger.error(f"Failed to edit rule: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
+@rule.command()
+@click.argument("rule_id")
+@click.confirmation_option(prompt="Are you sure you want to delete this rule?")
+@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
+@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
+@click.pass_context
+def delete(
+    ctx: click.Context,
+    rule_id: str,
+    neo4j_uri: str | None,
+    neo4j_password: str | None,
+) -> None:
+    """Delete a rule."""
+    try:
+        from repotoire.rules.engine import RuleEngine
+
+        # Get Neo4j config
+        config = ctx.obj or get_config()
+        uri = neo4j_uri or config.neo4j_uri
+        password = neo4j_password or config.neo4j_password
+
+        # Connect
+        client = Neo4jClient(uri=uri, password=password)
+        engine = RuleEngine(client)
+
+        # Delete
+        deleted = engine.delete_rule(rule_id)
+
+        if deleted:
+            console.print(f"\n[green]✓ Deleted rule '{rule_id}'[/green]\n")
+        else:
+            console.print(f"\n[yellow]Rule '{rule_id}' not found[/yellow]\n")
+
+        client.close()
+
+    except Exception as e:
+        logger.error(f"Failed to delete rule: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
+@rule.command()
+@click.argument("rule_id")
+@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
+@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
+@click.pass_context
+def test(
+    ctx: click.Context,
+    rule_id: str,
+    neo4j_uri: str | None,
+    neo4j_password: str | None,
+) -> None:
+    """Test a rule (dry-run) to see what it would find."""
+    try:
+        from repotoire.rules.engine import RuleEngine
+
+        # Get Neo4j config
+        config = ctx.obj or get_config()
+        uri = neo4j_uri or config.neo4j_uri
+        password = neo4j_password or config.neo4j_password
+
+        # Connect
+        client = Neo4jClient(uri=uri, password=password)
+        engine = RuleEngine(client)
+
+        # Get rule
+        rule = engine.get_rule(rule_id)
+        if not rule:
+            console.print(f"\n[red]❌ Rule '{rule_id}' not found[/red]\n")
+            return
+
+        console.print(f"\n[bold cyan]Testing rule: {rule.name}[/bold cyan]")
+        console.print(f"Pattern:\n{rule.pattern}\n")
+
+        with console.status(f"[bold green]Executing rule..."):
+            findings = engine.execute_rule(rule)
+
+        console.print(f"\n[bold]Found {len(findings)} violations:[/bold]\n")
+
+        if findings:
+            for i, finding in enumerate(findings[:10], 1):  # Show first 10
+                console.print(f"{i}. [{finding.severity.value}] {finding.title}")
+                console.print(f"   {finding.description}")
+                if finding.affected_files:
+                    console.print(f"   Files: {', '.join(finding.affected_files)}")
+                console.print()
+
+            if len(findings) > 10:
+                console.print(f"... and {len(findings) - 10} more\n")
+        else:
+            console.print("[green]No violations found ✓[/green]\n")
+
+        client.close()
+
+    except Exception as e:
+        logger.error(f"Failed to test rule: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
+@rule.command()
+@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
+@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
+@click.pass_context
+def stats(
+    ctx: click.Context,
+    neo4j_uri: str | None,
+    neo4j_password: str | None,
+) -> None:
+    """Show rule usage statistics."""
+    try:
+        from repotoire.rules.engine import RuleEngine
+
+        # Get Neo4j config
+        config = ctx.obj or get_config()
+        uri = neo4j_uri or config.neo4j_uri
+        password = neo4j_password or config.neo4j_password
+
+        # Connect
+        client = Neo4jClient(uri=uri, password=password)
+        engine = RuleEngine(client)
+
+        # Get statistics
+        stats_data = engine.get_rule_statistics()
+
+        # Display panel
+        panel_content = f"""
+[cyan]Total Rules:[/cyan] {stats_data.get('total_rules', 0)}
+[green]Enabled Rules:[/green] {stats_data.get('enabled_rules', 0)}
+[yellow]Average Access Count:[/yellow] {stats_data.get('avg_access_count', 0):.1f}
+[bold]Total Executions:[/bold] {stats_data.get('total_executions', 0)}
+[magenta]Max Access Count:[/magenta] {stats_data.get('max_access_count', 0)}
+        """
+
+        console.print()
+        console.print(Panel(panel_content.strip(), title="Rule Statistics", border_style="cyan"))
+        console.print()
+
+        # Show hottest rules
+        hot_rules = engine.get_hot_rules(top_k=5)
+        if hot_rules:
+            console.print("[bold]🔥 Hottest Rules (Top 5):[/bold]\n")
+            for i, rule in enumerate(hot_rules, 1):
+                priority = rule.calculate_priority()
+                console.print(f"{i}. {rule.id} (priority: {priority:.1f}, accessed: {rule.accessCount} times)")
+            console.print()
+
+        client.close()
+
+    except Exception as e:
+        logger.error(f"Failed to get stats: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
+@rule.command("daemon-refresh")
+@click.option("--decay-threshold", default=7, help="Days before decaying stale rules (default: 7)")
+@click.option("--decay-factor", default=0.9, help="Priority decay multiplier (default: 0.9)")
+@click.option("--auto-archive", is_flag=True, help="Archive rules unused for >90 days")
+@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
+@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
+@click.pass_context
+def daemon_refresh(
+    ctx: click.Context,
+    decay_threshold: int,
+    decay_factor: float,
+    auto_archive: bool,
+    neo4j_uri: str | None,
+    neo4j_password: str | None,
+) -> None:
+    """Force immediate priority refresh for all rules.
+
+    This command runs the daemon's refresh cycle once:
+    - Decays stale rules (not used in >N days)
+    - Optionally archives very old rules (>90 days)
+    - Shows statistics
+
+    Examples:
+        # Standard refresh (decay after 7 days)
+        repotoire rule daemon-refresh
+
+        # Aggressive decay (after 3 days, reduce by 20%)
+        repotoire rule daemon-refresh --decay-threshold 3 --decay-factor 0.8
+
+        # Archive very old rules
+        repotoire rule daemon-refresh --auto-archive
+    """
+    try:
+        from repotoire.rules.daemon import RuleRefreshDaemon
+
+        # Get Neo4j config
+        config = ctx.obj or get_config()
+        uri = neo4j_uri or config.neo4j_uri
+        password = neo4j_password or config.neo4j_password
+
+        # Connect
+        client = Neo4jClient(uri=uri, password=password)
+
+        # Create daemon
+        daemon = RuleRefreshDaemon(
+            client,
+            decay_threshold_days=decay_threshold,
+            decay_factor=decay_factor,
+            auto_archive=auto_archive,
+        )
+
+        console.print("\n[cyan]🔄 Running priority refresh...[/cyan]\n")
+
+        # Force refresh
+        results = daemon.force_refresh()
+
+        # Display results
+        panel_content = f"""
+[yellow]Decayed Rules:[/yellow] {results['decayed']} rules reduced in priority
+[red]Archived Rules:[/red] {results['archived']} rules disabled (very old)
+
+[bold]Current Statistics:[/bold]
+  [green]Active Rules:[/green] {results['stats'].get('active_rules', 0):.0f}
+  [dim]Archived Rules:[/dim] {results['stats'].get('archived_rules', 0):.0f}
+  [yellow]Stale Rules:[/yellow] {results['stats'].get('stale_rules', 0):.0f} (>{decay_threshold}d since use)
+  [cyan]Average Age:[/cyan] {results['stats'].get('avg_days_since_use', 0):.1f} days
+        """
+
+        console.print(Panel(panel_content.strip(), title="Refresh Results", border_style="green"))
+        console.print()
+
+        if results['decayed'] > 0:
+            console.print(f"[green]✓[/green] Reduced priority of {results['decayed']} stale rules")
+        else:
+            console.print("[dim]No stale rules to decay[/dim]")
+
+        if auto_archive and results['archived'] > 0:
+            console.print(f"[yellow]✓[/yellow] Archived {results['archived']} very old rules")
+
+        console.print()
+
+        client.close()
+
+    except Exception as e:
+        logger.error(f"Failed to refresh rules: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
 def main() -> None:
     """Entry point for CLI."""
     cli()
