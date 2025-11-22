@@ -1,0 +1,20 @@
+# Example .pre-commit-config.yaml for Repotoire pre-commit hook
+# See https://pre-commit.com for more information
+
+repos:
+  # Repotoire code quality checks
+  - repo: local
+    hooks:
+      - id: repotoire-check
+        name: Repotoire Code Quality Check
+        description: Run Repotoire analysis on staged files and block commits with critical issues
+        entry: uv run repotoire-pre-commit
+        language: system
+        pass_filenames: true
+        types: [python]
+        require_serial: true
+        stages: [commit]
+        # Optional: Configure severity threshold (default: critical)
+        # args: [--fail-on=high]
+        # Optional: Configure Neo4j connection
+        # args: [--neo4j-uri=bolt://localhost:7688, --neo4j-password=your-password]

@@ -169,6 +169,12 @@ def cli(ctx: click.Context, config: str | None, log_level: str | None, log_forma
     help="Generate AI-powered semantic clues (requires spaCy)",
 )
 @click.option(
+    "--generate-embeddings",
+    is_flag=True,
+    default=False,
+    help="Generate vector embeddings for RAG (requires OpenAI API key)",
+)
+@click.option(
     "--batch-size",
     type=int,
     default=None,
@@ -189,6 +195,7 @@ def ingest(
     force_full: bool,
     quiet: bool,
     generate_clues: bool,
+    generate_embeddings: bool,
     batch_size: int | None,
 ) -> None:
     """Ingest a codebase into the knowledge graph with security validation.
@@ -263,6 +270,8 @@ def ingest(
     console.print(f"Max file size: {final_max_file_size}MB")
     if generate_clues:
         console.print(f"[cyan]✨ AI Clue Generation: Enabled (spaCy)[/cyan]")
+    if generate_embeddings:
+        console.print(f"[cyan]🔮 Vector Embeddings: Enabled (OpenAI)[/cyan]")
     console.print()
 
     try:
@@ -277,6 +286,12 @@ def ingest(
                 retry_backoff_factor=validated_retries[1],
                 retry_base_delay=validated_retries[2],
             ) as db:
+                # Clear database if force-full is requested
+                if force_full:
+                    console.print("[yellow]⚠️  Force-full mode: Clearing existing graph...[/yellow]")
+                    db.clear_graph()
+                    console.print("[green]✓ Database cleared[/green]\n")
+
                 pipeline = IngestionPipeline(
                     str(validated_repo_path),
                     db,
@@ -284,7 +299,8 @@ def ingest(
                     max_file_size_mb=final_max_file_size,
                     batch_size=validated_batch_size,
                     secrets_policy=final_secrets_policy,
-                    generate_clues=generate_clues
+                    generate_clues=generate_clues,
+                    generate_embeddings=generate_embeddings
                 )
 
                 # Setup progress bar if not in quiet mode
@@ -1577,6 +1593,231 @@ def compare(ctx, before_commit: str, after_commit: str, neo4j_uri, neo4j_user, n
 
     except Exception as e:
         logger.error(f"Failed to compare commits: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
+@cli.command()
+@click.option("--output-dir", "-o", type=click.Path(), default="./mcp_server", help="Output directory for generated server")
+@click.option("--server-name", default="mcp_server", help="Name for the generated MCP server")
+@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
+@click.option("--neo4j-user", default=None, help="Neo4j username (overrides config)")
+@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
+@click.option("--enable-rag", is_flag=True, default=False, help="Enable RAG enhancements (requires OpenAI API key)")
+@click.option("--min-params", default=2, help="Minimum parameters for public functions")
+@click.option("--max-params", default=10, help="Maximum parameters for public functions")
+@click.option("--max-routes", default=None, type=int, help="Maximum FastAPI routes to include")
+@click.option("--max-commands", default=None, type=int, help="Maximum Click commands to include")
+@click.option("--max-functions", default=None, type=int, help="Maximum public functions to include")
+@click.pass_context
+def generate_mcp(
+    ctx: click.Context,
+    output_dir: str,
+    server_name: str,
+    neo4j_uri: str | None,
+    neo4j_user: str | None,
+    neo4j_password: str | None,
+    enable_rag: bool,
+    min_params: int,
+    max_params: int,
+    max_routes: int | None,
+    max_commands: int | None,
+    max_functions: int | None,
+) -> None:
+    """Generate MCP (Model Context Protocol) server from codebase.
+
+    Automatically detects FastAPI routes, Click commands, and public functions,
+    then generates a complete runnable MCP server with enhanced descriptions.
+
+    Examples:
+        # Basic generation
+        repotoire generate-mcp
+
+        # With RAG enhancements
+        repotoire generate-mcp --enable-rag
+
+        # Custom output and limits
+        repotoire generate-mcp -o ./my_server --max-routes 5 --max-functions 10
+    """
+    from repotoire.mcp import PatternDetector, SchemaGenerator, ServerGenerator
+    from repotoire.ai.embeddings import CodeEmbedder
+    from repotoire.ai.retrieval import GraphRAGRetriever
+    from pathlib import Path
+    import os
+
+    try:
+        config = get_config()
+
+        # Get Neo4j connection details
+        uri = neo4j_uri or config.neo4j.uri
+        user = neo4j_user or config.neo4j.user
+        password = neo4j_password or config.neo4j.password
+
+        if not password:
+            password = click.prompt("Neo4j password", hide_input=True)
+
+        # Get repository path (assume current directory or from config)
+        repository_path = os.getcwd()
+
+        console.print()
+        console.print("[bold cyan]🚀 MCP Server Generation[/bold cyan]")
+        console.print("[dim]Generating Model Context Protocol server from codebase[/dim]")
+        console.print()
+
+        # Connect to Neo4j
+        with console.status("[bold green]Connecting to Neo4j...", spinner="dots"):
+            client = Neo4jClient(uri=uri, username=user, password=password)
+
+        console.print("[green]✓[/green] Connected to Neo4j")
+
+        # Check if embeddings exist for RAG
+        if enable_rag:
+            stats = client.get_stats()
+            embeddings_count = stats.get("embeddings_count", 0)
+
+            if embeddings_count == 0:
+                console.print("[yellow]⚠️  No embeddings found in database[/yellow]")
+                console.print("[dim]Run 'repotoire ingest --generate-embeddings' first to enable RAG[/dim]")
+                enable_rag = False
+            else:
+                console.print(f"[cyan]🔮 RAG Enhancement: Enabled ({embeddings_count:,} embeddings)[/cyan]")
+
+        console.print()
+
+        # Phase 1: Pattern Detection
+        console.print("[bold cyan]📍 Phase 1: Pattern Detection[/bold cyan]")
+        with console.status("[bold green]Detecting patterns...", spinner="dots"):
+            # Enable import validation to filter out non-importable functions
+            detector = PatternDetector(client, repo_path=repository_path, validate_imports=True)
+
+            routes = detector.detect_fastapi_routes()
+            commands = detector.detect_click_commands()
+            functions = detector.detect_public_functions(min_params=min_params, max_params=max_params)
+
+            # Apply limits if specified
+            if max_routes is not None:
+                routes = routes[:max_routes]
+            if max_commands is not None:
+                commands = commands[:max_commands]
+            if max_functions is not None:
+                functions = functions[:max_functions]
+
+            all_patterns = routes + commands + functions
+
+        if not all_patterns:
+            console.print("[yellow]⚠️  No patterns detected in codebase[/yellow]")
+            console.print("[dim]Make sure you've run 'repotoire ingest' first[/dim]")
+            client.close()
+            return
+
+        console.print(f"[green]✓[/green] Detected {len(all_patterns)} patterns:")
+        console.print(f"   • {len(routes)} FastAPI routes")
+        console.print(f"   • {len(commands)} Click commands")
+        console.print(f"   • {len(functions)} public functions")
+        console.print()
+
+        # Phase 2: Schema Generation
+        console.print("[bold cyan]📋 Phase 2: Schema Generation[/bold cyan]")
+
+        # Setup RAG if enabled
+        rag_retriever = None
+
+        if enable_rag:
+            try:
+                api_key = os.getenv("OPENAI_API_KEY")
+                if api_key:
+                    embedder = CodeEmbedder(api_key=api_key)
+                    rag_retriever = GraphRAGRetriever(neo4j_client=client, embedder=embedder)
+                    console.print("[cyan]🔮 RAG enhancements enabled[/cyan]")
+                else:
+                    console.print("[yellow]⚠️  OPENAI_API_KEY not set, RAG disabled[/yellow]")
+                    enable_rag = False
+            except ImportError:
+                console.print("[yellow]⚠️  OpenAI package not installed, RAG disabled[/yellow]")
+                enable_rag = False
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("[green]Generating schemas...", total=len(all_patterns))
+
+            # SchemaGenerator creates OpenAI client internally from env var
+            generator = SchemaGenerator(
+                rag_retriever=rag_retriever,
+                neo4j_client=client if enable_rag else None
+            )
+
+            schemas = []
+            for pattern in all_patterns:
+                schema = generator.generate_tool_schema(pattern)
+                schemas.append(schema)
+                progress.advance(task)
+
+        console.print(f"[green]✓[/green] Generated {len(schemas)} tool schemas")
+        console.print()
+
+        # Phase 3: Server Generation
+        console.print("[bold cyan]🔧 Phase 3: Server Generation[/bold cyan]")
+
+        output_path = Path(output_dir)
+        with console.status("[bold green]Generating server code...", spinner="dots"):
+            server_gen = ServerGenerator(output_path)
+            server_file = server_gen.generate_server(
+                patterns=all_patterns,
+                schemas=schemas,
+                server_name=server_name,
+                repository_path=repository_path
+            )
+
+        console.print(f"[green]✓[/green] Generated MCP server")
+        console.print()
+
+        # Display results
+        server_code = server_file.read_text()
+        lines_of_code = len(server_code.splitlines())
+        file_size_kb = len(server_code) / 1024
+
+        # Create results panel
+        panel_content = f"""[bold cyan]Server File:[/bold cyan] {server_file}
+[bold cyan]Lines of Code:[/bold cyan] {lines_of_code:,}
+[bold cyan]File Size:[/bold cyan] {file_size_kb:.1f} KB
+[bold cyan]Tools Registered:[/bold cyan] {len(schemas)}
+[bold cyan]RAG Enhanced:[/bold cyan] {'Yes' if enable_rag else 'No'}"""
+
+        panel = Panel(
+            panel_content,
+            title="✅ MCP Server Generated",
+            border_style="green",
+            box=box.ROUNDED,
+        )
+        console.print(panel)
+        console.print()
+
+        # Next steps
+        console.print("[bold cyan]💡 Next Steps:[/bold cyan]")
+        console.print(f"   1. Test server: [dim]python {server_file}[/dim]")
+        console.print(f"   2. Install MCP SDK: [dim]pip install mcp[/dim]")
+        console.print(f"   3. Connect to Claude Desktop:")
+        console.print()
+        console.print('[dim]   Add to ~/Library/Application Support/Claude/claude_desktop_config.json:[/dim]')
+        console.print('[dim]   {[/dim]')
+        console.print('[dim]     "mcpServers": {[/dim]')
+        console.print(f'[dim]       "{server_name}": {{[/dim]')
+        console.print('[dim]         "command": "python",[/dim]')
+        console.print(f'[dim]         "args": ["{server_file}"][/dim]')
+        console.print('[dim]       }[/dim]')
+        console.print('[dim]     }[/dim]')
+        console.print('[dim]   }[/dim]')
+        console.print()
+
+        client.close()
+
+    except Exception as e:
+        logger.error(f"Failed to generate MCP server: {e}", exc_info=True)
         console.print(f"\n[red]❌ Error:[/red] {e}")
         raise click.Abort()
 

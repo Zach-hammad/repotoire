@@ -495,6 +495,59 @@ class IngestionPipeline:
         except Exception as e:
             logger.error(f"Failed to load data to graph: {e}")
 
+    def _find_dependent_files(self, changed_files: List[str], max_depth: int = 3) -> List[str]:
+        """Find files that depend on changed files via import relationships.
+
+        This enables dependency-aware incremental analysis: when a file changes,
+        we also need to re-analyze files that import it.
+
+        Args:
+            changed_files: List of file paths that changed
+            max_depth: Maximum depth to traverse import relationships (default: 3)
+
+        Returns:
+            List of file paths that transitively depend on changed files
+        """
+        if not changed_files:
+            return []
+
+        logger.debug(f"Finding files dependent on {len(changed_files)} changed files")
+
+        # Query to find files that import the changed files (bidirectional)
+        # Split into two queries to avoid Cypher aggregation issues
+        query = """
+        // Find files that import changed files (downstream impact)
+        MATCH (f1:File)
+        WHERE f1.filePath IN $changed_files
+        OPTIONAL MATCH (f2:File)-[:IMPORTS*1..3]->(f1)
+        WHERE f2.filePath IS NOT NULL
+
+        RETURN DISTINCT f2.filePath as filePath
+
+        UNION
+
+        // Find files that changed files import (upstream dependencies)
+        MATCH (f1:File)
+        WHERE f1.filePath IN $changed_files
+        OPTIONAL MATCH (f1)-[:IMPORTS*1..3]->(f3:File)
+        WHERE f3.filePath IS NOT NULL
+
+        RETURN DISTINCT f3.filePath as filePath
+        """
+
+        try:
+            result = self.db.execute_query(query, {
+                "changed_files": changed_files
+            })
+
+            dependent_files = [record["filePath"] for record in result]
+            logger.info(f"Found {len(dependent_files)} dependent files for {len(changed_files)} changed files")
+            return dependent_files
+
+        except Exception as e:
+            logger.warning(f"Could not find dependent files (graph may be empty): {e}")
+            return []
+
     @log_operation("ingest")
     def ingest(
         self,
@@ -570,6 +623,31 @@ class IngestionPipeline:
                         files_changed += 1
 
             logger.info(f"Incremental scan: {files_new} new, {files_changed} changed, {files_unchanged} unchanged")
+
+            # Find dependent files (files that import changed/new files)
+            changed_and_new_paths = [self._get_relative_path(f) for f in files_to_process]
+            dependent_paths = self._find_dependent_files(changed_and_new_paths)
+
+            # Add dependent files to processing list
+            if dependent_paths:
+                files_map = {self._get_relative_path(f): f for f in files}
+                dependent_files = []
+
+                for dep_path in dependent_paths:
+                    # Skip if already in processing list
+                    if dep_path in changed_and_new_paths:
+                        continue
+
+                    # Get Path object for dependent file
+                    if dep_path in files_map:
+                        dep_file = files_map[dep_path]
+                        # Delete old entities for dependent file
+                        self.db.delete_file_entities(dep_path)
+                        dependent_files.append(dep_file)
+
+                if dependent_files:
+                    logger.info(f"Found {len(dependent_files)} dependent files that need re-analysis")
+                    files_to_process.extend(dependent_files)
 
             # Clean up deleted files (files in DB but not on filesystem)
             all_scanned_paths = {self._get_relative_path(f) for f in files}

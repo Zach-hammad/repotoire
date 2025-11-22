@@ -367,6 +367,12 @@ class Neo4jClient:
                     entity_dict["decorators"] = e.decorators
                 if hasattr(e, "is_method"):  # Function
                     entity_dict["is_method"] = e.is_method
+                if hasattr(e, "is_static"):  # Function
+                    entity_dict["is_static"] = e.is_static
+                if hasattr(e, "is_classmethod"):  # Function
+                    entity_dict["is_classmethod"] = e.is_classmethod
+                if hasattr(e, "is_property"):  # Function
+                    entity_dict["is_property"] = e.is_property
 
                 entity_dicts.append(entity_dict)
 
@@ -515,6 +521,7 @@ class Neo4jClient:
             "total_classes": "MATCH (c:Class) RETURN count(c) as count",
             "total_functions": "MATCH (f:Function) RETURN count(f) as count",
             "total_relationships": "MATCH ()-[r]->() RETURN count(r) as count",
+            "embeddings_count": "MATCH (n) WHERE n.embedding IS NOT NULL RETURN count(n) as count",
         }
 
         stats = {}
@@ -649,7 +656,7 @@ class Neo4jClient:
         """
         query = """
         MATCH (f:File {filePath: $path})
-        OPTIONAL MATCH (f)-[:CONTAINS]->(entity)
+        OPTIONAL MATCH (f)-[:CONTAINS*]->(entity)
         DETACH DELETE f, entity
         RETURN count(f) + count(entity) as deletedCount
         """

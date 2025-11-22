@@ -38,6 +38,8 @@ dependencies = [
     "neo4j-graphrag>=1.10.1",
     "fastapi>=0.121.3",
     "uvicorn>=0.38.0",
+    "mcp>=1.22.0",
+    "python-dotenv>=1.2.1",
 ]
 
 [project.optional-dependencies]
@@ -69,6 +71,7 @@ all-languages = [
 
 [project.scripts]
 repotoire = "repotoire.cli:main"
+repotoire-pre-commit = "repotoire.hooks.pre_commit:main"
 
 [project.urls]
 Homepage = "https://github.com/yourusername/repotoire"

@@ -1,0 +1,837 @@
+"""MCP server code generation from detected patterns and schemas.
+
+Generates a complete MCP server that exposes detected functions/routes/commands
+as MCP tools with proper error handling and validation.
+"""
+
+import os
+from pathlib import Path
+from typing import List, Dict, Any
+from repotoire.mcp.models import DetectedPattern, RoutePattern, CommandPattern, FunctionPattern
+from repotoire.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+
+class ServerGenerator:
+    """Generates MCP server code from patterns and schemas.
+
+    Creates a complete Python MCP server with:
+    - Tool registration from schemas
+    - Handler functions that invoke original code
+    - Error handling and validation
+    - Stdio/HTTP transport
+    """
+
+    def __init__(self, output_dir: Path):
+        """Initialize server generator.
+
+        Args:
+            output_dir: Directory where server code will be generated
+        """
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def generate_server(
+        self,
+        patterns: List[DetectedPattern],
+        schemas: List[Dict[str, Any]],
+        server_name: str = "mcp_server",
+        repository_path: str = "."
+    ) -> Path:
+        """Generate complete MCP server from patterns and schemas.
+
+        Args:
+            patterns: List of detected patterns
+            schemas: List of JSON schemas for tools
+            server_name: Name for the generated server
+            repository_path: Path to the repository being exposed
+
+        Returns:
+            Path to generated server entry point
+        """
+        logger.info(f"Generating MCP server '{server_name}' with {len(patterns)} tools")
+
+        # Generate server files
+        server_file = self._generate_server_main(patterns, schemas, server_name, repository_path)
+        handlers_file = self._generate_handlers(patterns, repository_path)
+        config_file = self._generate_config(server_name, repository_path)
+
+        logger.info(f"Generated MCP server at {server_file}")
+
+        return server_file
+
+    def _generate_server_main(
+        self,
+        patterns: List[DetectedPattern],
+        schemas: List[Dict[str, Any]],
+        server_name: str,
+        repository_path: str
+    ) -> Path:
+        """Generate main server file with tool registration.
+
+        Args:
+            patterns: Detected patterns
+            schemas: Tool schemas
+            server_name: Server name
+            repository_path: Repository path
+
+        Returns:
+            Path to generated server file
+        """
+        # Group patterns by type
+        route_patterns = [p for p in patterns if isinstance(p, RoutePattern)]
+        command_patterns = [p for p in patterns if isinstance(p, CommandPattern)]
+        function_patterns = [p for p in patterns if isinstance(p, FunctionPattern)]
+
+        # Generate server code
+        code = self._build_server_template(
+            patterns,
+            schemas,
+            server_name,
+            repository_path,
+            route_patterns,
+            command_patterns,
+            function_patterns
+        )
+
+        # Write to file
+        server_file = self.output_dir / f"{server_name}.py"
+        server_file.write_text(code)
+
+        return server_file
+
+    def _build_server_template(
+        self,
+        patterns: List[DetectedPattern],
+        schemas: List[Dict[str, Any]],
+        server_name: str,
+        repository_path: str,
+        route_patterns: List[RoutePattern],
+        command_patterns: List[CommandPattern],
+        function_patterns: List[FunctionPattern]
+    ) -> str:
+        """Build server code from template.
+
+        Args:
+            patterns: All patterns
+            schemas: All schemas
+            server_name: Server name
+            repository_path: Repository path
+            route_patterns: FastAPI route patterns
+            command_patterns: Click command patterns
+            function_patterns: Public function patterns
+
+        Returns:
+            Generated Python code
+        """
+        # Build imports
+        imports = self._generate_imports(patterns, repository_path)
+
+        # Build tool registrations
+        tool_registrations = self._generate_tool_registrations(patterns, schemas)
+
+        # Build handlers
+        handlers = self._generate_handler_functions(patterns)
+
+        # Assemble complete server code
+        code = f'''"""
+Auto-generated MCP server: {server_name}
+
+Generated from repository: {repository_path}
+Total tools: {len(patterns)}
+"""
+
+{imports}
+
+# Initialize MCP server
+server = Server("{server_name}")
+
+# Tool schemas
+TOOL_SCHEMAS = {{
+{self._format_schemas_dict(schemas)}
+}}
+
+{tool_registrations}
+
+{handlers}
+
+# Server entry point
+def main():
+    """Start MCP server."""
+    import sys
+    import asyncio
+    from mcp.server.stdio import stdio_server
+
+    async def run():
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(
+                read_stream,
+                write_stream,
+                server.create_initialization_options()
+            )
+
+    asyncio.run(run())
+
+if __name__ == "__main__":
+    main()
+'''
+
+        return code
+
+    def _generate_imports(self, patterns: List[DetectedPattern], repository_path: str) -> str:
+        """Generate import statements for all required modules.
+
+        Args:
+            patterns: Detected patterns
+            repository_path: Repository path
+
+        Returns:
+            Python import statements
+        """
+        imports = [
+            "import sys",
+            "import os",
+            "import logging",
+            "from typing import Any, Dict, List",
+            "from mcp.server import Server",
+            "from mcp.server.models import InitializationOptions",
+            "import mcp.types as types",
+            ""
+        ]
+
+        # Setup logging (must be before dotenv to use logger)
+        imports.append("# Setup logging")
+        imports.append("logging.basicConfig(level=logging.INFO)")
+        imports.append("logger = logging.getLogger(__name__)")
+        imports.append("")
+
+        # Load environment variables from .env file
+        imports.append("# Load environment variables from .env file (fallback for Claude Desktop bug)")
+        imports.append("try:")
+        imports.append("    from dotenv import load_dotenv")
+        imports.append("    from pathlib import Path")
+        imports.append(f"    # Load from repository directory: {repository_path}")
+        imports.append(f"    dotenv_path = Path({repr(repository_path)}) / '.env'")
+        imports.append("    if dotenv_path.exists():")
+        imports.append("        load_dotenv(dotenv_path)")
+        imports.append("        logger.debug(f'Loaded environment from {{dotenv_path}}')")
+        imports.append("    else:")
+        imports.append("        # Fallback: search in current directory and parents")
+        imports.append("        load_dotenv()")
+        imports.append("except ImportError:")
+        imports.append("    pass  # python-dotenv not installed")
+        imports.append("")
+
+        # Add repository to path
+        imports.append(f"# Add repository to Python path")
+        imports.append(f"sys.path.insert(0, {repr(repository_path)})")
+        imports.append("")
+
+        # Track import failures
+        imports.append("# Track import failures for better error messages")
+        imports.append("_import_failures = {}")
+        imports.append("")
+
+        # Import Pydantic models for FastAPI routes
+        imports.append("# Import Pydantic request/response models")
+        imports.append("try:")
+        imports.append("    from repotoire.api.models import CodeSearchRequest, CodeAskRequest")
+        imports.append("    logger.debug('Successfully imported Pydantic models')")
+        imports.append("except ImportError as e:")
+        imports.append("    logger.warning(f'Could not import Pydantic models: {e}')")
+        imports.append("    CodeSearchRequest = None")
+        imports.append("    CodeAskRequest = None")
+        imports.append("")
+
+        # Group imports by module
+        from collections import defaultdict
+        module_imports = defaultdict(list)  # module -> [(import_name, file_path), ...]
+
+        for pattern in patterns:
+            # Extract module from qualified name
+            if "::" in pattern.qualified_name:
+                module_path = pattern.qualified_name.split("::")[0]
+
+                # Convert absolute file path to relative module path
+                if module_path.startswith(repository_path):
+                    # Remove repository path prefix
+                    rel_path = module_path[len(repository_path):].lstrip("/")
+                    # Convert file path to module path
+                    module = rel_path.replace("/", ".").replace(".py", "")
+                else:
+                    # Fallback: just use the filename
+                    module = module_path.split("/")[-1].replace(".py", "")
+
+                # Determine what to import based on pattern type
+                is_method = isinstance(pattern, FunctionPattern) and pattern.is_method
+                import_name = pattern.class_name if is_method else pattern.function_name
+
+                # Track what to import from each module
+                module_imports[module].append((import_name, module_path))
+
+        # Generate imports grouped by module
+        for module, import_items in module_imports.items():
+            # Get unique import names (avoid duplicates like same class for multiple methods)
+            unique_imports = list(dict.fromkeys([name for name, _ in import_items]))
+            file_path = import_items[0][1]  # Use first file path for comment
+
+            # Check if module has invalid name (e.g., starts with digit)
+            module_parts = module.split(".")
+            has_invalid_name = any(part and part[0].isdigit() for part in module_parts)
+
+            imports.append(f"# Import from {file_path}")
+            imports.append(f"try:")
+
+            if has_invalid_name:
+                # Use importlib for modules with names starting with digits
+                imports.append(f"    import importlib")
+                imports.append(f"    _module = importlib.import_module('{module}')")
+                for import_name in unique_imports:
+                    imports.append(f"    {import_name} = getattr(_module, '{import_name}')")
+                imports.append(f"    logger.debug('Successfully imported {', '.join(unique_imports)} from {module} via importlib')")
+            else:
+                # Normal import for valid module names
+                imports.append(f"    from {module} import {', '.join(unique_imports)}")
+                imports.append(f"    logger.debug('Successfully imported {', '.join(unique_imports)} from {module}')")
+
+            # Error handling
+            imports.append(f"except ImportError as e:")
+            imports.append(f"    logger.warning(f'Could not import from {module}: {{e}}')")
+            for name in unique_imports:
+                imports.append(f"    _import_failures['{name}'] = str(e)")
+                imports.append(f"    {name} = None")
+            imports.append(f"except Exception as e:")
+            imports.append(f"    logger.error(f'Unexpected error importing from {module}: {{e}}')")
+            for name in unique_imports:
+                imports.append(f"    _import_failures['{name}'] = f'Unexpected error: {{e}}'")
+                imports.append(f"    {name} = None")
+
+            imports.append("")
+
+        return "\n".join(imports)
+
+    def _generate_tool_registrations(
+        self,
+        patterns: List[DetectedPattern],
+        schemas: List[Dict[str, Any]]
+    ) -> str:
+        """Generate @server.list_tools() handler.
+
+        Args:
+            patterns: Detected patterns
+            schemas: Tool schemas
+
+        Returns:
+            Tool registration code
+        """
+        code = [
+            "@server.list_tools()",
+            "async def handle_list_tools() -> list[types.Tool]:",
+            "    \"\"\"List all available tools.\"\"\"",
+            "    return [",
+        ]
+
+        for schema in schemas:
+            code.append(f"        types.Tool(")
+            code.append(f"            name={repr(schema['name'])},")
+            code.append(f"            description={repr(schema['description'])},")
+            code.append(f"            inputSchema=TOOL_SCHEMAS[{repr(schema['name'])}]['inputSchema']")
+            code.append(f"        ),")
+
+        code.append("    ]")
+        code.append("")
+
+        return "\n".join(code)
+
+    def _generate_handler_functions(self, patterns: List[DetectedPattern]) -> str:
+        """Generate handler functions for tool calls.
+
+        Args:
+            patterns: Detected patterns
+
+        Returns:
+            Handler function code
+        """
+        code = [
+            "@server.call_tool()",
+            "async def handle_call_tool(",
+            "    name: str,",
+            "    arguments: dict[str, Any]",
+            ") -> list[types.TextContent]:",
+            "    \"\"\"Handle tool execution.\"\"\"",
+            "    ",
+            "    try:",
+        ]
+
+        # Generate if/elif chain for each tool
+        for i, pattern in enumerate(patterns):
+            tool_name = self._tool_name_from_pattern(pattern)
+
+            if i == 0:
+                code.append(f"        if name == {repr(tool_name)}:")
+            else:
+                code.append(f"        elif name == {repr(tool_name)}:")
+
+            # Generate handler call
+            code.append(f"            result = await _handle_{tool_name}(arguments)")
+            code.append(f"            return [types.TextContent(type='text', text=str(result))]")
+            code.append("")
+
+        code.append("        else:")
+        code.append("            raise ValueError(f'Unknown tool: {name}')")
+        code.append("")
+        code.append("    except Exception as e:")
+        code.append("        return [types.TextContent(")
+        code.append("            type='text',")
+        code.append("            text=f'Error executing {name}: {str(e)}'")
+        code.append("        )]")
+        code.append("")
+
+        # Generate individual handler functions
+        for pattern in patterns:
+            code.append("")
+            code.extend(self._generate_pattern_handler(pattern))
+
+        return "\n".join(code)
+
+    def _generate_pattern_handler(self, pattern: DetectedPattern) -> List[str]:
+        """Generate handler function for a specific pattern.
+
+        Args:
+            pattern: Pattern to generate handler for
+
+        Returns:
+            Handler function code lines
+        """
+        tool_name = self._tool_name_from_pattern(pattern)
+        func_name = pattern.function_name
+
+        code = [
+            f"async def _handle_{tool_name}(arguments: Dict[str, Any]) -> Any:",
+            f"    \"\"\"Handle {tool_name} tool call.\"\"\"",
+        ]
+
+        # Check if function/class is available with detailed error message
+        # For class methods, check if class is imported
+        if isinstance(pattern, FunctionPattern) and pattern.is_method and pattern.class_name:
+            check_name = pattern.class_name
+            display_name = f"{pattern.class_name}.{func_name}"
+        else:
+            check_name = func_name
+            display_name = func_name
+
+        code.append(f"    if {check_name} is None:")
+        code.append(f"        error_msg = f'{display_name} is not available.'")
+        code.append(f"        if '{check_name}' in _import_failures:")
+        code.append(f"            failure_reason = _import_failures['{check_name}']")
+        code.append(f"            error_msg += f' Import error: {{failure_reason}}'")
+        code.append(f"        else:")
+        code.append(f"            error_msg += ' Function could not be imported from the codebase.'")
+        code.append(f"        logger.error(error_msg)")
+        code.append(f"        raise ImportError(error_msg)")
+        code.append("")
+
+        # Add try-except wrapper for better error handling
+        code.append("    try:")
+
+        if isinstance(pattern, RoutePattern):
+            # FastAPI route - construct Request object and handle properly
+            handler_lines = self._generate_fastapi_handler(pattern, func_name)
+            code.extend(["        " + line if line else "" for line in handler_lines])
+        elif isinstance(pattern, CommandPattern):
+            # Click command - execute via subprocess
+            handler_lines = self._generate_click_handler(pattern, func_name)
+            code.extend(["        " + line if line else "" for line in handler_lines])
+        else:
+            # Regular function - call directly
+            handler_lines = self._generate_function_handler(pattern, func_name)
+            code.extend(["        " + line if line else "" for line in handler_lines])
+
+        code.append("")
+        code.append("        return result")
+        code.append("    except ImportError:")
+        code.append("        raise  # Re-raise import errors as-is")
+        code.append("    except ValueError as e:")
+        code.append(f"        logger.error(f'Validation error in {tool_name}: {{e}}')")
+        code.append("        raise")
+        code.append("    except Exception as e:")
+        code.append(f"        logger.error(f'Unexpected error in {tool_name}: {{e}}', exc_info=True)")
+        code.append(f"        raise RuntimeError(f'Failed to execute {tool_name}: {{str(e)}}')")
+
+        return code
+
+    def _generate_function_handler(self, pattern: FunctionPattern, func_name: str) -> List[str]:
+        """Generate handler for regular public function.
+
+        Args:
+            pattern: Function pattern
+            func_name: Function name
+
+        Returns:
+            Handler code lines (without leading indentation)
+        """
+        code = []
+
+        # Extract parameters
+        if pattern.parameters:
+            code.append("# Extract parameters")
+            for param in pattern.parameters:
+                if param.name != "self":  # Skip self parameter
+                    if param.required:
+                        code.append(f"{param.name} = arguments['{param.name}']")
+                    else:
+                        default = param.default_value if param.default_value else "None"
+                        code.append(f"{param.name} = arguments.get('{param.name}', {default})")
+            code.append("")
+
+        # Call the function
+        param_names = [p.name for p in pattern.parameters if p.name != "self" and p.name != "cls"]
+        params_str = ", ".join(param_names)
+
+        # Determine how to call (module function vs class method)
+        if pattern.is_method and pattern.class_name:
+            call_target = f"{pattern.class_name}.{func_name}"
+        else:
+            call_target = func_name
+
+        code.append(f"# Call function (may be async)")
+        code.append(f"import inspect")
+        code.append(f"result = {call_target}({params_str})")
+        code.append(f"if inspect.iscoroutine(result):")
+        code.append(f"    result = await result")
+
+        return code
+
+    def _generate_fastapi_handler(self, pattern: RoutePattern, func_name: str) -> List[str]:
+        """Generate handler for FastAPI route.
+
+        FastAPI routes often need Request objects and have special parameter handling.
+
+        Args:
+            pattern: Route pattern
+            func_name: Function name
+
+        Returns:
+            Handler code lines (without leading indentation)
+        """
+        code = []
+
+        code.append("# FastAPI route - construct dependencies and prepare parameters")
+        code.append("from starlette.requests import Request")
+        code.append("from starlette.datastructures import QueryParams, Headers")
+        code.append("import inspect")
+        code.append("")
+
+        # Track which dependencies need to be constructed
+        # Use both type hints and parameter names to detect dependencies
+        needs_neo4j_client = False
+        needs_embedder = False
+        needs_retriever = False
+
+        for param in pattern.parameters:
+            # Check type hint if available
+            if param.type_hint:
+                if "Neo4jClient" in param.type_hint or "client" in param.type_hint.lower():
+                    needs_neo4j_client = True
+                if "CodeEmbedder" in param.type_hint or "embedder" in param.type_hint.lower():
+                    needs_embedder = True
+                if "GraphRAGRetriever" in param.type_hint or "retriever" in param.type_hint.lower():
+                    needs_retriever = True
+
+            # Also check parameter name (fallback when type hints not available)
+            param_name_lower = param.name.lower()
+            if param_name_lower in ["client", "neo4j_client"]:
+                needs_neo4j_client = True
+            if param_name_lower in ["embedder", "code_embedder"]:
+                needs_embedder = True
+            if param_name_lower in ["retriever", "graph_rag_retriever", "graphragretriever"]:
+                needs_retriever = True
+
+        # Construct dependencies if needed
+        if needs_neo4j_client or needs_retriever:
+            code.append("# Construct Neo4jClient dependency")
+            code.append("from repotoire.graph.client import Neo4jClient")
+            code.append("import os")
+            code.append("client = Neo4jClient(")
+            code.append("    uri=os.getenv('REPOTOIRE_NEO4J_URI', 'bolt://localhost:7688'),")
+            code.append("    password=os.getenv('REPOTOIRE_NEO4J_PASSWORD', 'falkor-password')")
+            code.append(")")
+            code.append("")
+
+        if needs_embedder or needs_retriever:
+            code.append("# Construct CodeEmbedder dependency")
+            code.append("from repotoire.ai.embeddings import CodeEmbedder")
+            code.append("try:")
+            code.append("    openai_api_key = os.getenv('OPENAI_API_KEY')")
+            code.append("    if not openai_api_key:")
+            code.append("        raise ValueError('OPENAI_API_KEY environment variable is not set')")
+            code.append("    embedder = CodeEmbedder(api_key=openai_api_key)")
+            code.append("    logger.debug('Successfully created CodeEmbedder with API key')")
+            code.append("except Exception as e:")
+            code.append("    logger.error(f'Failed to create CodeEmbedder: {e}')")
+            code.append("    raise RuntimeError(f'CodeEmbedder initialization failed. Ensure OPENAI_API_KEY is set: {e}')")
+            code.append("")
+
+        if needs_retriever:
+            code.append("# Construct GraphRAGRetriever dependency")
+            code.append("from repotoire.ai.retrieval import GraphRAGRetriever")
+            code.append("try:")
+            code.append("    retriever = GraphRAGRetriever(")
+            code.append("        neo4j_client=client,")
+            code.append("        embedder=embedder")
+            code.append("    )")
+            code.append("    logger.debug('Successfully created GraphRAGRetriever')")
+            code.append("except Exception as e:")
+            code.append("    logger.error(f'Failed to create GraphRAGRetriever: {e}')")
+            code.append("    raise RuntimeError(f'GraphRAGRetriever initialization failed: {e}')")
+            code.append("")
+
+        # Extract parameters
+        code.append("# Extract and prepare parameters")
+        code.append("import json")
+        code.append("from pydantic import BaseModel")
+        code.append("")
+        param_names = []
+        for param in pattern.parameters:
+            if param.name == "self":
+                continue
+
+            # Handle dependency injection parameters by using constructed dependencies
+            # Detect by type hint (if available) or parameter name
+            is_dependency = False
+            param_name_lower = param.name.lower()
+
+            if param.type_hint and "Depends" in param.type_hint:
+                is_dependency = True
+
+            if param_name_lower in ["client", "neo4j_client"]:
+                code.append(f"# Dependency injection parameter: {param.name}")
+                code.append(f"{param.name} = client")
+                param_names.append(param.name)
+                is_dependency = True
+            elif param_name_lower in ["embedder", "code_embedder"]:
+                code.append(f"# Dependency injection parameter: {param.name}")
+                code.append(f"{param.name} = embedder")
+                param_names.append(param.name)
+                is_dependency = True
+            elif param_name_lower in ["retriever", "graph_rag_retriever", "graphragretriever"]:
+                code.append(f"# Dependency injection parameter: {param.name}")
+                code.append(f"{param.name} = retriever")
+                param_names.append(param.name)
+                is_dependency = True
+
+            if is_dependency:
+                continue
+
+            param_names.append(param.name)
+
+            # Check if this is a Request parameter
+            if param.type_hint and "Request" in param.type_hint and "CodeSearchRequest" not in param.type_hint and "CodeQuestionRequest" not in param.type_hint:
+                code.append(f"# Create mock Request object for {param.name}")
+                code.append(f"{param.name} = None  # Request object - not supported in MCP context")
+                code.append(f"# Note: FastAPI Request dependencies may not work in MCP context")
+            elif param.required:
+                code.append(f"{param.name}_raw = arguments.get('{param.name}')")
+                code.append(f"if {param.name}_raw is None:")
+                code.append(f"    raise ValueError('Required parameter {param.name} is missing')")
+
+                # Parse and instantiate Pydantic model
+                code.append(f"# Parse and instantiate Pydantic model")
+                code.append(f"if isinstance({param.name}_raw, str):")
+                code.append(f"    try:")
+                code.append(f"        {param.name}_dict = json.loads({param.name}_raw)")
+                code.append(f"    except json.JSONDecodeError:")
+                code.append(f"        raise ValueError(f'Invalid JSON for parameter {param.name}: {{{param.name}_raw}}')")
+                code.append(f"else:")
+                code.append(f"    {param.name}_dict = {param.name}_raw")
+                code.append(f"")
+                # Determine which Pydantic model to use based on function name
+                if func_name == "search_code":
+                    code.append(f"# Instantiate CodeSearchRequest model")
+                    code.append(f"logger.debug(f'CodeSearchRequest available: {{CodeSearchRequest is not None}}')")
+                    code.append(f"logger.debug(f'request_dict: {{{param.name}_dict}}')")
+                    code.append(f"if CodeSearchRequest is not None:")
+                    code.append(f"    {param.name} = CodeSearchRequest(**{param.name}_dict)")
+                    code.append(f"    logger.debug(f'Created CodeSearchRequest instance: {{type({param.name})}}')")
+                    code.append(f"else:")
+                    code.append(f"    {param.name} = {param.name}_dict")
+                    code.append(f"    logger.warning('CodeSearchRequest not available, using dict')")
+                elif func_name == "ask_code_question":
+                    code.append(f"# Instantiate CodeAskRequest model")
+                    code.append(f"if CodeAskRequest is not None:")
+                    code.append(f"    {param.name} = CodeAskRequest(**{param.name}_dict)")
+                    code.append(f"else:")
+                    code.append(f"    {param.name} = {param.name}_dict")
+                else:
+                    code.append(f"# Use dict as-is (no specific Pydantic model for this function)")
+                    code.append(f"{param.name} = {param.name}_dict")
+            else:
+                default = param.default_value if param.default_value else "None"
+                code.append(f"{param.name} = arguments.get('{param.name}', {default})")
+
+        code.append("")
+
+        # Build parameter list, filtering out None Request objects
+        code.append("# Build parameter list")
+        code.append("params = {")
+        for name in param_names:
+            code.append(f"    '{name}': {name},")
+        code.append("}")
+        code.append("# Filter out None values (like Request objects)")
+        code.append("params = {k: v for k, v in params.items() if v is not None}")
+        code.append("")
+
+        # Call the FastAPI route handler
+        code.append(f"# Call FastAPI route handler")
+        code.append(f"sig = inspect.signature({func_name})")
+        code.append(f"# Only pass parameters that the function accepts")
+        code.append(f"filtered_params = {{k: v for k, v in params.items() if k in sig.parameters}}")
+        code.append(f"result = {func_name}(**filtered_params)")
+        code.append(f"if inspect.iscoroutine(result):")
+        code.append(f"    result = await result")
+
+        return code
+
+    def _generate_click_handler(self, pattern: CommandPattern, func_name: str) -> List[str]:
+        """Generate handler for Click CLI command.
+
+        Click commands need to be executed via subprocess with proper CLI arguments.
+
+        Args:
+            pattern: Command pattern
+            func_name: Function name
+
+        Returns:
+            Handler code lines (without leading indentation)
+        """
+        code = []
+
+        code.append("# Click command - execute via subprocess")
+        code.append("import subprocess")
+        code.append("import json")
+        code.append("")
+
+        code.append("# Build CLI arguments from MCP arguments")
+        code.append("cli_args = []")
+        code.append("")
+
+        # Map MCP arguments to CLI arguments
+        code.append("# Map arguments to CLI options")
+        for param in pattern.parameters:
+            if param.name == "self" or param.name == "ctx":
+                continue
+
+            # Convert parameter name to CLI option (e.g., "repo_path" -> "--repo-path")
+            cli_option = param.name.replace("_", "-")
+
+            code.append(f"if '{param.name}' in arguments:")
+            code.append(f"    value = arguments['{param.name}']")
+            code.append(f"    if isinstance(value, bool):")
+            code.append(f"        if value:")
+            code.append(f"            cli_args.append('--{cli_option}')")
+            code.append(f"    elif isinstance(value, list):")
+            code.append(f"        for item in value:")
+            code.append(f"            cli_args.extend(['--{cli_option}', str(item)])")
+            code.append(f"    else:")
+            code.append(f"        cli_args.extend(['--{cli_option}', str(value)])")
+
+        code.append("")
+
+        # Execute the command
+        code.append("# Execute Click command via subprocess")
+        code.append("# Note: This requires the CLI to be installed and accessible")
+        code.append("try:")
+        code.append(f"    # Try to execute via Python module")
+        code.append(f"    proc = subprocess.run(")
+        code.append(f"        ['python', '-m', 'repotoire'] + cli_args,")
+        code.append(f"        capture_output=True,")
+        code.append(f"        text=True,")
+        code.append(f"        timeout=300  # 5 minute timeout")
+        code.append(f"    )")
+        code.append(f"    if proc.returncode != 0:")
+        code.append(f"        raise RuntimeError(f'Command failed with exit code {{proc.returncode}}: {{proc.stderr}}')")
+        code.append(f"    result = proc.stdout")
+        code.append("except subprocess.TimeoutExpired:")
+        code.append("    raise RuntimeError('Command execution timed out after 5 minutes')")
+        code.append("except Exception as e:")
+        code.append("    raise RuntimeError(f'Failed to execute Click command: {str(e)}')")
+
+        return code
+
+    def _tool_name_from_pattern(self, pattern: DetectedPattern) -> str:
+        """Generate tool name from pattern.
+
+        Args:
+            pattern: Pattern
+
+        Returns:
+            Tool name
+        """
+        # Simple version - just use function name with sanitization
+        name = pattern.function_name
+        # Remove leading underscores
+        name = name.lstrip('_')
+        # Replace invalid characters
+        name = name.replace('-', '_')
+        return name
+
+    def _format_schemas_dict(self, schemas: List[Dict[str, Any]]) -> str:
+        """Format schemas as Python dictionary.
+
+        Args:
+            schemas: List of schemas
+
+        Returns:
+            Formatted Python dict code
+        """
+        lines = []
+        for schema in schemas:
+            name = schema['name']
+            lines.append(f"    {repr(name)}: {{")
+            lines.append(f"        'name': {repr(schema['name'])},")
+            lines.append(f"        'description': {repr(schema['description'])},")
+            lines.append(f"        'inputSchema': {repr(schema['inputSchema'])}")
+            lines.append(f"    }},")
+        return "\n".join(lines)
+
+    def _generate_handlers(self, patterns: List[DetectedPattern], repository_path: str) -> Path:
+        """Generate handlers module with helper functions.
+
+        Args:
+            patterns: Detected patterns
+            repository_path: Repository path
+
+        Returns:
+            Path to handlers file
+        """
+        # For now, handlers are inline in main server file
+        # Could be extracted to separate module later
+        return self.output_dir / "handlers.py"
+
+    def _generate_config(self, server_name: str, repository_path: str) -> Path:
+        """Generate server configuration file.
+
+        Args:
+            server_name: Server name
+            repository_path: Repository path
+
+        Returns:
+            Path to config file
+        """
+        config_content = f"""# MCP Server Configuration
+# Server: {server_name}
+# Repository: {repository_path}
+
+SERVER_NAME = "{server_name}"
+REPOSITORY_PATH = "{repository_path}"
+
+# Transport options
+TRANSPORT = "stdio"  # or "http"
+HTTP_PORT = 8000  # if using HTTP transport
+"""
+
+        config_file = self.output_dir / "config.py"
+        config_file.write_text(config_content)
+
+        return config_file
