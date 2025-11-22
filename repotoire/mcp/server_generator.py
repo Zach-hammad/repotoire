@@ -6,7 +6,7 @@ as MCP tools with proper error handling and validation.
 
 import os
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from repotoire.mcp.models import DetectedPattern, RoutePattern, CommandPattern, FunctionPattern
 from repotoire.logging_config import get_logger
 
@@ -51,6 +51,29 @@ class ServerGenerator:
             Path to generated server entry point
         """
         logger.info(f"Generating MCP server '{server_name}' with {len(patterns)} tools")
+
+        # Deduplicate patterns by function name
+        # Prefer routes over functions for the same function name
+        seen_functions = set()
+        deduplicated_patterns = []
+        deduplicated_schemas = []
+
+        for i, pattern in enumerate(patterns):
+            func_name = pattern.function_name
+
+            if func_name in seen_functions:
+                logger.warning(f"Skipping duplicate pattern: {func_name} ({pattern.__class__.__name__})")
+                continue
+
+            seen_functions.add(func_name)
+            deduplicated_patterns.append(pattern)
+            if i < len(schemas):
+                deduplicated_schemas.append(schemas[i])
+
+        if len(deduplicated_patterns) < len(patterns):
+            logger.info(f"Deduplicated {len(patterns)} patterns to {len(deduplicated_patterns)}")
+            patterns = deduplicated_patterns
+            schemas = deduplicated_schemas
 
         # Generate server files
         server_file = self._generate_server_main(patterns, schemas, server_name, repository_path)
@@ -487,21 +510,41 @@ if __name__ == "__main__":
         """
         code = []
 
-        # Extract parameters
-        if pattern.parameters:
+        # Separate DI parameters from user parameters
+        user_params = []
+        di_params = []
+
+        for param in pattern.parameters:
+            if param.name in ("self", "cls"):
+                continue
+            elif self._is_dependency_injection(param.name, param.type_hint):
+                di_params.append(param)
+            else:
+                user_params.append(param)
+
+        # Extract user parameters from arguments
+        if user_params:
             code.append("# Extract parameters")
-            for param in pattern.parameters:
-                if param.name != "self":  # Skip self parameter
-                    if param.required:
-                        code.append(f"{param.name} = arguments['{param.name}']")
-                    else:
-                        default = param.default_value if param.default_value else "None"
-                        code.append(f"{param.name} = arguments.get('{param.name}', {default})")
+            for param in user_params:
+                if param.required:
+                    code.append(f"{param.name} = arguments['{param.name}']")
+                else:
+                    default = param.default_value if param.default_value else "None"
+                    code.append(f"{param.name} = arguments.get('{param.name}', {default})")
             code.append("")
 
-        # Call the function
-        param_names = [p.name for p in pattern.parameters if p.name != "self" and p.name != "cls"]
-        params_str = ", ".join(param_names)
+        # Instantiate dependency injection parameters
+        if di_params:
+            code.append("# Instantiate dependencies")
+            for param in di_params:
+                di_code = self._instantiate_dependency(param.name, param.type_hint)
+                if di_code:
+                    code.append(di_code)
+            code.append("")
+
+        # Call the function with both user params and DI params
+        all_param_names = [p.name for p in user_params] + [p.name for p in di_params]
+        params_str = ", ".join(all_param_names)
 
         # Determine how to call (module function vs class method)
         if pattern.is_method and pattern.class_name:
@@ -789,6 +832,82 @@ if __name__ == "__main__":
         # Replace invalid characters
         name = name.replace('-', '_')
         return name
+
+    def _is_dependency_injection(self, param_name: str, type_hint: Optional[str]) -> bool:
+        """Check if a parameter indicates dependency injection.
+
+        Args:
+            param_name: Parameter name
+            type_hint: Parameter type hint (optional)
+
+        Returns:
+            True if this is a dependency injection parameter
+        """
+        # Check type hint if available
+        if type_hint:
+            dependency_indicators = [
+                'Depends',
+                'GraphRAGRetriever',
+                'Neo4jClient',
+                'CodeEmbedder',
+                'OpenAI',
+                'Request',  # FastAPI Request objects
+                'Response',  # FastAPI Response objects
+            ]
+
+            if any(indicator in type_hint for indicator in dependency_indicators):
+                return True
+
+        # Also check parameter name (fallback when type hints not available)
+        param_name_lower = param_name.lower()
+        dependency_param_names = [
+            'client', 'neo4j_client',
+            'embedder', 'code_embedder',
+            'retriever', 'graph_rag_retriever', 'graphragretriever',
+            'db', 'database',
+            'request', 'response',
+        ]
+
+        return param_name_lower in dependency_param_names
+
+    def _instantiate_dependency(self, param_name: str, type_hint: Optional[str]) -> Optional[str]:
+        """Generate code to instantiate a dependency.
+
+        Args:
+            param_name: Parameter name
+            type_hint: Parameter type hint
+
+        Returns:
+            Code line to instantiate the dependency, or None if not supported
+        """
+        if not type_hint:
+            return None
+
+        # GraphRAGRetriever needs Neo4jClient + CodeEmbedder
+        if 'GraphRAGRetriever' in type_hint:
+            return (
+                f"{param_name} = GraphRAGRetriever(\n"
+                f"    neo4j_client=Neo4jClient(uri=os.getenv('REPOTOIRE_NEO4J_URI', 'bolt://localhost:7687'), password=os.getenv('REPOTOIRE_NEO4J_PASSWORD', '')),\n"
+                f"    embedder=CodeEmbedder(api_key=os.getenv('OPENAI_API_KEY'))\n"
+                f")"
+            )
+
+        # Neo4jClient
+        if 'Neo4jClient' in type_hint:
+            return (
+                f"{param_name} = Neo4jClient(\n"
+                f"    uri=os.getenv('REPOTOIRE_NEO4J_URI', 'bolt://localhost:7687'),\n"
+                f"    password=os.getenv('REPOTOIRE_NEO4J_PASSWORD', '')\n"
+                f")"
+            )
+
+        # CodeEmbedder
+        if 'CodeEmbedder' in type_hint:
+            return f"{param_name} = CodeEmbedder(api_key=os.getenv('OPENAI_API_KEY'))"
+
+        # For other DI params, log a warning and set to None
+        logger.warning(f"Unsupported dependency type for instantiation: {type_hint}")
+        return f"{param_name} = None  # TODO: Instantiate {type_hint}"
 
     def _format_schemas_dict(self, schemas: List[Dict[str, Any]]) -> str:
         """Format schemas as Python dictionary.
