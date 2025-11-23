@@ -48,6 +48,27 @@ export REPOTOIRE_NEO4J_URI=bolt://localhost:7688
 export REPOTOIRE_NEO4J_PASSWORD=your-password
 ```
 
+### TimescaleDB Setup (Optional)
+
+TimescaleDB provides historical metrics tracking for trend analysis and regression detection. Start with Docker:
+
+```bash
+cd docker/timescaledb
+docker compose up -d
+```
+
+Configure connection:
+```bash
+export REPOTOIRE_TIMESCALE_URI="postgresql://repotoire:repotoire-dev-password@localhost:5432/repotoire_metrics"
+```
+
+Track metrics during analysis:
+```bash
+repotoire analyze /path/to/repo --track-metrics
+```
+
+See [docs/TIMESCALEDB_METRICS.md](docs/TIMESCALEDB_METRICS.md) for complete documentation.
+
 ### Common Commands
 
 ```bash
@@ -381,6 +402,7 @@ See full troubleshooting guide in project documentation.
 - Ingestion pipeline with security validation
 - **Incremental analysis** (10-100x faster re-analysis with dependency tracking)
 - **Pre-commit hooks integration** (instant code quality checks before commits)
+- **TimescaleDB metrics tracking** (historical trends, regression detection, period comparison)
 - CLI interface with Rich formatting
 - 8 hybrid detectors + graph detectors
 - Health scoring framework (Structure/Quality/Architecture)
