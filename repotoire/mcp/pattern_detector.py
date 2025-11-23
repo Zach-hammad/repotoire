@@ -232,7 +232,7 @@ class PatternDetector:
     def detect_click_commands(self) -> List[CommandPattern]:
         """Detect Click CLI commands.
 
-        Finds functions decorated with @click.command or @click.group.
+        Finds functions decorated with @click.command (excludes @click.group).
 
         Returns:
             List of detected Click commands
@@ -241,8 +241,10 @@ class PatternDetector:
         MATCH (f:Function)
         WHERE any(dec IN f.decorators WHERE
             dec CONTAINS 'click.command' OR
+            dec CONTAINS '@command'
+        )
+        AND NOT any(dec IN f.decorators WHERE
             dec CONTAINS 'click.group' OR
-            dec CONTAINS '@command' OR
             dec CONTAINS '@group'
         )
         OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)

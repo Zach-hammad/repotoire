@@ -786,7 +786,7 @@ if __name__ == "__main__":
     def _generate_click_handler(self, pattern: CommandPattern, func_name: str) -> List[str]:
         """Generate handler for Click CLI command.
 
-        Click commands need to be executed via subprocess with proper CLI arguments.
+        Click commands are executed using Click's CliRunner for reliable invocation.
 
         Args:
             pattern: Command pattern
@@ -797,26 +797,32 @@ if __name__ == "__main__":
         """
         code = []
 
-        code.append("# Click command - execute via subprocess")
-        code.append("import subprocess")
-        code.append("import json")
+        code.append("# Click command - execute via CliRunner")
+        code.append("from click.testing import CliRunner")
         code.append("")
 
         code.append("# Build CLI arguments from MCP arguments")
         code.append("cli_args = []")
         code.append("")
 
-        # Map MCP arguments to CLI arguments
-        code.append("# Map arguments to CLI options")
-        for param in pattern.parameters:
-            if param.name == "self" or param.name == "ctx":
-                continue
+        # First, handle positional arguments (no -- prefix)
+        code.append("# Positional arguments (no -- prefix)")
+        for arg in pattern.arguments:
+            code.append(f"if '{arg.name}' in arguments:")
+            code.append(f"    value = arguments['{arg.name}']")
+            code.append(f"    if isinstance(value, list):")
+            code.append(f"        cli_args.extend([str(item) for item in value])")
+            code.append(f"    else:")
+            code.append(f"        cli_args.append(str(value))")
 
-            # Convert parameter name to CLI option (e.g., "repo_path" -> "--repo-path")
-            cli_option = param.name.replace("_", "-")
+        code.append("")
+        code.append("# Options (with -- prefix)")
+        for opt in pattern.options:
+            # Convert parameter name to CLI option (e.g., "neo4j_uri" -> "--neo4j-uri")
+            cli_option = opt.name.replace("_", "-")
 
-            code.append(f"if '{param.name}' in arguments:")
-            code.append(f"    value = arguments['{param.name}']")
+            code.append(f"if '{opt.name}' in arguments:")
+            code.append(f"    value = arguments['{opt.name}']")
             code.append(f"    if isinstance(value, bool):")
             code.append(f"        if value:")
             code.append(f"            cli_args.append('--{cli_option}')")
@@ -828,22 +834,15 @@ if __name__ == "__main__":
 
         code.append("")
 
-        # Execute the command
-        code.append("# Execute Click command via subprocess")
-        code.append("# Note: This requires the CLI to be installed and accessible")
+        # Execute the command using CliRunner
+        code.append("# Execute Click command via CliRunner")
         code.append("try:")
-        code.append(f"    # Try to execute via Python module")
-        code.append(f"    proc = subprocess.run(")
-        code.append(f"        ['python', '-m', 'repotoire'] + cli_args,")
-        code.append(f"        capture_output=True,")
-        code.append(f"        text=True,")
-        code.append(f"        timeout=300  # 5 minute timeout")
-        code.append(f"    )")
-        code.append(f"    if proc.returncode != 0:")
-        code.append(f"        raise RuntimeError(f'Command failed with exit code {{proc.returncode}}: {{proc.stderr}}')")
-        code.append(f"    result = proc.stdout")
-        code.append("except subprocess.TimeoutExpired:")
-        code.append("    raise RuntimeError('Command execution timed out after 5 minutes')")
+        code.append(f"    runner = CliRunner()")
+        code.append(f"    result = runner.invoke({func_name}, cli_args)")
+        code.append(f"    if result.exit_code != 0:")
+        code.append(f"        error_msg = result.output or str(result.exception) if result.exception else 'Command failed'")
+        code.append(f"        raise RuntimeError(f'Command failed with exit code {{result.exit_code}}: {{error_msg}}')")
+        code.append(f"    return result.output")
         code.append("except Exception as e:")
         code.append("    raise RuntimeError(f'Failed to execute Click command: {str(e)}')")
 
