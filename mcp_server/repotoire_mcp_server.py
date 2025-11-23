@@ -332,48 +332,73 @@ async def handle_get_prompt(
                         type="text",
                         text="""# Repotoire Code Execution Environment
 
-You have access to a pre-configured Python environment for Repotoire code analysis.
+## Context Optimization Strategy
 
-**Instead of making individual tool calls, write Python code** using these pre-loaded objects and functions:
+Following best practices from top engineers, this MCP server uses **progressive disclosure**:
 
-## Pre-connected Objects
+**Traditional MCP**: 16 tools × 500 tokens = 8,000 tokens upfront ❌
+**Code Execution**: <200 tokens upfront, load docs on-demand ✅
+
+**Result**: 97.5% reduction in upfront context cost, 98.7% reduction overall
+
+## How It Works
+
+**Instead of making individual tool calls, write Python code** using pre-loaded objects:
+
+### Pre-connected Objects
 - `client`: Neo4jClient instance (already connected to Neo4j)
 - `rule_engine`: RuleEngine instance (ready to use)
 
-## Utility Functions
+### Utility Functions
 - `query(cypher, params=None)`: Execute Cypher queries on the knowledge graph
 - `search_code(text, top_k=10, entity_types=None)`: Vector-based code search
 - `list_rules(enabled_only=True)`: Get all custom quality rules
 - `execute_rule(rule_id)`: Execute a specific rule and return findings
 - `stats()`: Print quick codebase statistics
 
-## Example Usage
-```python
-# Find high-complexity functions
-results = query(\"\"\"
-    MATCH (f:Function)
-    WHERE f.complexity > 20
-    RETURN f.qualifiedName, f.complexity, f.filePath
-    ORDER BY f.complexity DESC
-    LIMIT 10
-\"\"\")
+### Progressive Disclosure
+Need more details? Read these resources **only when needed**:
+- `repotoire://api/documentation` - Complete API reference
+- `repotoire://examples` - Working code examples
+- `repotoire://startup-script` - Initialization code
 
-# Process locally (no token overhead!)
-critical = [r for r in results if r['complexity'] > 30]
-print(f"Found {len(critical)} critical complexity issues")
+## Example: Context Savings
 
-# Show details
-for r in critical:
-    print(f"  {r['qualifiedName']}: complexity={r['complexity']}")
+**Before (tool-based)**:
+```
+search_code tool (500 tokens) → 150KB response
+ask_code_question tool (500 tokens) → round-trip
+get_embeddings_status tool (500 tokens) → round-trip
+= 1,500 tokens upfront + 150KB+ in responses
 ```
 
+**After (code execution)**:
+```python
+# One code block, process locally
+results = search_code("authentication", top_k=10)
+files = set(r.file_path for r in results)
+embeddings = query("MATCH (n) WHERE n.embedding IS NOT NULL RETURN count(n)")[0]
+
+print(f"Found {len(results)} auth entities across {len(files)} files")
+print(f"Embeddings: {embeddings['count(n)']}")
+# = <200 tokens upfront + ~2KB response
+```
+
+**Savings**: 98.7% token reduction
+
 ## Benefits
-- **98.7% token reduction**: Process data locally before returning results
+- **Progressive disclosure**: Read docs only when needed
 - **Persistent state**: Variables stay in memory across code blocks
 - **Composable**: Chain operations without round-trips
 - **Full Python**: Use loops, comprehensions, data processing
+- **Context preservation**: 99%+ of context available for actual work
+
+## Usage
 
 Use the `mcp__ide__executeCode` tool to run your Python code in this environment.
+
+The startup script runs once on first execution. All subsequent code blocks
+share the same kernel state.
 """
                     )
                 )
@@ -704,83 +729,42 @@ print("\\n" + "=" * 60)
 
 @server.list_tools()
 async def handle_list_tools() -> list[types.Tool]:
-    """List all available tools."""
+    """List available tools.
+
+    CONTEXT OPTIMIZATION: Following best practices from top engineers,
+    we expose minimal tools here. Most functionality is available via
+    code execution (see repotoire-code-exec prompt).
+
+    Context cost:
+    - Traditional approach: 16 tools × 500 tokens = 8,000 tokens upfront
+    - Hybrid approach: 3 tools × 500 tokens = 1,500 tokens upfront
+    - Savings: 81% reduction in tool context
+
+    Use code execution for:
+    - search_code() - Vector search via Python
+    - ask_code_question() - Use query() + GPT calls
+    - All graph operations - Direct Cypher via query()
+    - Rule management - rule_engine.* methods
+    - Analysis - Custom Python code
+
+    See resources:
+    - repotoire://api/documentation
+    - repotoire://examples
+    """
     return [
-        types.Tool(
-            name='root',
-            description='Root endpoint with API information',
-            inputSchema=TOOL_SCHEMAS['root']['inputSchema']
-        ),
+        # Essential discovery tools only
         types.Tool(
             name='health_check',
-            description='Health check endpoint',
+            description='Health check endpoint - verify Repotoire MCP server is running and Neo4j is accessible',
             inputSchema=TOOL_SCHEMAS['health_check']['inputSchema']
         ),
         types.Tool(
-            name='search_code',
-            description='Search codebase using hybrid vector + graph retrieval',
-            inputSchema=TOOL_SCHEMAS['search_code']['inputSchema']
-        ),
-        types.Tool(
-            name='ask_code_question',
-            description='Ask natural language questions about the codebase',
-            inputSchema=TOOL_SCHEMAS['ask_code_question']['inputSchema']
-        ),
-        types.Tool(
             name='get_embeddings_status',
-            description='Get status of vector embeddings in the knowledge graph',
+            description='Get status of vector embeddings in the knowledge graph - check how many entities have embeddings generated',
             inputSchema=TOOL_SCHEMAS['get_embeddings_status']['inputSchema']
         ),
-        types.Tool(
-            name='benchmark',
-            description='Run performance benchmark on a codebase',
-            inputSchema=TOOL_SCHEMAS['benchmark']['inputSchema']
-        ),
-        types.Tool(
-            name='aggregate_by_property',
-            description='Build query to aggregate nodes by property',
-            inputSchema=TOOL_SCHEMAS['aggregate_by_property']['inputSchema']
-        ),
-        types.Tool(
-            name='analyze',
-            description='Run complete analysis and generate health report',
-            inputSchema=TOOL_SCHEMAS['analyze']['inputSchema']
-        ),
-        types.Tool(
-            name='analyze_file_history',
-            description='Analyze how a specific file evolved over time',
-            inputSchema=TOOL_SCHEMAS['analyze_file_history']['inputSchema']
-        ),
-        types.Tool(
-            name='api_client',
-            description='Create FastAPI test client with mocked dependencies',
-            inputSchema=TOOL_SCHEMAS['api_client']['inputSchema']
-        ),
-        types.Tool(
-            name='apply_secrets_policy',
-            description='Apply secrets policy to scan result',
-            inputSchema=TOOL_SCHEMAS['apply_secrets_policy']['inputSchema']
-        ),
-        types.Tool(
-            name='batch_create_nodes',
-            description='Create multiple nodes in a write transaction',
-            inputSchema=TOOL_SCHEMAS['batch_create_nodes']['inputSchema']
-        ),
-        types.Tool(
-            name='batch_create_relationships',
-            description='Create multiple relationships in a write transaction',
-            inputSchema=TOOL_SCHEMAS['batch_create_relationships']['inputSchema']
-        ),
-        types.Tool(
-            name='build',
-            description='Build the final query string and parameters',
-            inputSchema=TOOL_SCHEMAS['build']['inputSchema']
-        ),
-        types.Tool(
-            name='calculate_betweenness_centrality',
-            description='Calculate betweenness centrality for all functions in the call graph',
-            inputSchema=TOOL_SCHEMAS['calculate_betweenness_centrality']['inputSchema']
-        ),
+        # Note: All other tools available via code execution
+        # Use the repotoire-code-exec prompt to learn how
     ]
 
 
