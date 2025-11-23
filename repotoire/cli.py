@@ -2827,6 +2827,377 @@ def daemon_refresh(
         raise click.Abort()
 
 
+@cli.group()
+def metrics() -> None:
+    """Query and export historical metrics from TimescaleDB.
+
+    Commands for analyzing code health trends, detecting regressions,
+    and exporting metrics data for visualization in tools like Grafana.
+
+    Requires TimescaleDB to be configured via REPOTOIRE_TIMESCALE_URI.
+
+    Examples:
+        repotoire metrics trend myrepo --days 30
+        repotoire metrics regression myrepo
+        repotoire metrics compare myrepo --start 2024-01-01 --end 2024-01-31
+        repotoire metrics export myrepo --format csv --output metrics.csv
+    """
+    pass
+
+
+@metrics.command()
+@click.argument("repository")
+@click.option("--branch", "-b", default="main", help="Git branch to query")
+@click.option("--days", "-d", type=int, default=30, help="Number of days to look back")
+@click.option("--format", "-f", type=click.Choice(["table", "json", "csv"]), default="table", help="Output format")
+@click.pass_context
+def trend(
+    ctx: click.Context,
+    repository: str,
+    branch: str,
+    days: int,
+    format: str,
+) -> None:
+    """Show health score trend over time.
+
+    Displays how code health metrics have changed over the specified time period.
+    Useful for identifying gradual quality degradation or improvements.
+
+    Example:
+        repotoire metrics trend /path/to/repo --days 90 --format table
+    """
+    try:
+        # Get config
+        config: FalkorConfig = ctx.obj.get('config') or get_config()
+
+        # Check if TimescaleDB is configured
+        if not config.timescale.connection_string:
+            console.print("\n[red]❌ TimescaleDB not configured[/red]")
+            console.print("[dim]Set REPOTOIRE_TIMESCALE_URI environment variable[/dim]")
+            raise click.Abort()
+
+        # Import TimescaleDB client
+        try:
+            from repotoire.historical import TimescaleClient
+        except ImportError:
+            console.print("\n[red]❌ TimescaleDB support not installed[/red]")
+            console.print("[dim]Install with: pip install repotoire[timescale][/dim]")
+            raise click.Abort()
+
+        # Query trend data
+        with TimescaleClient(config.timescale.connection_string) as client:
+            data = client.get_trend(repository, branch=branch, days=days)
+
+        if not data:
+            console.print(f"\n[yellow]No metrics found for {repository}:{branch} in the last {days} days[/yellow]")
+            return
+
+        # Display based on format
+        if format == "json":
+            import json
+            from datetime import datetime
+            # Convert datetime to string for JSON serialization
+            for row in data:
+                if 'time' in row and isinstance(row['time'], datetime):
+                    row['time'] = row['time'].isoformat()
+            console.print(json.dumps(data, indent=2))
+
+        elif format == "csv":
+            import csv
+            import sys
+            from io import StringIO
+
+            output = StringIO()
+            if data:
+                writer = csv.DictWriter(output, fieldnames=data[0].keys())
+                writer.writeheader()
+                writer.writerows(data)
+                console.print(output.getvalue())
+
+        else:  # table format
+            table = Table(title=f"Health Trend: {repository} ({branch})")
+            table.add_column("Time", style="cyan")
+            table.add_column("Overall", style="bold")
+            table.add_column("Structure", style="green")
+            table.add_column("Quality", style="yellow")
+            table.add_column("Architecture", style="blue")
+            table.add_column("Issues", style="red")
+            table.add_column("Critical", style="bright_red")
+            table.add_column("Commit", style="dim")
+
+            for row in data:
+                table.add_row(
+                    str(row['time']),
+                    f"{row['overall_health']:.1f}" if row['overall_health'] else "N/A",
+                    f"{row['structure_health']:.1f}" if row['structure_health'] else "N/A",
+                    f"{row['quality_health']:.1f}" if row['quality_health'] else "N/A",
+                    f"{row['architecture_health']:.1f}" if row['architecture_health'] else "N/A",
+                    str(row['total_findings']) if row['total_findings'] is not None else "0",
+                    str(row['critical_count']) if row['critical_count'] is not None else "0",
+                    (row['commit_sha'][:8] if row['commit_sha'] else "N/A"),
+                )
+
+            console.print()
+            console.print(table)
+            console.print()
+
+    except Exception as e:
+        logger.error(f"Failed to query trend: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
+@metrics.command()
+@click.argument("repository")
+@click.option("--branch", "-b", default="main", help="Git branch to query")
+@click.option("--threshold", "-t", type=float, default=5.0, help="Minimum health score drop to flag")
+@click.pass_context
+def regression(
+    ctx: click.Context,
+    repository: str,
+    branch: str,
+    threshold: float,
+) -> None:
+    """Detect if health score dropped significantly.
+
+    Compares the most recent analysis with the previous one to identify
+    sudden quality regressions that may require immediate attention.
+
+    Example:
+        repotoire metrics regression /path/to/repo --threshold 10.0
+    """
+    try:
+        # Get config
+        config: FalkorConfig = ctx.obj.get('config') or get_config()
+
+        # Check if TimescaleDB is configured
+        if not config.timescale.connection_string:
+            console.print("\n[red]❌ TimescaleDB not configured[/red]")
+            console.print("[dim]Set REPOTOIRE_TIMESCALE_URI environment variable[/dim]")
+            raise click.Abort()
+
+        # Import TimescaleDB client
+        try:
+            from repotoire.historical import TimescaleClient
+        except ImportError:
+            console.print("\n[red]❌ TimescaleDB support not installed[/red]")
+            console.print("[dim]Install with: pip install repotoire[timescale][/dim]")
+            raise click.Abort()
+
+        # Check for regression
+        with TimescaleClient(config.timescale.connection_string) as client:
+            result = client.detect_regression(repository, branch=branch, threshold=threshold)
+
+        if not result:
+            console.print(f"\n[green]✓ No significant regression detected[/green]")
+            console.print(f"[dim]Threshold: {threshold} points[/dim]")
+            return
+
+        # Display regression details
+        console.print()
+        console.print(Panel(
+            f"""[bold red]⚠️  Quality Regression Detected[/bold red]
+
+[bold]Health Score Drop:[/bold] {result['health_drop']:.1f} points
+
+[red]Previous:[/red] {result['previous_score']:.1f} at {result['previous_time']}
+  Commit: {result['previous_commit'][:8] if result['previous_commit'] else 'N/A'}
+
+[yellow]Current:[/yellow] {result['current_score']:.1f} at {result['current_time']}
+  Commit: {result['current_commit'][:8] if result['current_commit'] else 'N/A'}
+
+[dim]This exceeds the threshold of {threshold} points.[/dim]
+            """.strip(),
+            title=f"Regression: {repository} ({branch})",
+            border_style="red"
+        ))
+        console.print()
+
+    except Exception as e:
+        logger.error(f"Failed to detect regression: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
+@metrics.command()
+@click.argument("repository")
+@click.option("--branch", "-b", default="main", help="Git branch to query")
+@click.option("--start", "-s", required=True, help="Start date (YYYY-MM-DD)")
+@click.option("--end", "-e", required=True, help="End date (YYYY-MM-DD)")
+@click.pass_context
+def compare(
+    ctx: click.Context,
+    repository: str,
+    branch: str,
+    start: str,
+    end: str,
+) -> None:
+    """Compare metrics between two time periods.
+
+    Calculates aggregate statistics (average, min, max) for a date range,
+    useful for comparing sprint performance or release quality.
+
+    Example:
+        repotoire metrics compare /path/to/repo --start 2024-01-01 --end 2024-01-31
+    """
+    try:
+        # Parse dates
+        from datetime import datetime
+
+        try:
+            start_date = datetime.fromisoformat(start)
+            end_date = datetime.fromisoformat(end)
+        except ValueError as e:
+            console.print(f"\n[red]❌ Invalid date format:[/red] {e}")
+            console.print("[dim]Use YYYY-MM-DD format[/dim]")
+            raise click.Abort()
+
+        # Get config
+        config: FalkorConfig = ctx.obj.get('config') or get_config()
+
+        # Check if TimescaleDB is configured
+        if not config.timescale.connection_string:
+            console.print("\n[red]❌ TimescaleDB not configured[/red]")
+            console.print("[dim]Set REPOTOIRE_TIMESCALE_URI environment variable[/dim]")
+            raise click.Abort()
+
+        # Import TimescaleDB client
+        try:
+            from repotoire.historical import TimescaleClient
+        except ImportError:
+            console.print("\n[red]❌ TimescaleDB support not installed[/red]")
+            console.print("[dim]Install with: pip install repotoire[timescale][/dim]")
+            raise click.Abort()
+
+        # Query comparison data
+        with TimescaleClient(config.timescale.connection_string) as client:
+            stats = client.compare_periods(repository, start_date, end_date, branch=branch)
+
+        if not stats or stats.get('num_analyses', 0) == 0:
+            console.print(f"\n[yellow]No metrics found for {repository}:{branch} between {start} and {end}[/yellow]")
+            return
+
+        # Display comparison
+        console.print()
+        console.print(Panel(
+            f"""[bold]Period:[/bold] {start} to {end}
+[bold]Analyses:[/bold] {stats['num_analyses']}
+
+[bold cyan]Health Scores:[/bold cyan]
+  Average: {stats['avg_health']:.1f}
+  Best:    {stats['max_health']:.1f}
+  Worst:   {stats['min_health']:.1f}
+
+[bold red]Issues:[/bold red]
+  Avg per analysis: {stats['avg_issues']:.1f}
+  Total critical:   {stats['total_critical']}
+  Total high:       {stats['total_high']}
+            """.strip(),
+            title=f"Period Comparison: {repository} ({branch})",
+            border_style="cyan"
+        ))
+        console.print()
+
+    except Exception as e:
+        logger.error(f"Failed to compare periods: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
+@metrics.command()
+@click.argument("repository")
+@click.option("--branch", "-b", default="main", help="Git branch to query")
+@click.option("--days", "-d", type=int, help="Number of days to look back (optional)")
+@click.option("--format", "-f", type=click.Choice(["json", "csv"]), default="json", help="Output format")
+@click.option("--output", "-o", type=click.Path(), help="Output file (prints to stdout if not specified)")
+@click.pass_context
+def export(
+    ctx: click.Context,
+    repository: str,
+    branch: str,
+    days: int | None,
+    format: str,
+    output: str | None,
+) -> None:
+    """Export metrics data for external analysis.
+
+    Exports raw metrics data in JSON or CSV format for use in visualization
+    tools like Grafana, spreadsheets, or custom analytics pipelines.
+
+    Example:
+        repotoire metrics export /path/to/repo --format csv --output metrics.csv
+    """
+    try:
+        # Get config
+        config: FalkorConfig = ctx.obj.get('config') or get_config()
+
+        # Check if TimescaleDB is configured
+        if not config.timescale.connection_string:
+            console.print("\n[red]❌ TimescaleDB not configured[/red]")
+            console.print("[dim]Set REPOTOIRE_TIMESCALE_URI environment variable[/dim]")
+            raise click.Abort()
+
+        # Import TimescaleDB client
+        try:
+            from repotoire.historical import TimescaleClient
+        except ImportError:
+            console.print("\n[red]❌ TimescaleDB support not installed[/red]")
+            console.print("[dim]Install with: pip install repotoire[timescale][/dim]")
+            raise click.Abort()
+
+        # Query data
+        with TimescaleClient(config.timescale.connection_string) as client:
+            if days:
+                data = client.get_trend(repository, branch=branch, days=days)
+            else:
+                # Get all data (use a large number)
+                data = client.get_trend(repository, branch=branch, days=365 * 10)
+
+        if not data:
+            console.print(f"\n[yellow]No metrics found for {repository}:{branch}[/yellow]")
+            return
+
+        # Export data
+        if format == "csv":
+            import csv
+            from pathlib import Path
+
+            if output:
+                with open(output, 'w', newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=data[0].keys())
+                    writer.writeheader()
+                    writer.writerows(data)
+                console.print(f"\n[green]✓[/green] Exported {len(data)} records to {output}")
+            else:
+                import sys
+                writer = csv.DictWriter(sys.stdout, fieldnames=data[0].keys())
+                writer.writeheader()
+                writer.writerows(data)
+
+        else:  # json format
+            import json
+            from datetime import datetime
+
+            # Convert datetime to string for JSON serialization
+            for row in data:
+                if 'time' in row and isinstance(row['time'], datetime):
+                    row['time'] = row['time'].isoformat()
+
+            json_data = json.dumps(data, indent=2)
+
+            if output:
+                with open(output, 'w') as f:
+                    f.write(json_data)
+                console.print(f"\n[green]✓[/green] Exported {len(data)} records to {output}")
+            else:
+                console.print(json_data)
+
+    except Exception as e:
+        logger.error(f"Failed to export metrics: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
 def main() -> None:
     """Entry point for CLI."""
     cli()
