@@ -265,7 +265,16 @@ TOOL_SCHEMAS = {
     'analyze': {
         'name': 'analyze',
         'description': 'Run complete analysis and generate health report',
-        'inputSchema': {'type': 'object', 'properties': {}}
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'track_metrics': {
+                    'type': 'boolean',
+                    'description': 'Record metrics to TimescaleDB for historical tracking',
+                    'default': False
+                }
+            }
+        }
     },
     'analyze_file_history': {
         'name': 'analyze_file_history',
@@ -844,6 +853,86 @@ async def handle_call_tool(
             type='text',
             text=f'Error executing {name}: {str(e)}'
         )]
+
+
+async def _record_analysis_metrics(health, repository_path: str) -> None:
+    """Record analysis metrics to TimescaleDB.
+
+    Args:
+        health: CodebaseHealth object from analysis
+        repository_path: Path to analyzed repository
+    """
+    try:
+        # Check if TimescaleDB is configured
+        timescale_uri = os.getenv('REPOTOIRE_TIMESCALE_URI') or os.getenv('FALKOR_TIMESCALE_URI')
+        if not timescale_uri:
+            logger.warning("TimescaleDB tracking requested but REPOTOIRE_TIMESCALE_URI not set")
+            return
+
+        # Import TimescaleDB components
+        try:
+            from repotoire.historical import TimescaleClient, MetricsCollector
+        except ImportError:
+            logger.warning("TimescaleDB support not installed (missing psycopg2-binary)")
+            return
+
+        # Extract git information
+        import subprocess
+        from pathlib import Path
+
+        git_info = {"branch": None, "commit_sha": None}
+        repo_path = Path(repository_path).resolve()
+
+        try:
+            # Get current branch
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                git_info["branch"] = result.stdout.strip()
+
+            # Get commit SHA
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                git_info["commit_sha"] = result.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+        # Extract metrics from health object
+        collector = MetricsCollector()
+        metrics = collector.extract_metrics(health)
+
+        # Record to TimescaleDB
+        with TimescaleClient(timescale_uri) as client:
+            client.record_metrics(
+                metrics=metrics,
+                repository=str(repo_path),
+                branch=git_info["branch"] or "unknown",
+                commit_sha=git_info["commit_sha"],
+            )
+
+        logger.info(
+            "Metrics recorded to TimescaleDB",
+            extra={
+                "repository": str(repo_path),
+                "branch": git_info["branch"],
+                "commit": git_info["commit_sha"][:8] if git_info["commit_sha"] else None,
+            }
+        )
+
+    except Exception as e:
+        # Don't fail the analysis if metrics recording fails
+        logger.error(f"Failed to record metrics to TimescaleDB: {e}", exc_info=True)
 
 
 async def _handle_root(arguments: Dict[str, Any]) -> Any:
@@ -1439,6 +1528,9 @@ async def _handle_analyze(arguments: Dict[str, Any]) -> Any:
         raise ImportError(error_msg)
 
     try:
+        # Extract track_metrics parameter
+        track_metrics = arguments.get('track_metrics', False)
+
         # Call function (may be async)
         import inspect
         # Instance method - instantiate AnalysisEngine
@@ -1452,6 +1544,10 @@ async def _handle_analyze(arguments: Dict[str, Any]) -> Any:
         result = _instance.analyze()
         if inspect.iscoroutine(result):
             result = await result
+
+        # Record metrics to TimescaleDB if requested
+        if track_metrics:
+            await _record_analysis_metrics(result, repository_path='.')
 
         return result
     except ImportError:
