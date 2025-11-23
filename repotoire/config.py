@@ -164,6 +164,14 @@ class LoggingConfig:
 
 
 @dataclass
+class TimescaleConfig:
+    """TimescaleDB configuration for metrics tracking."""
+    enabled: bool = False
+    connection_string: Optional[str] = None
+    auto_track: bool = False  # Automatically track metrics after analysis
+
+
+@dataclass
 class FalkorConfig:
     """Complete Falkor configuration."""
     neo4j: Neo4jConfig = field(default_factory=Neo4jConfig)
@@ -172,6 +180,7 @@ class FalkorConfig:
     detectors: DetectorConfig = field(default_factory=DetectorConfig)
     secrets: SecretsConfig = field(default_factory=SecretsConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    timescale: TimescaleConfig = field(default_factory=TimescaleConfig)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "FalkorConfig":

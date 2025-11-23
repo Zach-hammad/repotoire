@@ -69,6 +69,10 @@ all-languages = [
     "tree-sitter-typescript>=0.20.0",
 ]
 
+timescale = [
+    "psycopg2-binary>=2.9.9",  # PostgreSQL adapter for TimescaleDB metrics storage
+]
+
 [project.scripts]
 repotoire = "repotoire.cli:main"
 repotoire-pre-commit = "repotoire.hooks.pre_commit:main"
