@@ -73,6 +73,10 @@ timescale = [
     "psycopg2-binary>=2.9.9",  # PostgreSQL adapter for TimescaleDB metrics storage
 ]
 
+graphiti = [
+    "graphiti-core>=0.24.1",  # Temporal knowledge graph for git history tracking
+]
+
 [project.scripts]
 repotoire = "repotoire.cli:main"
 repotoire-pre-commit = "repotoire.hooks.pre_commit:main"

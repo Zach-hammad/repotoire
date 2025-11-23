@@ -69,6 +69,28 @@ repotoire analyze /path/to/repo --track-metrics
 
 See [docs/TIMESCALEDB_METRICS.md](docs/TIMESCALEDB_METRICS.md) for complete documentation.
 
+### Git + Graphiti Integration (Optional)
+
+Graphiti provides temporal knowledge graph integration for git history, enabling natural language queries about code evolution.
+
+Install dependencies:
+```bash
+pip install repotoire[graphiti]
+export OPENAI_API_KEY="sk-..."
+```
+
+Ingest git history:
+```bash
+repotoire historical ingest-git /path/to/repo --max-commits 500
+```
+
+Query code evolution:
+```bash
+repotoire historical query "When did we add authentication?" /path/to/repo
+```
+
+See [docs/GIT_GRAPHITI.md](docs/GIT_GRAPHITI.md) for complete documentation.
+
 ### Common Commands
 
 ```bash

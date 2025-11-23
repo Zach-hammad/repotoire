@@ -3,6 +3,7 @@
 import click
 from dataclasses import asdict
 from pathlib import Path
+from typing import Optional
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -3194,6 +3195,307 @@ def export(
 
     except Exception as e:
         logger.error(f"Failed to export metrics: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
+@cli.group()
+def historical() -> None:
+    """Query and analyze git history using temporal knowledge graphs.
+
+    Commands for integrating git commit history with Graphiti temporal knowledge
+    graph, enabling natural language queries about code evolution.
+
+    Requires Graphiti to be configured via OPENAI_API_KEY and Neo4j connection.
+
+    Examples:
+        repotoire historical ingest-git /path/to/repo --since 2024-01-01
+        repotoire historical query "When did we add authentication?"
+        repotoire historical timeline authenticate_user --entity-type function
+    """
+    pass
+
+
+@historical.command("ingest-git")
+@click.argument("repository", type=click.Path(exists=True))
+@click.option("--since", "-s", help="Only ingest commits after this date (YYYY-MM-DD)")
+@click.option("--until", "-u", help="Only ingest commits before this date (YYYY-MM-DD)")
+@click.option("--branch", "-b", default="main", help="Git branch to analyze")
+@click.option("--max-commits", "-m", type=int, default=1000, help="Maximum commits to process")
+@click.option("--batch-size", type=int, default=10, help="Commits to process in parallel")
+@click.option("--neo4j-uri", envvar="REPOTOIRE_NEO4J_URI", default="bolt://localhost:7687", help="Neo4j connection URI")
+@click.option("--neo4j-password", envvar="REPOTOIRE_NEO4J_PASSWORD", help="Neo4j password")
+@click.pass_context
+def ingest_git(
+    ctx: click.Context,
+    repository: str,
+    since: Optional[str],
+    until: Optional[str],
+    branch: str,
+    max_commits: int,
+    batch_size: int,
+    neo4j_uri: str,
+    neo4j_password: Optional[str],
+) -> None:
+    """Ingest git commit history into Graphiti temporal knowledge graph.
+
+    Analyzes git repository and creates Graphiti episodes for each commit,
+    enabling natural language queries about code evolution over time.
+
+    Example:
+        repotoire historical ingest-git /path/to/repo --since 2024-01-01 --max-commits 500
+    """
+    import asyncio
+    from datetime import datetime, timezone
+
+    try:
+        # Check for required dependencies
+        try:
+            from graphiti_core import Graphiti
+            from repotoire.historical import GitGraphitiIntegration
+        except ImportError as e:
+            console.print("\n[red]❌ Graphiti not installed[/red]")
+            console.print(
+                "[dim]Install with: uv pip install 'repotoire[graphiti]' or pip install graphiti-core[/dim]"
+            )
+            raise click.Abort()
+
+        # Check for OpenAI API key
+        import os
+        if not os.getenv("OPENAI_API_KEY"):
+            console.print("\n[red]❌ OPENAI_API_KEY not set[/red]")
+            console.print("[dim]Graphiti requires an OpenAI API key for LLM processing[/dim]")
+            raise click.Abort()
+
+        # Check for Neo4j password
+        if not neo4j_password:
+            console.print("\n[red]❌ Neo4j password not provided[/red]")
+            console.print("[dim]Set REPOTOIRE_NEO4J_PASSWORD or use --neo4j-password[/dim]")
+            raise click.Abort()
+
+        # Parse dates if provided
+        since_dt = None
+        until_dt = None
+
+        if since:
+            try:
+                since_dt = datetime.strptime(since, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except ValueError:
+                console.print(f"\n[red]❌ Invalid date format for --since: {since}[/red]")
+                console.print("[dim]Use format: YYYY-MM-DD[/dim]")
+                raise click.Abort()
+
+        if until:
+            try:
+                until_dt = datetime.strptime(until, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except ValueError:
+                console.print(f"\n[red]❌ Invalid date format for --until: {until}[/red]")
+                console.print("[dim]Use format: YYYY-MM-DD[/dim]")
+                raise click.Abort()
+
+        console.print("\n[bold]🔄 Ingesting Git History[/bold]")
+        console.print(f"Repository: {repository}")
+        console.print(f"Branch: {branch}")
+        if since_dt:
+            console.print(f"Since: {since_dt.date()}")
+        if until_dt:
+            console.print(f"Until: {until_dt.date()}")
+        console.print(f"Max commits: {max_commits}")
+
+        # Initialize Graphiti
+        with console.status("[bold]Initializing Graphiti...[/bold]"):
+            graphiti = Graphiti(neo4j_uri, neo4j_password, "neo4j")
+
+        # Initialize integration
+        integration = GitGraphitiIntegration(repository, graphiti)
+
+        # Ingest git history
+        async def run_ingestion():
+            return await integration.ingest_git_history(
+                since=since_dt,
+                until=until_dt,
+                branch=branch,
+                max_commits=max_commits,
+                batch_size=batch_size,
+            )
+
+        with console.status("[bold]Processing commits...[/bold]"):
+            stats = asyncio.run(run_ingestion())
+
+        # Display results
+        console.print("\n[green]✓ Ingestion complete[/green]")
+        console.print(f"  Commits processed: {stats['commits_processed']}")
+        if stats['errors'] > 0:
+            console.print(f"  [yellow]Errors: {stats['errors']}[/yellow]")
+        if stats['oldest_commit']:
+            console.print(f"  Date range: {stats['oldest_commit'].date()} to {stats['newest_commit'].date()}")
+
+    except Exception as e:
+        logger.error(f"Failed to ingest git history: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
+@historical.command()
+@click.argument("query")
+@click.argument("repository", type=click.Path(exists=True))
+@click.option("--since", "-s", help="Filter results after this date (YYYY-MM-DD)")
+@click.option("--until", "-u", help="Filter results before this date (YYYY-MM-DD)")
+@click.option("--neo4j-uri", envvar="REPOTOIRE_NEO4J_URI", default="bolt://localhost:7687", help="Neo4j connection URI")
+@click.option("--neo4j-password", envvar="REPOTOIRE_NEO4J_PASSWORD", help="Neo4j password")
+@click.pass_context
+def query(
+    ctx: click.Context,
+    query: str,
+    repository: str,
+    since: Optional[str],
+    until: Optional[str],
+    neo4j_uri: str,
+    neo4j_password: Optional[str],
+) -> None:
+    """Query git history using natural language.
+
+    Ask questions about code evolution, when features were added, who made changes,
+    and other historical questions about the codebase.
+
+    Examples:
+        repotoire historical query "When did we add OAuth authentication?" /path/to/repo
+        repotoire historical query "What changes led to performance regression?" /path/to/repo
+        repotoire historical query "Show all refactorings of UserManager class" /path/to/repo
+    """
+    import asyncio
+    from datetime import datetime, timezone
+
+    try:
+        # Check for required dependencies
+        try:
+            from graphiti_core import Graphiti
+            from repotoire.historical import GitGraphitiIntegration
+        except ImportError:
+            console.print("\n[red]❌ Graphiti not installed[/red]")
+            console.print(
+                "[dim]Install with: uv pip install 'repotoire[graphiti]' or pip install graphiti-core[/dim]"
+            )
+            raise click.Abort()
+
+        # Check for Neo4j password
+        if not neo4j_password:
+            console.print("\n[red]❌ Neo4j password not provided[/red]")
+            console.print("[dim]Set REPOTOIRE_NEO4J_PASSWORD or use --neo4j-password[/dim]")
+            raise click.Abort()
+
+        # Parse dates if provided
+        since_dt = None
+        until_dt = None
+
+        if since:
+            try:
+                since_dt = datetime.strptime(since, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except ValueError:
+                console.print(f"\n[red]❌ Invalid date format for --since: {since}[/red]")
+                raise click.Abort()
+
+        if until:
+            try:
+                until_dt = datetime.strptime(until, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except ValueError:
+                console.print(f"\n[red]❌ Invalid date format for --until: {until}[/red]")
+                raise click.Abort()
+
+        console.print(f"\n[bold]🔍 Querying Git History[/bold]")
+        console.print(f"Query: {query}")
+
+        # Initialize Graphiti
+        with console.status("[bold]Querying Graphiti...[/bold]"):
+            graphiti = Graphiti(neo4j_uri, neo4j_password, "neo4j")
+            integration = GitGraphitiIntegration(repository, graphiti)
+
+            # Run query
+            async def run_query():
+                return await integration.query_history(
+                    query=query,
+                    start_time=since_dt,
+                    end_time=until_dt,
+                )
+
+            results = asyncio.run(run_query())
+
+        # Display results
+        console.print("\n[bold]Results:[/bold]")
+        console.print(results)
+
+    except Exception as e:
+        logger.error(f"Failed to query git history: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
+@historical.command()
+@click.argument("entity_name")
+@click.argument("repository", type=click.Path(exists=True))
+@click.option("--entity-type", "-t", default="function", help="Type of entity (function, class, module)")
+@click.option("--neo4j-uri", envvar="REPOTOIRE_NEO4J_URI", default="bolt://localhost:7687", help="Neo4j connection URI")
+@click.option("--neo4j-password", envvar="REPOTOIRE_NEO4J_PASSWORD", help="Neo4j password")
+@click.pass_context
+def timeline(
+    ctx: click.Context,
+    entity_name: str,
+    repository: str,
+    entity_type: str,
+    neo4j_uri: str,
+    neo4j_password: Optional[str],
+) -> None:
+    """Get timeline of changes for a specific code entity.
+
+    Shows all commits that modified a particular function, class, or module
+    over time, helping understand how that code evolved.
+
+    Examples:
+        repotoire historical timeline authenticate_user /path/to/repo --entity-type function
+        repotoire historical timeline UserManager /path/to/repo --entity-type class
+    """
+    import asyncio
+
+    try:
+        # Check for required dependencies
+        try:
+            from graphiti_core import Graphiti
+            from repotoire.historical import GitGraphitiIntegration
+        except ImportError:
+            console.print("\n[red]❌ Graphiti not installed[/red]")
+            console.print(
+                "[dim]Install with: uv pip install 'repotoire[graphiti]' or pip install graphiti-core[/dim]"
+            )
+            raise click.Abort()
+
+        # Check for Neo4j password
+        if not neo4j_password:
+            console.print("\n[red]❌ Neo4j password not provided[/red]")
+            console.print("[dim]Set REPOTOIRE_NEO4J_PASSWORD or use --neo4j-password[/dim]")
+            raise click.Abort()
+
+        console.print(f"\n[bold]📅 Timeline for {entity_type}: {entity_name}[/bold]")
+
+        # Initialize Graphiti
+        with console.status("[bold]Retrieving timeline...[/bold]"):
+            graphiti = Graphiti(neo4j_uri, neo4j_password, "neo4j")
+            integration = GitGraphitiIntegration(repository, graphiti)
+
+            # Get timeline
+            async def run_timeline():
+                return await integration.get_entity_timeline(
+                    entity_name=entity_name,
+                    entity_type=entity_type,
+                )
+
+            results = asyncio.run(run_timeline())
+
+        # Display results
+        console.print("\n[bold]Timeline:[/bold]")
+        console.print(results)
+
+    except Exception as e:
+        logger.error(f"Failed to get entity timeline: {e}", exc_info=True)
         console.print(f"\n[red]❌ Error:[/red] {e}")
         raise click.Abort()
 
