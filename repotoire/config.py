@@ -520,6 +520,17 @@ def load_config_from_env() -> Dict[str, Any]:
     if logging_cfg:
         config["logging"] = logging_cfg
 
+    # TimescaleDB configuration (support both REPOTOIRE_ and FALKOR_ prefixes)
+    timescale = {}
+    if enabled := os.getenv("FALKOR_TIMESCALE_ENABLED") or os.getenv("REPOTOIRE_TIMESCALE_ENABLED"):
+        timescale["enabled"] = enabled.lower() in ("true", "1", "yes")
+    if connection_string := os.getenv("FALKOR_TIMESCALE_URI") or os.getenv("REPOTOIRE_TIMESCALE_URI"):
+        timescale["connection_string"] = connection_string
+    if auto_track := os.getenv("FALKOR_TIMESCALE_AUTO_TRACK") or os.getenv("REPOTOIRE_TIMESCALE_AUTO_TRACK"):
+        timescale["auto_track"] = auto_track.lower() in ("true", "1", "yes")
+    if timescale:
+        config["timescale"] = timescale
+
     return config
 
 

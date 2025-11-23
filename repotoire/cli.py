@@ -37,6 +37,125 @@ logger = get_logger(__name__)
 _config: FalkorConfig | None = None
 
 
+def _extract_git_info(repo_path: Path) -> dict[str, str | None]:
+    """Extract git branch and commit SHA from repository.
+
+    Args:
+        repo_path: Path to git repository
+
+    Returns:
+        Dictionary with 'branch' and 'commit_sha' keys
+    """
+    import subprocess
+
+    git_info = {"branch": None, "commit_sha": None}
+
+    try:
+        # Get current branch
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            git_info["branch"] = result.stdout.strip()
+
+        # Get commit SHA
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            git_info["commit_sha"] = result.stdout.strip()
+
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        # Git not available or timeout - return None values
+        pass
+
+    return git_info
+
+
+def _record_metrics_to_timescale(
+    health,
+    repo_path: Path,
+    config: FalkorConfig,
+    quiet: bool
+) -> None:
+    """Record analysis metrics to TimescaleDB for historical tracking.
+
+    Args:
+        health: CodebaseHealth object from analysis
+        repo_path: Path to analyzed repository
+        config: Loaded configuration
+        quiet: Whether to suppress output
+    """
+    try:
+        # Check if TimescaleDB is enabled in config
+        if not config.timescale.enabled:
+            console.print("\n[yellow]⚠️  TimescaleDB tracking requested but not enabled in config[/yellow]")
+            console.print("[dim]Set timescale.enabled = true in your config file[/dim]")
+            return
+
+        # Check for connection string
+        if not config.timescale.connection_string:
+            console.print("\n[yellow]⚠️  TimescaleDB connection string not configured[/yellow]")
+            console.print("[dim]Set timescale.connection_string in config or REPOTOIRE_TIMESCALE_URI env var[/dim]")
+            return
+
+        if not quiet:
+            console.print("\n[dim]Recording metrics to TimescaleDB...[/dim]")
+
+        # Import TimescaleDB components
+        from repotoire.historical import TimescaleClient, MetricsCollector
+
+        # Extract git information
+        git_info = _extract_git_info(repo_path)
+
+        # Extract metrics from health object
+        collector = MetricsCollector()
+        metrics = collector.extract_metrics(health)
+
+        # Record to TimescaleDB
+        with TimescaleClient(config.timescale.connection_string) as client:
+            client.record_metrics(
+                metrics=metrics,
+                repository=str(repo_path),
+                branch=git_info["branch"] or "unknown",
+                commit_sha=git_info["commit_sha"],
+            )
+
+        logger.info(
+            "Metrics recorded to TimescaleDB",
+            extra={
+                "repository": str(repo_path),
+                "branch": git_info["branch"],
+                "commit_sha": git_info["commit_sha"][:8] if git_info["commit_sha"] else None,
+            }
+        )
+
+        if not quiet:
+            console.print("[green]✓[/green] Metrics recorded to TimescaleDB")
+            if git_info["branch"]:
+                console.print(f"[dim]  Branch: {git_info['branch']}[/dim]")
+            if git_info["commit_sha"]:
+                console.print(f"[dim]  Commit: {git_info['commit_sha'][:8]}[/dim]")
+
+    except ImportError:
+        console.print("\n[yellow]⚠️  TimescaleDB support not installed[/yellow]")
+        console.print("[dim]Install with: pip install repotoire[timescale][/dim]")
+        logger.warning("TimescaleDB support not installed (missing psycopg2)")
+
+    except Exception as e:
+        logger.exception("Failed to record metrics to TimescaleDB")
+        console.print(f"\n[red]⚠️  Failed to record metrics: {e}[/red]")
+        console.print("[dim]Analysis results are still available[/dim]")
+
+
 def get_config() -> FalkorConfig:
     """Get loaded configuration."""
     global _config
@@ -399,6 +518,12 @@ def ingest(
     default=False,
     help="Disable progress indicators and reduce output",
 )
+@click.option(
+    "--track-metrics",
+    is_flag=True,
+    default=False,
+    help="Record metrics to TimescaleDB for historical tracking",
+)
 @click.pass_context
 def analyze(
     ctx: click.Context,
@@ -409,6 +534,7 @@ def analyze(
     output: str | None,
     format: str,
     quiet: bool,
+    track_metrics: bool,
 ) -> None:
     """Analyze codebase health and generate report."""
     # Get config from context
@@ -512,6 +638,15 @@ def analyze(
                             json.dump(health.to_dict(), f, indent=2)
                         logger.info(f"JSON report saved to {validated_output}")
                         console.print(f"\n✅ JSON report saved to {validated_output}")
+
+                # Record metrics to TimescaleDB if enabled
+                if track_metrics or config.timescale.auto_track:
+                    _record_metrics_to_timescale(
+                        health=health,
+                        repo_path=validated_repo_path,
+                        config=config,
+                        quiet=quiet
+                    )
 
     except Exception as e:
         logger.exception("Error during analysis")

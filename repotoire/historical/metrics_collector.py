@@ -57,10 +57,10 @@ class MetricsCollector:
 
         return {
             # Overall health scores (0-100)
-            "overall_health": health.overall_health,
-            "structure_health": health.structure_health,
-            "quality_health": health.quality_health,
-            "architecture_health": health.architecture_health,
+            "overall_health": health.overall_score,
+            "structure_health": health.structure_score,
+            "quality_health": health.quality_score,
+            "architecture_health": health.architecture_score,
 
             # Issue counts by severity
             "critical_count": critical_count,
