@@ -42,6 +42,9 @@ class HTMLReporter:
                 "affected_nodes": finding.affected_nodes,
                 "suggested_fix": finding.suggested_fix,
                 "estimated_effort": finding.estimated_effort,
+                "priority_score": finding.priority_score,
+                "detector_agreement_count": finding.detector_agreement_count,
+                "aggregate_confidence": finding.aggregate_confidence,
                 "code_snippets": []
             }
 
@@ -61,6 +64,7 @@ class HTMLReporter:
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "severity_colors": self._get_severity_colors(),
             "severity_labels": self._get_severity_labels(),
+            "dedup_stats": health.dedup_stats if health.dedup_stats else None,
         }
 
         # Render template
@@ -707,6 +711,66 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
+            <!-- Deduplication Statistics -->
+            {% if dedup_stats %}
+            <div class="section">
+                <h2 class="section-title">🔀 Finding Deduplication</h2>
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-value">{{ dedup_stats.original_count }}</div>
+                        <div class="metric-label">Original Findings</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{{ dedup_stats.deduplicated_count }}</div>
+                        <div class="metric-label">After Deduplication</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{{ dedup_stats.duplicate_count }}</div>
+                        <div class="metric-label">Duplicates Removed</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{{ "%.1f"|format(dedup_stats.reduction_percentage) }}%</div>
+                        <div class="metric-label">Reduction Rate</div>
+                    </div>
+                </div>
+
+                {% if dedup_stats.top_merged_findings %}
+                <h3 style="margin-top: 2rem; color: #333;">🔥 Top Merged Findings (Multiple Detector Agreement)</h3>
+                <div class="findings-list">
+                    {% for merged in dedup_stats.top_merged_findings[:5] %}
+                    <div class="finding-card" style="border-left: 4px solid #f59e0b;">
+                        <div class="finding-header">
+                            <span class="severity-badge severity-{{ merged.severity }}">
+                                {{ severity_labels[merged.severity] }}
+                            </span>
+                            <span style="font-weight: bold; color: #333;">{{ merged.title }}</span>
+                        </div>
+                        <div style="margin-top: 0.5rem; font-size: 0.875rem; color: #666;">
+                            <strong>🔍 Detector Agreement:</strong> {{ merged.detector_agreement_count }} detectors
+                            ({{ merged.detectors|join(", ") }})
+                        </div>
+                        <div style="margin-top: 0.25rem; font-size: 0.875rem; color: #666;">
+                            <strong>💯 Confidence:</strong> {{ "%.0f"|format(merged.aggregate_confidence * 100) }}%
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if dedup_stats.merged_by_category %}
+                <h3 style="margin-top: 2rem; color: #333;">📊 Merged Findings by Category</h3>
+                <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+                    {% for category, count in dedup_stats.merged_by_category.items() %}
+                    <div class="metric-card">
+                        <div class="metric-value">{{ count }}</div>
+                        <div class="metric-label">{{ category.replace("_", " ").title() }}</div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
             <!-- Findings -->
             {% if findings %}
             <div class="section">
@@ -719,7 +783,24 @@ HTML_TEMPLATE = """
                                 {{ severity_labels[finding.severity.value] }}
                             </span>
                             <div class="finding-title">{{ finding.title }}</div>
-                            <span class="detector-badge">{{ finding.detector }}</span>
+                            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <span class="detector-badge">{{ finding.detector }}</span>
+                                {% if finding.priority_score > 0 %}
+                                <span class="priority-badge" style="background: {% if finding.priority_score >= 80 %}#dc2626{% elif finding.priority_score >= 60 %}#f59e0b{% else %}#3b82f6{% endif %}; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">
+                                    Priority: {{ "%.0f"|format(finding.priority_score) }}
+                                </span>
+                                {% endif %}
+                                {% if finding.detector_agreement_count > 1 %}
+                                <span style="background: #8b5cf6; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">
+                                    🔍 {{ finding.detector_agreement_count }} detectors
+                                </span>
+                                {% endif %}
+                                {% if finding.aggregate_confidence > 0 %}
+                                <span style="background: #10b981; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">
+                                    💯 {{ "%.0f"|format(finding.aggregate_confidence * 100) }}%
+                                </span>
+                                {% endif %}
+                            </div>
                         </div>
                         <div class="finding-body">
                             <div class="finding-description">{{ finding.description }}</div>
