@@ -3684,6 +3684,11 @@ def auto_fix(
         raise click.Abort()
 
 
+# Register security commands
+from .security import security
+cli.add_command(security)
+
+
 def main() -> None:
     """Entry point for CLI."""
     cli()

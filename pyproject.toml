@@ -77,6 +77,11 @@ graphiti = [
     "graphiti-core>=0.24.1",  # Temporal knowledge graph for git history tracking
 ]
 
+security = [
+    "pip-audit>=2.6.0",  # Dependency vulnerability scanning
+    "cyclonedx-bom>=4.0.0",  # SBOM generation (CycloneDX format)
+]
+
 [project.scripts]
 repotoire = "repotoire.cli:main"
 repotoire-pre-commit = "repotoire.hooks.pre_commit:main"
