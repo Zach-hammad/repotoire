@@ -11,7 +11,8 @@ Addresses: FAL-111
 
 from typing import List, Dict, Any, Optional
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.models import Finding, Severity
+from repotoire.models import CollaborationMetadata, Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
 from repotoire.graph.client import Neo4jClient
 from repotoire.logging_config import get_logger
 
@@ -19,8 +20,9 @@ from repotoire.logging_config import get_logger
 class ShotgunSurgeryDetector(CodeSmellDetector):
     """Detect classes with too many dependents (high fan-in)."""
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict[str, Any]] = None):
+    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict[str, Any]] = None, enricher: Optional[GraphEnricher] = None):
         super().__init__(neo4j_client)
+        self.enricher = enricher
         config = detector_config or {}
         thresholds = config.get("thresholds", {})
         self.threshold_critical = thresholds.get("critical", 30)
@@ -118,12 +120,36 @@ class ShotgunSurgeryDetector(CodeSmellDetector):
                 line_start=result.get("line_start"),
                 line_end=result.get("line_end"),
                 suggested_fix=suggestion,
-                metadata={
+                metadata={k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v for k, v in {
                     "caller_count": caller_count,
                     "files_affected": files_affected,
                     "sample_files": result["sample_files"],
-                },
+                }.items()},
             )
+            # Add collaboration metadata (REPO-150 Phase 1)
+            finding.add_collaboration_metadata(CollaborationMetadata(
+                detector="ShotgunSurgeryDetector",
+                confidence=0.85,
+                evidence=['high_fan_in'],
+                tags=['shotgun_surgery', 'coupling', 'maintenance']
+            ))
+
+            # Flag entity in graph for cross-detector collaboration (REPO-151 Phase 2)
+            if self.enricher and finding.affected_nodes:
+                for entity_qname in finding.affected_nodes:
+                    try:
+                        self.enricher.flag_entity(
+                            entity_qualified_name=entity_qname,
+                            detector="ShotgunSurgeryDetector",
+                            severity=finding.severity.value,
+                            issues=['high_fan_in'],
+                            confidence=0.85,
+                            metadata={k: (json.dumps(v) if isinstance(v, (dict, list)) else str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v) for k, v in (finding.graph_context or {}).items()}
+                        )
+                    except Exception:
+                        pass
+
+
             findings.append(finding)
 
         self.logger.info(

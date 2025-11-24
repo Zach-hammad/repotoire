@@ -17,6 +17,7 @@ This approach achieves:
 
 import json
 import subprocess
+import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -24,7 +25,8 @@ from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph import Neo4jClient
-from repotoire.models import Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
+from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -64,7 +66,12 @@ class MypyDetector(CodeSmellDetector):
         "misc": Severity.LOW,
     }
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None):
+    def __init__(
+        self,
+        neo4j_client: Neo4jClient,
+        detector_config: Optional[Dict] = None,
+        enricher: Optional[GraphEnricher] = None
+    ):
         """Initialize mypy detector.
 
         Args:
@@ -74,6 +81,7 @@ class MypyDetector(CodeSmellDetector):
                 - mypy_config_file: Optional mypy config
                 - strict_mode: Enable strict checking
                 - max_findings: Max findings to report
+            enricher: Optional GraphEnricher for persistent collaboration
         """
         super().__init__(neo4j_client)
 
@@ -82,6 +90,7 @@ class MypyDetector(CodeSmellDetector):
         self.mypy_config = config.get("mypy_config_file")
         self.strict_mode = config.get("strict_mode", False)
         self.max_findings = config.get("max_findings", 100)
+        self.enricher = enricher
 
         if not self.repository_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repository_path}")
@@ -118,8 +127,8 @@ class MypyDetector(CodeSmellDetector):
             List of mypy error dictionaries
         """
         try:
-            # Build mypy command
-            cmd = ["mypy", "--output", "json"]
+            # Build mypy command using python -m to avoid shebang issues
+            cmd = [sys.executable, "-m", "mypy", "--output", "json"]
 
             if self.mypy_config:
                 cmd.extend(["--config-file", str(self.mypy_config)])
@@ -215,6 +224,36 @@ class MypyDetector(CodeSmellDetector):
             estimated_effort=self._estimate_effort(error_code),
             created_at=datetime.now()
         )
+
+        # Flag entities in graph for cross-detector collaboration
+        if self.enricher and graph_data.get("nodes"):
+            for node in graph_data["nodes"]:
+                try:
+                    self.enricher.flag_entity(
+                        entity_qualified_name=node,
+                        detector="MypyDetector",
+                        severity=severity.value,
+                        issues=[error_code],
+                        confidence=0.95,  # Very high confidence (mypy is accurate)
+                        metadata={
+                            "error_code": error_code,
+                            "message": message,
+                            "mypy_severity": severity_str,
+                            "file": rel_path,
+                            "line": line,
+                            "column": column
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to flag entity {node} in graph: {e}")
+
+        # Add collaboration metadata to finding
+        finding.add_collaboration_metadata(CollaborationMetadata(
+            detector="MypyDetector",
+            confidence=0.95,  # Very high confidence (mypy is accurate)
+            evidence=[error_code, severity_str, "type_check"],
+            tags=["mypy", "type_safety", self._get_category_tag(error_code)]
+        ))
 
         return finding
 
@@ -356,6 +395,33 @@ class MypyDetector(CodeSmellDetector):
             return "Medium (30-60 minutes)"
         else:
             return "Medium (1-2 hours)"
+
+    def _get_category_tag(self, error_code: str) -> str:
+        """Get semantic category tag from mypy error code.
+
+        Args:
+            error_code: Mypy error code (e.g., "attr-defined", "call-arg")
+
+        Returns:
+            Semantic category tag
+        """
+        # Map mypy error codes to semantic categories
+        if error_code in {"attr-defined", "name-defined"}:
+            return "undefined_reference"
+        elif error_code in {"call-arg", "arg-type"}:
+            return "function_signature"
+        elif error_code in {"return-value", "return"}:
+            return "return_type"
+        elif error_code in {"assignment", "override"}:
+            return "type_mismatch"
+        elif error_code in {"no-untyped-def", "no-any-return"}:
+            return "missing_annotations"
+        elif error_code == "type-arg":
+            return "generic_types"
+        elif error_code == "redundant-cast":
+            return "unnecessary_cast"
+        else:
+            return "general_type_error"
 
     def severity(self, finding: Finding) -> Severity:
         """Calculate severity for a mypy finding.

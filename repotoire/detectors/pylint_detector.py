@@ -25,7 +25,8 @@ from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph import Neo4jClient
-from repotoire.models import Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
+from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -57,7 +58,7 @@ class PylintDetector(CodeSmellDetector):
         "info": Severity.INFO,
     }
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None):
+    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None, enricher: Optional[GraphEnricher] = None):
         """Initialize pylint detector.
 
         Args:
@@ -70,6 +71,7 @@ class PylintDetector(CodeSmellDetector):
                 - enable_only: List of specific message IDs to enable (e.g., ["R0801", "R0401"])
                 - disable: List of message IDs to disable
                 - jobs: Number of parallel jobs (default: CPU count)
+            enricher: Optional GraphEnricher for cross-detector collaboration
         """
         super().__init__(neo4j_client)
 
@@ -81,6 +83,7 @@ class PylintDetector(CodeSmellDetector):
         self.enable_only = config.get("enable_only", [])  # Selective mode: only enable these checks
         self.disable = config.get("disable", [])  # Disable specific checks
         self.jobs = config.get("jobs", os.cpu_count() or 1)  # Parallel jobs (default: all CPUs)
+        self.enricher = enricher  # Graph enrichment for cross-detector collaboration
 
         if not self.repository_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repository_path}")
@@ -222,6 +225,38 @@ class PylintDetector(CodeSmellDetector):
             created_at=datetime.now()
         )
 
+        # Flag entities in graph for cross-detector collaboration (REPO-151 Phase 2)
+        if self.enricher and graph_data.get("nodes"):
+            for node in graph_data["nodes"]:
+                try:
+                    self.enricher.flag_entity(
+                        entity_qualified_name=node,
+                        detector="PylintDetector",
+                        severity=severity.value,
+                        issues=[message_id],
+                        confidence=0.90,  # Pylint is highly accurate
+                        metadata={
+                            "symbol": symbol,
+                            "message_id": message_id,
+                            "type": msg_type,
+                            "file": rel_path,
+                            "line": line,
+                            "column": column
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to flag entity {node} in graph: {e}")
+
+        # Add collaboration metadata to finding (REPO-150 Phase 1)
+        finding.add_collaboration_metadata(
+            CollaborationMetadata(
+                detector="PylintDetector",
+                confidence=0.90,
+                evidence=[message_id, symbol, "external_tool"],
+                tags=["pylint", "code_quality", self._get_category_tag(symbol)]
+            )
+        )
+
         return finding
 
     def _get_graph_context(self, file_path: str, line: int) -> Dict[str, Any]:
@@ -333,6 +368,35 @@ class PylintDetector(CodeSmellDetector):
         }
 
         return fixes.get(symbol, f"Review pylint suggestion: {message}")
+
+    def _get_category_tag(self, symbol: str) -> str:
+        """Get semantic category tag from pylint symbol.
+
+        Args:
+            symbol: Pylint symbol (e.g., "unused-import", "too-many-arguments")
+
+        Returns:
+            Semantic category tag
+        """
+        # Map pylint symbols to semantic categories for cross-detector correlation
+        if symbol in {"unused-import", "unused-variable", "unused-argument"}:
+            return "unused_code"
+        elif symbol in {"too-many-arguments", "too-many-locals", "too-many-branches", "too-many-statements"}:
+            return "complexity"
+        elif symbol in {"missing-docstring", "missing-module-docstring", "missing-function-docstring"}:
+            return "documentation"
+        elif symbol in {"line-too-long", "trailing-whitespace", "bad-indentation"}:
+            return "style"
+        elif symbol in {"broad-except", "bare-except", "raise-missing-from"}:
+            return "error_handling"
+        elif symbol in {"redefined-outer-name", "redefined-builtin", "global-statement"}:
+            return "naming_scope"
+        elif symbol in {"consider-using-enumerate", "consider-using-with", "unnecessary-lambda"}:
+            return "refactoring"
+        elif symbol in {"duplicate-code"}:
+            return "duplication"
+        else:
+            return "general"
 
     def severity(self, finding: Finding) -> Severity:
         """Calculate severity for a pylint finding.

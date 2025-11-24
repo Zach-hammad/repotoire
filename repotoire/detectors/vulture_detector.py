@@ -26,7 +26,8 @@ from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph import Neo4jClient
-from repotoire.models import Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
+from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -44,7 +45,7 @@ class VultureDetector(CodeSmellDetector):
         exclude: List of patterns to exclude (default: tests, migrations)
     """
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None):
+    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None, enricher: Optional[GraphEnricher] = None):
         """Initialize vulture detector.
 
         Args:
@@ -54,6 +55,7 @@ class VultureDetector(CodeSmellDetector):
                 - min_confidence: Min confidence (0-100)
                 - max_findings: Max findings to report
                 - exclude: List of patterns to exclude
+            enricher: Optional GraphEnricher for cross-detector collaboration
         """
         super().__init__(neo4j_client)
 
@@ -61,6 +63,7 @@ class VultureDetector(CodeSmellDetector):
         self.repository_path = Path(config.get("repository_path", "."))
         self.min_confidence = config.get("min_confidence", 80)
         self.max_findings = config.get("max_findings", 100)
+        self.enricher = enricher  # Graph enrichment for cross-detector collaboration
 
         # Default exclude patterns - don't check tests, migrations, or scripts
         default_exclude = [
@@ -279,6 +282,41 @@ class VultureDetector(CodeSmellDetector):
             created_at=datetime.now()
         )
 
+        # Flag entities in graph for cross-detector collaboration (REPO-151 Phase 2)
+        # Note: Vulture doesn't provide qualified names, so we flag by file
+        if self.enricher:
+            try:
+                # Create a pseudo-qualified name for the unused entity
+                entity_qname = f"{file_path}:{name}"
+                confidence_score = confidence / 100.0  # Convert to 0-1 scale
+
+                self.enricher.flag_entity(
+                    entity_qualified_name=entity_qname,
+                    detector="VultureDetector",
+                    severity=severity.value,
+                    issues=[f"unused_{item_type}"],
+                    confidence=confidence_score,
+                    metadata={
+                        "item_type": item_type,
+                        "item_name": name,
+                        "file": file_path,
+                        "line": line,
+                        "vulture_confidence": confidence
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Failed to flag entity {name} in graph: {e}")
+
+        # Add collaboration metadata to finding (REPO-150 Phase 1)
+        finding.add_collaboration_metadata(
+            CollaborationMetadata(
+                detector="VultureDetector",
+                confidence=confidence / 100.0,
+                evidence=["vulture", f"confidence_{confidence}", "external_tool"],
+                tags=["vulture", "unused_code", self._get_category_tag(item_type)]
+            )
+        )
+
         return finding
 
     def _get_file_context(self, file_path: str) -> Dict[str, Any]:
@@ -351,6 +389,29 @@ class VultureDetector(CodeSmellDetector):
             return "Small (30 minutes - 1 hour)"
         else:
             return "Medium (1-2 hours for investigation)"
+
+    def _get_category_tag(self, item_type: str) -> str:
+        """Get semantic category tag from item type.
+
+        Args:
+            item_type: Vulture item type (e.g., "function", "variable")
+
+        Returns:
+            Semantic category tag
+        """
+        # Map item types to semantic categories for cross-detector correlation
+        if item_type in {"function", "method"}:
+            return "unused_function"
+        elif item_type in {"class"}:
+            return "unused_class"
+        elif item_type in {"variable", "attribute"}:
+            return "unused_variable"
+        elif item_type in {"import"}:
+            return "unused_import"
+        elif item_type in {"property"}:
+            return "unused_property"
+        else:
+            return "unused_other"
 
     def severity(self, finding: Finding) -> Severity:
         """Calculate severity for an unused code finding.

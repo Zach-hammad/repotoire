@@ -24,7 +24,8 @@ from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph import Neo4jClient
-from repotoire.models import Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
+from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -52,7 +53,12 @@ class RadonDetector(CodeSmellDetector):
         "F": Severity.HIGH,  # 41+: Extremely complex
     }
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None):
+    def __init__(
+        self,
+        neo4j_client: Neo4jClient,
+        detector_config: Optional[Dict] = None,
+        enricher: Optional[GraphEnricher] = None
+    ):
         """Initialize radon detector.
 
         Args:
@@ -62,6 +68,7 @@ class RadonDetector(CodeSmellDetector):
                 - complexity_threshold: CC threshold
                 - maintainability_threshold: MI threshold
                 - max_findings: Max findings to report
+            enricher: Optional GraphEnricher for persistent collaboration
         """
         super().__init__(neo4j_client)
 
@@ -70,6 +77,7 @@ class RadonDetector(CodeSmellDetector):
         self.complexity_threshold = config.get("complexity_threshold", 10)
         self.maintainability_threshold = config.get("maintainability_threshold", 65)
         self.max_findings = config.get("max_findings", 100)
+        self.enricher = enricher
 
         if not self.repository_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repository_path}")
@@ -258,6 +266,35 @@ class RadonDetector(CodeSmellDetector):
             created_at=datetime.now()
         )
 
+        # Flag entities in graph for cross-detector collaboration
+        if self.enricher and graph_data.get("nodes"):
+            for node in graph_data["nodes"]:
+                try:
+                    self.enricher.flag_entity(
+                        entity_qualified_name=node,
+                        detector="RadonDetector",
+                        severity=severity.value,
+                        issues=["high_complexity"],
+                        confidence=0.95,  # Very high confidence (radon is accurate)
+                        metadata={
+                            "complexity": complexity,
+                            "rank": rank,
+                            "entity_type": entity_type,
+                            "file": rel_path,
+                            "line": lineno
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to flag entity {node} in graph: {e}")
+
+        # Add collaboration metadata to finding
+        finding.add_collaboration_metadata(CollaborationMetadata(
+            detector="RadonDetector",
+            confidence=0.95,  # Very high confidence (radon is accurate)
+            evidence=["high_complexity", f"cc_{complexity}", f"grade_{rank}"],
+            tags=["radon", "complexity", "maintainability"]
+        ))
+
         return finding
 
     def _create_mi_finding(self, radon_result: Dict[str, Any]) -> Optional[Finding]:
@@ -317,6 +354,34 @@ class RadonDetector(CodeSmellDetector):
             estimated_effort=self._estimate_mi_effort(mi_score),
             created_at=datetime.now()
         )
+
+        # Flag file in graph for cross-detector collaboration
+        # For MI findings, we flag the file (not individual entities)
+        if self.enricher:
+            try:
+                # Use file path as entity identifier for file-level findings
+                self.enricher.flag_entity(
+                    entity_qualified_name=rel_path,
+                    detector="RadonDetector",
+                    severity=severity.value,
+                    issues=["low_maintainability"],
+                    confidence=0.95,  # Very high confidence (radon is accurate)
+                    metadata={
+                        "mi_score": mi_score,
+                        "rank": rank,
+                        "file": rel_path
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Failed to flag file {rel_path} in graph: {e}")
+
+        # Add collaboration metadata to finding
+        finding.add_collaboration_metadata(CollaborationMetadata(
+            detector="RadonDetector",
+            confidence=0.95,  # Very high confidence (radon is accurate)
+            evidence=["low_maintainability", f"mi_{int(mi_score)}", f"grade_{rank}"],
+            tags=["radon", "maintainability", "file_quality"]
+        ))
 
         return finding
 

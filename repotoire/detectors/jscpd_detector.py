@@ -27,7 +27,8 @@ from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph import Neo4jClient
-from repotoire.models import Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
+from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -46,7 +47,7 @@ class JscpdDetector(CodeSmellDetector):
         threshold: Duplication percentage threshold (default: 10%)
     """
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None):
+    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None, enricher: Optional[GraphEnricher] = None):
         """Initialize jscpd detector.
 
         Args:
@@ -58,6 +59,7 @@ class JscpdDetector(CodeSmellDetector):
                 - max_findings: Max findings to report
                 - threshold: Duplication percentage threshold
                 - ignore: List of patterns to ignore (default: node_modules, .venv, __pycache__, etc.)
+            enricher: Optional GraphEnricher for cross-detector collaboration
         """
         super().__init__(neo4j_client)
 
@@ -67,6 +69,7 @@ class JscpdDetector(CodeSmellDetector):
         self.min_tokens = config.get("min_tokens", 50)
         self.max_findings = config.get("max_findings", 50)
         self.threshold = config.get("threshold", 10.0)  # percentage
+        self.enricher = enricher  # Graph enrichment for cross-detector collaboration
 
         # Default ignore patterns
         default_ignore = [
@@ -242,6 +245,74 @@ class JscpdDetector(CodeSmellDetector):
             suggested_fix=self._suggest_fix(lines, file1_path, file2_path),
             estimated_effort=self._estimate_effort(lines),
             created_at=datetime.now()
+        )
+
+        # Flag entities in graph for cross-detector collaboration (REPO-151 Phase 2)
+        # Note: jscpd doesn't provide qualified names, flag both file locations
+        if self.enricher:
+            # Calculate confidence based on duplicate size (larger = more confident)
+            if lines >= 50:
+                confidence_score = 0.95
+            elif lines >= 20:
+                confidence_score = 0.90
+            else:
+                confidence_score = 0.85
+
+            # Flag first location
+            try:
+                entity_qname1 = f"{file1_path}:{file1_start}"
+                self.enricher.flag_entity(
+                    entity_qualified_name=entity_qname1,
+                    detector="JscpdDetector",
+                    severity=severity.value,
+                    issues=["duplicate_code"],
+                    confidence=confidence_score,
+                    metadata={
+                        "lines": lines,
+                        "file": file1_path,
+                        "start_line": file1_start,
+                        "end_line": file1_end,
+                        "duplicate_of": file2_path
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Failed to flag entity at {file1_path}:{file1_start} in graph: {e}")
+
+            # Flag second location
+            try:
+                entity_qname2 = f"{file2_path}:{file2_start}"
+                self.enricher.flag_entity(
+                    entity_qualified_name=entity_qname2,
+                    detector="JscpdDetector",
+                    severity=severity.value,
+                    issues=["duplicate_code"],
+                    confidence=confidence_score,
+                    metadata={
+                        "lines": lines,
+                        "file": file2_path,
+                        "start_line": file2_start,
+                        "end_line": file2_end,
+                        "duplicate_of": file1_path
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Failed to flag entity at {file2_path}:{file2_start} in graph: {e}")
+
+        # Add collaboration metadata to finding (REPO-150 Phase 1)
+        if lines >= 50:
+            confidence_score = 0.95
+        elif lines >= 20:
+            confidence_score = 0.90
+        else:
+            confidence_score = 0.85
+
+        finding.add_collaboration_metadata(
+            CollaborationMetadata(
+                detector="JscpdDetector",
+                confidence=confidence_score,
+                evidence=["jscpd", f"duplicate_{lines}_lines", "external_tool"],
+                tags=["jscpd", "duplication", "code_quality"]
+            )
         )
 
         return finding

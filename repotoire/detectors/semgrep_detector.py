@@ -27,7 +27,8 @@ from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph import Neo4jClient
-from repotoire.models import Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
+from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -53,7 +54,7 @@ class SemgrepDetector(CodeSmellDetector):
         "INFO": Severity.LOW,
     }
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None):
+    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None, enricher: Optional[GraphEnricher] = None):
         """Initialize Semgrep detector.
 
         Args:
@@ -64,6 +65,7 @@ class SemgrepDetector(CodeSmellDetector):
                 - max_findings: Max findings to report
                 - severity_threshold: Min severity level
                 - exclude: List of patterns to exclude
+            enricher: Optional GraphEnricher for cross-detector collaboration
         """
         super().__init__(neo4j_client)
 
@@ -80,6 +82,7 @@ class SemgrepDetector(CodeSmellDetector):
 
         self.max_findings = config.get("max_findings", 50)
         self.severity_threshold = config.get("severity_threshold", "INFO")
+        self.enricher = enricher  # Graph enrichment for cross-detector collaboration
 
         # Default exclude patterns
         default_exclude = [
@@ -147,6 +150,8 @@ class SemgrepDetector(CodeSmellDetector):
                 "--json",
                 "--quiet",  # Suppress progress bars
                 f"--config={self.config}",
+                "--jobs=4",  # Limit parallel jobs to avoid freezing
+                "--max-memory=2000",  # Limit memory usage to 2GB
             ]
 
             # Add exclude patterns
@@ -284,6 +289,47 @@ class SemgrepDetector(CodeSmellDetector):
             created_at=datetime.now()
         )
 
+        # Flag entities in graph for cross-detector collaboration (REPO-151 Phase 2)
+        # Note: Semgrep doesn't provide qualified names, so we flag by file:line
+        if self.enricher:
+            try:
+                # Create a pseudo-qualified name for the security issue
+                entity_qname = f"{path}:{start_line}"
+
+                # Map severity to confidence (ERROR=high, WARNING=medium, INFO=low)
+                confidence_map = {"ERROR": 0.95, "WARNING": 0.85, "INFO": 0.75}
+                confidence_score = confidence_map.get(severity_str, 0.80)
+
+                self.enricher.flag_entity(
+                    entity_qualified_name=entity_qname,
+                    detector="SemgrepDetector",
+                    severity=severity.value,
+                    issues=[check_id],
+                    confidence=confidence_score,
+                    metadata={
+                        "check_id": check_id,
+                        "rule_name": rule_name,
+                        "file": path,
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "cwe": metadata.get("cwe", []),
+                        "owasp": metadata.get("owasp", [])
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Failed to flag entity at {path}:{start_line} in graph: {e}")
+
+        # Add collaboration metadata to finding (REPO-150 Phase 1)
+        confidence_map = {"ERROR": 0.95, "WARNING": 0.85, "INFO": 0.75}
+        finding.add_collaboration_metadata(
+            CollaborationMetadata(
+                detector="SemgrepDetector",
+                confidence=confidence_map.get(severity_str, 0.80),
+                evidence=["semgrep", check_id, "external_tool"],
+                tags=["semgrep", "security", self._get_category_tag(check_id, metadata)]
+            )
+        )
+
         return finding
 
     def _get_file_context(self, file_path: str) -> Dict[str, Any]:
@@ -362,6 +408,51 @@ class SemgrepDetector(CodeSmellDetector):
             return "Medium (2-4 hours)"
         else:
             return "Small (1-2 hours)"
+
+    def _get_category_tag(self, check_id: str, metadata: Dict[str, Any]) -> str:
+        """Get semantic category tag from Semgrep check ID and metadata.
+
+        Args:
+            check_id: Semgrep rule ID (e.g., "python.lang.security.sql-injection")
+            metadata: Finding metadata with CWE/OWASP info
+
+        Returns:
+            Semantic category tag
+        """
+        # Map Semgrep patterns to semantic categories for cross-detector correlation
+        check_id_lower = check_id.lower()
+
+        # Check metadata first for precise categorization
+        if metadata.get("category"):
+            category = metadata["category"].lower()
+            if "injection" in category or "sql" in category:
+                return "injection"
+            elif "xss" in category or "cross-site" in category:
+                return "xss"
+            elif "auth" in category:
+                return "authentication"
+            elif "crypto" in category:
+                return "cryptography"
+
+        # Fallback to check_id pattern matching
+        if "injection" in check_id_lower or "sql" in check_id_lower:
+            return "injection"
+        elif "xss" in check_id_lower or "cross-site" in check_id_lower:
+            return "xss"
+        elif "auth" in check_id_lower or "authentication" in check_id_lower:
+            return "authentication"
+        elif "crypto" in check_id_lower or "encryption" in check_id_lower:
+            return "cryptography"
+        elif "path" in check_id_lower or "traversal" in check_id_lower:
+            return "path_traversal"
+        elif "command" in check_id_lower or "exec" in check_id_lower:
+            return "command_injection"
+        elif "xxe" in check_id_lower:
+            return "xxe"
+        elif "ssrf" in check_id_lower:
+            return "ssrf"
+        else:
+            return "security_general"
 
     def severity(self, finding: Finding) -> Severity:
         """Calculate severity for a security finding.

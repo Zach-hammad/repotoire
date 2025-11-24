@@ -24,7 +24,8 @@ from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph import Neo4jClient
-from repotoire.models import Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
+from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -49,7 +50,12 @@ class BanditDetector(CodeSmellDetector):
         "LOW": Severity.MEDIUM,
     }
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None):
+    def __init__(
+        self,
+        neo4j_client: Neo4jClient,
+        detector_config: Optional[Dict] = None,
+        enricher: Optional[GraphEnricher] = None
+    ):
         """Initialize bandit detector.
 
         Args:
@@ -59,6 +65,7 @@ class BanditDetector(CodeSmellDetector):
                 - config_file: Optional bandit config
                 - max_findings: Max findings to report
                 - confidence_level: Minimum confidence
+            enricher: Optional GraphEnricher for persistent collaboration
         """
         super().__init__(neo4j_client)
 
@@ -67,6 +74,7 @@ class BanditDetector(CodeSmellDetector):
         self.config_file = config.get("config_file")
         self.max_findings = config.get("max_findings", 100)
         self.confidence_level = config.get("confidence_level", "LOW")
+        self.enricher = enricher
 
         if not self.repository_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repository_path}")
@@ -198,6 +206,36 @@ class BanditDetector(CodeSmellDetector):
             estimated_effort=self._estimate_effort(issue_severity),
             created_at=datetime.now()
         )
+
+        # Flag entities in graph for cross-detector collaboration
+        if self.enricher and graph_data.get("nodes"):
+            for node in graph_data["nodes"]:
+                try:
+                    self.enricher.flag_entity(
+                        entity_qualified_name=node,
+                        detector="BanditDetector",
+                        severity=severity.value,
+                        issues=[test_id],
+                        confidence=self._confidence_score(issue_confidence),
+                        metadata={
+                            "test_id": test_id,
+                            "test_name": test_name,
+                            "issue_severity": issue_severity,
+                            "issue_confidence": issue_confidence,
+                            "file": rel_path,
+                            "line": line
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to flag entity {node} in graph: {e}")
+
+        # Add collaboration metadata to finding
+        finding.add_collaboration_metadata(CollaborationMetadata(
+            detector="BanditDetector",
+            confidence=self._confidence_score(issue_confidence),
+            evidence=[test_id, issue_severity.lower(), "security_check"],
+            tags=["bandit", "security", self._get_category_tag(test_id)]
+        ))
 
         return finding
 
@@ -354,6 +392,49 @@ class BanditDetector(CodeSmellDetector):
             return "Small (30-60 minutes)"
         else:
             return "Small (15-30 minutes)"
+
+    def _confidence_score(self, confidence: str) -> float:
+        """Convert bandit confidence to numeric score.
+
+        Args:
+            confidence: Bandit confidence level (LOW, MEDIUM, HIGH)
+
+        Returns:
+            Confidence score (0.0-1.0)
+        """
+        confidence_map = {
+            "HIGH": 0.95,
+            "MEDIUM": 0.85,
+            "LOW": 0.70
+        }
+        return confidence_map.get(confidence, 0.80)
+
+    def _get_category_tag(self, test_id: str) -> str:
+        """Get semantic category tag from test ID.
+
+        Args:
+            test_id: Bandit test ID (e.g., "B201", "B601")
+
+        Returns:
+            Semantic category tag
+        """
+        # Map bandit test IDs to categories
+        if test_id.startswith("B1"):
+            return "blacklist_calls"
+        elif test_id.startswith("B2"):
+            return "web_security"
+        elif test_id.startswith("B3"):
+            return "cryptography"
+        elif test_id.startswith("B4"):
+            return "imports"
+        elif test_id.startswith("B5"):
+            return "crypto_weak"
+        elif test_id.startswith("B6"):
+            return "injection"
+        elif test_id.startswith("B7"):
+            return "sql_injection"
+        else:
+            return "general"
 
     def severity(self, finding: Finding) -> Severity:
         """Calculate severity for a bandit finding.

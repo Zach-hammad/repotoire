@@ -1,15 +1,27 @@
 """Circular dependency detector using graph algorithms."""
 
 import uuid
-from typing import List, Set
+from typing import List, Set, Optional
 from datetime import datetime
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.models import Finding, Severity
+from repotoire.models import CollaborationMetadata, Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
 
 
 class CircularDependencyDetector(CodeSmellDetector):
     """Detects circular dependencies in import graph using Tarjan's algorithm."""
+
+    def __init__(self, neo4j_client, detector_config: Optional[dict] = None, enricher: Optional[GraphEnricher] = None):
+        """Initialize circular dependency detector.
+
+        Args:
+            neo4j_client: Neo4j database client
+            detector_config: Optional detector configuration
+            enricher: Optional GraphEnricher for cross-detector collaboration
+        """
+        super().__init__(neo4j_client)
+        self.enricher = enricher
 
     def detect(self) -> List[Finding]:
         """Find circular dependencies in the codebase.
@@ -60,10 +72,12 @@ class CircularDependencyDetector(CodeSmellDetector):
             if len(cycle) > 5:
                 cycle_display += f" ... ({len(cycle)} files total)"
 
+            severity = self._calculate_severity(cycle_length)
+
             finding = Finding(
                 id=finding_id,
                 detector="CircularDependencyDetector",
-                severity=self._calculate_severity(cycle_length),
+                severity=severity,
                 title=f"Circular dependency involving {cycle_length} files",
                 description=f"Found circular import chain: {cycle_display}",
                 affected_nodes=cycle,
@@ -76,6 +90,31 @@ class CircularDependencyDetector(CodeSmellDetector):
                 estimated_effort=self._estimate_effort(cycle_length),
                 created_at=datetime.now(),
             )
+
+            # Add collaboration metadata (REPO-150 Phase 1)
+            confidence = 0.95  # High confidence - direct graph query
+            finding.add_collaboration_metadata(CollaborationMetadata(
+                detector="CircularDependencyDetector",
+                confidence=confidence,
+                evidence=["circular_import", f"cycle_length_{cycle_length}"],
+                tags=["circular_dependency", "architecture", "imports"]
+            ))
+
+            # Flag entities in graph for cross-detector collaboration (REPO-151 Phase 2)
+            if self.enricher:
+                for file_path in cycle:
+                    try:
+                        self.enricher.flag_entity(
+                            entity_qualified_name=file_path,
+                            detector="CircularDependencyDetector",
+                            severity=severity.value,
+                            issues=["circular_dependency"],
+                            confidence=confidence,
+                            metadata={k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v for k, v in {"cycle_length": cycle_length}.items()}
+                        )
+                    except Exception:
+                        # Don't fail detection if enrichment fails
+                        pass
 
             findings.append(finding)
 

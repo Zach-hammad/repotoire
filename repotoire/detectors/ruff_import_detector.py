@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.models import Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
+from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.graph.client import Neo4jClient
 from repotoire.logging_config import get_logger
 
@@ -26,10 +27,11 @@ logger = get_logger(__name__)
 class RuffImportDetector(CodeSmellDetector):
     """Detects unused imports using ruff with graph-based enrichment."""
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict[str, Any]] = None):
+    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict[str, Any]] = None, enricher: Optional[GraphEnricher] = None):
         super().__init__(neo4j_client)
         config = detector_config or {}
         self.repository_path = config.get("repository_path", ".")
+        self.enricher = enricher  # Graph enrichment for cross-detector collaboration
         self.logger = get_logger(__name__)
 
     def detect(self) -> List[Finding]:
@@ -117,6 +119,40 @@ class RuffImportDetector(CodeSmellDetector):
                     "file_complexity": graph_context.get("complexity") if graph_context else None,
                 },
             )
+
+            # Flag entities in graph for cross-detector collaboration (REPO-151 Phase 2)
+            if self.enricher:
+                for imp in imports:
+                    try:
+                        # Create qualified name for unused import
+                        entity_qname = f"{file_path}:{imp['name']}"
+
+                        self.enricher.flag_entity(
+                            entity_qualified_name=entity_qname,
+                            detector="RuffImportDetector",
+                            severity=severity.value,
+                            issues=["F401"],
+                            confidence=0.95,  # Ruff is highly accurate for unused imports
+                            metadata={
+                                "import_name": imp["name"],
+                                "file": file_path,
+                                "line": imp["line"],
+                                "column": imp.get("column", 0)
+                            }
+                        )
+                    except Exception as e:
+                        self.logger.warning(f"Failed to flag import {imp['name']} in graph: {e}")
+
+            # Add collaboration metadata to finding (REPO-150 Phase 1)
+            finding.add_collaboration_metadata(
+                CollaborationMetadata(
+                    detector="RuffImportDetector",
+                    confidence=0.95,
+                    evidence=["ruff", "F401", "external_tool"],
+                    tags=["ruff", "unused_import", "code_quality"]
+                )
+            )
+
             findings.append(finding)
 
         self.logger.info(f"RuffImportDetector created {len(findings)} findings")

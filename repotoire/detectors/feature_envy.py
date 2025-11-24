@@ -12,7 +12,8 @@ Addresses: FAL-110
 
 from typing import List, Dict, Any, Optional
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.models import Finding, Severity
+from repotoire.models import CollaborationMetadata, Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
 from repotoire.graph.client import Neo4jClient
 from repotoire.logging_config import get_logger
 
@@ -20,8 +21,9 @@ from repotoire.logging_config import get_logger
 class FeatureEnvyDetector(CodeSmellDetector):
     """Detect methods that use other classes more than their own."""
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict[str, Any]] = None):
+    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict[str, Any]] = None, enricher: Optional[GraphEnricher] = None):
         super().__init__(neo4j_client)
+        self.enricher = enricher
         config = detector_config or {}
 
         # Updated thresholds for v1.0 (REPO-116 tuning)
@@ -39,14 +41,26 @@ class FeatureEnvyDetector(CodeSmellDetector):
 
         self.logger = get_logger(__name__)
 
-    def detect(self) -> List[Finding]:
+    def detect(self, previous_findings: Optional[List[Finding]] = None) -> List[Finding]:
         """
         Detect methods with feature envy using graph analysis.
+
+        Args:
+            previous_findings: Optional list of findings from previous detectors
+                             (used for cross-detector collaboration)
 
         Returns:
             List of Finding objects for methods that use external classes
             more than their own class.
         """
+        # Build set of god classes from previous findings for quick lookup
+        god_classes = set()
+        if previous_findings:
+            for prev_finding in previous_findings:
+                if prev_finding.has_tag("god_class"):
+                    # Extract class name from affected nodes
+                    for node in prev_finding.affected_nodes:
+                        god_classes.add(node)
         query = """
         // Find methods and count internal vs external usage
         MATCH (c:Class)-[:CONTAINS]->(m:Function)
@@ -111,6 +125,21 @@ class FeatureEnvyDetector(CodeSmellDetector):
             else:
                 severity = Severity.LOW
 
+            # Check if owner class is a god class (cross-detector collaboration)
+            owner_class = result["owner_class"]
+            is_god_class_symptom = owner_class in god_classes
+
+            # Downgrade severity if this is a symptom of a god class (not root cause)
+            original_severity = severity
+            if is_god_class_symptom:
+                # Downgrade one level (symptoms should be addressed by fixing root cause)
+                if severity == Severity.CRITICAL:
+                    severity = Severity.HIGH
+                elif severity == Severity.HIGH:
+                    severity = Severity.MEDIUM
+                elif severity == Severity.MEDIUM:
+                    severity = Severity.LOW
+
             # Create suggested fix
             if result["internal_uses"] == 0:
                 suggestion = (
@@ -126,6 +155,13 @@ class FeatureEnvyDetector(CodeSmellDetector):
                     f"{result['internal_uses']} times (ratio: {ratio:.1f}x). "
                     f"Consider moving to the most-used external class or refactoring "
                     f"to reduce external dependencies."
+                )
+
+            # Add note if this is a god class symptom
+            if is_god_class_symptom:
+                suggestion += (
+                    f"\n\nNOTE: Owner class '{owner_class}' is a god class. "
+                    f"This feature envy is likely a symptom - refactor the god class first."
                 )
 
             finding = Finding(
@@ -148,8 +184,55 @@ class FeatureEnvyDetector(CodeSmellDetector):
                     "external_uses": result["external_uses"],
                     "ratio": ratio if ratio != float("inf") else None,
                     "owner_class": result["owner_class"],
+                    "is_god_class_symptom": is_god_class_symptom,
                 },
             )
+
+            # Add collaboration metadata
+            evidence = ["high_external_usage"]
+            if result["internal_uses"] == 0:
+                evidence.append("no_internal_usage")
+            if ratio >= self.high_ratio:
+                evidence.append("very_high_ratio")
+
+            confidence = min(0.7 + (ratio / 10), 0.95)
+            tags = ["feature_envy"]
+            if is_god_class_symptom:
+                tags.append("symptom")  # Mark as symptom, not root cause
+            else:
+                tags.append("standalone_issue")
+
+            finding.add_collaboration_metadata(CollaborationMetadata(
+                detector="FeatureEnvyDetector",
+                confidence=confidence,
+                evidence=evidence,
+                tags=tags
+            ))
+            # Add collaboration metadata (REPO-150 Phase 1)
+            finding.add_collaboration_metadata(CollaborationMetadata(
+                detector="FeatureEnvyDetector",
+                confidence=0.85,
+                evidence=['feature_envy', 'external_field_access'],
+                tags=['feature_envy', 'coupling', 'code_quality']
+            ))
+
+            # Flag entity in graph for cross-detector collaboration (REPO-151 Phase 2)
+            if self.enricher and finding.affected_nodes:
+                for entity_qname in finding.affected_nodes:
+                    try:
+                        self.enricher.flag_entity(
+                            entity_qualified_name=entity_qname,
+                            detector="FeatureEnvyDetector",
+                            severity=finding.severity.value,
+                            issues=['feature_envy', 'external_field_access'],
+                            confidence=0.85,
+                            metadata={k: (json.dumps(v) if isinstance(v, (dict, list)) else str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v) for k, v in (finding.graph_context or {}).items()}
+                        )
+                    except Exception:
+                        pass
+
+
+
             findings.append(finding)
 
         self.logger.info(

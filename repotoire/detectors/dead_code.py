@@ -1,15 +1,27 @@
 """Dead code detector - finds unused functions and classes."""
 
 import uuid
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.models import Finding, Severity
+from repotoire.models import CollaborationMetadata, Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
 
 
 class DeadCodeDetector(CodeSmellDetector):
     """Detects dead code (functions/classes with zero incoming references)."""
+
+    def __init__(self, neo4j_client, detector_config: Optional[dict] = None, enricher: Optional[GraphEnricher] = None):
+        """Initialize dead code detector.
+
+        Args:
+            neo4j_client: Neo4j database client
+            detector_config: Optional detector configuration
+            enricher: Optional GraphEnricher for cross-detector collaboration
+        """
+        super().__init__(neo4j_client)
+        self.enricher = enricher
 
     # Common entry points that should not be flagged as dead code
     ENTRY_POINTS = {
@@ -192,10 +204,12 @@ class DeadCodeDetector(CodeSmellDetector):
             file_path = record["containing_file"] or record["file_path"]
             complexity = record["complexity"] or 0
 
+            severity = self._calculate_function_severity(complexity)
+
             finding = Finding(
                 id=finding_id,
                 detector="DeadCodeDetector",
-                severity=self._calculate_function_severity(complexity),
+                severity=severity,
                 title=f"Unused function: {name}",
                 description=(
                     f"Function '{name}' is never called in the codebase. "
@@ -218,6 +232,29 @@ class DeadCodeDetector(CodeSmellDetector):
                 estimated_effort="Small (15-30 minutes)",
                 created_at=datetime.now(),
             )
+
+            # Add collaboration metadata (REPO-150 Phase 1)
+            confidence = 0.85  # High confidence - graph query with filters
+            finding.add_collaboration_metadata(CollaborationMetadata(
+                detector="DeadCodeDetector",
+                confidence=confidence,
+                evidence=["unused_function", "no_calls"],
+                tags=["dead_code", "unused_code", "maintenance"]
+            ))
+
+            # Flag entity in graph for cross-detector collaboration (REPO-151 Phase 2)
+            if self.enricher:
+                try:
+                    self.enricher.flag_entity(
+                        entity_qualified_name=qualified_name,
+                        detector="DeadCodeDetector",
+                        severity=severity.value,
+                        issues=["unused_function"],
+                        confidence=confidence,
+                        metadata={k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v for k, v in {"complexity": complexity, "type": "function"}.items()}
+                    )
+                except Exception:
+                    pass
 
             findings.append(finding)
 
@@ -293,10 +330,12 @@ class DeadCodeDetector(CodeSmellDetector):
             complexity = record["complexity"] or 0
             method_count = record["method_count"] or 0
 
+            severity = self._calculate_class_severity(method_count, complexity)
+
             finding = Finding(
                 id=finding_id,
                 detector="DeadCodeDetector",
-                severity=self._calculate_class_severity(method_count, complexity),
+                severity=severity,
                 title=f"Unused class: {name}",
                 description=(
                     f"Class '{name}' is never instantiated or inherited from. "
@@ -319,6 +358,29 @@ class DeadCodeDetector(CodeSmellDetector):
                 estimated_effort=self._estimate_class_removal_effort(method_count),
                 created_at=datetime.now(),
             )
+
+            # Add collaboration metadata (REPO-150 Phase 1)
+            confidence = 0.80  # Good confidence - graph query with filters
+            finding.add_collaboration_metadata(CollaborationMetadata(
+                detector="DeadCodeDetector",
+                confidence=confidence,
+                evidence=["unused_class", "no_instantiation"],
+                tags=["dead_code", "unused_code", "maintenance"]
+            ))
+
+            # Flag entity in graph for cross-detector collaboration (REPO-151 Phase 2)
+            if self.enricher:
+                try:
+                    self.enricher.flag_entity(
+                        entity_qualified_name=qualified_name,
+                        detector="DeadCodeDetector",
+                        severity=severity.value,
+                        issues=["unused_class"],
+                        confidence=confidence,
+                        metadata={k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v for k, v in {"complexity": complexity, "method_count": method_count, "type": "class"}.items()}
+                    )
+                except Exception:
+                    pass
 
             findings.append(finding)
 

@@ -25,7 +25,8 @@ from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph import Neo4jClient
-from repotoire.models import Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
+from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -70,7 +71,12 @@ class RuffLintDetector(CodeSmellDetector):
         "_default": Severity.LOW,
     }
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None):
+    def __init__(
+        self,
+        neo4j_client: Neo4jClient,
+        detector_config: Optional[Dict] = None,
+        enricher: Optional[GraphEnricher] = None
+    ):
         """Initialize ruff detector.
 
         Args:
@@ -80,6 +86,7 @@ class RuffLintDetector(CodeSmellDetector):
                 - max_findings: Max findings to report
                 - select_rules: Specific rules to enable
                 - ignore_rules: Rules to ignore
+            enricher: Optional GraphEnricher for persistent collaboration
         """
         super().__init__(neo4j_client)
 
@@ -91,6 +98,7 @@ class RuffLintDetector(CodeSmellDetector):
             "D100", "D101", "D102", "D103", "D104",  # Missing docstrings (too noisy)
             "ANN001", "ANN002", "ANN003",  # Missing type annotations (gradual typing)
         ])
+        self.enricher = enricher
 
         if not self.repository_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repository_path}")
@@ -228,6 +236,35 @@ class RuffLintDetector(CodeSmellDetector):
             created_at=datetime.now()
         )
 
+        # Flag entities in graph for cross-detector collaboration
+        if self.enricher and graph_data.get("nodes"):
+            for node in graph_data["nodes"]:
+                try:
+                    self.enricher.flag_entity(
+                        entity_qualified_name=node,
+                        detector="RuffLintDetector",
+                        severity=severity.value,
+                        issues=[code],
+                        confidence=0.9,  # High confidence (ruff is accurate)
+                        metadata={
+                            "rule_code": code,
+                            "message": message,
+                            "file": rel_path,
+                            "line": line,
+                            "has_fix": fix is not None
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to flag entity {node} in graph: {e}")
+
+        # Add collaboration metadata to finding
+        finding.add_collaboration_metadata(CollaborationMetadata(
+            detector="RuffLintDetector",
+            confidence=0.9,  # High confidence (ruff is accurate)
+            evidence=[code, "external_tool"],
+            tags=["ruff", "code_quality", self._get_tag_from_code(code)]
+        ))
+
         return finding
 
     def _get_graph_context(self, file_path: str, line: int) -> Dict[str, Any]:
@@ -353,6 +390,39 @@ class RuffLintDetector(CodeSmellDetector):
         }
 
         return fixes.get(code, f"Review ruff suggestion: {message}")
+
+    def _get_tag_from_code(self, code: str) -> str:
+        """Get semantic tag from ruff rule code.
+
+        Args:
+            code: Ruff rule code (e.g., "F401", "E501")
+
+        Returns:
+            Semantic tag for collaboration
+        """
+        # Map rule categories to semantic tags
+        if code.startswith("F"):
+            return "error_prone"
+        elif code.startswith("E") or code.startswith("W"):
+            return "style"
+        elif code.startswith("B"):
+            return "bug_risk"
+        elif code.startswith("S"):
+            return "security"
+        elif code.startswith("C90"):
+            return "complexity"
+        elif code.startswith("N"):
+            return "naming"
+        elif code.startswith("I"):
+            return "imports"
+        elif code.startswith("D"):
+            return "documentation"
+        elif code.startswith("ANN"):
+            return "type_hints"
+        elif code.startswith("UP"):
+            return "modernization"
+        else:
+            return "general"
 
     def severity(self, finding: Finding) -> Severity:
         """Calculate severity for a ruff finding.

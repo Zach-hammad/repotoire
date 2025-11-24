@@ -12,7 +12,8 @@ Addresses: FAL-113
 
 from typing import List, Dict, Any, Optional
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.models import Finding, Severity
+from repotoire.models import CollaborationMetadata, Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
 from repotoire.graph.client import Neo4jClient
 from repotoire.logging_config import get_logger
 
@@ -20,8 +21,9 @@ from repotoire.logging_config import get_logger
 class InappropriateIntimacyDetector(CodeSmellDetector):
     """Detect classes that are too tightly coupled."""
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict[str, Any]] = None):
+    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict[str, Any]] = None, enricher: Optional[GraphEnricher] = None):
         super().__init__(neo4j_client)
+        self.enricher = enricher
         config = detector_config or {}
         thresholds = config.get("thresholds", {})
         self.threshold_high = thresholds.get("high", 20)
@@ -135,6 +137,30 @@ class InappropriateIntimacyDetector(CodeSmellDetector):
                     "same_file": same_file,
                 },
             )
+            # Add collaboration metadata (REPO-150 Phase 1)
+            finding.add_collaboration_metadata(CollaborationMetadata(
+                detector="InappropriateIntimacyDetector",
+                confidence=0.85,
+                evidence=['tight_coupling'],
+                tags=['inappropriate_intimacy', 'coupling', 'architecture']
+            ))
+
+            # Flag entity in graph for cross-detector collaboration (REPO-151 Phase 2)
+            if self.enricher and finding.affected_nodes:
+                for entity_qname in finding.affected_nodes:
+                    try:
+                        self.enricher.flag_entity(
+                            entity_qualified_name=entity_qname,
+                            detector="InappropriateIntimacyDetector",
+                            severity=finding.severity.value,
+                            issues=['tight_coupling'],
+                            confidence=0.85,
+                            metadata={k: (json.dumps(v) if isinstance(v, (dict, list)) else str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v) for k, v in (finding.graph_context or {}).items()}
+                        )
+                    except Exception:
+                        pass
+
+
             findings.append(finding)
 
         self.logger.info(

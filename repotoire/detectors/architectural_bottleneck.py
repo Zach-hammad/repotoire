@@ -4,11 +4,12 @@ Identifies functions that sit on many execution paths (high betweenness),
 indicating architectural bottlenecks that are critical points of failure.
 """
 
-from typing import List
+from typing import List, Optional
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.graph_algorithms import GraphAlgorithms
 from repotoire.graph.client import Neo4jClient
-from repotoire.models import Finding, Severity
+from repotoire.models import CollaborationMetadata, Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -22,13 +23,14 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
     Changes to these functions have high blast radius.
     """
 
-    def __init__(self, neo4j_client: Neo4jClient):
+    def __init__(self, neo4j_client: Neo4jClient, enricher: Optional[GraphEnricher] = None):
         """Initialize detector with Neo4j client.
 
         Args:
             neo4j_client: Neo4j database client
         """
         super().__init__(neo4j_client)
+        self.enricher = enricher
 
         # Thresholds for betweenness centrality
         # These are relative to the graph size - will be adjusted dynamically
@@ -180,6 +182,30 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
                         "max_betweenness": max_betweenness,
                     }
                 )
+            # Add collaboration metadata (REPO-150 Phase 1)
+            finding.add_collaboration_metadata(CollaborationMetadata(
+                detector="ArchitecturalBottleneckDetector",
+                confidence=0.9,
+                evidence=['high_betweenness'],
+                tags=['bottleneck', 'architecture', 'performance']
+            ))
+
+            # Flag entity in graph for cross-detector collaboration (REPO-151 Phase 2)
+            if self.enricher and finding.affected_nodes:
+                for entity_qname in finding.affected_nodes:
+                    try:
+                        self.enricher.flag_entity(
+                            entity_qualified_name=entity_qname,
+                            detector="ArchitecturalBottleneckDetector",
+                            severity=finding.severity.value,
+                            issues=['high_betweenness'],
+                            confidence=0.9,
+                            metadata={k: (json.dumps(v) if isinstance(v, (dict, list)) else str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v) for k, v in (finding.graph_context or {}).items()}
+                        )
+                    except Exception:
+                        pass
+
+
                 findings.append(finding)
 
             # Cleanup projection

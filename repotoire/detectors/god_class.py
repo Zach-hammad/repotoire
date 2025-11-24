@@ -1,15 +1,21 @@
 """God class detector - finds overly complex classes."""
 
+import re
 import uuid
 from typing import List, Optional
 from datetime import datetime
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.models import Finding, Severity
+from repotoire.models import CollaborationMetadata, Finding, Severity
+from repotoire.graph.enricher import GraphEnricher
 
 
 class GodClassDetector(CodeSmellDetector):
-    """Detects god classes (classes with too many responsibilities)."""
+    """Detects god classes (classes with too many responsibilities).
+
+    Uses semantic pattern recognition to distinguish true god classes from
+    legitimate design patterns like database clients, pipelines, and orchestrators.
+    """
 
     # Default thresholds for god class detection
     DEFAULT_HIGH_METHOD_COUNT = 20
@@ -21,14 +27,37 @@ class GodClassDetector(CodeSmellDetector):
     DEFAULT_HIGH_LCOM = 0.8  # Lack of cohesion (0-1, higher is worse)
     DEFAULT_MEDIUM_LCOM = 0.6
 
-    def __init__(self, neo4j_client, detector_config: Optional[dict] = None):
+    # Default design pattern exclusions (can be customized in config)
+    # These are common patterns that may have many methods but high cohesion
+    DEFAULT_EXCLUDED_PATTERNS = [
+        r".*Client$",       # Database/API clients (e.g., Neo4jClient, HttpClient)
+        r".*Connection$",   # Connection managers
+        r".*Session$",      # Session handlers
+        r".*Pipeline$",     # Data pipelines and orchestrators
+        r".*Engine$",       # Workflow engines and processors
+        r".*Generator$",    # Code generators and builders
+        r".*Builder$",      # Builder pattern implementations
+        r".*Factory$",      # Factory pattern implementations
+        r".*Manager$",      # Resource managers
+        r".*Controller$",   # MVC controllers
+        r".*Adapter$",      # Adapter pattern implementations
+        r".*Facade$",       # Facade pattern implementations
+    ]
+
+    def __init__(self, neo4j_client, detector_config: Optional[dict] = None, enricher: Optional[GraphEnricher] = None):
         """Initialize god class detector with configurable thresholds.
 
         Args:
             neo4j_client: Neo4j database client
-            detector_config: Optional dict with detector configuration
+            detector_config: Optional dict with detector configuration:
+                - god_class_*: Threshold configuration
+                - excluded_patterns: List of regex patterns to exclude (default: DEFAULT_EXCLUDED_PATTERNS)
+                - use_pattern_exclusions: Enable/disable pattern-based exclusions (default: True)
+                - use_semantic_analysis: Enable/disable graph-based semantic analysis (default: True)
+            enricher: Optional GraphEnricher for cross-detector collaboration
         """
         super().__init__(neo4j_client)
+        self.enricher = enricher
 
         # Load thresholds from config or use defaults
         config = detector_config or {}
@@ -40,6 +69,13 @@ class GodClassDetector(CodeSmellDetector):
         self.medium_loc = config.get("god_class_medium_loc", self.DEFAULT_MEDIUM_LOC)
         self.high_lcom = config.get("god_class_high_lcom", self.DEFAULT_HIGH_LCOM)
         self.medium_lcom = config.get("god_class_medium_lcom", self.DEFAULT_MEDIUM_LCOM)
+
+        # Pattern-based exclusions (configurable)
+        self.use_pattern_exclusions = config.get("use_pattern_exclusions", True)
+        self.excluded_patterns = config.get("excluded_patterns", self.DEFAULT_EXCLUDED_PATTERNS)
+
+        # Semantic analysis (graph-based)
+        self.use_semantic_analysis = config.get("use_semantic_analysis", True)
 
     def detect(self) -> List[Finding]:
         """Find god classes in the codebase.
@@ -105,14 +141,22 @@ class GodClassDetector(CodeSmellDetector):
                 continue
 
             name = record["name"]
+            qualified_name = record["qualified_name"]
 
             # Skip test classes (they naturally have many test methods)
             if name.startswith("Test") or name.endswith("Test") or "Test" in name:
                 continue
 
+            # Skip legitimate design patterns (if enabled)
+            if self.use_pattern_exclusions and self._is_excluded_pattern(name):
+                continue
+
             # Calculate LCOM (Lack of Cohesion of Methods)
-            qualified_name = record["qualified_name"]
             lcom = self._calculate_lcom(qualified_name)
+
+            # Check semantic indicators (if enabled)
+            if self.use_semantic_analysis and self._is_legitimate_pattern(qualified_name, lcom):
+                continue
 
             # Calculate god class score
             is_god_class, reason = self._is_god_class(
@@ -166,9 +210,154 @@ class GodClassDetector(CodeSmellDetector):
                 created_at=datetime.now(),
             )
 
+            # Add collaboration metadata for cross-detector communication
+            # Build evidence list based on what triggered the detection
+            evidence = []
+            if lcom >= self.high_lcom:
+                evidence.append("high_lcom")
+            elif lcom >= self.medium_lcom:
+                evidence.append("moderate_lcom")
+
+            if method_count >= self.high_method_count:
+                evidence.append("many_methods")
+
+            if total_complexity >= self.high_complexity:
+                evidence.append("high_complexity")
+
+            if coupling_count >= 50:
+                evidence.append("high_coupling")
+
+            if loc >= self.high_loc:
+                evidence.append("large_size")
+
+            # Calculate confidence based on number of violations
+            confidence = min(0.6 + (len(evidence) * 0.1), 1.0)
+
+            finding.add_collaboration_metadata(CollaborationMetadata(
+                detector="GodClassDetector",
+                confidence=confidence,
+                evidence=evidence,
+                tags=["god_class", "complexity", "root_cause"]
+            ))
+
+            # Flag entity in graph for cross-detector collaboration (REPO-151 Phase 2)
+            if self.enricher:
+                try:
+                    self.enricher.flag_entity(
+                        entity_qualified_name=qualified_name,
+                        detector="GodClassDetector",
+                        severity=severity.value,
+                        issues=evidence,
+                        confidence=confidence,
+                        metadata={k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v for k, v in {
+                            "method_count": method_count,
+                            "total_complexity": total_complexity,
+                            "coupling_count": coupling_count,
+                            "loc": loc,
+                            "lcom": lcom
+                        }.items()}
+                    )
+                except Exception as e:
+                    # Don't fail detection if enrichment fails
+                    pass
+
             findings.append(finding)
 
         return findings
+
+    def _is_excluded_pattern(self, class_name: str) -> bool:
+        """Check if class name matches excluded design patterns.
+
+        Args:
+            class_name: Name of the class to check
+
+        Returns:
+            True if class matches an excluded pattern, False otherwise
+        """
+        for pattern in self.excluded_patterns:
+            if re.match(pattern, class_name):
+                return True
+        return False
+
+    def _is_legitimate_pattern(self, qualified_name: str, lcom: float) -> bool:
+        """Use graph-based semantic analysis to identify legitimate patterns.
+
+        This method analyzes the class using graph data to identify patterns
+        that don't rely on naming conventions. Indicators include:
+        - High cohesion (low LCOM) with lifecycle methods (connect/disconnect)
+        - Factory/builder pattern (create/build methods)
+        - Single-resource focus (all methods use same external dependency)
+
+        Args:
+            qualified_name: Qualified name of the class
+            lcom: Lack of cohesion metric (0-1)
+
+        Returns:
+            True if class matches a legitimate pattern, False otherwise
+        """
+        # High cohesion is a strong signal - if LCOM < 0.4, check for other indicators
+        if lcom >= 0.4:
+            return False  # Not cohesive enough to be a legitimate pattern
+
+        # Query graph for semantic indicators
+        query = """
+        MATCH (c:Class {qualifiedName: $qualified_name})
+        MATCH (file:File)-[:CONTAINS]->(c)
+        MATCH (file)-[:CONTAINS]->(m:Function)
+        WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
+        WITH c, collect(DISTINCT toLower(m.name)) AS method_names
+
+        // Check for lifecycle/connection methods (client pattern)
+        WITH c, method_names,
+             any(name IN method_names WHERE name IN [
+                'connect', 'disconnect', 'close', 'open',
+                'start', 'stop', 'shutdown', 'cleanup',
+                '__enter__', '__exit__', '__del__'
+             ]) AS has_lifecycle,
+
+             // Check for factory/builder methods
+             any(name IN method_names WHERE name IN [
+                'create', 'build', 'make', 'construct',
+                'generate', 'produce', 'assemble'
+             ]) AS has_factory,
+
+             // Check for pipeline/orchestrator methods
+             any(name IN method_names WHERE name IN [
+                'execute', 'run', 'process', 'orchestrate',
+                'coordinate', 'manage', 'handle'
+             ]) AS has_orchestrator
+
+        RETURN has_lifecycle, has_factory, has_orchestrator,
+               size(method_names) AS method_count
+        """
+
+        try:
+            result = self.db.execute_query(query, {"qualified_name": qualified_name})
+            if not result:
+                return False
+
+            record = result[0]
+            has_lifecycle = record.get("has_lifecycle", False)
+            has_factory = record.get("has_factory", False)
+            has_orchestrator = record.get("has_orchestrator", False)
+
+            # If high cohesion + lifecycle methods = legitimate client pattern
+            if has_lifecycle:
+                return True
+
+            # If high cohesion + factory methods = legitimate factory/builder pattern
+            if has_factory:
+                return True
+
+            # If high cohesion + orchestrator methods = legitimate pipeline/engine pattern
+            if has_orchestrator:
+                return True
+
+            return False
+
+        except Exception:
+            # If semantic analysis fails, don't exclude the class
+            return False
 
     def _is_god_class(
         self,
@@ -180,17 +369,25 @@ class GodClassDetector(CodeSmellDetector):
     ) -> tuple[bool, str]:
         """Determine if metrics indicate a god class.
 
+        Uses semantic analysis: high cohesion (low LCOM) protects against god class
+        detection, as it indicates methods work together on shared data (legitimate
+        patterns like clients, pipelines, engines).
+
         Args:
             method_count: Number of methods
             total_complexity: Sum of all method complexities
             coupling_count: Number of outgoing calls and imports
             loc: Lines of code
-            lcom: Lack of cohesion metric (0-1)
+            lcom: Lack of cohesion metric (0-1, 0=cohesive, 1=scattered)
 
         Returns:
             Tuple of (is_god_class, reason_description)
         """
         reasons = []
+
+        # High cohesion (LCOM < 0.4) indicates methods work together - likely legitimate
+        # In this case, require more severe violations to flag as god class
+        is_cohesive = lcom < 0.4
 
         if method_count >= self.high_method_count:
             reasons.append(f"very high method count ({method_count})")
@@ -212,20 +409,38 @@ class GodClassDetector(CodeSmellDetector):
         elif loc >= self.medium_loc:
             reasons.append(f"large class ({loc} LOC)")
 
+        # LCOM is the KEY semantic indicator of god class
         if lcom >= self.high_lcom:
             reasons.append(f"very low cohesion (LCOM: {lcom:.2f})")
         elif lcom >= self.medium_lcom:
             reasons.append(f"low cohesion (LCOM: {lcom:.2f})")
 
-        # God class if multiple moderate issues or one severe issue
-        if len(reasons) >= 2:
-            return True, ", ".join(reasons)
-        elif method_count >= self.high_method_count:
-            return True, reasons[0] if reasons else "high method count"
-        elif total_complexity >= self.high_complexity:
-            return True, reasons[0] if reasons else "high complexity"
-        elif loc >= self.high_loc:
-            return True, reasons[0] if reasons else "very large class"
+        # God class detection with cohesion-aware logic:
+        # 1. If high cohesion: require at least 3 violations (very strict)
+        # 2. If low cohesion: 2 violations is enough (current behavior)
+        # 3. Always flag if LCOM is very high (clear god class signal)
+
+        if is_cohesive:
+            # High cohesion - legitimate pattern, require 3+ violations or extreme size
+            if len(reasons) >= 3:
+                return True, ", ".join(reasons) + " (despite high cohesion)"
+            elif method_count >= 30 or total_complexity >= 150 or loc >= 1000:
+                return True, reasons[0] if reasons else "extremely large class"
+            # Otherwise, not a god class - cohesive large classes are OK
+            return False, ""
+        else:
+            # Low/moderate cohesion - use standard detection
+            if len(reasons) >= 2:
+                return True, ", ".join(reasons)
+            elif lcom >= self.high_lcom:
+                # Very low cohesion is itself a strong god class signal
+                return True, f"very low cohesion (LCOM: {lcom:.2f})"
+            elif method_count >= self.high_method_count:
+                return True, reasons[0] if reasons else "high method count"
+            elif total_complexity >= self.high_complexity:
+                return True, reasons[0] if reasons else "high complexity"
+            elif loc >= self.high_loc:
+                return True, reasons[0] if reasons else "very large class"
 
         return False, ""
 

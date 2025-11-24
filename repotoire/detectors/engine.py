@@ -5,6 +5,7 @@ import time
 from typing import Dict, List
 
 from repotoire.graph import Neo4jClient
+from repotoire.graph.enricher import GraphEnricher
 from repotoire.models import (
     Finding,
     FindingsSummary,
@@ -33,6 +34,7 @@ from repotoire.detectors.radon_detector import RadonDetector
 from repotoire.detectors.jscpd_detector import JscpdDetector
 from repotoire.detectors.vulture_detector import VultureDetector
 from repotoire.detectors.semgrep_detector import SemgrepDetector
+from repotoire.detectors.deduplicator import FindingDeduplicator
 
 from repotoire.logging_config import get_logger, LogContext
 
@@ -54,67 +56,111 @@ class AnalysisEngine:
     # Category weights
     WEIGHTS = {"structure": 0.40, "quality": 0.30, "architecture": 0.30}
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Dict = None, repository_path: str = "."):
+    def __init__(self, neo4j_client: Neo4jClient, detector_config: Dict = None, repository_path: str = ".", keep_metadata: bool = False):
         """Initialize analysis engine.
 
         Args:
             neo4j_client: Neo4j database client
             detector_config: Optional detector configuration dict
             repository_path: Path to repository root (for hybrid detectors)
+            keep_metadata: If True, don't cleanup detector metadata after analysis (enables hotspot queries)
         """
         self.db = neo4j_client
         self.repository_path = repository_path
+        self.keep_metadata = keep_metadata
         config = detector_config or {}
+
+        # Initialize GraphEnricher for cross-detector collaboration (REPO-151 Phase 2)
+        self.enricher = GraphEnricher(neo4j_client)
+
+        # Initialize FindingDeduplicator for reducing duplicate findings (REPO-152 Phase 3)
+        self.deduplicator = FindingDeduplicator(line_proximity_threshold=5)
 
         # Register all detectors
         self.detectors = [
-            CircularDependencyDetector(neo4j_client),
-            DeadCodeDetector(neo4j_client),
-            GodClassDetector(neo4j_client, detector_config=detector_config),
-            ArchitecturalBottleneckDetector(neo4j_client),
+            CircularDependencyDetector(neo4j_client, enricher=self.enricher),
+            DeadCodeDetector(neo4j_client, enricher=self.enricher),
+            GodClassDetector(neo4j_client, detector_config=detector_config, enricher=self.enricher),
+            ArchitecturalBottleneckDetector(neo4j_client, enricher=self.enricher),
             # Graph-unique detectors (FAL-115: Graph-Enhanced Linting Strategy)
-            FeatureEnvyDetector(neo4j_client, detector_config=config.get("feature_envy")),
-            ShotgunSurgeryDetector(neo4j_client, detector_config=config.get("shotgun_surgery")),
-            MiddleManDetector(neo4j_client, detector_config=config.get("middle_man")),
-            InappropriateIntimacyDetector(neo4j_client, detector_config=config.get("inappropriate_intimacy")),
+            FeatureEnvyDetector(neo4j_client, detector_config=config.get("feature_envy"), enricher=self.enricher),
+            ShotgunSurgeryDetector(neo4j_client, detector_config=config.get("shotgun_surgery"), enricher=self.enricher),
+            MiddleManDetector(neo4j_client, detector_config=config.get("middle_man"), enricher=self.enricher),
+            InappropriateIntimacyDetector(neo4j_client, detector_config=config.get("inappropriate_intimacy"), enricher=self.enricher),
             # TrulyUnusedImportsDetector has high false positive rate - replaced by RuffImportDetector
             # TrulyUnusedImportsDetector(neo4j_client, detector_config=config.get("truly_unused_imports")),
             # Hybrid detectors (external tool + graph)
-            RuffImportDetector(neo4j_client, detector_config={"repository_path": repository_path}),
-            RuffLintDetector(neo4j_client, detector_config={"repository_path": repository_path}),
-            MypyDetector(neo4j_client, detector_config={"repository_path": repository_path}),
+            RuffImportDetector(
+                neo4j_client,
+                detector_config={"repository_path": repository_path},
+                enricher=self.enricher  # Enable graph enrichment
+            ),
+            RuffLintDetector(
+                neo4j_client,
+                detector_config={"repository_path": repository_path},
+                enricher=self.enricher  # Enable graph enrichment
+            ),
+            MypyDetector(
+                neo4j_client,
+                detector_config={"repository_path": repository_path},
+                enricher=self.enricher  # Enable graph enrichment
+            ),
             # PylintDetector in selective mode: only checks that Ruff doesn't cover (the 10%)
             # Uses parallel processing for optimal performance on multi-core systems
             # Note: R0801 (duplicate-code) removed - too slow (O(n²)), use RadonDetector instead
-            PylintDetector(neo4j_client, detector_config={
-                "repository_path": repository_path,
-                "enable_only": [
-                    # Design checks (class/module structure)
-                    "R0901",  # too-many-ancestors
-                    "R0902",  # too-many-instance-attributes
-                    "R0903",  # too-few-public-methods
-                    "R0904",  # too-many-public-methods
-                    "R0916",  # too-many-boolean-expressions
-                    # Advanced refactoring
-                    "R1710",  # inconsistent-return-statements
-                    "R1711",  # useless-return
-                    "R1703",  # simplifiable-if-statement
-                    "C0206",  # consider-using-dict-items
-                    # Import analysis
-                    "R0401",  # import-self
-                    "R0402",  # cyclic-import
-                ],
-                "max_findings": 50,  # Limit to keep it fast
-                "jobs": os.cpu_count() or 1  # Use all CPU cores for parallel processing
-            }),
-            BanditDetector(neo4j_client, detector_config={"repository_path": repository_path}),
-            RadonDetector(neo4j_client, detector_config={"repository_path": repository_path}),
+            PylintDetector(
+                neo4j_client,
+                detector_config={
+                    "repository_path": repository_path,
+                    "enable_only": [
+                        # Design checks (class/module structure)
+                        "R0901",  # too-many-ancestors
+                        "R0902",  # too-many-instance-attributes
+                        "R0903",  # too-few-public-methods
+                        "R0904",  # too-many-public-methods
+                        "R0916",  # too-many-boolean-expressions
+                        # Advanced refactoring
+                        "R1710",  # inconsistent-return-statements
+                        "R1711",  # useless-return
+                        "R1703",  # simplifiable-if-statement
+                        "C0206",  # consider-using-dict-items
+                        # Import analysis
+                        "R0401",  # import-self
+                        "R0402",  # cyclic-import
+                    ],
+                    "max_findings": 50,  # Limit to keep it fast
+                    "jobs": min(4, os.cpu_count() or 1)  # Use max 4 cores to avoid freezing
+                },
+                enricher=self.enricher  # Enable graph enrichment
+            ),
+            BanditDetector(
+                neo4j_client,
+                detector_config={"repository_path": repository_path},
+                enricher=self.enricher  # Enable graph enrichment
+            ),
+            RadonDetector(
+                neo4j_client,
+                detector_config={"repository_path": repository_path},
+                enricher=self.enricher  # Enable graph enrichment
+            ),
             # Duplicate code detection (fast, replaces slow Pylint R0801)
-            JscpdDetector(neo4j_client, detector_config={"repository_path": repository_path}),
+            JscpdDetector(
+                neo4j_client,
+                detector_config={"repository_path": repository_path},
+                enricher=self.enricher  # Enable graph enrichment
+            ),
             # Advanced unused code detection (more accurate than graph-based DeadCodeDetector)
-            VultureDetector(neo4j_client, detector_config={"repository_path": repository_path}),
+            VultureDetector(
+                neo4j_client,
+                detector_config={"repository_path": repository_path},
+                enricher=self.enricher  # Enable graph enrichment
+            ),
             # Advanced security patterns (more powerful than Bandit)
-            SemgrepDetector(neo4j_client, detector_config={"repository_path": repository_path}),
+            SemgrepDetector(
+                neo4j_client,
+                detector_config={"repository_path": repository_path},
+                enricher=self.enricher  # Enable graph enrichment
+            ),
         ]
 
     def analyze(self) -> CodebaseHealth:
@@ -128,48 +174,83 @@ class AnalysisEngine:
         with LogContext(operation="analyze"):
             logger.info("Starting codebase analysis")
 
-            # Run all detectors
-            findings = self._run_detectors()
+            try:
+                # Run all detectors
+                findings = self._run_detectors()
 
-            # Calculate metrics (incorporating detector findings)
-            metrics = self._calculate_metrics(findings)
+                # Deduplicate findings (REPO-152 Phase 3)
+                # Merge findings from multiple detectors that target the same entity
+                original_count = len(findings)
+                findings, dedup_stats = self.deduplicator.merge_duplicates(findings)
+                deduplicated_count = len(findings)
 
-            # Calculate scores
-            structure_score = self._score_structure(metrics)
-            quality_score = self._score_quality(metrics)
-            architecture_score = self._score_architecture(metrics)
+                if original_count != deduplicated_count:
+                    logger.debug(
+                        f"Deduplicated {original_count} findings to {deduplicated_count} "
+                        f"({original_count - deduplicated_count} duplicates removed)"
+                    )
 
-            overall_score = (
-                structure_score * self.WEIGHTS["structure"]
-                + quality_score * self.WEIGHTS["quality"]
-                + architecture_score * self.WEIGHTS["architecture"]
-            )
+                # Store deduplication statistics for reporting
+                self.dedup_stats = dedup_stats
 
-            grade = self._score_to_grade(overall_score)
+                # Calculate metrics (incorporating detector findings)
+                metrics = self._calculate_metrics(findings)
 
-            findings_summary = self._summarize_findings(findings)
+                # Calculate scores
+                structure_score = self._score_structure(metrics)
+                quality_score = self._score_quality(metrics)
+                architecture_score = self._score_architecture(metrics)
 
-            duration = time.time() - start_time
-            logger.info("Analysis complete", extra={
-                "grade": grade,
-                "overall_score": round(overall_score, 2),
-                "total_findings": len(findings),
-                "duration_seconds": round(duration, 3)
-            })
+                overall_score = (
+                    structure_score * self.WEIGHTS["structure"]
+                    + quality_score * self.WEIGHTS["quality"]
+                    + architecture_score * self.WEIGHTS["architecture"]
+                )
 
-            return CodebaseHealth(
-                grade=grade,
-                overall_score=overall_score,
-                structure_score=structure_score,
-                quality_score=quality_score,
-                architecture_score=architecture_score,
-                metrics=metrics,
-                findings_summary=findings_summary,
-                findings=findings,
-            )
+                grade = self._score_to_grade(overall_score)
+
+                findings_summary = self._summarize_findings(findings)
+
+                duration = time.time() - start_time
+                logger.info("Analysis complete", extra={
+                    "grade": grade,
+                    "overall_score": round(overall_score, 2),
+                    "total_findings": len(findings),
+                    "duration_seconds": round(duration, 3)
+                })
+
+                return CodebaseHealth(
+                    grade=grade,
+                    overall_score=overall_score,
+                    structure_score=structure_score,
+                    quality_score=quality_score,
+                    architecture_score=architecture_score,
+                    metrics=metrics,
+                    findings_summary=findings_summary,
+                    findings=findings,
+                    dedup_stats=getattr(self, 'dedup_stats', None),
+                )
+
+            finally:
+                # Clean up temporary detector metadata from graph (REPO-151 Phase 2)
+                # This removes DetectorMetadata nodes and FLAGGED_BY relationships
+                # after analysis is complete (unless --keep-metadata flag is set)
+                if not self.keep_metadata:
+                    try:
+                        deleted_count = self.enricher.cleanup_metadata()
+                        logger.debug(f"Cleaned up {deleted_count} detector metadata nodes from graph")
+                    except Exception as e:
+                        # Don't fail analysis if cleanup fails
+                        logger.warning(f"Failed to clean up detector metadata: {e}")
+                else:
+                    logger.info("Keeping detector metadata in graph for hotspot queries (use 'repotoire hotspots' command)")
 
     def _run_detectors(self) -> List[Finding]:
-        """Run all registered detectors.
+        """Run all registered detectors with cross-detector collaboration.
+
+        Detectors are run sequentially, with findings from previous detectors
+        passed to later detectors that support the `previous_findings` parameter.
+        This enables cross-detector collaboration and reduces false positives.
 
         Returns:
             Combined list of all findings
@@ -184,7 +265,19 @@ class AnalysisEngine:
                 logger.info(f"Running detector: {detector_name}")
 
                 try:
-                    findings = detector.detect()
+                    # Try to pass previous findings for cross-detector collaboration
+                    # Detectors that don't support this parameter will ignore it (backward compatible)
+                    import inspect
+                    sig = inspect.signature(detector.detect)
+
+                    if "previous_findings" in sig.parameters:
+                        # Detector supports collaboration - pass accumulated findings
+                        findings = detector.detect(previous_findings=all_findings)
+                        logger.debug(f"{detector_name} received {len(all_findings)} previous findings for collaboration")
+                    else:
+                        # Detector doesn't support collaboration - run normally
+                        findings = detector.detect()
+
                     duration = time.time() - start_time
 
                     logger.info(f"Detector complete: {detector_name}", extra={
