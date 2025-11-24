@@ -526,6 +526,12 @@ def ingest(
     default=False,
     help="Record metrics to TimescaleDB for historical tracking",
 )
+@click.option(
+    "--keep-metadata",
+    is_flag=True,
+    default=False,
+    help="Keep detector metadata in graph after analysis (enables 'repotoire hotspots' queries)",
+)
 @click.pass_context
 def analyze(
     ctx: click.Context,
@@ -537,6 +543,7 @@ def analyze(
     format: str,
     quiet: bool,
     track_metrics: bool,
+    keep_metadata: bool,
 ) -> None:
     """Analyze codebase health and generate report."""
     # Get config from context
@@ -603,7 +610,12 @@ def analyze(
             ) as db:
                 # Convert detector config to dict for detectors
                 detector_config_dict = asdict(config.detectors)
-                engine = AnalysisEngine(db, detector_config=detector_config_dict)
+                engine = AnalysisEngine(
+                    db,
+                    detector_config=detector_config_dict,
+                    repository_path=str(repo_path),
+                    keep_metadata=keep_metadata
+                )
 
                 # Run analysis with progress indication
                 if not quiet:
@@ -3506,6 +3518,10 @@ def timeline(
 @click.option("--max-fixes", "-n", type=int, default=10, help="Maximum fixes to generate")
 @click.option("--severity", "-s", type=click.Choice(["critical", "high", "medium", "low"]), help="Minimum severity to fix")
 @click.option("--auto-approve-high", is_flag=True, help="Auto-approve high-confidence fixes")
+@click.option("--auto-apply", is_flag=True, help="Auto-apply all fixes without review (CI mode)")
+@click.option("--ci-mode", is_flag=True, help="Enable CI-friendly output and behavior")
+@click.option("--dry-run", is_flag=True, help="Generate fixes but don't apply them")
+@click.option("--output", "-o", type=click.Path(), help="Save fix details to JSON file")
 @click.option("--create-branch/--no-branch", default=True, help="Create git branch for fixes")
 @click.option("--run-tests", is_flag=True, help="Run tests after applying fixes")
 @click.option("--test-command", default="pytest", help="Test command to run")
@@ -3518,6 +3534,10 @@ def auto_fix(
     max_fixes: int,
     severity: Optional[str],
     auto_approve_high: bool,
+    auto_apply: bool,
+    ci_mode: bool,
+    dry_run: bool,
+    output: Optional[str],
     create_branch: bool,
     run_tests: bool,
     test_command: str,
@@ -3542,13 +3562,23 @@ def auto_fix(
 
         # Apply fixes and run tests
         repotoire auto-fix /path/to/repo --run-tests
+
+        # CI mode: auto-apply all fixes with JSON output
+        repotoire auto-fix /path/to/repo --ci-mode --auto-apply --output fixes.json
+
+        # Dry run: generate fixes without applying
+        repotoire auto-fix /path/to/repo --dry-run --output fixes.json
     """
     import os
+    import json
     from pathlib import Path
     from repotoire.graph import Neo4jClient
     from repotoire.engine import AnalysisEngine
     from repotoire.autofix import AutoFixEngine, InteractiveReviewer, FixApplicator
     from repotoire.models import Severity
+
+    # CI mode implies quiet output
+    quiet_mode = ci_mode
 
     try:
         # Check for OpenAI API key
@@ -3565,16 +3595,21 @@ def auto_fix(
 
         repo_path = Path(repository)
 
-        console.print("\n[bold cyan]🤖 Repotoire Auto-Fix[/bold cyan]")
-        console.print(f"Repository: {repository}\n")
+        if not quiet_mode:
+            console.print("\n[bold cyan]🤖 Repotoire Auto-Fix[/bold cyan]")
+            console.print(f"Repository: {repository}\n")
 
         # Step 1: Analyze codebase
-        console.print("[bold]Step 1: Analyzing codebase...[/bold]")
+        if not quiet_mode:
+            console.print("[bold]Step 1: Analyzing codebase...[/bold]")
 
         neo4j_client = Neo4jClient(uri=neo4j_uri, password=neo4j_password)
         engine = AnalysisEngine(neo4j_client)
 
-        with console.status("[bold]Running code analysis..."):
+        if not quiet_mode:
+            with console.status("[bold]Running code analysis..."):
+                health = engine.analyze(str(repo_path))
+        else:
             health = engine.analyze(str(repo_path))
 
         findings = health.findings
@@ -3584,19 +3619,23 @@ def auto_fix(
             severity_enum = getattr(Severity, severity.upper())
             findings = [f for f in findings if f.severity == severity_enum]
 
-        console.print(f"[green]✓[/green] Found {len(findings)} issue(s)")
+        if not quiet_mode:
+            console.print(f"[green]✓[/green] Found {len(findings)} issue(s)")
 
         if not findings:
-            console.print("\n[yellow]No issues found. Your code is clean! 🎉[/yellow]")
+            if not quiet_mode:
+                console.print("\n[yellow]No issues found. Your code is clean! 🎉[/yellow]")
             neo4j_client.close()
-            return
+            ctx.exit(0)
 
         # Limit to max fixes
         findings = findings[:max_fixes]
-        console.print(f"[dim]Generating fixes for {len(findings)} issue(s)...[/dim]\n")
+        if not quiet_mode:
+            console.print(f"[dim]Generating fixes for {len(findings)} issue(s)...[/dim]\n")
 
         # Step 2: Generate fixes
-        console.print("[bold]Step 2: Generating AI-powered fixes...[/bold]")
+        if not quiet_mode:
+            console.print("[bold]Step 2: Generating AI-powered fixes...[/bold]")
 
         fix_engine = AutoFixEngine(neo4j_client)
         fix_proposals = []
@@ -3610,78 +3649,146 @@ def auto_fix(
                 tasks.append(task)
             return await asyncio.gather(*tasks)
 
-        with console.status(f"[bold]Generating {len(findings)} fix(es)..."):
+        if not quiet_mode:
+            with console.status(f"[bold]Generating {len(findings)} fix(es)..."):
+                fixes = asyncio.run(generate_all_fixes())
+        else:
             fixes = asyncio.run(generate_all_fixes())
 
         # Filter out failed generations
         fix_proposals = [f for f in fixes if f is not None]
 
-        console.print(f"[green]✓[/green] Generated {len(fix_proposals)} fix proposal(s)\n")
+        if not quiet_mode:
+            console.print(f"[green]✓[/green] Generated {len(fix_proposals)} fix proposal(s)\n")
 
         if not fix_proposals:
-            console.print("[yellow]No fixes could be generated.[/yellow]")
+            if not quiet_mode:
+                console.print("[yellow]No fixes could be generated.[/yellow]")
             neo4j_client.close()
-            return
+            ctx.exit(0)
 
-        # Step 3: Interactive review
-        console.print("[bold]Step 3: Reviewing fixes...[/bold]\n")
+        # Step 3: Review fixes (skip in CI mode with auto-apply or dry-run)
+        if auto_apply or dry_run:
+            # Auto-approve all fixes in CI mode or dry-run
+            approved_fixes = fix_proposals
+            if not quiet_mode:
+                console.print(f"[bold]Step 3: Auto-approving {len(fix_proposals)} fix(es)...[/bold]\n")
+        else:
+            # Interactive review
+            if not quiet_mode:
+                console.print("[bold]Step 3: Reviewing fixes...[/bold]\n")
 
-        reviewer = InteractiveReviewer(console)
-        approved_fixes = reviewer.review_batch(fix_proposals, auto_approve_high=auto_approve_high)
+            reviewer = InteractiveReviewer(console)
+            approved_fixes = reviewer.review_batch(fix_proposals, auto_approve_high=auto_approve_high)
 
         if not approved_fixes:
-            console.print("\n[yellow]No fixes approved. Exiting.[/yellow]")
+            if not quiet_mode:
+                console.print("\n[yellow]No fixes approved. Exiting.[/yellow]")
             neo4j_client.close()
-            return
+            ctx.exit(0)
 
-        # Step 4: Apply fixes
-        console.print(f"\n[bold]Step 4: Applying {len(approved_fixes)} fix(es)...[/bold]")
+        # Save fix details to JSON if requested
+        if output:
+            output_data = {
+                "fixes": [f.to_dict() for f in approved_fixes],
+                "summary": {
+                    "total": len(fix_proposals),
+                    "approved": len(approved_fixes),
+                    "dry_run": dry_run
+                }
+            }
+            with open(output, "w") as f:
+                json.dump(output_data, f, indent=2)
+            if not quiet_mode:
+                console.print(f"[green]✓[/green] Fix details saved to {output}\n")
 
-        applicator = FixApplicator(repo_path, create_branch=create_branch)
+        # Step 4: Apply fixes (skip in dry-run mode)
+        successful = []
+        failed = []
 
-        with console.status("[bold]Applying fixes..."):
-            successful, failed = applicator.apply_batch(approved_fixes, commit_each=False)
+        if dry_run:
+            if not quiet_mode:
+                console.print(f"\n[bold yellow]Dry run: {len(approved_fixes)} fix(es) would be applied[/bold yellow]")
+            successful = approved_fixes  # For summary purposes
+        else:
+            if not quiet_mode:
+                console.print(f"\n[bold]Step 4: Applying {len(approved_fixes)} fix(es)...[/bold]")
 
-        console.print(f"[green]✓[/green] Applied {len(successful)} fix(es)")
+            applicator = FixApplicator(repo_path, create_branch=create_branch)
 
-        if failed:
-            console.print(f"[red]✗[/red] {len(failed)} fix(es) failed to apply:")
-            for fix, error in failed:
-                console.print(f"  - {fix.title}: {error}")
-
-        # Step 5: Run tests if requested
-        if run_tests and successful:
-            console.print(f"\n[bold]Step 5: Running tests...[/bold]")
-
-            with console.status(f"[bold]Running {test_command}..."):
-                tests_passed, output = applicator.run_tests(test_command)
-
-            if tests_passed:
-                console.print("[green]✓[/green] All tests passed")
+            if not quiet_mode:
+                with console.status("[bold]Applying fixes..."):
+                    successful, failed = applicator.apply_batch(approved_fixes, commit_each=False)
             else:
-                console.print("[red]✗[/red] Tests failed")
-                console.print("\n[dim]Test output:[/dim]")
-                console.print(output[:1000])  # Show first 1000 chars
+                successful, failed = applicator.apply_batch(approved_fixes, commit_each=False)
 
-                # Offer rollback
-                if Confirm.ask("\n[yellow]Tests failed. Rollback changes?[/yellow]", default=True):
-                    applicator.rollback()
-                    console.print("[green]✓[/green] Changes rolled back")
+            if not quiet_mode:
+                console.print(f"[green]✓[/green] Applied {len(successful)} fix(es)")
+
+            if failed and not quiet_mode:
+                console.print(f"[red]✗[/red] {len(failed)} fix(es) failed to apply:")
+                for fix, error in failed:
+                    console.print(f"  - {fix.title}: {error}")
+
+        # Step 5: Run tests if requested (skip in dry-run mode)
+        tests_passed = True
+        if run_tests and successful and not dry_run:
+            if not quiet_mode:
+                console.print(f"\n[bold]Step 5: Running tests...[/bold]")
+
+            if not quiet_mode:
+                with console.status(f"[bold]Running {test_command}..."):
+                    tests_passed, test_output = applicator.run_tests(test_command)
+            else:
+                tests_passed, test_output = applicator.run_tests(test_command)
+
+            if not quiet_mode:
+                if tests_passed:
+                    console.print("[green]✓[/green] All tests passed")
+                else:
+                    console.print("[red]✗[/red] Tests failed")
+                    console.print("\n[dim]Test output:[/dim]")
+                    console.print(test_output[:1000])  # Show first 1000 chars
+
+                    # Offer rollback (skip in CI mode)
+                    if not ci_mode and Confirm.ask("\n[yellow]Tests failed. Rollback changes?[/yellow]", default=True):
+                        applicator.rollback()
+                        console.print("[green]✓[/green] Changes rolled back")
 
         # Summary
-        reviewer.show_summary(
-            total=len(fix_proposals),
-            approved=len(approved_fixes),
-            applied=len(successful),
-            failed=len(failed),
-        )
+        if not quiet_mode and not (auto_apply or dry_run):
+            # Only show interactive summary if not in CI/auto-apply mode
+            reviewer.show_summary(
+                total=len(fix_proposals),
+                approved=len(approved_fixes),
+                applied=len(successful),
+                failed=len(failed),
+            )
+
+        # CI mode: print summary in machine-readable format
+        if ci_mode:
+            print(json.dumps({
+                "success": len(failed) == 0 and tests_passed,
+                "fixes_generated": len(fix_proposals),
+                "fixes_applied": len(successful) if not dry_run else 0,
+                "fixes_failed": len(failed),
+                "tests_passed": tests_passed,
+                "dry_run": dry_run
+            }))
 
         neo4j_client.close()
 
+        # Exit with appropriate code
+        if failed or not tests_passed:
+            ctx.exit(1)
+        else:
+            ctx.exit(0)
+
     except Exception as e:
         logger.error(f"Auto-fix failed: {e}", exc_info=True)
-        console.print(f"\n[red]❌ Error:[/red] {e}")
-        raise click.Abort()
+        if not quiet_mode:
+            console.print(f"\n[red]❌ Error:[/red] {e}")
+        ctx.exit(2)
 
 
 # Register security commands
@@ -3691,6 +3798,178 @@ cli.add_command(security)
 # Register monorepo commands
 from .monorepo import monorepo
 cli.add_command(monorepo)
+
+
+@cli.command()
+@click.option(
+    "--min-detectors",
+    type=int,
+    default=2,
+    help="Minimum number of detectors that must flag an entity (default: 2)",
+)
+@click.option(
+    "--min-confidence",
+    type=float,
+    default=0.0,
+    help="Minimum average confidence score 0.0-1.0 (default: 0.0)",
+)
+@click.option(
+    "--severity",
+    type=click.Choice(["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"], case_sensitive=False),
+    help="Filter by severity level",
+)
+@click.option(
+    "--file",
+    type=str,
+    help="Show hotspots for a specific file",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=50,
+    help="Maximum results to return (default: 50)",
+)
+@click.option(
+    "--neo4j-uri",
+    envvar="REPOTOIRE_NEO4J_URI",
+    default="bolt://localhost:7687",
+    help="Neo4j connection URI",
+)
+@click.option(
+    "--neo4j-password",
+    envvar="REPOTOIRE_NEO4J_PASSWORD",
+    help="Neo4j password",
+)
+def hotspots(
+    min_detectors: int,
+    min_confidence: float,
+    severity: Optional[str],
+    file: Optional[str],
+    limit: int,
+    neo4j_uri: str,
+    neo4j_password: Optional[str],
+) -> None:
+    """Find code hotspots flagged by multiple detectors.
+
+    Hotspots are code entities (files, classes, functions) that have been
+    flagged by multiple detectors, indicating high-priority issues.
+
+    Examples:
+
+        # Find entities flagged by 3+ detectors
+        repotoire hotspots --min-detectors 3
+
+        # Find high-confidence critical issues
+        repotoire hotspots --min-confidence 0.9 --severity HIGH
+
+        # Show hotspots for specific file
+        repotoire hotspots --file path/to/file.py
+    """
+    from repotoire.graph import Neo4jClient
+    from repotoire.graph.enricher import GraphEnricher
+    from rich.table import Table
+
+    console.print("\n🔥 [bold]Code Hotspot Analysis[/bold]\n")
+
+    # Connect to Neo4j
+    try:
+        neo4j_client = Neo4jClient(neo4j_uri, password=neo4j_password)
+        enricher = GraphEnricher(neo4j_client)
+    except Exception as e:
+        console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
+        raise click.Abort()
+
+    try:
+        if file:
+            # Show hotspots for specific file
+            console.print(f"Analyzing: [cyan]{file}[/cyan]\n")
+            stats = enricher.get_file_hotspots(file)
+
+            if stats["detector_count"] == 0:
+                console.print(f"[green]No issues found in {file}[/green]")
+                return
+
+            console.print(f"[yellow]File Statistics:[/yellow]")
+            console.print(f"  Total Flags: {stats['total_flags']}")
+            console.print(f"  Detectors: {stats['detector_count']}")
+            console.print(f"  LOC: {stats.get('file_loc', 'N/A')}")
+            console.print(f"  Flagged By: {', '.join(stats['detectors'])}\n")
+
+            # Show detailed flags
+            table = Table(title="Detected Issues", show_header=True)
+            table.add_column("Detector", style="cyan")
+            table.add_column("Severity", style="yellow")
+            table.add_column("Confidence", justify="right")
+            table.add_column("Issues", style="dim")
+
+            for flag in stats["flags"]:
+                if flag["detector"]:  # Skip None values
+                    confidence_pct = f"{flag['confidence']:.0%}" if flag.get("confidence") else "N/A"
+                    issues_str = ", ".join(flag.get("issues", []))[:50]
+                    table.add_row(
+                        flag["detector"],
+                        flag.get("severity", "N/A"),
+                        confidence_pct,
+                        issues_str
+                    )
+
+            console.print(table)
+
+        else:
+            # Find general hotspots
+            console.print(f"Finding hotspots with:")
+            console.print(f"  Min Detectors: {min_detectors}")
+            console.print(f"  Min Confidence: {min_confidence:.1%}")
+            if severity:
+                console.print(f"  Severity: {severity}")
+            console.print()
+
+            hotspots_list = enricher.find_hotspots(
+                min_detectors=min_detectors,
+                min_confidence=min_confidence,
+                severity=severity,
+                limit=limit
+            )
+
+            if not hotspots_list:
+                console.print("[green]No hotspots found matching criteria[/green]")
+                return
+
+            # Display results
+            table = Table(title=f"Found {len(hotspots_list)} Hotspots", show_header=True)
+            table.add_column("Entity", style="cyan", no_wrap=False)
+            table.add_column("Type", style="magenta")
+            table.add_column("Detectors", justify="center")
+            table.add_column("Confidence", justify="right")
+            table.add_column("Severity", style="yellow")
+            table.add_column("Issues", style="dim")
+
+            for hotspot in hotspots_list:
+                entity_name = hotspot["entity"]
+                if len(entity_name) > 60:
+                    entity_name = "..." + entity_name[-57:]
+
+                issues_str = ", ".join(set(hotspot.get("issues", [])))[:40]
+                detectors_str = f"{hotspot['detector_count']} ({', '.join(hotspot['detectors'][:3])}{'...' if len(hotspot['detectors']) > 3 else ''})"
+
+                table.add_row(
+                    entity_name,
+                    hotspot.get("entity_type", "Unknown"),
+                    str(hotspot["detector_count"]),
+                    f"{hotspot['avg_confidence']:.0%}",
+                    hotspot.get("severity", "N/A"),
+                    issues_str
+                )
+
+            console.print(table)
+            console.print(f"\n[dim]Showing top {len(hotspots_list)} of {limit} results[/dim]")
+
+    except Exception as e:
+        console.print(f"[red]Error during hotspot analysis: {e}[/red]")
+        logger.exception("Hotspot analysis failed")
+        raise click.Abort()
+    finally:
+        neo4j_client.close()
 
 
 def main() -> None:
