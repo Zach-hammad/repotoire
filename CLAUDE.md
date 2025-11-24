@@ -91,6 +91,30 @@ repotoire historical query "When did we add authentication?" /path/to/repo
 
 See [docs/GIT_GRAPHITI.md](docs/GIT_GRAPHITI.md) for complete documentation.
 
+### Auto-Fix: AI-Powered Code Fixing (Optional)
+
+Repotoire provides AI-powered automatic code fixing with human-in-the-loop approval, using GPT-4o and RAG for intelligent, evidence-based fixes.
+
+Install dependencies:
+```bash
+pip install repotoire[autofix]
+export OPENAI_API_KEY="sk-..."
+```
+
+Generate fixes for detected issues:
+```bash
+# Ingest codebase with embeddings for RAG
+repotoire ingest /path/to/repo --generate-embeddings
+
+# Auto-fix issues with interactive review
+repotoire auto-fix /path/to/repo
+
+# Fix critical issues with auto-approve
+repotoire auto-fix /path/to/repo --severity critical --auto-approve-high
+```
+
+See [docs/AUTO_FIX.md](docs/AUTO_FIX.md) for complete documentation.
+
 ### Common Commands
 
 ```bash
@@ -147,10 +171,11 @@ Codebase → Parser (AST) → Entities + Relationships → Neo4j Graph → Detec
 | SemgrepDetector | semgrep | Advanced security (OWASP) | ~5-15s |
 
 5. **Models** (`repotoire/models.py`): Entity hierarchy (File, Class, Function), Relationships, Findings, CodebaseHealth, severity levels
-6. **CLI** (`repotoire/cli.py`): Commands (ingest, analyze, validate), Rich UI (colors, trees, progress bars)
+6. **CLI** (`repotoire/cli.py`): Commands (ingest, analyze, validate, auto-fix), Rich UI (colors, trees, progress bars)
 7. **Reporters** (`repotoire/reporters/`): HTML (Jinja2 templates, code snippets), JSON, terminal output
 8. **Config** (`repotoire/config.py`): YAML/JSON/TOML support, hierarchical search, env var interpolation
 9. **Validation** (`repotoire/validation.py`): Path/URI/credential validation with helpful error messages
+10. **Auto-Fix** (`repotoire/autofix/`): AI-powered code fixing with GPT-4o + RAG, human-in-the-loop approval, evidence-based justification, git integration
 
 **Total Analysis Time**: ~3-4 minutes (6x faster than original 12+ minutes)
 
@@ -425,6 +450,7 @@ See full troubleshooting guide in project documentation.
 - **Incremental analysis** (10-100x faster re-analysis with dependency tracking)
 - **Pre-commit hooks integration** (instant code quality checks before commits)
 - **TimescaleDB metrics tracking** (historical trends, regression detection, period comparison)
+- **Auto-fix system** (AI-powered code fixing with GPT-4o + RAG, human-in-the-loop, evidence-based)
 - CLI interface with Rich formatting
 - 8 hybrid detectors + graph detectors
 - Health scoring framework (Structure/Quality/Architecture)
@@ -525,4 +551,5 @@ See full troubleshooting guide in project documentation.
 
 **For user-facing documentation**, see [README.md](README.md) and [CONFIG.md](CONFIG.md).
 **For RAG/AI features**, see [docs/RAG_API.md](docs/RAG_API.md).
+**For auto-fix features**, see [docs/AUTO_FIX.md](docs/AUTO_FIX.md).
 **For contributing**, see CONTRIBUTING.md (planned).

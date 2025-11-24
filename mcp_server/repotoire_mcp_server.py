@@ -2,7 +2,7 @@
 Auto-generated MCP server: repotoire_mcp_server
 
 Generated from repository: /home/zach/code/repotoire
-Total tools: 16
+Total tools: 19
 """
 
 import sys
@@ -84,6 +84,27 @@ except Exception as e:
     ask_code_question = None
     _import_failures['get_embeddings_status'] = f'Unexpected error: {e}'
     get_embeddings_status = None
+
+# Import from /home/zach/code/falkor/repotoire/api/routes/historical.py
+try:
+    from repotoire.api.routes.historical import ingest_git_history, query_history, get_entity_timeline
+    logger.debug('Successfully imported ingest_git_history, query_history, get_entity_timeline from repotoire.api.routes.historical')
+except ImportError as e:
+    logger.warning(f'Could not import from repotoire.api.routes.historical: {e}')
+    _import_failures['ingest_git_history'] = str(e)
+    ingest_git_history = None
+    _import_failures['query_history'] = str(e)
+    query_history = None
+    _import_failures['get_entity_timeline'] = str(e)
+    get_entity_timeline = None
+except Exception as e:
+    logger.error(f'Unexpected error importing from repotoire.api.routes.historical: {e}')
+    _import_failures['ingest_git_history'] = f'Unexpected error: {e}'
+    ingest_git_history = None
+    _import_failures['query_history'] = f'Unexpected error: {e}'
+    query_history = None
+    _import_failures['get_entity_timeline'] = f'Unexpected error: {e}'
+    get_entity_timeline = None
 
 # Import from /home/zach/code/falkor/benchmark.py
 try:
@@ -251,6 +272,49 @@ TOOL_SCHEMAS = {
         'name': 'get_embeddings_status',
         'description': 'Get status of vector embeddings in the knowledge graph',
         'inputSchema': {'type': 'object', 'properties': {}}
+    },
+    'ingest_git_history': {
+        'name': 'ingest_git_history',
+        'description': 'Ingest git commit history into Graphiti temporal knowledge graph for natural language queries about code evolution',
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'repository_path': {'type': 'string', 'description': 'Path to git repository'},
+                'since': {'type': 'string', 'description': 'Only ingest commits after this ISO-8601 date (optional)'},
+                'until': {'type': 'string', 'description': 'Only ingest commits before this ISO-8601 date (optional)'},
+                'branch': {'type': 'string', 'description': 'Git branch to analyze', 'default': 'main'},
+                'max_commits': {'type': 'integer', 'description': 'Maximum commits to process', 'default': 1000},
+                'batch_size': {'type': 'integer', 'description': 'Commits to process in parallel', 'default': 10}
+            },
+            'required': ['repository_path']
+        }
+    },
+    'query_git_history': {
+        'name': 'query_git_history',
+        'description': 'Query git history using natural language (e.g., "When did we add OAuth?", "What changed in UserManager?")',
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'query': {'type': 'string', 'description': 'Natural language question about code history'},
+                'repository_path': {'type': 'string', 'description': 'Path to git repository'},
+                'start_time': {'type': 'string', 'description': 'Filter episodes after this ISO-8601 datetime (optional)'},
+                'end_time': {'type': 'string', 'description': 'Filter episodes before this ISO-8601 datetime (optional)'}
+            },
+            'required': ['query', 'repository_path']
+        }
+    },
+    'get_entity_timeline': {
+        'name': 'get_entity_timeline',
+        'description': 'Get timeline of changes for a specific code entity (function, class, or module)',
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'entity_name': {'type': 'string', 'description': 'Name of the function/class/module'},
+                'entity_type': {'type': 'string', 'description': 'Type of entity', 'default': 'function'},
+                'repository_path': {'type': 'string', 'description': 'Path to git repository'}
+            },
+            'required': ['entity_name', 'repository_path']
+        }
     },
     'benchmark': {
         'name': 'benchmark',
@@ -772,6 +836,22 @@ async def handle_list_tools() -> list[types.Tool]:
             description='Get status of vector embeddings in the knowledge graph - check how many entities have embeddings generated',
             inputSchema=TOOL_SCHEMAS['get_embeddings_status']['inputSchema']
         ),
+        # Git history analysis tools (Graphiti integration)
+        types.Tool(
+            name='ingest_git_history',
+            description='Ingest git commit history into Graphiti temporal knowledge graph for natural language queries about code evolution',
+            inputSchema=TOOL_SCHEMAS['ingest_git_history']['inputSchema']
+        ),
+        types.Tool(
+            name='query_git_history',
+            description='Query git history using natural language (e.g., "When did we add OAuth?", "What changed in UserManager?")',
+            inputSchema=TOOL_SCHEMAS['query_git_history']['inputSchema']
+        ),
+        types.Tool(
+            name='get_entity_timeline',
+            description='Get timeline of changes for a specific code entity (function, class, or module)',
+            inputSchema=TOOL_SCHEMAS['get_entity_timeline']['inputSchema']
+        ),
         # Note: All other tools available via code execution
         # Use the repotoire-code-exec prompt to learn how
     ]
@@ -803,6 +883,18 @@ async def handle_call_tool(
 
         elif name == 'get_embeddings_status':
             result = await _handle_get_embeddings_status(arguments)
+            return [types.TextContent(type='text', text=str(result))]
+
+        elif name == 'ingest_git_history':
+            result = await _handle_ingest_git_history(arguments)
+            return [types.TextContent(type='text', text=str(result))]
+
+        elif name == 'query_git_history':
+            result = await _handle_query_git_history(arguments)
+            return [types.TextContent(type='text', text=str(result))]
+
+        elif name == 'get_entity_timeline':
+            result = await _handle_get_entity_timeline(arguments)
             return [types.TextContent(type='text', text=str(result))]
 
         elif name == 'benchmark':
@@ -1290,6 +1382,158 @@ async def _handle_get_embeddings_status(arguments: Dict[str, Any]) -> Any:
     except Exception as e:
         logger.error(f'Unexpected error in get_embeddings_status: {e}', exc_info=True)
         raise RuntimeError(f'Failed to execute get_embeddings_status: {str(e)}')
+
+async def _handle_ingest_git_history(arguments: Dict[str, Any]) -> Any:
+    """Handle ingest_git_history tool call."""
+    if ingest_git_history is None:
+        error_msg = f'ingest_git_history is not available.'
+        if 'ingest_git_history' in _import_failures:
+            failure_reason = _import_failures['ingest_git_history']
+            error_msg += f' Import error: {failure_reason}'
+        else:
+            error_msg += ' Function could not be imported from the codebase.'
+        logger.error(error_msg)
+        raise ImportError(error_msg)
+
+    try:
+        # FastAPI route - construct dependencies and prepare parameters
+        import inspect
+        import json
+        from datetime import datetime
+        from pydantic import BaseModel
+
+        # Import request model
+        from repotoire.api.routes.historical import IngestGitRequest
+
+        # Build request object from arguments
+        request_dict = {
+            'repository_path': arguments['repository_path'],
+            'branch': arguments.get('branch', 'main'),
+            'max_commits': arguments.get('max_commits', 1000),
+            'batch_size': arguments.get('batch_size', 10),
+        }
+
+        # Parse optional datetime fields
+        if 'since' in arguments and arguments['since']:
+            request_dict['since'] = datetime.fromisoformat(arguments['since'])
+        if 'until' in arguments and arguments['until']:
+            request_dict['until'] = datetime.fromisoformat(arguments['until'])
+
+        # Create request object
+        request = IngestGitRequest(**request_dict)
+
+        # Call FastAPI route handler
+        result = ingest_git_history(request)
+        if inspect.iscoroutine(result):
+            result = await result
+
+        return result
+    except ImportError:
+        raise  # Re-raise import errors as-is
+    except ValueError as e:
+        logger.error(f'Validation error in ingest_git_history: {e}')
+        raise
+    except Exception as e:
+        logger.error(f'Unexpected error in ingest_git_history: {e}', exc_info=True)
+        raise RuntimeError(f'Failed to execute ingest_git_history: {str(e)}')
+
+async def _handle_query_git_history(arguments: Dict[str, Any]) -> Any:
+    """Handle query_git_history tool call."""
+    if query_history is None:
+        error_msg = f'query_history is not available.'
+        if 'query_history' in _import_failures:
+            failure_reason = _import_failures['query_history']
+            error_msg += f' Import error: {failure_reason}'
+        else:
+            error_msg += ' Function could not be imported from the codebase.'
+        logger.error(error_msg)
+        raise ImportError(error_msg)
+
+    try:
+        # FastAPI route - construct dependencies and prepare parameters
+        import inspect
+        import json
+        from datetime import datetime
+        from pydantic import BaseModel
+
+        # Import request model
+        from repotoire.api.routes.historical import QueryHistoryRequest
+
+        # Build request object from arguments
+        request_dict = {
+            'query': arguments['query'],
+            'repository_path': arguments['repository_path'],
+        }
+
+        # Parse optional datetime fields
+        if 'start_time' in arguments and arguments['start_time']:
+            request_dict['start_time'] = datetime.fromisoformat(arguments['start_time'])
+        if 'end_time' in arguments and arguments['end_time']:
+            request_dict['end_time'] = datetime.fromisoformat(arguments['end_time'])
+
+        # Create request object
+        request = QueryHistoryRequest(**request_dict)
+
+        # Call FastAPI route handler
+        result = query_history(request)
+        if inspect.iscoroutine(result):
+            result = await result
+
+        return result
+    except ImportError:
+        raise  # Re-raise import errors as-is
+    except ValueError as e:
+        logger.error(f'Validation error in query_git_history: {e}')
+        raise
+    except Exception as e:
+        logger.error(f'Unexpected error in query_git_history: {e}', exc_info=True)
+        raise RuntimeError(f'Failed to execute query_git_history: {str(e)}')
+
+async def _handle_get_entity_timeline(arguments: Dict[str, Any]) -> Any:
+    """Handle get_entity_timeline tool call."""
+    if get_entity_timeline is None:
+        error_msg = f'get_entity_timeline is not available.'
+        if 'get_entity_timeline' in _import_failures:
+            failure_reason = _import_failures['get_entity_timeline']
+            error_msg += f' Import error: {failure_reason}'
+        else:
+            error_msg += ' Function could not be imported from the codebase.'
+        logger.error(error_msg)
+        raise ImportError(error_msg)
+
+    try:
+        # FastAPI route - construct dependencies and prepare parameters
+        import inspect
+        import json
+        from pydantic import BaseModel
+
+        # Import request model
+        from repotoire.api.routes.historical import TimelineRequest
+
+        # Build request object from arguments
+        request_dict = {
+            'entity_name': arguments['entity_name'],
+            'repository_path': arguments['repository_path'],
+            'entity_type': arguments.get('entity_type', 'function'),
+        }
+
+        # Create request object
+        request = TimelineRequest(**request_dict)
+
+        # Call FastAPI route handler
+        result = get_entity_timeline(request)
+        if inspect.iscoroutine(result):
+            result = await result
+
+        return result
+    except ImportError:
+        raise  # Re-raise import errors as-is
+    except ValueError as e:
+        logger.error(f'Validation error in get_entity_timeline: {e}')
+        raise
+    except Exception as e:
+        logger.error(f'Unexpected error in get_entity_timeline: {e}', exc_info=True)
+        raise RuntimeError(f'Failed to execute get_entity_timeline: {str(e)}')
 
 async def _handle_benchmark(arguments: Dict[str, Any]) -> Any:
     """Handle benchmark tool call."""

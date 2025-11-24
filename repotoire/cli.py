@@ -10,6 +10,7 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
 from rich.tree import Tree
 from rich.text import Text
+from rich.prompt import Confirm
 from rich import box
 
 from repotoire.pipeline import IngestionPipeline
@@ -3496,6 +3497,189 @@ def timeline(
 
     except Exception as e:
         logger.error(f"Failed to get entity timeline: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
+@cli.command("auto-fix")
+@click.argument("repository", type=click.Path(exists=True))
+@click.option("--max-fixes", "-n", type=int, default=10, help="Maximum fixes to generate")
+@click.option("--severity", "-s", type=click.Choice(["critical", "high", "medium", "low"]), help="Minimum severity to fix")
+@click.option("--auto-approve-high", is_flag=True, help="Auto-approve high-confidence fixes")
+@click.option("--create-branch/--no-branch", default=True, help="Create git branch for fixes")
+@click.option("--run-tests", is_flag=True, help="Run tests after applying fixes")
+@click.option("--test-command", default="pytest", help="Test command to run")
+@click.option("--neo4j-uri", envvar="REPOTOIRE_NEO4J_URI", default="bolt://localhost:7687", help="Neo4j connection URI")
+@click.option("--neo4j-password", envvar="REPOTOIRE_NEO4J_PASSWORD", help="Neo4j password")
+@click.pass_context
+def auto_fix(
+    ctx: click.Context,
+    repository: str,
+    max_fixes: int,
+    severity: Optional[str],
+    auto_approve_high: bool,
+    create_branch: bool,
+    run_tests: bool,
+    test_command: str,
+    neo4j_uri: str,
+    neo4j_password: Optional[str],
+) -> None:
+    """AI-powered automatic code fixing with human-in-the-loop approval.
+
+    Analyzes your codebase, generates AI-powered fixes, and presents them
+    for interactive review. Approved fixes are automatically applied with
+    git integration.
+
+    Examples:
+        # Generate and review up to 10 fixes
+        repotoire auto-fix /path/to/repo
+
+        # Auto-approve high-confidence fixes
+        repotoire auto-fix /path/to/repo --auto-approve-high
+
+        # Only fix critical issues
+        repotoire auto-fix /path/to/repo --severity critical
+
+        # Apply fixes and run tests
+        repotoire auto-fix /path/to/repo --run-tests
+    """
+    import os
+    from pathlib import Path
+    from repotoire.graph import Neo4jClient
+    from repotoire.engine import AnalysisEngine
+    from repotoire.autofix import AutoFixEngine, InteractiveReviewer, FixApplicator
+    from repotoire.models import Severity
+
+    try:
+        # Check for OpenAI API key
+        if not os.getenv("OPENAI_API_KEY"):
+            console.print("\n[red]❌ OPENAI_API_KEY not set[/red]")
+            console.print("[dim]Auto-fix requires an OpenAI API key for fix generation[/dim]")
+            raise click.Abort()
+
+        # Check for Neo4j password
+        if not neo4j_password:
+            console.print("\n[red]❌ Neo4j password not provided[/red]")
+            console.print("[dim]Set REPOTOIRE_NEO4J_PASSWORD or use --neo4j-password[/dim]")
+            raise click.Abort()
+
+        repo_path = Path(repository)
+
+        console.print("\n[bold cyan]🤖 Repotoire Auto-Fix[/bold cyan]")
+        console.print(f"Repository: {repository}\n")
+
+        # Step 1: Analyze codebase
+        console.print("[bold]Step 1: Analyzing codebase...[/bold]")
+
+        neo4j_client = Neo4jClient(uri=neo4j_uri, password=neo4j_password)
+        engine = AnalysisEngine(neo4j_client)
+
+        with console.status("[bold]Running code analysis..."):
+            health = engine.analyze(str(repo_path))
+
+        findings = health.findings
+
+        # Filter by severity if specified
+        if severity:
+            severity_enum = getattr(Severity, severity.upper())
+            findings = [f for f in findings if f.severity == severity_enum]
+
+        console.print(f"[green]✓[/green] Found {len(findings)} issue(s)")
+
+        if not findings:
+            console.print("\n[yellow]No issues found. Your code is clean! 🎉[/yellow]")
+            neo4j_client.close()
+            return
+
+        # Limit to max fixes
+        findings = findings[:max_fixes]
+        console.print(f"[dim]Generating fixes for {len(findings)} issue(s)...[/dim]\n")
+
+        # Step 2: Generate fixes
+        console.print("[bold]Step 2: Generating AI-powered fixes...[/bold]")
+
+        fix_engine = AutoFixEngine(neo4j_client)
+        fix_proposals = []
+
+        import asyncio
+
+        async def generate_all_fixes():
+            tasks = []
+            for finding in findings:
+                task = fix_engine.generate_fix(finding, repo_path)
+                tasks.append(task)
+            return await asyncio.gather(*tasks)
+
+        with console.status(f"[bold]Generating {len(findings)} fix(es)..."):
+            fixes = asyncio.run(generate_all_fixes())
+
+        # Filter out failed generations
+        fix_proposals = [f for f in fixes if f is not None]
+
+        console.print(f"[green]✓[/green] Generated {len(fix_proposals)} fix proposal(s)\n")
+
+        if not fix_proposals:
+            console.print("[yellow]No fixes could be generated.[/yellow]")
+            neo4j_client.close()
+            return
+
+        # Step 3: Interactive review
+        console.print("[bold]Step 3: Reviewing fixes...[/bold]\n")
+
+        reviewer = InteractiveReviewer(console)
+        approved_fixes = reviewer.review_batch(fix_proposals, auto_approve_high=auto_approve_high)
+
+        if not approved_fixes:
+            console.print("\n[yellow]No fixes approved. Exiting.[/yellow]")
+            neo4j_client.close()
+            return
+
+        # Step 4: Apply fixes
+        console.print(f"\n[bold]Step 4: Applying {len(approved_fixes)} fix(es)...[/bold]")
+
+        applicator = FixApplicator(repo_path, create_branch=create_branch)
+
+        with console.status("[bold]Applying fixes..."):
+            successful, failed = applicator.apply_batch(approved_fixes, commit_each=False)
+
+        console.print(f"[green]✓[/green] Applied {len(successful)} fix(es)")
+
+        if failed:
+            console.print(f"[red]✗[/red] {len(failed)} fix(es) failed to apply:")
+            for fix, error in failed:
+                console.print(f"  - {fix.title}: {error}")
+
+        # Step 5: Run tests if requested
+        if run_tests and successful:
+            console.print(f"\n[bold]Step 5: Running tests...[/bold]")
+
+            with console.status(f"[bold]Running {test_command}..."):
+                tests_passed, output = applicator.run_tests(test_command)
+
+            if tests_passed:
+                console.print("[green]✓[/green] All tests passed")
+            else:
+                console.print("[red]✗[/red] Tests failed")
+                console.print("\n[dim]Test output:[/dim]")
+                console.print(output[:1000])  # Show first 1000 chars
+
+                # Offer rollback
+                if Confirm.ask("\n[yellow]Tests failed. Rollback changes?[/yellow]", default=True):
+                    applicator.rollback()
+                    console.print("[green]✓[/green] Changes rolled back")
+
+        # Summary
+        reviewer.show_summary(
+            total=len(fix_proposals),
+            approved=len(approved_fixes),
+            applied=len(successful),
+            failed=len(failed),
+        )
+
+        neo4j_client.close()
+
+    except Exception as e:
+        logger.error(f"Auto-fix failed: {e}", exc_info=True)
         console.print(f"\n[red]❌ Error:[/red] {e}")
         raise click.Abort()
 
