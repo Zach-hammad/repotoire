@@ -15,6 +15,8 @@ class GraphSchema:
         "CREATE CONSTRAINT function_qualified_name_unique IF NOT EXISTS FOR (f:Function) REQUIRE f.qualifiedName IS UNIQUE",
         # Rule engine constraints (REPO-125)
         "CREATE CONSTRAINT rule_id_unique IF NOT EXISTS FOR (r:Rule) REQUIRE r.id IS UNIQUE",
+        # Cross-detector collaboration constraints (REPO-151 Phase 2)
+        "CREATE CONSTRAINT detector_metadata_id_unique IF NOT EXISTS FOR (d:DetectorMetadata) REQUIRE d.id IS UNIQUE",
     ]
 
     # Index definitions for performance
@@ -71,6 +73,11 @@ class GraphSchema:
         "CREATE INDEX rule_severity_idx IF NOT EXISTS FOR (r:Rule) ON (r.severity)",
         # Composite index for hot rule queries (sorted by lastUsed + priority)
         "CREATE INDEX rule_hot_rules_idx IF NOT EXISTS FOR (r:Rule) ON (r.enabled, r.lastUsed, r.userPriority)",
+        # Cross-detector collaboration indexes (REPO-151 Phase 2)
+        "CREATE INDEX detector_metadata_detector_idx IF NOT EXISTS FOR (d:DetectorMetadata) ON (d.detector)",
+        "CREATE INDEX detector_metadata_timestamp_idx IF NOT EXISTS FOR (d:DetectorMetadata) ON (d.timestamp)",
+        "CREATE INDEX flagged_by_severity_idx IF NOT EXISTS FOR ()-[r:FLAGGED_BY]-() ON (r.severity)",
+        "CREATE INDEX flagged_by_confidence_idx IF NOT EXISTS FOR ()-[r:FLAGGED_BY]-() ON (r.confidence)",
     ]
 
     # Vector indexes for RAG (Neo4j 5.18+)

@@ -706,6 +706,37 @@ class SecretMatch:
 
 
 @dataclass
+class CollaborationMetadata:
+    """Metadata for cross-detector collaboration.
+
+    Enables detectors to share context and findings through structured metadata,
+    reducing false positives and improving detection accuracy through multi-detector
+    validation.
+
+    Attributes:
+        detector: Name of the detector providing this metadata
+        confidence: Confidence score 0.0-1.0 (higher = more confident)
+        evidence: List of evidence supporting the finding (e.g., ["high_lcom", "many_methods"])
+        tags: Categorization tags (e.g., ["god_class", "complexity", "symptom"])
+        related_findings: IDs of related findings from other detectors
+
+    Example:
+        >>> metadata = CollaborationMetadata(
+        ...     detector="GodClassDetector",
+        ...     confidence=0.9,
+        ...     evidence=["high_lcom", "many_methods", "low_cohesion"],
+        ...     tags=["god_class", "complexity"],
+        ...     related_findings=["finding-123", "finding-456"]
+        ... )
+    """
+    detector: str
+    confidence: float
+    evidence: List[str]
+    tags: List[str]
+    related_findings: List[str] = field(default_factory=list)
+
+
+@dataclass
 class Relationship:
     """Directed relationship between two entities in the graph.
 
@@ -752,6 +783,7 @@ class Finding:
         suggested_fix: Optional fix suggestion
         estimated_effort: Estimated effort to fix (e.g., "Small (2-4 hours)")
         created_at: When the finding was detected
+        collaboration_metadata: List of collaboration metadata from multiple detectors
 
     Example:
         >>> finding = Finding(
@@ -780,6 +812,131 @@ class Finding:
     suggested_fix: Optional[str] = None
     estimated_effort: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
+    collaboration_metadata: List[CollaborationMetadata] = field(default_factory=list)
+
+    # Deduplication fields (REPO-152 Phase 3)
+    is_duplicate: bool = False
+    detector_agreement_count: int = 1
+    aggregate_confidence: float = 0.0
+    merged_from: List[str] = field(default_factory=list)
+
+    def add_collaboration_metadata(self, metadata: CollaborationMetadata) -> None:
+        """Add collaboration metadata from a detector.
+
+        Args:
+            metadata: CollaborationMetadata instance with detector context
+
+        Example:
+            >>> finding.add_collaboration_metadata(CollaborationMetadata(
+            ...     detector="GodClassDetector",
+            ...     confidence=0.9,
+            ...     evidence=["high_lcom", "many_methods"],
+            ...     tags=["god_class", "complexity"]
+            ... ))
+        """
+        self.collaboration_metadata.append(metadata)
+
+    def get_collaboration_tags(self) -> List[str]:
+        """Get all unique tags from collaboration metadata.
+
+        Returns:
+            List of unique tags from all collaboration metadata
+
+        Example:
+            >>> tags = finding.get_collaboration_tags()
+            >>> print(tags)
+            ['god_class', 'complexity', 'high_coupling']
+        """
+        tags = set()
+        for metadata in self.collaboration_metadata:
+            tags.update(metadata.tags)
+        return list(tags)
+
+    def get_confidence_scores(self) -> Dict[str, float]:
+        """Get confidence scores from all detectors.
+
+        Returns:
+            Dictionary mapping detector name to confidence score
+
+        Example:
+            >>> scores = finding.get_confidence_scores()
+            >>> print(scores)
+            {'GodClassDetector': 0.9, 'RadonDetector': 0.95}
+        """
+        return {
+            metadata.detector: metadata.confidence
+            for metadata in self.collaboration_metadata
+        }
+
+    def has_tag(self, tag: str) -> bool:
+        """Check if finding has a specific tag.
+
+        Args:
+            tag: Tag name to check
+
+        Returns:
+            True if any collaboration metadata contains the tag
+
+        Example:
+            >>> if finding.has_tag("god_class"):
+            ...     print("This is a god class issue")
+        """
+        return tag in self.get_collaboration_tags()
+
+    def get_average_confidence(self) -> float:
+        """Calculate average confidence across all detectors.
+
+        Returns:
+            Average confidence score, or 0.0 if no metadata
+
+        Example:
+            >>> avg = finding.get_average_confidence()
+            >>> print(f"Average confidence: {avg:.2f}")
+            Average confidence: 0.85
+        """
+        if not self.collaboration_metadata:
+            return 0.0
+        scores = self.get_confidence_scores()
+        return sum(scores.values()) / len(scores)
+
+    @property
+    def priority_score(self) -> float:
+        """Calculate composite priority score for this finding.
+
+        Priority score is calculated from:
+        - Severity weight (40%): How critical is the issue
+        - Confidence weight (30%): How certain are we about the issue
+        - Detector agreement weight (30%): How many detectors agree
+
+        Returns:
+            Priority score between 0.0-100.0 (higher = more priority)
+
+        Example:
+            >>> sorted_findings = sorted(findings, key=lambda f: f.priority_score, reverse=True)
+            >>> top_priority = sorted_findings[0]
+            >>> print(f"Top priority: {top_priority.title} (score: {top_priority.priority_score:.1f})")
+        """
+        # Severity weight (40%) - normalize to 0-1 scale
+        severity_map = {
+            Severity.CRITICAL: 1.0,
+            Severity.HIGH: 0.8,
+            Severity.MEDIUM: 0.6,
+            Severity.LOW: 0.4,
+            Severity.INFO: 0.2
+        }
+        severity_weight = severity_map.get(self.severity, 0.5) * 0.4
+
+        # Confidence weight (30%) - use aggregate or average confidence
+        confidence = self.aggregate_confidence if self.aggregate_confidence > 0 else self.get_average_confidence()
+        confidence_weight = confidence * 0.3
+
+        # Detector agreement weight (30%) - normalize detector count
+        # 1 detector = 0.0, 2 detectors = 0.5, 3+ detectors = 1.0
+        agreement_normalized = min(1.0, (self.detector_agreement_count - 1) / 2.0) if self.detector_agreement_count > 1 else 0.0
+        agreement_weight = agreement_normalized * 0.3
+
+        # Calculate final score (0-100 scale)
+        return (severity_weight + confidence_weight + agreement_weight) * 100
 
 
 @dataclass
@@ -1106,6 +1263,9 @@ class CodebaseHealth:
 
     # Detailed findings list
     findings: List[Finding] = field(default_factory=list)
+
+    # Deduplication statistics (optional)
+    dedup_stats: Optional[Dict] = None
 
     # Timestamp
     analyzed_at: datetime = field(default_factory=datetime.now)
