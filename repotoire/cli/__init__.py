@@ -3688,6 +3688,10 @@ def auto_fix(
 from .security import security
 cli.add_command(security)
 
+# Register monorepo commands
+from .monorepo import monorepo
+cli.add_command(monorepo)
+
 
 def main() -> None:
     """Entry point for CLI."""
