@@ -111,25 +111,34 @@ class SchemaGenerator:
         """
         # Check type hint if available
         if type_hint:
-            dependency_indicators = [
-                'Depends',
-                'GraphRAGRetriever',
-                'Neo4jClient',
-                'CodeEmbedder',
-                'OpenAI',
-                'Request',  # FastAPI Request objects
-                'Response',  # FastAPI Response objects
+            # Match exact DI types or specific patterns
+            # Use word boundaries to avoid matching CodeAskRequest, CodeSearchRequest, etc.
+            import re
+
+            dependency_patterns = [
+                r'\bDepends\b',
+                r'\bGraphRAGRetriever\b',
+                r'\bNeo4jClient\b',
+                r'\bCodeEmbedder\b',
+                r'\bOpenAI\b',
+                r'^Request$',  # Exact match for FastAPI Request (not CodeAskRequest)
+                r'^Response$',  # Exact match for FastAPI Response
+                r'starlette\.requests\.Request',  # Full module path
             ]
 
-            if any(indicator in type_hint for indicator in dependency_indicators):
-                return True
+            for pattern in dependency_patterns:
+                if re.search(pattern, type_hint):
+                    return True
 
         # Also check parameter name (fallback when type hints not available)
+        # Note: Don't include 'request' or 'response' here as they're ambiguous
+        # (could be Pydantic models like CodeAskRequest, not just FastAPI Request)
         param_name_lower = param_name.lower()
         dependency_param_names = [
             'client', 'neo4j_client',
             'embedder', 'code_embedder',
-            'retriever', 'graph_rag_retriever', 'graphragretriever'
+            'retriever', 'graph_rag_retriever', 'graphragretriever',
+            'db', 'database',
         ]
 
         return param_name_lower in dependency_param_names
