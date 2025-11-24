@@ -82,6 +82,15 @@ security = [
     "cyclonedx-bom>=4.0.0",  # SBOM generation (CycloneDX format)
 ]
 
+detectors = [
+    "mypy>=1.7.0",  # Type checking detector
+    "pylint>=3.0.0",  # Advanced linting detector
+    "bandit>=1.7.0",  # Security vulnerability detector
+    "radon>=6.0.0",  # Complexity metrics detector
+    "vulture>=2.0.0",  # Dead code detector
+    "semgrep>=1.0.0",  # Advanced security pattern detector
+]
+
 [project.scripts]
 repotoire = "repotoire.cli:main"
 repotoire-pre-commit = "repotoire.hooks.pre_commit:main"
