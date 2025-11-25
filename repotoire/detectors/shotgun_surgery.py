@@ -25,9 +25,9 @@ class ShotgunSurgeryDetector(CodeSmellDetector):
         self.enricher = enricher
         config = detector_config or {}
         thresholds = config.get("thresholds", {})
-        self.threshold_critical = thresholds.get("critical", 30)
-        self.threshold_high = thresholds.get("high", 20)
-        self.threshold_medium = thresholds.get("medium", 10)
+        self.threshold_critical = thresholds.get("critical", 25)
+        self.threshold_high = thresholds.get("high", 15)
+        self.threshold_medium = thresholds.get("medium", 8)
         self.logger = get_logger(__name__)
 
     def detect(self) -> List[Finding]:
@@ -120,11 +120,11 @@ class ShotgunSurgeryDetector(CodeSmellDetector):
                 line_start=result.get("line_start"),
                 line_end=result.get("line_end"),
                 suggested_fix=suggestion,
-                metadata={k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v for k, v in {
+                graph_context={
                     "caller_count": caller_count,
                     "files_affected": files_affected,
                     "sample_files": result["sample_files"],
-                }.items()},
+                },
             )
             # Add collaboration metadata (REPO-150 Phase 1)
             finding.add_collaboration_metadata(CollaborationMetadata(

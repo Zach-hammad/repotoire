@@ -8,10 +8,18 @@ Security is critical: we must never store secrets in:
 1. Neo4j graph database
 2. OpenAI API requests
 3. Analysis reports or exports
+
+REPO-148: Enhanced with:
+- Entropy-based detection for unknown high-entropy secrets
+- Database connection string patterns (PostgreSQL, MySQL, MongoDB, Redis)
+- OAuth credential patterns (Bearer tokens, client secrets)
+- Additional patterns (SSH keys, certificates)
 """
 
+import math
+from collections import Counter
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Set, Tuple
 import re
 
 from detect_secrets import SecretsCollection
@@ -21,6 +29,92 @@ from repotoire.models import SecretMatch, SecretsPolicy
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# Entropy thresholds for different string lengths
+# Higher entropy = more random = more likely to be a secret
+ENTROPY_THRESHOLDS = {
+    "short": (16, 32, 3.5),   # (min_len, max_len, threshold)
+    "medium": (32, 64, 4.0),
+    "long": (64, 256, 4.5),
+}
+
+# Known safe high-entropy patterns (hashes, UUIDs, etc.) to allowlist
+SAFE_HIGH_ENTROPY_PATTERNS = [
+    r'^[a-f0-9]{32}$',  # MD5 hash
+    r'^[a-f0-9]{40}$',  # SHA1 hash
+    r'^[a-f0-9]{64}$',  # SHA256 hash
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',  # UUID
+    r'^\d+\.\d+\.\d+$',  # Version numbers
+    r'^v\d+\.\d+\.\d+',  # Version tags
+]
+
+
+def calculate_shannon_entropy(data: str) -> float:
+    """Calculate Shannon entropy of a string.
+
+    Higher entropy indicates more randomness, which is characteristic
+    of secrets like API keys and passwords.
+
+    Args:
+        data: String to analyze
+
+    Returns:
+        Shannon entropy value (0.0 to ~4.7 for printable ASCII)
+    """
+    if not data:
+        return 0.0
+
+    # Count character frequencies
+    counter = Counter(data)
+    length = len(data)
+
+    # Calculate entropy: -sum(p * log2(p)) for each character
+    entropy = 0.0
+    for count in counter.values():
+        probability = count / length
+        entropy -= probability * math.log2(probability)
+
+    return entropy
+
+
+def is_high_entropy_secret(
+    value: str,
+    min_length: int = 16,
+    entropy_threshold: float = 4.0,
+) -> Tuple[bool, float]:
+    """Check if a string is likely a secret based on entropy.
+
+    Args:
+        value: String to check
+        min_length: Minimum length to consider
+        entropy_threshold: Entropy threshold for detection
+
+    Returns:
+        Tuple of (is_secret, entropy_value)
+    """
+    if len(value) < min_length:
+        return False, 0.0
+
+    # Check against safe patterns (hashes, UUIDs, etc.)
+    for pattern in SAFE_HIGH_ENTROPY_PATTERNS:
+        if re.match(pattern, value, re.IGNORECASE):
+            return False, 0.0
+
+    entropy = calculate_shannon_entropy(value)
+
+    # Use dynamic threshold based on length
+    if len(value) < 32:
+        threshold = ENTROPY_THRESHOLDS["short"][2]
+    elif len(value) < 64:
+        threshold = ENTROPY_THRESHOLDS["medium"][2]
+    else:
+        threshold = ENTROPY_THRESHOLDS["long"][2]
+
+    # Override with explicit threshold if provided
+    if entropy_threshold:
+        threshold = entropy_threshold
+
+    return entropy >= threshold, entropy
 
 
 @dataclass
@@ -65,10 +159,24 @@ class SecretsScanner:
         ...     print(f"Redacted: {result.redacted_text}")
     """
 
-    def __init__(self):
-        """Initialize secrets scanner with default detect-secrets settings."""
+    def __init__(
+        self,
+        entropy_detection: bool = True,
+        entropy_threshold: float = 4.0,
+        min_entropy_length: int = 20,
+    ):
+        """Initialize secrets scanner with default detect-secrets settings.
+
+        Args:
+            entropy_detection: Enable entropy-based detection (REPO-148)
+            entropy_threshold: Minimum entropy to flag as secret (default 4.0)
+            min_entropy_length: Minimum string length for entropy check (default 20)
+        """
         # Use default settings which includes all standard plugins
         self.settings = default_settings
+        self.entropy_detection = entropy_detection
+        self.entropy_threshold = entropy_threshold
+        self.min_entropy_length = min_entropy_length
         logger.debug("Initialized SecretsScanner with detect-secrets")
 
     def _create_secret_match(
@@ -179,6 +287,235 @@ class SecretsScanner:
                     line, line_num, context, filename
                 )
                 secret_matches.append(match)
+
+            # OpenAI API Keys (sk-proj-... or sk-...)
+            if re.search(r'sk-proj-[A-Za-z0-9]{20,}', line):
+                match = self._create_secret_match(
+                    "OpenAI Project API Key", "OpenAIKeyDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+            elif re.search(r'sk-[A-Za-z0-9]{32,}', line):
+                match = self._create_secret_match(
+                    "OpenAI API Key", "OpenAIKeyDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # Stripe Keys (sk_test/live_, pk_test/live_, rk_test/live_)
+            if re.search(r'sk_(test|live)_[A-Za-z0-9]{24,}', line):
+                match = self._create_secret_match(
+                    "Stripe Secret Key", "StripeKeyDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+            if re.search(r'pk_(test|live)_[A-Za-z0-9]{24,}', line):
+                match = self._create_secret_match(
+                    "Stripe Publishable Key", "StripeKeyDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+            if re.search(r'rk_(test|live)_[A-Za-z0-9]{24,}', line):
+                match = self._create_secret_match(
+                    "Stripe Restricted Key", "StripeKeyDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # Azure Connection Strings
+            if re.search(r'DefaultEndpointsProtocol=https?;.*AccountKey=[A-Za-z0-9+/=]+', line):
+                match = self._create_secret_match(
+                    "Azure Connection String", "AzureKeyDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # Azure Storage Account Keys (base64-like, typically 44-88 chars)
+            if re.search(r'AccountKey=[A-Za-z0-9+/]{40,}=*', line):
+                match = self._create_secret_match(
+                    "Azure Storage Account Key", "AzureKeyDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # Google Cloud API Keys
+            if re.search(r'AIza[A-Za-z0-9_-]{35}', line):
+                match = self._create_secret_match(
+                    "Google Cloud API Key", "GoogleCloudKeyDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # Google Service Account JSON (private_key field)
+            if re.search(r'"private_key"\s*:\s*"-----BEGIN', line):
+                match = self._create_secret_match(
+                    "Google Service Account Key", "GoogleCloudKeyDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # =================================================================
+            # REPO-148: Database Connection Strings
+            # =================================================================
+
+            # PostgreSQL connection strings
+            # postgresql://user:password@host:port/database
+            if re.search(r'postgres(?:ql)?://[^:]+:[^@]+@[^/]+', line, re.IGNORECASE):
+                match = self._create_secret_match(
+                    "PostgreSQL Connection String", "ConnectionStringDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # MySQL connection strings
+            # mysql://user:password@host:port/database
+            if re.search(r'mysql://[^:]+:[^@]+@[^/]+', line, re.IGNORECASE):
+                match = self._create_secret_match(
+                    "MySQL Connection String", "ConnectionStringDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # MongoDB connection strings
+            # mongodb://user:password@host:port/database
+            # mongodb+srv://user:password@cluster/database
+            if re.search(r'mongodb(?:\+srv)?://[^:]+:[^@]+@[^/]+', line, re.IGNORECASE):
+                match = self._create_secret_match(
+                    "MongoDB Connection String", "ConnectionStringDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # Redis connection strings
+            # redis://:password@host:port or redis://user:password@host:port
+            if re.search(r'redis://(?:[^:]*:)?[^@]+@[^/]+', line, re.IGNORECASE):
+                match = self._create_secret_match(
+                    "Redis Connection String", "ConnectionStringDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # Generic database DSN with password
+            # DSN=...;PWD=password or Password=password
+            if re.search(r'(?:PWD|Password)\s*=\s*[^;\s]{4,}', line, re.IGNORECASE):
+                match = self._create_secret_match(
+                    "Database Password", "ConnectionStringDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # =================================================================
+            # REPO-148: OAuth Credentials
+            # =================================================================
+
+            # Bearer tokens (Authorization: Bearer ...)
+            if re.search(r'Bearer\s+[A-Za-z0-9_\-\.]{20,}', line):
+                match = self._create_secret_match(
+                    "Bearer Token", "OAuthDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # OAuth client secrets (various formats)
+            # client_secret = "..." or clientSecret = "..."
+            if re.search(r'(?:client[_-]?secret|oauth[_-]?secret)\s*[=:]\s*["\']?[A-Za-z0-9_\-]{20,}', line, re.IGNORECASE):
+                match = self._create_secret_match(
+                    "OAuth Client Secret", "OAuthDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # OAuth access tokens
+            if re.search(r'(?:access[_-]?token|oauth[_-]?token)\s*[=:]\s*["\']?[A-Za-z0-9_\-\.]{20,}', line, re.IGNORECASE):
+                match = self._create_secret_match(
+                    "OAuth Access Token", "OAuthDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # OAuth refresh tokens
+            if re.search(r'refresh[_-]?token\s*[=:]\s*["\']?[A-Za-z0-9_\-\.]{20,}', line, re.IGNORECASE):
+                match = self._create_secret_match(
+                    "OAuth Refresh Token", "OAuthDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # =================================================================
+            # REPO-148: Additional Patterns
+            # =================================================================
+
+            # SSH key passphrases in config or scripts
+            if re.search(r'(?:passphrase|ssh[_-]?pass(?:word)?)\s*[=:]\s*["\'][^"\']{8,}["\']', line, re.IGNORECASE):
+                match = self._create_secret_match(
+                    "SSH Passphrase", "SSHDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # PFX/PKCS12 passwords
+            if re.search(r'(?:pfx[_-]?password|pkcs12[_-]?pass(?:word)?|cert(?:ificate)?[_-]?pass(?:word)?)\s*[=:]\s*["\'][^"\']{4,}["\']', line, re.IGNORECASE):
+                match = self._create_secret_match(
+                    "Certificate Password", "CertificateDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # Encrypted key materials (looks like base64 encrypted content)
+            if re.search(r'-----BEGIN ENCRYPTED PRIVATE KEY-----', line):
+                match = self._create_secret_match(
+                    "Encrypted Private Key", "PrivateKeyDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # Twilio auth tokens
+            if re.search(r'twilio[_-]?(?:auth[_-]?)?token\s*[=:]\s*["\']?[a-f0-9]{32}', line, re.IGNORECASE):
+                match = self._create_secret_match(
+                    "Twilio Auth Token", "TwilioDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # SendGrid API keys
+            if re.search(r'SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}', line):
+                match = self._create_secret_match(
+                    "SendGrid API Key", "SendGridDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # Mailchimp API keys
+            if re.search(r'[a-f0-9]{32}-us\d{1,2}', line):
+                match = self._create_secret_match(
+                    "Mailchimp API Key", "MailchimpDetector",
+                    line, line_num, context, filename
+                )
+                secret_matches.append(match)
+
+            # =================================================================
+            # REPO-148: Entropy-based Detection
+            # =================================================================
+            if self.entropy_detection:
+                # Find quoted strings that might be secrets
+                quoted_strings = re.findall(r'["\']([A-Za-z0-9+/=_\-]{20,})["\']', line)
+                for candidate in quoted_strings:
+                    # Skip if already matched by a specific pattern
+                    if any(candidate in str(m.context) for m in secret_matches if m.line_number == line_num):
+                        continue
+
+                    is_secret, entropy = is_high_entropy_secret(
+                        candidate,
+                        min_length=self.min_entropy_length,
+                        entropy_threshold=self.entropy_threshold,
+                    )
+                    if is_secret:
+                        match = self._create_secret_match(
+                            f"High Entropy String (entropy={entropy:.2f})",
+                            "EntropyDetector",
+                            line, line_num, context, filename
+                        )
+                        secret_matches.append(match)
 
         # Redact secrets if found
         redacted_text = text
@@ -295,6 +632,162 @@ class SecretsScanner:
                 '-----BEGIN [REDACTED] PRIVATE KEY-----',
                 redacted
             )
+
+        # Pattern 7: Redact OpenAI API keys
+        redacted = re.sub(
+            r'sk-proj-[A-Za-z0-9]{20,}',
+            '[REDACTED]',
+            redacted
+        )
+        redacted = re.sub(
+            r'sk-[A-Za-z0-9]{32,}',
+            '[REDACTED]',
+            redacted
+        )
+
+        # Pattern 8: Redact Stripe keys
+        redacted = re.sub(
+            r'sk_(test|live)_[A-Za-z0-9]{24,}',
+            '[REDACTED]',
+            redacted
+        )
+        redacted = re.sub(
+            r'pk_(test|live)_[A-Za-z0-9]{24,}',
+            '[REDACTED]',
+            redacted
+        )
+        redacted = re.sub(
+            r'rk_(test|live)_[A-Za-z0-9]{24,}',
+            '[REDACTED]',
+            redacted
+        )
+
+        # Pattern 9: Redact Azure connection strings and keys
+        redacted = re.sub(
+            r'AccountKey=[A-Za-z0-9+/=]+',
+            'AccountKey=[REDACTED]',
+            redacted
+        )
+
+        # Pattern 10: Redact Google Cloud API keys
+        redacted = re.sub(
+            r'AIza[A-Za-z0-9_-]{35}',
+            '[REDACTED]',
+            redacted
+        )
+
+        # =================================================================
+        # REPO-148: Database Connection String Redaction
+        # =================================================================
+
+        # Pattern 11: Redact PostgreSQL connection strings (password portion)
+        redacted = re.sub(
+            r'(postgres(?:ql)?://[^:]+:)([^@]+)(@)',
+            r'\1[REDACTED]\3',
+            redacted,
+            flags=re.IGNORECASE
+        )
+
+        # Pattern 12: Redact MySQL connection strings (password portion)
+        redacted = re.sub(
+            r'(mysql://[^:]+:)([^@]+)(@)',
+            r'\1[REDACTED]\3',
+            redacted,
+            flags=re.IGNORECASE
+        )
+
+        # Pattern 13: Redact MongoDB connection strings (password portion)
+        redacted = re.sub(
+            r'(mongodb(?:\+srv)?://[^:]+:)([^@]+)(@)',
+            r'\1[REDACTED]\3',
+            redacted,
+            flags=re.IGNORECASE
+        )
+
+        # Pattern 14: Redact Redis connection strings (password portion)
+        redacted = re.sub(
+            r'(redis://(?:[^:]*:)?)([^@]+)(@)',
+            r'\1[REDACTED]\3',
+            redacted,
+            flags=re.IGNORECASE
+        )
+
+        # Pattern 15: Redact generic database passwords
+        redacted = re.sub(
+            r'((?:PWD|Password)\s*=\s*)([^;\s]+)',
+            r'\1[REDACTED]',
+            redacted,
+            flags=re.IGNORECASE
+        )
+
+        # =================================================================
+        # REPO-148: OAuth Credential Redaction
+        # =================================================================
+
+        # Pattern 16: Redact Bearer tokens
+        redacted = re.sub(
+            r'(Bearer\s+)[A-Za-z0-9_\-\.]{20,}',
+            r'\1[REDACTED]',
+            redacted
+        )
+
+        # Pattern 17: Redact OAuth client secrets
+        redacted = re.sub(
+            r'((?:client[_-]?secret|oauth[_-]?secret)\s*[=:]\s*["\']?)[A-Za-z0-9_\-]{20,}',
+            r'\1[REDACTED]',
+            redacted,
+            flags=re.IGNORECASE
+        )
+
+        # Pattern 18: Redact OAuth access/refresh tokens
+        redacted = re.sub(
+            r'((?:access[_-]?token|oauth[_-]?token|refresh[_-]?token)\s*[=:]\s*["\']?)[A-Za-z0-9_\-\.]{20,}',
+            r'\1[REDACTED]',
+            redacted,
+            flags=re.IGNORECASE
+        )
+
+        # =================================================================
+        # REPO-148: Additional Pattern Redaction
+        # =================================================================
+
+        # Pattern 19: Redact SSH passphrases
+        redacted = re.sub(
+            r'((?:passphrase|ssh[_-]?pass(?:word)?)\s*[=:]\s*["\'])([^"\']+)(["\'])',
+            r'\1[REDACTED]\3',
+            redacted,
+            flags=re.IGNORECASE
+        )
+
+        # Pattern 20: Redact certificate passwords
+        redacted = re.sub(
+            r'((?:pfx[_-]?password|pkcs12[_-]?pass(?:word)?|cert(?:ificate)?[_-]?pass(?:word)?)\s*[=:]\s*["\'])([^"\']+)(["\'])',
+            r'\1[REDACTED]\3',
+            redacted,
+            flags=re.IGNORECASE
+        )
+
+        # Pattern 21: Redact Twilio auth tokens
+        redacted = re.sub(
+            r'(twilio[_-]?(?:auth[_-]?)?token\s*[=:]\s*["\']?)[a-f0-9]{32}',
+            r'\1[REDACTED]',
+            redacted,
+            flags=re.IGNORECASE
+        )
+
+        # Pattern 22: Redact SendGrid API keys
+        redacted = re.sub(
+            r'SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}',
+            '[REDACTED]',
+            redacted
+        )
+
+        # Pattern 23: Redact Mailchimp API keys
+        redacted = re.sub(
+            r'[a-f0-9]{32}-us\d{1,2}',
+            '[REDACTED]',
+            redacted
+        )
 
         return redacted
 

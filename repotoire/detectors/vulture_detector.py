@@ -6,13 +6,15 @@ to provide detailed unused code findings with rich context.
 Architecture:
     1. Run vulture on repository (fast AST-based unused code detection)
     2. Parse vulture output
-    3. Enrich findings with Neo4j graph data (LOC, complexity, dependencies)
-    4. Generate detailed dead code findings
+    3. Filter false positives using graph-based dynamic usage detection (REPO-153)
+    4. Enrich findings with Neo4j graph data (LOC, complexity, dependencies)
+    5. Generate detailed dead code findings
 
 This approach achieves:
     - High accuracy (minimal false positives compared to graph-based detection)
     - Fast detection (AST-based, O(n))
     - Rich context (graph-based metadata)
+    - Dynamic usage filtering (getattr, factories, decorators)
     - Actionable insights (safe to remove vs needs investigation)
 
 Performance: ~2-5 seconds even on large codebases
@@ -80,13 +82,33 @@ class VultureDetector(CodeSmellDetector):
         if not self.repository_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repository_path}")
 
+        # Dynamic usage patterns that reduce confidence (REPO-153)
+        self.dynamic_call_patterns = {
+            "getattr", "setattr", "hasattr", "delattr",
+            "__getattribute__", "__getattr__", "__setattr__",
+        }
+
+        # Factory/registry patterns that might use items dynamically
+        self.factory_patterns = {
+            "factory", "registry", "create_", "build_", "make_",
+            "get_handler", "get_processor", "dispatch",
+        }
+
+        # Cache for dynamic usage check results
+        self._dynamic_usage_cache: Dict[str, Dict] = {}
+
     def detect(self) -> List[Finding]:
         """Run vulture and enrich findings with graph data.
+
+        Includes dynamic usage filtering to reduce false positives (REPO-153).
 
         Returns:
             List of dead code findings
         """
         logger.info(f"Running vulture on {self.repository_path}")
+
+        # Clear dynamic usage cache for fresh analysis
+        self._dynamic_usage_cache = {}
 
         # Run vulture and get results
         vulture_findings = self._run_vulture()
@@ -95,9 +117,21 @@ class VultureDetector(CodeSmellDetector):
             logger.info("No unused code found by vulture")
             return []
 
+        # Filter out likely false positives (REPO-153)
+        filtered_count = 0
+        filtered_findings = []
+        for vf in vulture_findings:
+            if self._should_filter_finding(vf):
+                filtered_count += 1
+            else:
+                filtered_findings.append(vf)
+
+        if filtered_count > 0:
+            logger.info(f"Filtered {filtered_count} likely false positives")
+
         # Group by file and type
         findings_by_file: Dict[str, List[Dict]] = {}
-        for vf in vulture_findings[:self.max_findings]:
+        for vf in filtered_findings[:self.max_findings]:
             file_path = vf["file"]
             if file_path not in findings_by_file:
                 findings_by_file[file_path] = []
@@ -113,7 +147,7 @@ class VultureDetector(CodeSmellDetector):
                 if finding:
                     findings.append(finding)
 
-        logger.info(f"Created {len(findings)} unused code findings")
+        logger.info(f"Created {len(findings)} unused code findings (after filtering)")
         return findings
 
     def _run_vulture(self) -> List[Dict[str, Any]]:
@@ -235,23 +269,38 @@ class VultureDetector(CodeSmellDetector):
         name = vulture_finding["name"]
         confidence = vulture_finding["confidence"]
 
-        # Determine severity based on confidence and type
-        if confidence >= 95:
+        # Check for dynamic usage patterns (REPO-153)
+        dynamic_info = self._check_dynamic_usage(name, file_path)
+
+        # Adjust confidence based on dynamic usage patterns
+        adjusted_confidence = confidence
+        if dynamic_info["dynamic_usage"]:
+            # Reduce confidence if dynamic patterns detected
+            reduction = int(dynamic_info["confidence_reduction"] * 100)
+            adjusted_confidence = max(confidence - reduction, 50)
+
+        # Determine severity based on adjusted confidence and type
+        if adjusted_confidence >= 95:
             severity = Severity.MEDIUM  # Very likely unused
-        elif confidence >= 80:
+        elif adjusted_confidence >= 80:
             severity = Severity.LOW  # Probably unused
         else:
             severity = Severity.INFO  # Might be unused
 
         # Adjust severity for functions/classes (higher impact)
-        if item_type in ("function", "class", "method") and confidence >= 90:
+        if item_type in ("function", "class", "method") and adjusted_confidence >= 90:
             severity = Severity.HIGH
 
         # Create finding
         finding_id = str(uuid.uuid4())
 
         description = f"Unused {item_type} '{name}' detected by vulture.\n\n"
-        description += f"**Confidence**: {confidence}%\n"
+        description += f"**Confidence**: {adjusted_confidence}%"
+        if dynamic_info["dynamic_usage"]:
+            description += f" (reduced from {confidence}% due to dynamic patterns)\n"
+            description += f"**Dynamic patterns detected**: {', '.join(dynamic_info['patterns'])}\n"
+        else:
+            description += "\n"
 
         if graph_context.get("file_loc"):
             description += f"**File Size**: {graph_context['file_loc']} LOC\n"
@@ -260,6 +309,10 @@ class VultureDetector(CodeSmellDetector):
             description += "\n**Impact**: Removing this would reduce code complexity and maintenance burden.\n"
         else:
             description += "\n**Impact**: Dead code increases cognitive load and may confuse developers.\n"
+
+        # Add warning if dynamic patterns detected
+        if dynamic_info["dynamic_usage"]:
+            description += "\n**Warning**: This item may be used dynamically. Review carefully before removing.\n"
 
         finding = Finding(
             id=finding_id,
@@ -274,11 +327,14 @@ class VultureDetector(CodeSmellDetector):
                 "item_type": item_type,
                 "item_name": name,
                 "line": line,
-                "confidence": confidence,
+                "confidence": adjusted_confidence,
+                "original_confidence": confidence,
                 "file_loc": graph_context.get("file_loc", 0),
+                "dynamic_usage": dynamic_info["dynamic_usage"],
+                "dynamic_patterns": dynamic_info["patterns"],
             },
-            suggested_fix=self._suggest_fix(item_type, name, confidence),
-            estimated_effort=self._estimate_effort(item_type, confidence),
+            suggested_fix=self._suggest_fix(item_type, name, adjusted_confidence),
+            estimated_effort=self._estimate_effort(item_type, adjusted_confidence),
             created_at=datetime.now()
         )
 
@@ -307,13 +363,26 @@ class VultureDetector(CodeSmellDetector):
             except Exception as e:
                 logger.warning(f"Failed to flag entity {name} in graph: {e}")
 
-        # Add collaboration metadata to finding (REPO-150 Phase 1)
+        # Add collaboration metadata to finding (REPO-150 Phase 1, REPO-153)
+        evidence = ["vulture", f"confidence_{adjusted_confidence}", "external_tool"]
+        tags = ["vulture", "unused_code", self._get_category_tag(item_type)]
+
+        # Add dynamic usage info to evidence and tags
+        if dynamic_info["dynamic_usage"]:
+            evidence.append("dynamic_patterns_detected")
+            tags.append("review_required")
+            for pattern in dynamic_info["patterns"]:
+                evidence.append(f"pattern:{pattern}")
+        else:
+            if adjusted_confidence >= 90:
+                tags.append("high_confidence")
+
         finding.add_collaboration_metadata(
             CollaborationMetadata(
                 detector="VultureDetector",
-                confidence=confidence / 100.0,
-                evidence=["vulture", f"confidence_{confidence}", "external_tool"],
-                tags=["vulture", "unused_code", self._get_category_tag(item_type)]
+                confidence=adjusted_confidence / 100.0,
+                evidence=evidence,
+                tags=tags
             )
         )
 
@@ -412,6 +481,126 @@ class VultureDetector(CodeSmellDetector):
             return "unused_property"
         else:
             return "unused_other"
+
+    def _check_dynamic_usage(self, name: str, file_path: str) -> Dict[str, Any]:
+        """Check if an item might be used dynamically via graph analysis.
+
+        Reduces false positives by detecting:
+        - getattr/setattr patterns
+        - Factory/registry patterns
+        - Decorator patterns
+        - Test fixtures
+
+        Args:
+            name: Item name to check
+            file_path: File path where item is defined
+
+        Returns:
+            Dict with dynamic_usage: bool, patterns: List[str], confidence_reduction: float
+        """
+        cache_key = f"{file_path}:{name}"
+        if cache_key in self._dynamic_usage_cache:
+            return self._dynamic_usage_cache[cache_key]
+
+        result = {
+            "dynamic_usage": False,
+            "patterns": [],
+            "confidence_reduction": 0.0,
+        }
+
+        try:
+            # Check for getattr/setattr calls that might reference this item
+            dynamic_query = """
+            MATCH (f:Function)
+            WHERE f.filePath = $file_path
+            OPTIONAL MATCH (f)-[:CALLS]->(called:Function)
+            WHERE called.name IN ['getattr', 'setattr', 'hasattr', 'delattr']
+            WITH f, count(called) as dynamic_calls
+            RETURN dynamic_calls > 0 as has_dynamic_calls
+            """
+
+            results = self.db.execute_query(dynamic_query, {"file_path": file_path})
+            if results and results[0].get("has_dynamic_calls"):
+                result["dynamic_usage"] = True
+                result["patterns"].append("getattr/setattr")
+                result["confidence_reduction"] += 0.15
+
+            # Check if item name matches factory/registry patterns
+            name_lower = name.lower()
+            for pattern in self.factory_patterns:
+                if pattern in name_lower:
+                    result["dynamic_usage"] = True
+                    result["patterns"].append(f"factory_pattern:{pattern}")
+                    result["confidence_reduction"] += 0.10
+                    break
+
+            # Check for decorator usage on the item
+            decorator_query = """
+            MATCH (entity)
+            WHERE (entity.qualifiedName ENDS WITH $name OR entity.name = $name)
+              AND entity.decorators IS NOT NULL
+              AND size(entity.decorators) > 0
+            RETURN count(entity) > 0 as has_decorators
+            """
+
+            decorator_results = self.db.execute_query(decorator_query, {"name": name})
+            if decorator_results and decorator_results[0].get("has_decorators"):
+                result["dynamic_usage"] = True
+                result["patterns"].append("has_decorators")
+                result["confidence_reduction"] += 0.20
+
+            # Check if this is a pytest fixture
+            if name.startswith("fixture_") or file_path.endswith("conftest.py"):
+                result["dynamic_usage"] = True
+                result["patterns"].append("pytest_fixture")
+                result["confidence_reduction"] += 0.30
+
+            # Cap confidence reduction
+            result["confidence_reduction"] = min(result["confidence_reduction"], 0.50)
+
+        except Exception as e:
+            logger.warning(f"Error checking dynamic usage for {name}: {e}")
+
+        self._dynamic_usage_cache[cache_key] = result
+        return result
+
+    def _should_filter_finding(self, vulture_finding: Dict[str, Any]) -> bool:
+        """Determine if a vulture finding should be filtered out.
+
+        Args:
+            vulture_finding: Vulture finding dictionary
+
+        Returns:
+            True if finding should be filtered (likely false positive)
+        """
+        name = vulture_finding.get("name", "")
+        item_type = vulture_finding.get("type", "")
+        confidence = vulture_finding.get("confidence", 0)
+
+        # Always keep high-confidence findings
+        if confidence >= 95:
+            return False
+
+        # Filter pytest fixtures
+        if name.startswith("fixture_") or name.endswith("_fixture"):
+            return True
+
+        # Filter common framework callbacks
+        callback_patterns = [
+            "on_", "handle_", "_handler", "_callback",
+            "setUp", "tearDown", "setUpClass", "tearDownClass",
+        ]
+        for pattern in callback_patterns:
+            if pattern in name:
+                return True
+
+        # Filter factory/builder methods
+        if item_type in ("function", "method"):
+            for pattern in self.factory_patterns:
+                if pattern in name.lower():
+                    return True
+
+        return False
 
     def severity(self, finding: Finding) -> Severity:
         """Calculate severity for an unused code finding.

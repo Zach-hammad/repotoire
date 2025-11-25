@@ -18,6 +18,14 @@ from repotoire.detectors.dead_code import DeadCodeDetector
 from repotoire.detectors.god_class import GodClassDetector
 from repotoire.detectors.architectural_bottleneck import ArchitecturalBottleneckDetector
 
+# GDS-based graph detectors (REPO-172, REPO-173)
+from repotoire.detectors.module_cohesion import ModuleCohesionDetector
+from repotoire.detectors.core_utility import CoreUtilityDetector
+
+# GDS-based detectors (REPO-169, REPO-170, REPO-171)
+from repotoire.detectors.influential_code import InfluentialCodeDetector
+from repotoire.detectors.degree_centrality import DegreeCentralityDetector
+
 # Graph-unique detectors (FAL-115)
 from repotoire.detectors.feature_envy import FeatureEnvyDetector
 from repotoire.detectors.shotgun_surgery import ShotgunSurgeryDetector
@@ -35,6 +43,8 @@ from repotoire.detectors.jscpd_detector import JscpdDetector
 from repotoire.detectors.vulture_detector import VultureDetector
 from repotoire.detectors.semgrep_detector import SemgrepDetector
 from repotoire.detectors.deduplicator import FindingDeduplicator
+from repotoire.detectors.root_cause_analyzer import RootCauseAnalyzer
+from repotoire.detectors.voting_engine import VotingEngine, VotingStrategy, ConfidenceMethod
 
 from repotoire.logging_config import get_logger, LogContext
 
@@ -56,7 +66,16 @@ class AnalysisEngine:
     # Category weights
     WEIGHTS = {"structure": 0.40, "quality": 0.30, "architecture": 0.30}
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Dict = None, repository_path: str = ".", keep_metadata: bool = False):
+    def __init__(
+        self,
+        neo4j_client: Neo4jClient,
+        detector_config: Dict = None,
+        repository_path: str = ".",
+        keep_metadata: bool = False,
+        enable_voting: bool = True,
+        voting_strategy: str = "weighted",
+        confidence_threshold: float = 0.6,
+    ):
         """Initialize analysis engine.
 
         Args:
@@ -64,10 +83,14 @@ class AnalysisEngine:
             detector_config: Optional detector configuration dict
             repository_path: Path to repository root (for hybrid detectors)
             keep_metadata: If True, don't cleanup detector metadata after analysis (enables hotspot queries)
+            enable_voting: Enable voting engine for multi-detector consensus (REPO-156)
+            voting_strategy: Voting strategy ("majority", "weighted", "threshold", "unanimous")
+            confidence_threshold: Minimum confidence to include finding (0.0-1.0)
         """
         self.db = neo4j_client
         self.repository_path = repository_path
         self.keep_metadata = keep_metadata
+        self.enable_voting = enable_voting
         config = detector_config or {}
 
         # Initialize GraphEnricher for cross-detector collaboration (REPO-151 Phase 2)
@@ -76,12 +99,34 @@ class AnalysisEngine:
         # Initialize FindingDeduplicator for reducing duplicate findings (REPO-152 Phase 3)
         self.deduplicator = FindingDeduplicator(line_proximity_threshold=5)
 
+        # Initialize RootCauseAnalyzer for cross-detector pattern recognition (REPO-155)
+        self.root_cause_analyzer = RootCauseAnalyzer()
+
+        # Initialize VotingEngine for multi-detector consensus (REPO-156)
+        strategy_map = {
+            "majority": VotingStrategy.MAJORITY,
+            "weighted": VotingStrategy.WEIGHTED,
+            "threshold": VotingStrategy.THRESHOLD,
+            "unanimous": VotingStrategy.UNANIMOUS,
+        }
+        self.voting_engine = VotingEngine(
+            strategy=strategy_map.get(voting_strategy, VotingStrategy.WEIGHTED),
+            confidence_method=ConfidenceMethod.WEIGHTED,
+            confidence_threshold=confidence_threshold,
+        )
+
         # Register all detectors
         self.detectors = [
             CircularDependencyDetector(neo4j_client, enricher=self.enricher),
             DeadCodeDetector(neo4j_client, enricher=self.enricher),
             GodClassDetector(neo4j_client, detector_config=detector_config, enricher=self.enricher),
             ArchitecturalBottleneckDetector(neo4j_client, enricher=self.enricher),
+            # GDS-based graph detectors (REPO-172, REPO-173)
+            ModuleCohesionDetector(neo4j_client),
+            CoreUtilityDetector(neo4j_client),
+            # GDS-based detectors (REPO-169, REPO-170, REPO-171)
+            InfluentialCodeDetector(neo4j_client),
+            DegreeCentralityDetector(neo4j_client),
             # Graph-unique detectors (FAL-115: Graph-Enhanced Linting Strategy)
             FeatureEnvyDetector(neo4j_client, detector_config=config.get("feature_envy"), enricher=self.enricher),
             ShotgunSurgeryDetector(neo4j_client, detector_config=config.get("shotgun_surgery"), enricher=self.enricher),
@@ -178,20 +223,42 @@ class AnalysisEngine:
                 # Run all detectors
                 findings = self._run_detectors()
 
-                # Deduplicate findings (REPO-152 Phase 3)
-                # Merge findings from multiple detectors that target the same entity
-                original_count = len(findings)
-                findings, dedup_stats = self.deduplicator.merge_duplicates(findings)
-                deduplicated_count = len(findings)
-
-                if original_count != deduplicated_count:
-                    logger.debug(
-                        f"Deduplicated {original_count} findings to {deduplicated_count} "
-                        f"({original_count - deduplicated_count} duplicates removed)"
+                # Run root cause analysis (REPO-155)
+                # Identifies god classes that cause cascading issues
+                findings = self.root_cause_analyzer.analyze(findings)
+                root_cause_summary = self.root_cause_analyzer.get_summary()
+                if root_cause_summary["total_root_causes"] > 0:
+                    logger.info(
+                        f"Root cause analysis: {root_cause_summary['total_root_causes']} root causes "
+                        f"affecting {root_cause_summary['total_cascading_issues']} cascading issues"
                     )
 
-                # Store deduplication statistics for reporting
-                self.dedup_stats = dedup_stats
+                # Store root cause summary for reporting
+                self.root_cause_summary = root_cause_summary
+
+                # Apply voting engine for multi-detector consensus (REPO-156)
+                original_count = len(findings)
+                if self.enable_voting:
+                    findings, voting_stats = self.voting_engine.vote(findings)
+                    self.voting_stats = voting_stats
+
+                    if voting_stats.get("boosted_by_consensus", 0) > 0:
+                        logger.info(
+                            f"Voting engine: {voting_stats['boosted_by_consensus']} findings "
+                            f"boosted by multi-detector consensus"
+                        )
+                else:
+                    # Fall back to simple deduplication (REPO-152 Phase 3)
+                    findings, dedup_stats = self.deduplicator.merge_duplicates(findings)
+                    self.voting_stats = None
+                    self.dedup_stats = dedup_stats
+
+                deduplicated_count = len(findings)
+                if original_count != deduplicated_count:
+                    logger.debug(
+                        f"Processed {original_count} findings to {deduplicated_count} "
+                        f"({original_count - deduplicated_count} filtered/merged)"
+                    )
 
                 # Calculate metrics (incorporating detector findings)
                 metrics = self._calculate_metrics(findings)
@@ -229,6 +296,8 @@ class AnalysisEngine:
                     findings_summary=findings_summary,
                     findings=findings,
                     dedup_stats=getattr(self, 'dedup_stats', None),
+                    root_cause_summary=getattr(self, 'root_cause_summary', None),
+                    voting_stats=getattr(self, 'voting_stats', None),
                 )
 
             finally:

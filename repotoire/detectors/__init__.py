@@ -7,6 +7,14 @@ from repotoire.detectors.dead_code import DeadCodeDetector
 from repotoire.detectors.god_class import GodClassDetector
 from repotoire.detectors.architectural_bottleneck import ArchitecturalBottleneckDetector
 
+# GDS-based graph detectors (REPO-172, REPO-173)
+from repotoire.detectors.module_cohesion import ModuleCohesionDetector
+from repotoire.detectors.core_utility import CoreUtilityDetector
+
+# GDS-based detectors (REPO-169, REPO-170, REPO-171)
+from repotoire.detectors.influential_code import InfluentialCodeDetector
+from repotoire.detectors.degree_centrality import DegreeCentralityDetector
+
 # Graph-unique detectors (FAL-115: Graph-Enhanced Linting Strategy)
 from repotoire.detectors.feature_envy import FeatureEnvyDetector
 from repotoire.detectors.shotgun_surgery import ShotgunSurgeryDetector
@@ -32,6 +40,12 @@ __all__ = [
     "DeadCodeDetector",
     "GodClassDetector",
     "ArchitecturalBottleneckDetector",
+    # GDS-based graph detectors
+    "ModuleCohesionDetector",
+    "CoreUtilityDetector",
+    # GDS-based detectors (REPO-169, REPO-170, REPO-171)
+    "InfluentialCodeDetector",
+    "DegreeCentralityDetector",
     # Graph-unique detectors
     "FeatureEnvyDetector",
     "ShotgunSurgeryDetector",

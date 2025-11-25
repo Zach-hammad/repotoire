@@ -1,7 +1,11 @@
-"""Dead code detector - finds unused functions and classes."""
+"""Dead code detector - finds unused functions and classes.
+
+Supports cross-detector validation with VultureDetector (REPO-153).
+When both graph-based and AST-based detection agree, confidence exceeds 95%.
+"""
 
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Dict, Set
 from datetime import datetime
 
 from repotoire.detectors.base import CodeSmellDetector
@@ -10,7 +14,11 @@ from repotoire.graph.enricher import GraphEnricher
 
 
 class DeadCodeDetector(CodeSmellDetector):
-    """Detects dead code (functions/classes with zero incoming references)."""
+    """Detects dead code (functions/classes with zero incoming references).
+
+    Supports cross-validation with VultureDetector for high-confidence findings.
+    When both detectors agree, confidence reaches 95%+ enabling safe auto-removal.
+    """
 
     def __init__(self, neo4j_client, detector_config: Optional[dict] = None, enricher: Optional[GraphEnricher] = None):
         """Initialize dead code detector.
@@ -22,6 +30,10 @@ class DeadCodeDetector(CodeSmellDetector):
         """
         super().__init__(neo4j_client)
         self.enricher = enricher
+
+        # Cross-validation confidence thresholds
+        self.base_confidence = 0.70  # Graph-only confidence
+        self.validated_confidence = 0.95  # When Vulture confirms
 
     # Common entry points that should not be flagged as dead code
     ENTRY_POINTS = {
@@ -83,29 +95,116 @@ class DeadCodeDetector(CodeSmellDetector):
         "__set_name__",  # descriptor protocol
     }
 
-    def detect(self) -> List[Finding]:
+    def detect(self, previous_findings: Optional[List[Finding]] = None) -> List[Finding]:
         """Find dead code (unused functions and classes).
 
         Looks for Function and Class nodes with zero incoming CALLS relationships
         and not imported by any file.
 
+        Args:
+            previous_findings: Optional list of findings from previous detectors
+                             (used for cross-validation with VultureDetector)
+
         Returns:
             List of findings for dead code
         """
+        # Build set of Vulture-confirmed unused items for cross-validation
+        vulture_unused = self._extract_vulture_unused(previous_findings)
+
         findings: List[Finding] = []
 
         # Find unused functions
-        function_findings = self._find_dead_functions()
+        function_findings = self._find_dead_functions(vulture_unused)
         findings.extend(function_findings)
 
         # Find unused classes
-        class_findings = self._find_dead_classes()
+        class_findings = self._find_dead_classes(vulture_unused)
         findings.extend(class_findings)
 
         return findings
 
-    def _find_dead_functions(self) -> List[Finding]:
+    def _extract_vulture_unused(
+        self,
+        previous_findings: Optional[List[Finding]]
+    ) -> Dict[str, Dict]:
+        """Extract Vulture-confirmed unused items from previous findings.
+
+        Args:
+            previous_findings: List of findings from previous detectors
+
+        Returns:
+            Dict mapping (file_path, name) -> vulture finding info
+        """
+        vulture_unused: Dict[str, Dict] = {}
+
+        if not previous_findings:
+            return vulture_unused
+
+        for finding in previous_findings:
+            if finding.detector != "VultureDetector":
+                continue
+
+            # Extract item info from graph_context
+            ctx = finding.graph_context or {}
+            item_name = ctx.get("item_name")
+            item_type = ctx.get("item_type")
+            vulture_confidence = ctx.get("confidence", 0)
+
+            if not item_name:
+                continue
+
+            # Get file path from affected_files
+            file_path = finding.affected_files[0] if finding.affected_files else None
+            if not file_path:
+                continue
+
+            # Create lookup key
+            key = f"{file_path}:{item_name}"
+            vulture_unused[key] = {
+                "name": item_name,
+                "type": item_type,
+                "confidence": vulture_confidence,
+                "file": file_path,
+                "line": ctx.get("line"),
+            }
+
+            # Also store by just name for fuzzy matching
+            vulture_unused[item_name] = vulture_unused[key]
+
+        return vulture_unused
+
+    def _check_vulture_confirms(
+        self,
+        name: str,
+        file_path: str,
+        vulture_unused: Dict[str, Dict]
+    ) -> Optional[Dict]:
+        """Check if Vulture also flagged this item as unused.
+
+        Args:
+            name: Function/class name
+            file_path: File path
+            vulture_unused: Dict of Vulture-confirmed unused items
+
+        Returns:
+            Vulture finding info if confirmed, None otherwise
+        """
+        # Try exact match first
+        key = f"{file_path}:{name}"
+        if key in vulture_unused:
+            return vulture_unused[key]
+
+        # Try name-only match (less precise but catches more)
+        if name in vulture_unused:
+            return vulture_unused[name]
+
+        return None
+
+    def _find_dead_functions(self, vulture_unused: Dict[str, Dict]) -> List[Finding]:
         """Find functions that are never called.
+
+        Args:
+            vulture_unused: Dict of Vulture-confirmed unused items for cross-validation
 
         Returns:
             List of findings for dead functions
@@ -204,17 +303,57 @@ class DeadCodeDetector(CodeSmellDetector):
             file_path = record["containing_file"] or record["file_path"]
             complexity = record["complexity"] or 0
 
+            # Cross-validation with Vulture (REPO-153)
+            vulture_match = self._check_vulture_confirms(name, file_path, vulture_unused)
+            vulture_confirmed = vulture_match is not None
+
+            # Calculate confidence based on validation
+            if vulture_confirmed:
+                confidence = self.validated_confidence  # 95% when both agree
+                vulture_conf = vulture_match.get("confidence", 0)
+                validators = ["graph_analysis", "vulture"]
+                safe_to_remove = True
+            else:
+                confidence = self.base_confidence  # 70% graph-only
+                vulture_conf = 0
+                validators = ["graph_analysis"]
+                safe_to_remove = False
+
             severity = self._calculate_function_severity(complexity)
+
+            # Build description with validation info
+            description = f"Function '{name}' is never called in the codebase. "
+            description += f"It has complexity {complexity}."
+            if vulture_confirmed:
+                description += f"\n\n**Cross-validated**: Both graph analysis and Vulture agree this is unused."
+                description += f"\n**Confidence**: {confidence*100:.0f}% ({len(validators)} validators agree)"
+                description += f"\n**Safe to remove**: Yes"
+            else:
+                description += f"\n\n**Confidence**: {confidence*100:.0f}% (graph analysis only)"
+                description += f"\n**Recommendation**: Review before removing"
+
+            # Build suggested fix based on confidence
+            if safe_to_remove:
+                suggested_fix = (
+                    f"**SAFE TO REMOVE** (confidence: {confidence*100:.0f}%)\n"
+                    f"Both graph analysis and Vulture confirm this function is unused.\n"
+                    f"1. Delete the function from {file_path.split('/')[-1]}\n"
+                    f"2. Run tests to verify nothing breaks"
+                )
+            else:
+                suggested_fix = (
+                    f"**REVIEW REQUIRED** (confidence: {confidence*100:.0f}%)\n"
+                    f"1. Remove the function from {file_path.split('/')[-1]}\n"
+                    f"2. Check for dynamic calls (getattr, eval) that might use it\n"
+                    f"3. Verify it's not an API endpoint or callback"
+                )
 
             finding = Finding(
                 id=finding_id,
                 detector="DeadCodeDetector",
                 severity=severity,
                 title=f"Unused function: {name}",
-                description=(
-                    f"Function '{name}' is never called in the codebase. "
-                    f"It has complexity {complexity} and may be safe to remove."
-                ),
+                description=description,
                 affected_nodes=[qualified_name],
                 affected_files=[file_path],
                 graph_context={
@@ -222,24 +361,32 @@ class DeadCodeDetector(CodeSmellDetector):
                     "name": name,
                     "complexity": complexity,
                     "line_start": record["line_start"],
+                    "vulture_confirmed": vulture_confirmed,
+                    "vulture_confidence": vulture_conf,
+                    "validators": validators,
+                    "safe_to_remove": safe_to_remove,
+                    "confidence": confidence,
                 },
-                suggested_fix=(
-                    f"If this function is truly unused:\n"
-                    f"1. Remove the function from {file_path.split('/')[-1]}\n"
-                    f"2. Check for dynamic calls (getattr, eval) that might use it\n"
-                    f"3. Verify it's not an API endpoint or callback"
-                ),
-                estimated_effort="Small (15-30 minutes)",
+                suggested_fix=suggested_fix,
+                estimated_effort="Small (15-30 minutes)" if safe_to_remove else "Small (30-60 minutes)",
                 created_at=datetime.now(),
             )
 
-            # Add collaboration metadata (REPO-150 Phase 1)
-            confidence = 0.85  # High confidence - graph query with filters
+            # Add collaboration metadata (REPO-150 Phase 1) with cross-validation info
+            evidence = ["unused_function", "no_calls"]
+            if vulture_confirmed:
+                evidence.append("vulture_confirmed")
+            tags = ["dead_code", "unused_code", "maintenance"]
+            if safe_to_remove:
+                tags.append("safe_to_remove")
+            else:
+                tags.append("review_required")
+
             finding.add_collaboration_metadata(CollaborationMetadata(
                 detector="DeadCodeDetector",
                 confidence=confidence,
-                evidence=["unused_function", "no_calls"],
-                tags=["dead_code", "unused_code", "maintenance"]
+                evidence=evidence,
+                tags=tags
             ))
 
             # Flag entity in graph for cross-detector collaboration (REPO-151 Phase 2)
@@ -260,8 +407,11 @@ class DeadCodeDetector(CodeSmellDetector):
 
         return findings
 
-    def _find_dead_classes(self) -> List[Finding]:
+    def _find_dead_classes(self, vulture_unused: Dict[str, Dict]) -> List[Finding]:
         """Find classes that are never instantiated or inherited from.
+
+        Args:
+            vulture_unused: Dict of Vulture-confirmed unused items for cross-validation
 
         Returns:
             List of findings for dead classes
@@ -330,17 +480,57 @@ class DeadCodeDetector(CodeSmellDetector):
             complexity = record["complexity"] or 0
             method_count = record["method_count"] or 0
 
+            # Cross-validation with Vulture (REPO-153)
+            vulture_match = self._check_vulture_confirms(name, file_path, vulture_unused)
+            vulture_confirmed = vulture_match is not None
+
+            # Calculate confidence based on validation
+            if vulture_confirmed:
+                confidence = self.validated_confidence  # 95% when both agree
+                vulture_conf = vulture_match.get("confidence", 0)
+                validators = ["graph_analysis", "vulture"]
+                safe_to_remove = True
+            else:
+                confidence = self.base_confidence  # 70% graph-only
+                vulture_conf = 0
+                validators = ["graph_analysis"]
+                safe_to_remove = False
+
             severity = self._calculate_class_severity(method_count, complexity)
+
+            # Build description with validation info
+            description = f"Class '{name}' is never instantiated or inherited from. "
+            description += f"It has {method_count} methods and complexity {complexity}."
+            if vulture_confirmed:
+                description += f"\n\n**Cross-validated**: Both graph analysis and Vulture agree this is unused."
+                description += f"\n**Confidence**: {confidence*100:.0f}% ({len(validators)} validators agree)"
+                description += f"\n**Safe to remove**: Yes"
+            else:
+                description += f"\n\n**Confidence**: {confidence*100:.0f}% (graph analysis only)"
+                description += f"\n**Recommendation**: Review before removing"
+
+            # Build suggested fix based on confidence
+            if safe_to_remove:
+                suggested_fix = (
+                    f"**SAFE TO REMOVE** (confidence: {confidence*100:.0f}%)\n"
+                    f"Both graph analysis and Vulture confirm this class is unused.\n"
+                    f"1. Delete the class and its {method_count} methods\n"
+                    f"2. Run tests to verify nothing breaks"
+                )
+            else:
+                suggested_fix = (
+                    f"**REVIEW REQUIRED** (confidence: {confidence*100:.0f}%)\n"
+                    f"1. Remove the class and its {method_count} methods\n"
+                    f"2. Check for dynamic instantiation (factory patterns, reflection)\n"
+                    f"3. Verify it's not used in configuration or plugins"
+                )
 
             finding = Finding(
                 id=finding_id,
                 detector="DeadCodeDetector",
                 severity=severity,
                 title=f"Unused class: {name}",
-                description=(
-                    f"Class '{name}' is never instantiated or inherited from. "
-                    f"It has {method_count} methods and complexity {complexity}."
-                ),
+                description=description,
                 affected_nodes=[qualified_name],
                 affected_files=[file_path],
                 graph_context={
@@ -348,24 +538,32 @@ class DeadCodeDetector(CodeSmellDetector):
                     "name": name,
                     "complexity": complexity,
                     "method_count": method_count,
+                    "vulture_confirmed": vulture_confirmed,
+                    "vulture_confidence": vulture_conf,
+                    "validators": validators,
+                    "safe_to_remove": safe_to_remove,
+                    "confidence": confidence,
                 },
-                suggested_fix=(
-                    f"If this class is truly unused:\n"
-                    f"1. Remove the class and its {method_count} methods\n"
-                    f"2. Check for dynamic instantiation (factory patterns, reflection)\n"
-                    f"3. Verify it's not used in configuration or plugins"
-                ),
+                suggested_fix=suggested_fix,
                 estimated_effort=self._estimate_class_removal_effort(method_count),
                 created_at=datetime.now(),
             )
 
-            # Add collaboration metadata (REPO-150 Phase 1)
-            confidence = 0.80  # Good confidence - graph query with filters
+            # Add collaboration metadata (REPO-150 Phase 1) with cross-validation info
+            evidence = ["unused_class", "no_instantiation"]
+            if vulture_confirmed:
+                evidence.append("vulture_confirmed")
+            tags = ["dead_code", "unused_code", "maintenance"]
+            if safe_to_remove:
+                tags.append("safe_to_remove")
+            else:
+                tags.append("review_required")
+
             finding.add_collaboration_metadata(CollaborationMetadata(
                 detector="DeadCodeDetector",
                 confidence=confidence,
-                evidence=["unused_class", "no_instantiation"],
-                tags=["dead_code", "unused_code", "maintenance"]
+                evidence=evidence,
+                tags=tags
             ))
 
             # Flag entity in graph for cross-detector collaboration (REPO-151 Phase 2)

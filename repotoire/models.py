@@ -1267,6 +1267,12 @@ class CodebaseHealth:
     # Deduplication statistics (optional)
     dedup_stats: Optional[Dict] = None
 
+    # Root cause analysis summary (REPO-155)
+    root_cause_summary: Optional[Dict] = None
+
+    # Voting engine statistics (REPO-156)
+    voting_stats: Optional[Dict] = None
+
     # Timestamp
     analyzed_at: datetime = field(default_factory=datetime.now)
 

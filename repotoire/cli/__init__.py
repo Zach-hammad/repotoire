@@ -662,10 +662,16 @@ def analyze(
                         quiet=quiet
                     )
 
+    except click.Abort:
+        # Let Click handle abort cleanly (preserves command context)
+        raise
+    except click.ClickException:
+        # Let Click handle its own exceptions (preserves command context)
+        raise
     except Exception as e:
         logger.exception("Error during analysis")
         console.print(f"\n[red]❌ Error: {e}[/red]")
-        raise
+        raise click.Abort()
 
 
 def _display_health_report(health) -> None:
@@ -819,14 +825,9 @@ def _display_health_report(health) -> None:
 
         console.print(findings_table)
 
-        # Detailed findings tree view
+        # Findings note
         if health.findings:
-            console.print("\n[bold cyan]📋 Detailed Findings[/bold cyan]\n")
-            _display_findings_tree(health.findings[:10], SEVERITY_COLORS, SEVERITY_EMOJI)
-
-            if len(health.findings) > 10:
-                console.print(f"\n[dim]... and {len(health.findings) - 10} more findings[/dim]")
-                console.print("[dim]Use --output to save full report to JSON file[/dim]")
+            console.print(f"\n[dim]📋 {len(health.findings)} findings detected. Use HTML/JSON output for details.[/dim]")
 
 
 def _display_findings_tree(findings, severity_colors, severity_emoji):
@@ -3967,6 +3968,419 @@ def hotspots(
     except Exception as e:
         console.print(f"[red]Error during hotspot analysis: {e}[/red]")
         logger.exception("Hotspot analysis failed")
+        raise click.Abort()
+    finally:
+        neo4j_client.close()
+
+
+@cli.group()
+def embeddings() -> None:
+    """Manage graph embeddings for structural similarity.
+
+    Graph embeddings capture structural patterns in the code graph,
+    enabling similarity search based on call relationships, imports,
+    and code organization.
+
+    Examples:
+        repotoire embeddings generate     # Generate FastRP embeddings
+        repotoire embeddings stats        # Show embedding statistics
+        repotoire embeddings similar X    # Find similar to X
+    """
+    pass
+
+
+@embeddings.command("generate")
+@click.option(
+    "--dimension",
+    "-d",
+    type=int,
+    default=128,
+    help="Embedding dimension (default: 128)",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Regenerate even if embeddings exist",
+)
+@click.option(
+    "--neo4j-uri",
+    envvar="REPOTOIRE_NEO4J_URI",
+    default="bolt://localhost:7687",
+    help="Neo4j connection URI",
+)
+@click.option(
+    "--neo4j-password",
+    envvar="REPOTOIRE_NEO4J_PASSWORD",
+    help="Neo4j password",
+)
+def embeddings_generate(
+    dimension: int,
+    force: bool,
+    neo4j_uri: str,
+    neo4j_password: Optional[str],
+) -> None:
+    """Generate FastRP graph embeddings for structural similarity.
+
+    FastRP (Fast Random Projection) creates embeddings that capture
+    the structural position of code entities in the call graph.
+
+    Requirements:
+        - Neo4j with Graph Data Science (GDS) plugin
+        - Code already ingested into graph
+
+    Examples:
+        repotoire embeddings generate
+        repotoire embeddings generate --dimension 256
+        repotoire embeddings generate --force
+    """
+    from repotoire.graph import Neo4jClient
+    from repotoire.ml import FastRPEmbedder, FastRPConfig
+
+    console.print("\n🔮 [bold]FastRP Graph Embedding Generation[/bold]\n")
+
+    # Connect to Neo4j
+    try:
+        neo4j_client = Neo4jClient(neo4j_uri, password=neo4j_password)
+    except Exception as e:
+        console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
+        raise click.Abort()
+
+    try:
+        config = FastRPConfig(embedding_dimension=dimension)
+        embedder = FastRPEmbedder(neo4j_client, config)
+
+        # Check existing embeddings
+        stats = embedder.get_embedding_stats()
+        if stats["nodes_with_embeddings"] > 0 and not force:
+            console.print(
+                f"[yellow]Embeddings already exist: {stats['nodes_with_embeddings']} nodes "
+                f"({stats['coverage_percent']:.1f}% coverage)[/yellow]"
+            )
+            console.print("[dim]Use --force to regenerate[/dim]")
+            return
+
+        # Generate embeddings
+        console.print(f"Configuration:")
+        console.print(f"  Dimension: [cyan]{dimension}[/cyan]")
+        console.print(f"  Node types: [cyan]{', '.join(config.node_labels)}[/cyan]")
+        console.print(f"  Relationships: [cyan]{', '.join(config.relationship_types)}[/cyan]")
+        console.print()
+
+        with console.status("[cyan]Generating embeddings...[/cyan]"):
+            gen_stats = embedder.generate_embeddings()
+
+        if gen_stats["node_count"] == 0:
+            console.print("[yellow]⚠️  No nodes found to embed[/yellow]")
+            console.print("[dim]Run 'repotoire ingest' first to populate the graph[/dim]")
+            return
+
+        console.print(f"[green]✓ Generated {gen_stats['node_count']:,} embeddings[/green]")
+        console.print(f"  Dimension: {gen_stats['embedding_dimension']}")
+        console.print(f"  Compute time: {gen_stats['compute_millis']}ms")
+        console.print(f"  Write time: {gen_stats['write_millis']}ms")
+
+        # Show breakdown by label
+        final_stats = embedder.get_embedding_stats()
+        if final_stats.get("by_label"):
+            console.print("\n[bold]By node type:[/bold]")
+            for label, counts in final_stats["by_label"].items():
+                console.print(f"  {label}: {counts['embedded']:,} / {counts['total']:,}")
+
+    except RuntimeError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        console.print("[dim]Ensure Neo4j GDS plugin is installed[/dim]")
+        raise click.Abort()
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        logger.exception("Embedding generation failed")
+        raise click.Abort()
+    finally:
+        neo4j_client.close()
+
+
+@embeddings.command("stats")
+@click.option(
+    "--neo4j-uri",
+    envvar="REPOTOIRE_NEO4J_URI",
+    default="bolt://localhost:7687",
+    help="Neo4j connection URI",
+)
+@click.option(
+    "--neo4j-password",
+    envvar="REPOTOIRE_NEO4J_PASSWORD",
+    help="Neo4j password",
+)
+def embeddings_stats(
+    neo4j_uri: str,
+    neo4j_password: Optional[str],
+) -> None:
+    """Show statistics about generated graph embeddings.
+
+    Examples:
+        repotoire embeddings stats
+    """
+    from repotoire.graph import Neo4jClient
+    from repotoire.ml import FastRPEmbedder
+
+    console.print("\n📊 [bold]Graph Embedding Statistics[/bold]\n")
+
+    try:
+        neo4j_client = Neo4jClient(neo4j_uri, password=neo4j_password)
+    except Exception as e:
+        console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
+        raise click.Abort()
+
+    try:
+        embedder = FastRPEmbedder(neo4j_client)
+        stats = embedder.get_embedding_stats()
+
+        if stats["nodes_with_embeddings"] == 0:
+            console.print("[yellow]No graph embeddings found[/yellow]")
+            console.print("[dim]Run 'repotoire embeddings generate' to create them[/dim]")
+            return
+
+        console.print(f"Total nodes: {stats['total_nodes']:,}")
+        console.print(f"Nodes with embeddings: {stats['nodes_with_embeddings']:,}")
+        console.print(f"Coverage: [cyan]{stats['coverage_percent']:.1f}%[/cyan]")
+        console.print(f"Embedding dimension: {stats['embedding_dimension']}")
+
+        if stats.get("by_label"):
+            console.print("\n[bold]By node type:[/bold]")
+            for label, counts in stats["by_label"].items():
+                pct = (counts['embedded'] / counts['total'] * 100) if counts['total'] > 0 else 0
+                console.print(f"  {label}: {counts['embedded']:,} / {counts['total']:,} ({pct:.0f}%)")
+
+    except RuntimeError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise click.Abort()
+    finally:
+        neo4j_client.close()
+
+
+@embeddings.command("similar")
+@click.argument("qualified_name")
+@click.option(
+    "--top-k",
+    "-k",
+    type=int,
+    default=10,
+    help="Number of results (default: 10)",
+)
+@click.option(
+    "--type",
+    "-t",
+    "node_type",
+    type=click.Choice(["Function", "Class", "File"], case_sensitive=True),
+    default=None,
+    help="Filter by node type",
+)
+@click.option(
+    "--neo4j-uri",
+    envvar="REPOTOIRE_NEO4J_URI",
+    default="bolt://localhost:7687",
+    help="Neo4j connection URI",
+)
+@click.option(
+    "--neo4j-password",
+    envvar="REPOTOIRE_NEO4J_PASSWORD",
+    help="Neo4j password",
+)
+def embeddings_similar(
+    qualified_name: str,
+    top_k: int,
+    node_type: Optional[str],
+    neo4j_uri: str,
+    neo4j_password: Optional[str],
+) -> None:
+    """Find entities structurally similar to the given entity.
+
+    Uses FastRP embeddings to find entities with similar structural
+    patterns in the code graph.
+
+    Examples:
+        repotoire embeddings similar "my.module.MyClass.method"
+        repotoire embeddings similar "my.module" --type Function -k 20
+    """
+    from repotoire.graph import Neo4jClient
+    from repotoire.ml import StructuralSimilarityAnalyzer
+    from rich.table import Table
+
+    console.print(f"\n🔍 [bold]Finding entities similar to:[/bold] [cyan]{qualified_name}[/cyan]\n")
+
+    try:
+        neo4j_client = Neo4jClient(neo4j_uri, password=neo4j_password)
+    except Exception as e:
+        console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
+        raise click.Abort()
+
+    try:
+        analyzer = StructuralSimilarityAnalyzer(neo4j_client)
+
+        # Check embeddings exist
+        stats = analyzer.get_stats()
+        if stats["nodes_with_embeddings"] == 0:
+            console.print("[yellow]No graph embeddings found[/yellow]")
+            console.print("[dim]Run 'repotoire embeddings generate' first[/dim]")
+            return
+
+        # Find similar
+        node_labels = [node_type] if node_type else None
+        results = analyzer.find_similar(qualified_name, top_k=top_k, node_labels=node_labels)
+
+        if not results:
+            console.print("[yellow]No similar entities found[/yellow]")
+            console.print("[dim]The entity may not have an embedding, or no similar entities exist[/dim]")
+            return
+
+        # Display results
+        table = Table(title=f"Top {len(results)} Structurally Similar Entities", show_header=True)
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Entity", style="cyan", no_wrap=False)
+        table.add_column("Type", style="magenta", width=10)
+        table.add_column("Similarity", justify="right", style="green")
+        table.add_column("File", style="dim", no_wrap=False)
+
+        for i, result in enumerate(results, 1):
+            name_display = result.qualified_name
+            if len(name_display) > 50:
+                name_display = "..." + name_display[-47:]
+
+            file_display = result.file_path or ""
+            if len(file_display) > 40:
+                file_display = "..." + file_display[-37:]
+
+            table.add_row(
+                str(i),
+                name_display,
+                result.node_type or "?",
+                f"{result.similarity_score:.3f}",
+                file_display,
+            )
+
+        console.print(table)
+
+    except RuntimeError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise click.Abort()
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        logger.exception("Similarity search failed")
+        raise click.Abort()
+    finally:
+        neo4j_client.close()
+
+
+@embeddings.command("clones")
+@click.option(
+    "--threshold",
+    "-t",
+    type=float,
+    default=0.95,
+    help="Minimum similarity to be considered a clone (default: 0.95)",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=50,
+    help="Maximum results (default: 50)",
+)
+@click.option(
+    "--neo4j-uri",
+    envvar="REPOTOIRE_NEO4J_URI",
+    default="bolt://localhost:7687",
+    help="Neo4j connection URI",
+)
+@click.option(
+    "--neo4j-password",
+    envvar="REPOTOIRE_NEO4J_PASSWORD",
+    help="Neo4j password",
+)
+def embeddings_clones(
+    threshold: float,
+    limit: int,
+    neo4j_uri: str,
+    neo4j_password: Optional[str],
+) -> None:
+    """Find potential code clones based on structural similarity.
+
+    Identifies function pairs with very high structural similarity,
+    which may indicate duplicated or copy-pasted code.
+
+    Examples:
+        repotoire embeddings clones
+        repotoire embeddings clones --threshold 0.9 --limit 100
+    """
+    from repotoire.graph import Neo4jClient
+    from repotoire.ml import StructuralSimilarityAnalyzer
+    from rich.table import Table
+
+    console.print(f"\n🔎 [bold]Finding potential code clones[/bold] (threshold >= {threshold})\n")
+
+    try:
+        neo4j_client = Neo4jClient(neo4j_uri, password=neo4j_password)
+    except Exception as e:
+        console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
+        raise click.Abort()
+
+    try:
+        analyzer = StructuralSimilarityAnalyzer(neo4j_client)
+
+        # Check embeddings exist
+        stats = analyzer.get_stats()
+        if stats["nodes_with_embeddings"] == 0:
+            console.print("[yellow]No graph embeddings found[/yellow]")
+            console.print("[dim]Run 'repotoire embeddings generate' first[/dim]")
+            return
+
+        # Find clones
+        with console.status("[cyan]Searching for clones...[/cyan]"):
+            pairs = analyzer.find_potential_clones(threshold=threshold, limit=limit)
+
+        if not pairs:
+            console.print(f"[green]✓ No potential clones found above {threshold} similarity[/green]")
+            return
+
+        console.print(f"[yellow]Found {len(pairs)} potential clone pairs[/yellow]\n")
+
+        # Display results
+        table = Table(title="Potential Code Clones", show_header=True)
+        table.add_column("Entity A", style="cyan", no_wrap=False)
+        table.add_column("Entity B", style="cyan", no_wrap=False)
+        table.add_column("Similarity", justify="right", style="yellow")
+
+        for entity_a, entity_b in pairs[:20]:  # Show top 20
+            name_a = entity_a.name or entity_a.qualified_name.split("::")[-1].split(":")[0]
+            name_b = entity_b.name or entity_b.qualified_name.split("::")[-1].split(":")[0]
+
+            file_a = entity_a.file_path or ""
+            file_b = entity_b.file_path or ""
+            if len(file_a) > 30:
+                file_a = "..." + file_a[-27:]
+            if len(file_b) > 30:
+                file_b = "..." + file_b[-27:]
+
+            display_a = f"{name_a}\n[dim]{file_a}[/dim]"
+            display_b = f"{name_b}\n[dim]{file_b}[/dim]"
+
+            table.add_row(
+                display_a,
+                display_b,
+                f"{entity_a.similarity_score:.3f}",
+            )
+
+        console.print(table)
+
+        if len(pairs) > 20:
+            console.print(f"\n[dim]Showing 20 of {len(pairs)} pairs[/dim]")
+
+    except RuntimeError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise click.Abort()
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        logger.exception("Clone detection failed")
         raise click.Abort()
     finally:
         neo4j_client.close()

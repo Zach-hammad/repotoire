@@ -2,15 +2,21 @@
 
 Identifies functions that sit on many execution paths (high betweenness),
 indicating architectural bottlenecks that are critical points of failure.
+
+REPO-154: Enhanced with cross-detector risk amplification to escalate
+severity when bottlenecks combine with high complexity and security issues.
 """
 
-from typing import List, Optional
+import json
+from typing import Dict, List, Optional
+
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.graph_algorithms import GraphAlgorithms
+from repotoire.detectors.risk_analyzer import BottleneckRiskAnalyzer, RiskAssessment
 from repotoire.graph.client import Neo4jClient
-from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.logging_config import get_logger
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 logger = get_logger(__name__)
 
@@ -40,13 +46,42 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
         # Complexity thresholds for severity escalation
         self.high_complexity_threshold = 20
 
-    def detect(self) -> List[Finding]:
+        # REPO-154: Store risk assessments for reporting
+        self._last_risk_assessments: List[RiskAssessment] = []
+
+    def detect(
+        self,
+        previous_findings: Optional[List[Finding]] = None,
+    ) -> List[Finding]:
         """Detect architectural bottlenecks using betweenness centrality.
+
+        REPO-154: Now supports cross-detector risk amplification via
+        previous_findings parameter. When radon/bandit findings are passed,
+        severity is escalated for bottlenecks with compound risk factors.
+
+        Args:
+            previous_findings: Optional findings from other detectors
+                (RadonDetector, BanditDetector) for risk correlation
 
         Returns:
             List of findings for high-betweenness functions
         """
         findings = []
+        previous_findings = previous_findings or []
+
+        # Separate previous findings by type for risk analysis
+        radon_findings = [
+            f for f in previous_findings
+            if "radon" in f.detector.lower() or "complexity" in f.detector.lower()
+        ]
+        bandit_findings = [
+            f for f in previous_findings
+            if "bandit" in f.detector.lower() or "security" in f.detector.lower()
+        ]
+        other_findings = [
+            f for f in previous_findings
+            if f not in radon_findings and f not in bandit_findings
+        ]
 
         # Initialize graph algorithms
         graph_algo = GraphAlgorithms(self.db)
@@ -182,31 +217,57 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
                         "max_betweenness": max_betweenness,
                     }
                 )
-            # Add collaboration metadata (REPO-150 Phase 1)
-            finding.add_collaboration_metadata(CollaborationMetadata(
-                detector="ArchitecturalBottleneckDetector",
-                confidence=0.9,
-                evidence=['high_betweenness'],
-                tags=['bottleneck', 'architecture', 'performance']
-            ))
+                # Add collaboration metadata (REPO-150 Phase 1)
+                finding.add_collaboration_metadata(CollaborationMetadata(
+                    detector="ArchitecturalBottleneckDetector",
+                    confidence=0.9,
+                    evidence=['high_betweenness'],
+                    tags=['bottleneck', 'architecture', 'performance']
+                ))
 
-            # Flag entity in graph for cross-detector collaboration (REPO-151 Phase 2)
-            if self.enricher and finding.affected_nodes:
-                for entity_qname in finding.affected_nodes:
-                    try:
-                        self.enricher.flag_entity(
-                            entity_qualified_name=entity_qname,
-                            detector="ArchitecturalBottleneckDetector",
-                            severity=finding.severity.value,
-                            issues=['high_betweenness'],
-                            confidence=0.9,
-                            metadata={k: (json.dumps(v) if isinstance(v, (dict, list)) else str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v) for k, v in (finding.graph_context or {}).items()}
-                        )
-                    except Exception:
-                        pass
-
+                # Flag entity in graph for cross-detector collaboration (REPO-151 Phase 2)
+                if self.enricher and finding.affected_nodes:
+                    for entity_qname in finding.affected_nodes:
+                        try:
+                            self.enricher.flag_entity(
+                                entity_qualified_name=entity_qname,
+                                detector="ArchitecturalBottleneckDetector",
+                                severity=finding.severity.value,
+                                issues=['high_betweenness'],
+                                confidence=0.9,
+                                metadata={k: (json.dumps(v) if isinstance(v, (dict, list)) else str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v) for k, v in (finding.graph_context or {}).items()}
+                            )
+                        except Exception:
+                            pass
 
                 findings.append(finding)
+
+            # REPO-154: Apply cross-detector risk amplification
+            if radon_findings or bandit_findings:
+                logger.info(
+                    f"Applying risk amplification with {len(radon_findings)} complexity "
+                    f"and {len(bandit_findings)} security findings"
+                )
+                risk_analyzer = BottleneckRiskAnalyzer(
+                    complexity_threshold=self.high_complexity_threshold,
+                )
+                findings, risk_assessments = risk_analyzer.analyze(
+                    bottleneck_findings=findings,
+                    radon_findings=radon_findings,
+                    bandit_findings=bandit_findings,
+                    other_findings=other_findings,
+                )
+
+                # Log risk escalations
+                critical_risks = [a for a in risk_assessments if a.is_critical_risk]
+                if critical_risks:
+                    logger.warning(
+                        f"Found {len(critical_risks)} critical compound risks "
+                        "(bottleneck + complexity + security)"
+                    )
+
+                # Store assessments in instance for reporting
+                self._last_risk_assessments = risk_assessments
 
             # Cleanup projection
             graph_algo.cleanup_projection()
@@ -234,3 +295,22 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
         # Severity is already calculated in detect() method
         # This method is required by base class but not used
         return finding.severity
+
+    def get_risk_assessments(self) -> List[RiskAssessment]:
+        """Get risk assessments from the last detection run.
+
+        REPO-154: Returns detailed risk assessments including compound
+        risk factors and mitigation plans.
+
+        Returns:
+            List of RiskAssessment objects from last detect() call
+        """
+        return self._last_risk_assessments
+
+    def get_critical_risks(self) -> List[RiskAssessment]:
+        """Get only critical compound risks from the last detection run.
+
+        Returns:
+            List of RiskAssessment objects where is_critical_risk is True
+        """
+        return [a for a in self._last_risk_assessments if a.is_critical_risk]

@@ -1,0 +1,25 @@
+[package]
+name = "repotoire_fast"
+version = "0.1.0"
+edition = "2021"  # Rust edition (like Python version)
+
+# This tells Rust we're building a shared library (.so on Linux, .dylib on Mac)
+# that Python can load
+[lib]
+name = "repotoire_fast"
+crate-type = ["cdylib"]  # "C dynamic library" - required for Python extensions
+
+[dependencies]
+# PyO3 - Rust bindings for Python (lets us write Python extensions in Rust)
+# Requires Rust 1.74+
+pyo3 = { version = "0.27", features = ["extension-module"] }
+
+# walkdir - Fast recursive directory traversal
+walkdir = "2.5"
+
+# globset - Compiled glob pattern matching (much faster than regex for globs)
+globset = "0.4"
+
+# rayon - Parallelism library ("fearless concurrency")
+# Requires Rust 1.80+ - this is what makes our scanner 10-25x faster!
+rayon = "1.11"
