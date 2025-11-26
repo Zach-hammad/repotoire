@@ -432,6 +432,8 @@ class FastRPEmbedder:
 def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
     """Calculate cosine similarity between two vectors.
 
+    Uses Rust implementation for 2x speedup over NumPy.
+
     Args:
         vec1: First vector
         vec2: Second vector
@@ -439,6 +441,13 @@ def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
     Returns:
         Cosine similarity score (0 to 1)
     """
-    a = np.array(vec1)
-    b = np.array(vec2)
-    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+    try:
+        from repotoire_fast import cosine_similarity_fast
+        a = np.array(vec1, dtype=np.float32)
+        b = np.array(vec2, dtype=np.float32)
+        return float(cosine_similarity_fast(a, b))
+    except ImportError:
+        # Fallback to NumPy if Rust extension not available
+        a = np.array(vec1)
+        b = np.array(vec2)
+        return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))

@@ -6,6 +6,8 @@ mod hashing;
 use std::path::Path;
 mod complexity;
 mod lcom;
+mod similarity;
+use numpy::{PyReadonlyArray1, PyReadonlyArray2};
 
 #[pyfunction]
 fn scan_files(
@@ -95,6 +97,44 @@ fn calculate_lcom_fast(method_field_pairs: Vec<(String, Vec<String>)>) -> PyResu
 fn calculate_lcom_batch(classes: Vec<(String, Vec<(String, Vec<String>)>)>) -> PyResult<Vec<(String, f64)>> {
     Ok(lcom::calculate_lcom_batch(classes))
 }
+#[pyfunction]
+pub fn cosine_similarity_fast<'py>(a: PyReadonlyArray1<'py, f32>, b: PyReadonlyArray1<'py, f32>) -> PyResult<f32> {
+    let a_slice = a.as_slice()?;
+    let b_slice = b.as_slice()?;
+    if a_slice.len() != b_slice.len() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "Vectors must have same length"
+        ));
+    }
+    Ok(similarity::cosine_similarity(a_slice, b_slice))
+}
+
+#[pyfunction]
+pub fn batch_cosine_similarity_fast<'py>(
+    query: PyReadonlyArray1<'py, f32>,
+    matrix: PyReadonlyArray2<'py, f32>
+) -> PyResult<Vec<f32>> {
+    let query_slice = query.as_slice()?;
+    let matrix_view = matrix.as_array();
+
+    let rows: Vec<Vec<f32>> = matrix_view.rows().into_iter().map(|r| r.to_vec()).collect();
+    let row_slices: Vec<&[f32]> = rows.iter().map(|r| r.as_slice()).collect();
+    Ok(similarity::batch_cosine_similarity(query_slice, &row_slices))
+}
+
+#[pyfunction]
+pub fn find_top_k_similar<'py>(
+    query: PyReadonlyArray1<'py, f32>,
+    matrix: PyReadonlyArray2<'py, f32>,
+    k: usize,
+) -> PyResult<Vec<(usize, f32)>> {
+    let query_slice = query.as_slice()?;
+    let matrix_view = matrix.as_array();
+
+    let rows: Vec<Vec<f32>> = matrix_view.rows().into_iter().map(|r| r.to_vec()).collect();
+    let row_slices: Vec<&[f32]> = rows.iter().map(|r| r.as_slice()).collect();
+    Ok(similarity::find_top_k(query_slice, &row_slices, k))
+}
 
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -106,6 +146,9 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(calculate_complexity_files, n)?)?;
     n.add_function(wrap_pyfunction!(calculate_lcom_fast, n)?)?;
     n.add_function(wrap_pyfunction!(calculate_lcom_batch, n)?)?;
+    n.add_function(wrap_pyfunction!(cosine_similarity_fast, n)?)?;
+    n.add_function(wrap_pyfunction!(batch_cosine_similarity_fast, n)?)?;
+    n.add_function(wrap_pyfunction!(find_top_k_similar, n)?)?;
     Ok(())
 }
 

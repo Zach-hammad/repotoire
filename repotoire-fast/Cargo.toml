@@ -27,3 +27,5 @@ rayon = "1.11"
 md5 = "0.7"
 
 rustpython-parser = "0.4"
+
+numpy = "0.27"

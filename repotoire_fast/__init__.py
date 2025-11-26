@@ -8,6 +8,9 @@ from .repotoire_fast import (
     calculate_complexity_files,
     calculate_lcom_fast,
     calculate_lcom_batch,
+    cosine_similarity_fast,
+    batch_cosine_similarity_fast,
+    find_top_k_similar,
 )
 
 __all__ = [
@@ -19,4 +22,8 @@ __all__ = [
     "calculate_complexity_files",
     "calculate_lcom_fast",
     "calculate_lcom_batch",
+    "cosine_similarity_fast",
+    "batch_cosine_similarity_fast",
+    "find_top_k_similar"
+
 ]
