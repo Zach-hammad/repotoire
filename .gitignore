@@ -38,6 +38,7 @@ env/
 .coverage
 htmlcov/
 .tox/
+.hypothesis/
 
 # Neo4j
 .neo4j/

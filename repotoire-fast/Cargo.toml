@@ -29,3 +29,6 @@ md5 = "0.7"
 rustpython-parser = "0.4"
 
 numpy = "0.27"
+
+# line-numbers - Convert byte offsets to line numbers
+line-numbers = "0.3"

@@ -8,6 +8,7 @@ mod complexity;
 mod lcom;
 mod similarity;
 use numpy::{PyReadonlyArray1, PyReadonlyArray2};
+mod pylint_rules;
 
 #[pyfunction]
 fn scan_files(
@@ -136,6 +137,30 @@ pub fn find_top_k_similar<'py>(
     Ok(similarity::find_top_k(query_slice, &row_slices, k))
 }
 
+/// Check for too-many-instance-attributes (R0902)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_too_many_attributes(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+    use pylint_rules::{PylintRule, TooManyAttributes};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    // Extract body from Module
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let rule = TooManyAttributes { threshold };
+    let findings = rule.check(&body, &source);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -149,6 +174,7 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(cosine_similarity_fast, n)?)?;
     n.add_function(wrap_pyfunction!(batch_cosine_similarity_fast, n)?)?;
     n.add_function(wrap_pyfunction!(find_top_k_similar, n)?)?;
+    n.add_function(wrap_pyfunction!(check_too_many_attributes, n)?)?;
     Ok(())
 }
 

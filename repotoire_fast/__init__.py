@@ -11,6 +11,7 @@ from .repotoire_fast import (
     cosine_similarity_fast,
     batch_cosine_similarity_fast,
     find_top_k_similar,
+    check_too_many_attributes,
 )
 
 __all__ = [
@@ -24,6 +25,6 @@ __all__ = [
     "calculate_lcom_batch",
     "cosine_similarity_fast",
     "batch_cosine_similarity_fast",
-    "find_top_k_similar"
-
+    "find_top_k_similar",
+    "check_too_many_attributes",
 ]
