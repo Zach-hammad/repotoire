@@ -6,6 +6,7 @@ Repotoire automatically analyzes your codebase using knowledge graphs to detect 
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Formally Verified](https://img.shields.io/badge/Formally%20Verified-Lean%204-blue)](docs/VERIFICATION.md)
 
 ## What Makes Repotoire Different?
 

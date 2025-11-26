@@ -396,6 +396,41 @@ curl -X POST "http://localhost:8000/api/v1/code/search" \
 - **Query**: <2s total (vector search + GPT-4o generation)
 - **Cost**: ~$0.65 for 10k files (one-time), $0.0075/query
 
+## Formal Verification (Lean 4)
+
+Repotoire uses the Lean 4 theorem prover to formally verify correctness of core algorithms. See [docs/VERIFICATION.md](docs/VERIFICATION.md) for comprehensive documentation.
+
+### Quick Start
+
+```bash
+# Install Lean 4 via elan
+curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh
+
+# Build and verify proofs
+cd lean && lake build
+```
+
+### What's Verified
+- **Weight Conservation**: Category weights sum to 100%
+- **Score Bounds**: Scores valid in [0, 100]
+- **Grade Coverage**: Every score maps to exactly one grade
+- **Boundary Correctness**: All grade thresholds verified
+
+### Project Structure
+```
+lean/
+├── lakefile.toml           # Build configuration
+├── lean-toolchain          # Lean version pinning
+├── Repotoire.lean          # Library root
+└── Repotoire/
+    └── HealthScore.lean    # Health score proofs
+```
+
+### Adding New Proofs
+1. Create `lean/Repotoire/{ProofName}.lean`
+2. Add `import Repotoire.{ProofName}` to `Repotoire.lean`
+3. Run `lake build` to verify proofs compile
+
 ## Extension Points
 
 For detailed examples and step-by-step guides, see the relevant documentation files.

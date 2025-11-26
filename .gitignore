@@ -78,3 +78,7 @@ benchmark.py
 # Rust
 repotoire-fast/target/
 Cargo.lock
+
+# Lean 4
+lean/.lake/
+lean/lake-manifest.json
