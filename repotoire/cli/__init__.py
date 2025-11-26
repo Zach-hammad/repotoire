@@ -1033,6 +1033,322 @@ def _print_validation_summary(results: list, all_passed: bool) -> None:
         console.print("[dim]Fix the issues above and try again.[/dim]\n")
 
 
+@cli.command("scan-secrets")
+@click.argument("path", type=click.Path(exists=True))
+@click.option(
+    "--output", "-o", type=click.Path(), default=None,
+    help="Output file for results (JSON format)",
+)
+@click.option(
+    "--format", "-f",
+    type=click.Choice(["table", "json", "sarif"], case_sensitive=False),
+    default="table",
+    help="Output format (default: table)",
+)
+@click.option(
+    "--parallel/--no-parallel", default=True,
+    help="Use parallel scanning for multiple files (default: enabled)",
+)
+@click.option(
+    "--workers", "-w", type=int, default=4,
+    help="Number of parallel workers (default: 4)",
+)
+@click.option(
+    "--min-risk",
+    type=click.Choice(["critical", "high", "medium", "low"], case_sensitive=False),
+    default=None,
+    help="Minimum risk level to report (default: all)",
+)
+@click.option(
+    "--pattern", "-p", multiple=True, default=None,
+    help="File patterns to scan (e.g., '**/*.py', '**/*.env')",
+)
+@click.pass_context
+def scan_secrets(
+    ctx: click.Context,
+    path: str,
+    output: str | None,
+    format: str,
+    parallel: bool,
+    workers: int,
+    min_risk: str | None,
+    pattern: tuple,
+) -> None:
+    """Scan files for secrets (API keys, passwords, tokens, etc.).
+
+    REPO-149: Standalone secrets scanning with enhanced reporting.
+
+    Examples:
+        # Scan current directory
+        repotoire scan-secrets .
+
+        # Scan with JSON output
+        repotoire scan-secrets . --format json -o secrets.json
+
+        # Scan only Python files, critical and high risk
+        repotoire scan-secrets . -p "**/*.py" --min-risk high
+
+        # Scan with more workers
+        repotoire scan-secrets . --workers 8
+    """
+    from pathlib import Path as PathLib
+    from repotoire.security.secrets_scanner import SecretsScanner, SecretsScanResult
+    import json as json_module
+    import glob
+
+    config: FalkorConfig = ctx.obj['config']
+
+    console.print("\n[bold cyan]🔐 Repotoire Secrets Scanner[/bold cyan]")
+    console.print("[dim]Scanning for hardcoded secrets, API keys, and credentials[/dim]\n")
+
+    path_obj = PathLib(path)
+
+    # Collect files to scan
+    files_to_scan: list[PathLib] = []
+    patterns = list(pattern) if pattern else config.ingestion.patterns
+
+    with console.status("[bold green]Collecting files...", spinner="dots"):
+        if path_obj.is_file():
+            files_to_scan = [path_obj]
+        else:
+            for p in patterns:
+                full_pattern = str(path_obj / p)
+                for match in glob.glob(full_pattern, recursive=True):
+                    mp = PathLib(match)
+                    if mp.is_file():
+                        files_to_scan.append(mp)
+
+    # Deduplicate
+    files_to_scan = list(set(files_to_scan))
+    console.print(f"[dim]Found {len(files_to_scan)} files to scan[/dim]\n")
+
+    if not files_to_scan:
+        console.print("[yellow]No files found matching patterns[/yellow]")
+        return
+
+    # Initialize scanner with config
+    scanner = SecretsScanner(
+        entropy_detection=config.secrets.entropy_detection,
+        entropy_threshold=config.secrets.entropy_threshold,
+        min_entropy_length=config.secrets.min_entropy_length,
+        large_file_threshold_mb=config.secrets.large_file_threshold_mb,
+        parallel_workers=workers,
+        cache_enabled=config.secrets.cache_enabled,
+        custom_patterns=config.secrets.custom_patterns,
+    )
+
+    # Scan files
+    all_secrets: list = []
+    total_by_risk: dict = {}
+    total_by_type: dict = {}
+    files_with_secrets = 0
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Scanning files...", total=len(files_to_scan))
+
+        if parallel and len(files_to_scan) > 2:
+            results = scanner.scan_files_parallel(files_to_scan, max_workers=workers)
+            for fp, result in results.items():
+                progress.advance(task)
+                if result.has_secrets:
+                    files_with_secrets += 1
+                    for s in result.secrets_found:
+                        # Filter by min_risk if specified
+                        if min_risk:
+                            risk_order = ["critical", "high", "medium", "low"]
+                            if risk_order.index(s.risk_level) > risk_order.index(min_risk):
+                                continue
+                        all_secrets.append(s)
+                    for k, v in result.by_risk_level.items():
+                        total_by_risk[k] = total_by_risk.get(k, 0) + v
+                    for k, v in result.by_type.items():
+                        total_by_type[k] = total_by_type.get(k, 0) + v
+        else:
+            for fp in files_to_scan:
+                result = scanner.scan_file(fp)
+                progress.advance(task)
+                if result.has_secrets:
+                    files_with_secrets += 1
+                    for s in result.secrets_found:
+                        if min_risk:
+                            risk_order = ["critical", "high", "medium", "low"]
+                            if risk_order.index(s.risk_level) > risk_order.index(min_risk):
+                                continue
+                        all_secrets.append(s)
+                    for k, v in result.by_risk_level.items():
+                        total_by_risk[k] = total_by_risk.get(k, 0) + v
+                    for k, v in result.by_type.items():
+                        total_by_type[k] = total_by_type.get(k, 0) + v
+
+    # Output results
+    if format == "json":
+        json_output = {
+            "summary": {
+                "files_scanned": len(files_to_scan),
+                "files_with_secrets": files_with_secrets,
+                "total_secrets": len(all_secrets),
+                "by_risk_level": total_by_risk,
+                "by_type": total_by_type,
+            },
+            "secrets": [
+                {
+                    "file": s.filename,
+                    "line": s.line_number,
+                    "type": s.secret_type,
+                    "risk_level": s.risk_level,
+                    "remediation": s.remediation,
+                    "start": s.start_index,
+                    "end": s.end_index,
+                }
+                for s in all_secrets
+            ],
+        }
+        if output:
+            with open(output, 'w') as f:
+                json_module.dump(json_output, f, indent=2)
+            console.print(f"[green]Results written to {output}[/green]")
+        else:
+            console.print(json_module.dumps(json_output, indent=2))
+
+    elif format == "sarif":
+        # SARIF format for CI/CD integration
+        sarif_output = {
+            "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+            "version": "2.1.0",
+            "runs": [{
+                "tool": {
+                    "driver": {
+                        "name": "Repotoire Secrets Scanner",
+                        "version": "0.1.0",
+                        "informationUri": "https://github.com/yourusername/repotoire",
+                    }
+                },
+                "results": [
+                    {
+                        "ruleId": s.secret_type.replace(" ", "_").lower(),
+                        "level": "error" if s.risk_level in ["critical", "high"] else "warning",
+                        "message": {"text": f"{s.secret_type} detected. {s.remediation}"},
+                        "locations": [{
+                            "physicalLocation": {
+                                "artifactLocation": {"uri": s.filename},
+                                "region": {
+                                    "startLine": s.line_number,
+                                    "startColumn": s.start_index + 1,
+                                    "endColumn": s.end_index + 1,
+                                }
+                            }
+                        }],
+                    }
+                    for s in all_secrets
+                ],
+            }],
+        }
+        if output:
+            with open(output, 'w') as f:
+                json_module.dump(sarif_output, f, indent=2)
+            console.print(f"[green]SARIF results written to {output}[/green]")
+        else:
+            console.print(json_module.dumps(sarif_output, indent=2))
+
+    else:  # table format
+        # Summary
+        console.print("\n[bold]📊 Summary[/bold]")
+        summary_table = Table(show_header=False, box=None)
+        summary_table.add_column("Metric", style="dim")
+        summary_table.add_column("Value", style="cyan")
+        summary_table.add_row("Files scanned", str(len(files_to_scan)))
+        summary_table.add_row("Files with secrets", str(files_with_secrets))
+        summary_table.add_row("Total secrets found", str(len(all_secrets)))
+        console.print(summary_table)
+
+        # By risk level
+        if total_by_risk:
+            console.print("\n[bold]🎯 By Risk Level[/bold]")
+            risk_table = Table(show_header=True)
+            risk_table.add_column("Risk", style="cyan")
+            risk_table.add_column("Count", justify="right")
+            risk_colors = {"critical": "red", "high": "yellow", "medium": "blue", "low": "dim"}
+            for risk in ["critical", "high", "medium", "low"]:
+                if risk in total_by_risk:
+                    color = risk_colors.get(risk, "white")
+                    risk_table.add_row(f"[{color}]{risk.upper()}[/{color}]", str(total_by_risk[risk]))
+            console.print(risk_table)
+
+        # By type
+        if total_by_type:
+            console.print("\n[bold]🏷️ By Type[/bold]")
+            type_table = Table(show_header=True)
+            type_table.add_column("Secret Type", style="cyan")
+            type_table.add_column("Count", justify="right")
+            for secret_type, count in sorted(total_by_type.items(), key=lambda x: -x[1]):
+                type_table.add_row(secret_type, str(count))
+            console.print(type_table)
+
+        # Detailed findings (limit to 20)
+        if all_secrets:
+            console.print("\n[bold]🔍 Secrets Found[/bold]")
+            if len(all_secrets) > 20:
+                console.print(f"[dim]Showing first 20 of {len(all_secrets)} secrets[/dim]")
+
+            findings_table = Table(show_header=True)
+            findings_table.add_column("File", style="cyan", max_width=40)
+            findings_table.add_column("Line", justify="right")
+            findings_table.add_column("Type", style="yellow")
+            findings_table.add_column("Risk", style="red")
+
+            for s in all_secrets[:20]:
+                risk_colors = {"critical": "red", "high": "yellow", "medium": "blue", "low": "dim"}
+                color = risk_colors.get(s.risk_level, "white")
+                findings_table.add_row(
+                    s.filename,
+                    str(s.line_number),
+                    s.secret_type[:30] + "..." if len(s.secret_type) > 30 else s.secret_type,
+                    f"[{color}]{s.risk_level.upper()}[/{color}]",
+                )
+
+            console.print(findings_table)
+
+            if output:
+                # Also write JSON to file
+                json_output = {
+                    "summary": {
+                        "files_scanned": len(files_to_scan),
+                        "files_with_secrets": files_with_secrets,
+                        "total_secrets": len(all_secrets),
+                        "by_risk_level": total_by_risk,
+                        "by_type": total_by_type,
+                    },
+                    "secrets": [
+                        {
+                            "file": s.filename,
+                            "line": s.line_number,
+                            "type": s.secret_type,
+                            "risk_level": s.risk_level,
+                            "remediation": s.remediation,
+                        }
+                        for s in all_secrets
+                    ],
+                }
+                with open(output, 'w') as f:
+                    json_module.dump(json_output, f, indent=2)
+                console.print(f"\n[green]Full results written to {output}[/green]")
+        else:
+            console.print("\n[green]✓ No secrets detected![/green]")
+
+    # Exit with error if critical or high risk secrets found
+    critical_high = total_by_risk.get("critical", 0) + total_by_risk.get("high", 0)
+    if critical_high > 0:
+        console.print(f"\n[red]⚠️  Found {critical_high} critical/high risk secrets![/red]")
+        raise SystemExit(1)
+
+
 @cli.command()
 @click.option(
     "--format",

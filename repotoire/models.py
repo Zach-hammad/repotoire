@@ -682,6 +682,8 @@ class SecretMatch:
         filename: File containing the secret
         line_number: Line number where secret appears
         plugin_name: Name of detect-secrets plugin that found it
+        risk_level: Risk level (critical, high, medium, low)
+        remediation: Suggested remediation action
 
     Example:
         >>> match = SecretMatch(
@@ -691,10 +693,12 @@ class SecretMatch:
         ...     context="config.py:12",
         ...     filename="config.py",
         ...     line_number=12,
-        ...     plugin_name="AWSKeyDetector"
+        ...     plugin_name="AWSKeyDetector",
+        ...     risk_level="critical",
+        ...     remediation="Rotate key via IAM console"
         ... )
-        >>> print(f"Found {match.secret_type} at {match.context}")
-        Found AWS Access Key at config.py:12
+        >>> print(f"Found {match.secret_type} ({match.risk_level}) at {match.context}")
+        Found AWS Access Key (critical) at config.py:12
     """
     secret_type: str
     start_index: int
@@ -703,6 +707,8 @@ class SecretMatch:
     filename: str
     line_number: int
     plugin_name: str
+    risk_level: str = "medium"  # critical, high, medium, low
+    remediation: str = ""  # Suggested remediation action
 
 
 @dataclass

@@ -149,10 +149,52 @@ class DetectorConfig:
 
 
 @dataclass
+class CustomSecretPattern:
+    """Custom secret pattern definition."""
+    name: str  # Name for the pattern (e.g., "Internal API Key")
+    pattern: str  # Regex pattern to match
+    risk_level: str = "high"  # critical, high, medium, low
+    remediation: str = ""  # Remediation suggestion
+
+
+@dataclass
 class SecretsConfig:
-    """Secrets detection configuration."""
+    """Secrets detection configuration.
+
+    Example configuration:
+    ```yaml
+    secrets:
+      enabled: true
+      policy: redact
+      entropy_detection: true
+      entropy_threshold: 4.0
+      min_entropy_length: 20
+      large_file_threshold_mb: 1.0
+      parallel_workers: 4
+      cache_enabled: true
+      custom_patterns:
+        - name: "Internal API Key"
+          pattern: "MYCOMPANY_[A-Za-z0-9]{32}"
+          risk_level: critical
+          remediation: "Remove key and rotate via internal key management"
+        - name: "Dev Environment Token"
+          pattern: "dev_token_[a-z0-9]{16}"
+          risk_level: medium
+          remediation: "Use environment variables instead of hardcoding"
+    ```
+    """
     enabled: bool = True
     policy: str = "redact"  # redact, block, warn, fail
+    # Entropy detection settings
+    entropy_detection: bool = True
+    entropy_threshold: float = 4.0
+    min_entropy_length: int = 20
+    # Performance settings
+    large_file_threshold_mb: float = 1.0  # Stream files larger than this
+    parallel_workers: int = 4  # Number of parallel workers for batch scanning
+    cache_enabled: bool = True  # Enable hash-based caching
+    # Custom patterns (list of dicts with name, pattern, risk_level, remediation)
+    custom_patterns: list = field(default_factory=list)
 
 
 @dataclass
@@ -242,6 +284,13 @@ class FalkorConfig:
             "secrets": {
                 "enabled": self.secrets.enabled,
                 "policy": self.secrets.policy,
+                "entropy_detection": self.secrets.entropy_detection,
+                "entropy_threshold": self.secrets.entropy_threshold,
+                "min_entropy_length": self.secrets.min_entropy_length,
+                "large_file_threshold_mb": self.secrets.large_file_threshold_mb,
+                "parallel_workers": self.secrets.parallel_workers,
+                "cache_enabled": self.secrets.cache_enabled,
+                "custom_patterns": self.secrets.custom_patterns,
             },
             "logging": {
                 "level": self.logging.level,

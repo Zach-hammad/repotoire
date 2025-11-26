@@ -474,11 +474,12 @@ class TestEntropyDetection:
 
     def test_scanner_entropy_detection_disabled(self):
         """Test scanner skips entropy detection when disabled."""
-        scanner = SecretsScanner(entropy_detection=False)
+        scanner = SecretsScanner(entropy_detection=False, cache_enabled=False)
         # Random-looking string that's not a known pattern
-        code = 'UNKNOWN_KEY = "xK9mN2pQ5rS8tU1vW4yZ7aB0cD3eF6gH"'
+        # Use different string from enabled test to avoid cache issues
+        code = 'UNKNOWN_KEY = "yL0nO3qR6sT9uV2wX5zA8bC1dE4fG7hI"'
 
-        result = scanner.scan_string(code, context="test.py:1")
+        result = scanner.scan_string(code, context="test.py:1", use_cache=False)
 
         # Should not detect entropy-based secret (but might match quoted string pattern)
         entropy_matches = [s for s in result.secrets_found if "Entropy" in s.secret_type]
@@ -714,6 +715,404 @@ MIIFDjBABgkqhkiG9w0BBQ0...
 
         assert result.has_secrets
         assert any("Mailchimp" in s.secret_type for s in result.secrets_found)
+
+
+class TestRiskLevelsAndRemediation:
+    """Test REPO-149 risk levels and remediation features."""
+
+    def test_risk_level_critical(self):
+        """Test that critical secrets are classified correctly."""
+        from repotoire.security.secrets_scanner import get_risk_level
+
+        assert get_risk_level("AWS Access Key") == "critical"
+        assert get_risk_level("Private Key") == "critical"
+        assert get_risk_level("PostgreSQL Connection String") == "critical"
+
+    def test_risk_level_high(self):
+        """Test that high-risk secrets are classified correctly."""
+        from repotoire.security.secrets_scanner import get_risk_level
+
+        assert get_risk_level("GitHub Token") == "high"
+        assert get_risk_level("OpenAI API Key") == "high"
+        assert get_risk_level("Stripe Secret Key") == "high"
+
+    def test_risk_level_medium(self):
+        """Test that medium-risk secrets are classified correctly."""
+        from repotoire.security.secrets_scanner import get_risk_level
+
+        assert get_risk_level("JWT Token") == "medium"
+        assert get_risk_level("Bearer Token") == "medium"
+        assert get_risk_level("Slack Token") == "medium"
+
+    def test_risk_level_low(self):
+        """Test that low-risk secrets are classified correctly."""
+        from repotoire.security.secrets_scanner import get_risk_level
+
+        assert get_risk_level("High Entropy String") == "low"
+
+    def test_risk_level_default(self):
+        """Test that unknown types get medium risk level."""
+        from repotoire.security.secrets_scanner import get_risk_level
+
+        assert get_risk_level("Unknown Secret Type") == "medium"
+
+    def test_remediation_suggestions(self):
+        """Test that remediation suggestions are returned."""
+        from repotoire.security.secrets_scanner import get_remediation
+
+        remediation = get_remediation("AWS Access Key")
+        assert "IAM" in remediation
+        assert "rotate" in remediation.lower()
+
+        remediation = get_remediation("GitHub Token")
+        assert "revoke" in remediation.lower()
+
+    def test_remediation_default(self):
+        """Test that unknown types get default remediation."""
+        from repotoire.security.secrets_scanner import get_remediation
+
+        remediation = get_remediation("Unknown Secret Type")
+        assert "environment variables" in remediation.lower()
+
+    def test_secret_match_includes_risk_level(self):
+        """Test that SecretMatch includes risk level."""
+        scanner = SecretsScanner()
+        code = 'AWS_KEY = "AKIAIOSFODNN7EXAMPLE"'
+
+        result = scanner.scan_string(code, context="config.py:1")
+
+        assert result.has_secrets
+        secret = result.secrets_found[0]
+        assert secret.risk_level == "critical"
+
+    def test_secret_match_includes_remediation(self):
+        """Test that SecretMatch includes remediation."""
+        scanner = SecretsScanner()
+        code = 'GITHUB_TOKEN = "ghp_1234567890123456789012345678901234AB"'
+
+        result = scanner.scan_string(code, context="config.py:1")
+
+        assert result.has_secrets
+        secret = result.secrets_found[0]
+        assert len(secret.remediation) > 0
+        assert "revoke" in secret.remediation.lower()
+
+    def test_scan_result_by_risk_level(self):
+        """Test that scan result includes by_risk_level statistics."""
+        scanner = SecretsScanner()
+        code = '''
+AWS_KEY = "AKIAIOSFODNN7EXAMPLE"
+GITHUB_TOKEN = "ghp_1234567890123456789012345678901234AB"
+JWT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIn0.rTCH8cLoGxAm"
+'''
+        result = scanner.scan_string(code, context="config.py:1")
+
+        assert result.has_secrets
+        assert "critical" in result.by_risk_level
+        assert "high" in result.by_risk_level
+        assert "medium" in result.by_risk_level
+
+    def test_scan_result_by_type(self):
+        """Test that scan result includes by_type statistics."""
+        scanner = SecretsScanner()
+        code = '''
+AWS_KEY = "AKIAIOSFODNN7EXAMPLE"
+AWS_KEY2 = "AKIAIOSFODNN7EXAMPL2"
+'''
+        result = scanner.scan_string(code, context="config.py:1")
+
+        assert result.has_secrets
+        assert "AWS Access Key" in result.by_type
+        assert result.by_type["AWS Access Key"] == 2
+
+
+class TestPreCompiledPatterns:
+    """Test REPO-149 pre-compiled pattern features."""
+
+    def test_compiled_patterns_exist(self):
+        """Test that compiled patterns are available."""
+        from repotoire.security.secrets_scanner import COMPILED_PATTERNS
+
+        assert len(COMPILED_PATTERNS) > 0
+        # Each should be a tuple of (regex, type, plugin, risk_level)
+        for pattern_tuple in COMPILED_PATTERNS:
+            assert len(pattern_tuple) == 4
+            regex, secret_type, plugin, risk_level = pattern_tuple
+            assert hasattr(regex, 'search')  # Should be compiled regex
+            assert isinstance(secret_type, str)
+            assert isinstance(plugin, str)
+            assert risk_level in ("critical", "high", "medium", "low")
+
+    def test_compiled_safe_patterns_exist(self):
+        """Test that compiled safe patterns are available."""
+        from repotoire.security.secrets_scanner import COMPILED_SAFE_PATTERNS
+
+        assert len(COMPILED_SAFE_PATTERNS) > 0
+        # Each should be a compiled regex
+        for pattern in COMPILED_SAFE_PATTERNS:
+            assert hasattr(pattern, 'match')
+
+    def test_pre_compiled_patterns_are_usable(self):
+        """Test that pre-compiled patterns can be used for matching."""
+        from repotoire.security.secrets_scanner import COMPILED_PATTERNS
+
+        test_line = 'AWS_KEY = "AKIAIOSFODNN7EXAMPLE"'
+
+        # Verify pre-compiled patterns can be searched
+        matches_found = 0
+        for regex, secret_type, _, _ in COMPILED_PATTERNS:
+            if regex.search(test_line):
+                matches_found += 1
+
+        # Should find at least the AWS key pattern
+        assert matches_found >= 1
+
+
+class TestCaching:
+    """Test REPO-149 hash-based caching features."""
+
+    def test_cache_enabled_by_default(self):
+        """Test that caching is enabled by default."""
+        scanner = SecretsScanner()
+        assert scanner.cache_enabled is True
+
+    def test_cache_can_be_disabled(self):
+        """Test that caching can be disabled."""
+        scanner = SecretsScanner(cache_enabled=False)
+        assert scanner.cache_enabled is False
+
+    def test_cache_hit_returns_same_result(self):
+        """Test that cache hit returns the same result."""
+        from repotoire.security.secrets_scanner import _scan_cache
+
+        # Clear cache first
+        _scan_cache.clear()
+
+        scanner = SecretsScanner(cache_enabled=True)
+        code = 'SECRET = "AKIAIOSFODNN7EXAMPLE"'
+
+        # First scan
+        result1 = scanner.scan_string(code, context="test.py:1")
+
+        # Second scan (should hit cache)
+        result2 = scanner.scan_string(code, context="test.py:1")
+
+        # Should be same object from cache
+        assert result1.file_hash == result2.file_hash
+        assert result1.total_secrets == result2.total_secrets
+
+    def test_cache_stores_hash(self):
+        """Test that scan results include file hash."""
+        from repotoire.security.secrets_scanner import _scan_cache
+
+        _scan_cache.clear()
+
+        scanner = SecretsScanner(cache_enabled=True)
+        code = 'SECRET = "AKIAIOSFODNN7EXAMPLE"'
+
+        result = scanner.scan_string(code, context="test.py:1")
+
+        assert result.file_hash is not None
+        assert len(result.file_hash) == 32  # MD5 hex length
+
+    def test_clear_cache(self):
+        """Test clearing the cache."""
+        import repotoire.security.secrets_scanner as scanner_module
+
+        scanner_module._scan_cache.clear()
+
+        scanner = SecretsScanner(cache_enabled=True)
+        code = 'CLEAR_TEST_SECRET = "AKIAIOSFODNN7EXAMPLZ"'
+
+        # Populate cache
+        scanner.scan_string(code, context="test.py:1")
+        assert len(scanner_module._scan_cache) > 0
+
+        # Clear cache
+        count = scanner.clear_cache()
+        assert count > 0
+        # After clear_cache(), the module's _scan_cache should be empty
+        assert len(scanner_module._scan_cache) == 0
+
+    def test_cache_disabled_no_hash(self):
+        """Test that disabled cache doesn't store hash."""
+        from repotoire.security.secrets_scanner import _scan_cache
+
+        _scan_cache.clear()
+
+        scanner = SecretsScanner(cache_enabled=False)
+        code = 'SECRET = "AKIAIOSFODNN7EXAMPLE"'
+
+        result = scanner.scan_string(code, context="test.py:1")
+
+        # Hash should still be None when cache disabled
+        assert result.file_hash is None
+        assert len(_scan_cache) == 0
+
+
+class TestCustomPatterns:
+    """Test REPO-149 custom pattern features."""
+
+    def test_custom_pattern_detection(self):
+        """Test that custom patterns are detected."""
+        custom_patterns = [
+            {
+                "name": "Internal API Key",
+                "pattern": r"MYCO_[A-Z0-9]{32}",
+                "risk_level": "critical",
+                "remediation": "Rotate internal API key via admin portal.",
+            }
+        ]
+        scanner = SecretsScanner(custom_patterns=custom_patterns, cache_enabled=False)
+        # String must have exactly 32 alphanumeric chars after MYCO_
+        code = 'API_KEY = "MYCO_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456"'
+
+        result = scanner.scan_string(code, context="config.py:1", use_cache=False)
+
+        assert result.has_secrets
+        assert any("Internal API Key" in s.secret_type for s in result.secrets_found)
+
+    def test_custom_pattern_risk_level(self):
+        """Test that custom patterns use specified risk level."""
+        custom_patterns = [
+            {
+                "name": "Test Secret",
+                "pattern": r"TESTSECRET_[A-Z0-9]{16}",
+                "risk_level": "high",
+            }
+        ]
+        scanner = SecretsScanner(custom_patterns=custom_patterns)
+        code = 'KEY = "TESTSECRET_1234567890ABCDEF"'
+
+        result = scanner.scan_string(code, context="test.py:1")
+
+        assert result.has_secrets
+        secret = [s for s in result.secrets_found if "Test Secret" in s.secret_type][0]
+        assert secret.risk_level == "high"
+
+    def test_custom_pattern_remediation(self):
+        """Test that custom patterns use specified remediation."""
+        custom_patterns = [
+            {
+                "name": "Custom Token",
+                "pattern": r"CUSTOM_[A-Z]{20}",
+                "remediation": "Contact security team to rotate.",
+            }
+        ]
+        scanner = SecretsScanner(custom_patterns=custom_patterns)
+        code = 'TOKEN = "CUSTOM_ABCDEFGHIJKLMNOPQRST"'
+
+        result = scanner.scan_string(code, context="test.py:1")
+
+        assert result.has_secrets
+        secret = [s for s in result.secrets_found if "Custom Token" in s.secret_type][0]
+        assert "security team" in secret.remediation
+
+    def test_invalid_custom_pattern_skipped(self):
+        """Test that invalid patterns are skipped gracefully."""
+        custom_patterns = [
+            {
+                "name": "Bad Pattern",
+                "pattern": r"[invalid(regex",  # Invalid regex
+            },
+            {
+                "name": "Good Pattern",
+                "pattern": r"GOOD_[A-Z]{10}",
+            }
+        ]
+        scanner = SecretsScanner(custom_patterns=custom_patterns)
+
+        # Should only have 1 custom pattern (the valid one)
+        assert len(scanner.custom_patterns) == 1
+        assert scanner.custom_patterns[0][1] == "Good Pattern"
+
+
+class TestFileScanningFeatures:
+    """Test REPO-149 file scanning features."""
+
+    def test_scan_file_basic(self, tmp_path):
+        """Test basic file scanning."""
+        test_file = tmp_path / "test_config.py"
+        test_file.write_text('AWS_KEY = "AKIAIOSFODNN7EXAMPLE"\n')
+
+        scanner = SecretsScanner()
+        result = scanner.scan_file(test_file)
+
+        assert result.has_secrets
+        assert result.total_secrets > 0
+
+    def test_scan_file_nonexistent(self, tmp_path):
+        """Test scanning nonexistent file."""
+        scanner = SecretsScanner()
+        result = scanner.scan_file(tmp_path / "nonexistent.py")
+
+        assert not result.has_secrets
+        assert result.total_secrets == 0
+
+    def test_scan_file_streaming_threshold(self):
+        """Test that streaming threshold is configurable."""
+        scanner = SecretsScanner(large_file_threshold_mb=0.5)
+        assert scanner.large_file_threshold_bytes == 524288  # 0.5 * 1024 * 1024
+
+    def test_scan_file_streaming_large_file(self, tmp_path):
+        """Test streaming for large files."""
+        # Create a file larger than default threshold
+        test_file = tmp_path / "large_config.py"
+
+        # Create content larger than 1MB
+        content = 'AWS_KEY = "AKIAIOSFODNN7EXAMPLE"\n' * 50000
+        test_file.write_text(content)
+
+        scanner = SecretsScanner(large_file_threshold_mb=0.1)  # Lower threshold
+        result = scanner.scan_file(test_file)
+
+        assert result.has_secrets
+        # Streaming mode doesn't return redacted_text
+        assert result.redacted_text is None
+
+
+class TestParallelScanning:
+    """Test REPO-149 parallel scanning features."""
+
+    def test_parallel_workers_default(self):
+        """Test that parallel workers default to 4."""
+        scanner = SecretsScanner()
+        assert scanner.parallel_workers == 4
+
+    def test_parallel_workers_configurable(self):
+        """Test that parallel workers are configurable."""
+        scanner = SecretsScanner(parallel_workers=8)
+        assert scanner.parallel_workers == 8
+
+    def test_scan_files_parallel_small_batch(self, tmp_path):
+        """Test parallel scanning falls back to sequential for small batches."""
+        # Create 2 test files (should use sequential scanning)
+        for i in range(2):
+            test_file = tmp_path / f"config_{i}.py"
+            test_file.write_text(f'KEY_{i} = "AKIAIOSFODNN7EXAMPL{i}"\n')
+
+        scanner = SecretsScanner()
+        files = list(tmp_path.glob("*.py"))
+        results = scanner.scan_files_parallel(files)
+
+        assert len(results) == 2
+        for path, result in results.items():
+            assert result.has_secrets
+
+    def test_scan_files_parallel_large_batch(self, tmp_path):
+        """Test parallel scanning with larger batch."""
+        # Create 5 test files (should use parallel scanning)
+        for i in range(5):
+            test_file = tmp_path / f"config_{i}.py"
+            test_file.write_text(f'KEY_{i} = "AKIAIOSFODNN7EXAMPL{i}"\n')
+
+        scanner = SecretsScanner(parallel_workers=2)
+        files = list(tmp_path.glob("*.py"))
+        results = scanner.scan_files_parallel(files, max_workers=2)
+
+        assert len(results) == 5
+        for path, result in results.items():
+            assert result.has_secrets
 
 
 class TestMultipleSecretTypes:
