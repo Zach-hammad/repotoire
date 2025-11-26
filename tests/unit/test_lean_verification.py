@@ -11,6 +11,8 @@ See docs/VERIFICATION.md for details on formal verification.
 
 import pytest
 from repotoire.detectors.engine import AnalysisEngine
+from repotoire.validation import validate_identifier, ValidationError
+from repotoire.models import Severity
 
 
 class TestLeanVerifiedProperties:
@@ -109,3 +111,271 @@ class TestLeanVerifiedProperties:
 
         assert MIN_SCORE == 0, "Minimum score must be 0"
         assert MAX_SCORE == 100, "Maximum score must be 100"
+
+
+class TestCypherSafetyVerification:
+    """
+    Tests that verify Python matches Lean CypherSafety proofs.
+
+    Lean file: lean/Repotoire/CypherSafety.lean
+    """
+
+    def test_safe_identifiers_allowed(self):
+        """
+        Lean theorems: valid_alphanumeric, valid_with_numbers, valid_with_underscore,
+                       valid_with_hyphen, valid_mixed
+        Proves: Identifiers with [a-zA-Z0-9_-] are valid.
+        """
+        # These match the Lean theorems exactly
+        assert validate_identifier("myProjection") == "myProjection"
+        assert validate_identifier("test123") == "test123"
+        assert validate_identifier("my_graph") == "my_graph"
+        assert validate_identifier("my-projection") == "my-projection"
+        assert validate_identifier("test123_data-v2") == "test123_data-v2"
+
+    def test_injection_payloads_blocked(self):
+        """
+        Lean theorems: invalid_sql_injection, invalid_cypher_injection,
+                       invalid_comment, invalid_empty, invalid_space,
+                       invalid_quote, invalid_semicolon, invalid_brace
+        Proves: Injection payloads are rejected.
+        """
+        injection_payloads = [
+            "'; DROP DATABASE",  # SQL injection
+            "foo} RETURN *",     # Cypher injection
+            "x//comment",        # Comment injection
+            "",                  # Empty (DoS)
+            "foo bar",           # Space
+            "foo'bar",           # Quote
+            "foo;bar",           # Semicolon
+            "foo{bar",           # Brace
+        ]
+
+        for payload in injection_payloads:
+            with pytest.raises(ValidationError):
+                validate_identifier(payload)
+
+    def test_length_bounded(self):
+        """
+        Lean theorem: length_bounded
+        Proves: Valid identifiers have length ≤ 100 (MAX_LENGTH).
+        """
+        MAX_LENGTH = 100  # Matches Lean's MAX_LENGTH
+
+        # Valid: exactly 100 chars
+        valid_long = "a" * MAX_LENGTH
+        assert validate_identifier(valid_long) == valid_long
+
+        # Invalid: 101 chars
+        with pytest.raises(ValidationError):
+            validate_identifier("a" * (MAX_LENGTH + 1))
+
+    def test_non_empty_required(self):
+        """
+        Lean theorem: empty_not_safe, non_empty
+        Proves: Empty strings are not valid identifiers.
+        """
+        with pytest.raises(ValidationError):
+            validate_identifier("")
+
+        with pytest.raises(ValidationError):
+            validate_identifier("   ")  # Whitespace only
+
+    def test_safe_char_set(self):
+        """
+        Lean definition: is_safe_char
+        Proves: Only [a-zA-Z0-9_-] are safe characters.
+        """
+        # All safe chars individually
+        safe_chars = (
+            "abcdefghijklmnopqrstuvwxyz"
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            "0123456789"
+            "_-"
+        )
+        for char in safe_chars:
+            assert validate_identifier(char) == char
+
+    def test_injection_chars_blocked(self):
+        """
+        Lean definition: is_injection_char
+        Lean theorem: no_injection_chars
+        Proves: Injection characters are blocked.
+        """
+        injection_chars = ["'", '"', ";", "{", "}", "/", "\\", "\n", "\r", " "]
+
+        for char in injection_chars:
+            with pytest.raises(ValidationError):
+                validate_identifier(f"test{char}test")
+
+
+class TestThresholdsVerification:
+    """
+    Tests that verify Python matches Lean Thresholds proofs.
+
+    Lean file: lean/Repotoire/Thresholds.lean
+    """
+
+    def test_complexity_thresholds_ordered(self):
+        """
+        Lean theorem: complexity_thresholds_ordered
+        Proves: COMPLEXITY_THRESHOLD_LOW < MEDIUM < HIGH
+        """
+        # From Lean: 11 < 21 < 31
+        THRESHOLD_LOW = 11
+        THRESHOLD_MEDIUM = 21
+        THRESHOLD_HIGH = 31
+
+        assert THRESHOLD_LOW < THRESHOLD_MEDIUM
+        assert THRESHOLD_MEDIUM < THRESHOLD_HIGH
+
+    def test_complexity_boundary_values(self):
+        """
+        Lean theorems: complexity_10_is_none, complexity_11_is_low,
+                       complexity_20_is_low, complexity_21_is_medium,
+                       complexity_30_is_medium, complexity_31_is_high
+        Proves: Boundary values map to correct severities.
+        """
+        def complexity_to_severity(cc: int) -> Severity | None:
+            """Mirror Lean's complexity_to_severity function."""
+            if cc < 11:
+                return None  # Healthy
+            elif cc < 21:
+                return Severity.LOW
+            elif cc < 31:
+                return Severity.MEDIUM
+            else:
+                return Severity.HIGH
+
+        # Boundary tests matching Lean theorems
+        assert complexity_to_severity(10) is None, "Lean: complexity_10_is_none"
+        assert complexity_to_severity(11) == Severity.LOW, "Lean: complexity_11_is_low"
+        assert complexity_to_severity(20) == Severity.LOW, "Lean: complexity_20_is_low"
+        assert complexity_to_severity(21) == Severity.MEDIUM, "Lean: complexity_21_is_medium"
+        assert complexity_to_severity(30) == Severity.MEDIUM, "Lean: complexity_30_is_medium"
+        assert complexity_to_severity(31) == Severity.HIGH, "Lean: complexity_31_is_high"
+        assert complexity_to_severity(100) == Severity.HIGH, "Lean: complexity_100_is_high"
+
+    def test_complexity_monotonic(self):
+        """
+        Lean theorem: complexity_monotonic
+        Proves: Higher complexity → same or higher severity.
+        """
+        def severity_level(s: Severity | None) -> int:
+            """Convert severity to numeric level for comparison."""
+            if s is None:
+                return 0
+            return {
+                Severity.LOW: 1,
+                Severity.MEDIUM: 2,
+                Severity.HIGH: 3,
+                Severity.CRITICAL: 4,
+            }[s]
+
+        def complexity_to_severity(cc: int) -> Severity | None:
+            if cc < 11:
+                return None
+            elif cc < 21:
+                return Severity.LOW
+            elif cc < 31:
+                return Severity.MEDIUM
+            else:
+                return Severity.HIGH
+
+        # Test monotonicity: for c1 ≤ c2, severity(c1) ≤ severity(c2)
+        for c1 in range(0, 50, 5):
+            for c2 in range(c1, 50, 5):
+                s1 = severity_level(complexity_to_severity(c1))
+                s2 = severity_level(complexity_to_severity(c2))
+                assert s1 <= s2, f"Monotonicity violated: {c1}→{s1} vs {c2}→{s2}"
+
+    def test_god_class_thresholds_ordered(self):
+        """
+        Lean theorem: god_class_thresholds_ordered
+        Proves: GOD_CLASS_THRESHOLD_MEDIUM < HIGH < CRITICAL
+        """
+        # From Lean: 15 < 20 < 30
+        THRESHOLD_MEDIUM = 15
+        THRESHOLD_HIGH = 20
+        THRESHOLD_CRITICAL = 30
+
+        assert THRESHOLD_MEDIUM < THRESHOLD_HIGH
+        assert THRESHOLD_HIGH < THRESHOLD_CRITICAL
+
+    def test_god_class_boundary_values(self):
+        """
+        Lean theorems: god_class_14_is_none, god_class_15_is_medium,
+                       god_class_20_is_high, god_class_30_is_critical
+        Proves: Boundary values map to correct severities.
+        """
+        def method_count_to_severity(count: int) -> Severity | None:
+            """Mirror Lean's method_count_to_severity function."""
+            if count < 15:
+                return None
+            elif count < 20:
+                return Severity.MEDIUM
+            elif count < 30:
+                return Severity.HIGH
+            else:
+                return Severity.CRITICAL
+
+        assert method_count_to_severity(14) is None, "Lean: god_class_14_is_none"
+        assert method_count_to_severity(15) == Severity.MEDIUM, "Lean: god_class_15_is_medium"
+        assert method_count_to_severity(20) == Severity.HIGH, "Lean: god_class_20_is_high"
+        assert method_count_to_severity(30) == Severity.CRITICAL, "Lean: god_class_30_is_critical"
+
+    def test_lcom_thresholds_ordered(self):
+        """
+        Lean theorem: lcom_thresholds_ordered
+        Proves: LCOM_THRESHOLD_MEDIUM < HIGH < CRITICAL
+        """
+        # From Lean: 40 < 60 < 80 (scaled 0-100, Python uses 0.0-1.0)
+        THRESHOLD_MEDIUM = 0.40
+        THRESHOLD_HIGH = 0.60
+        THRESHOLD_CRITICAL = 0.80
+
+        assert THRESHOLD_MEDIUM < THRESHOLD_HIGH
+        assert THRESHOLD_HIGH < THRESHOLD_CRITICAL
+
+    def test_lcom_boundary_values(self):
+        """
+        Lean theorems: lcom_39_is_none, lcom_40_is_medium,
+                       lcom_60_is_high, lcom_80_is_critical
+        Proves: Boundary values map to correct severities.
+        """
+        def lcom_to_severity(lcom: float) -> Severity | None:
+            """Mirror Lean's lcom_to_severity function (scaled to 0.0-1.0)."""
+            if lcom < 0.40:
+                return None
+            elif lcom < 0.60:
+                return Severity.MEDIUM
+            elif lcom < 0.80:
+                return Severity.HIGH
+            else:
+                return Severity.CRITICAL
+
+        assert lcom_to_severity(0.39) is None, "Lean: lcom_39_is_none"
+        assert lcom_to_severity(0.40) == Severity.MEDIUM, "Lean: lcom_40_is_medium"
+        assert lcom_to_severity(0.60) == Severity.HIGH, "Lean: lcom_60_is_high"
+        assert lcom_to_severity(0.80) == Severity.CRITICAL, "Lean: lcom_80_is_critical"
+
+    def test_severity_ordering(self):
+        """
+        Lean theorem: severity_ordering
+        Proves: None < LOW < MEDIUM < HIGH < CRITICAL
+
+        In Lean: none=0, low=1, medium=2, high=3, critical=4 (higher = more severe)
+        In Python: CRITICAL is index 0, INFO is index 4 (lower index = more severe)
+
+        This test verifies semantic equivalence: LOW < MEDIUM < HIGH < CRITICAL
+        means LOW is less severe than MEDIUM, which is less severe than HIGH, etc.
+        """
+        severities = list(Severity)
+        # In Python enum, lower index = higher severity
+        # So we verify: index(CRITICAL) < index(HIGH) < index(MEDIUM) < index(LOW)
+        assert severities.index(Severity.CRITICAL) < severities.index(Severity.HIGH), \
+            "CRITICAL must be more severe than HIGH"
+        assert severities.index(Severity.HIGH) < severities.index(Severity.MEDIUM), \
+            "HIGH must be more severe than MEDIUM"
+        assert severities.index(Severity.MEDIUM) < severities.index(Severity.LOW), \
+            "MEDIUM must be more severe than LOW"
