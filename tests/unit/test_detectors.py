@@ -268,11 +268,19 @@ class TestGodClassDetector:
                 "loc": 400,
                 "is_abstract": False
             }],
-            # LCOM calculation query
-            [{"method_field_pairs": [], "method_count": 25}]
+            # LCOM calculation query - return low cohesion data
+            [{"method_field_pairs": [
+                {"method": "m1", "fields": ["a"]},
+                {"method": "m2", "fields": ["b"]},
+                {"method": "m3", "fields": ["c"]},
+            ], "method_count": 25}]
         ]
 
-        detector = GodClassDetector(mock_db)
+        # Disable community analysis to avoid additional queries
+        detector = GodClassDetector(mock_db, detector_config={
+            "use_community_analysis": False,
+            "use_semantic_analysis": False,
+        })
         findings = detector.detect()
 
         assert len(findings) == 1
@@ -296,10 +304,19 @@ class TestGodClassDetector:
                 "loc": 350,
                 "is_abstract": False
             }],
-            [{"method_field_pairs": [], "method_count": 12}]
+            # LCOM calculation query - return low cohesion data
+            [{"method_field_pairs": [
+                {"method": "m1", "fields": ["a"]},
+                {"method": "m2", "fields": ["b"]},
+                {"method": "m3", "fields": ["c"]},
+            ], "method_count": 12}]
         ]
 
-        detector = GodClassDetector(mock_db)
+        # Disable community analysis to avoid additional queries
+        detector = GodClassDetector(mock_db, detector_config={
+            "use_community_analysis": False,
+            "use_semantic_analysis": False,
+        })
         findings = detector.detect()
 
         assert len(findings) == 1
