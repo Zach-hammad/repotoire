@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
 
 [project]
 name = "repotoire"
@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Graph-Powered Code Health Platform"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Repotoire Team"}
 ]
@@ -16,11 +16,11 @@ keywords = ["code-analysis", "knowledge-graph", "technical-debt", "neo4j", "stat
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Quality Assurance",
 ]
 
@@ -101,9 +101,17 @@ Documentation = "https://repotoire.readthedocs.io"
 Repository = "https://github.com/yourusername/repotoire"
 Issues = "https://github.com/yourusername/repotoire/issues"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["repotoire*"]
+[tool.maturin]
+# Build Rust extension from repotoire-fast directory
+manifest-path = "repotoire-fast/Cargo.toml"
+# Include the Python package
+python-source = "."
+# The Rust module name
+module-name = "repotoire_fast"
+# Include Python files
+include = ["repotoire/**/*.py", "repotoire/**/*.html", "repotoire/**/*.jinja2"]
+# Build features
+features = ["pyo3/extension-module"]
 
 [tool.black]
 line-length = 100
@@ -131,6 +139,7 @@ asyncio_default_fixture_loop_scope = "function"
 
 [dependency-groups]
 dev = [
+    "build>=1.3.0",
     "bump-my-version>=1.2.4",
     "git-cliff>=2.10.1",
 ]
