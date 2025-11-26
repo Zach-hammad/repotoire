@@ -2,6 +2,8 @@ use pyo3::prelude::*;
 use walkdir::WalkDir;
 use globset::{Glob, GlobSetBuilder};
 use rayon::prelude::*;
+mod hashing;
+use std::path::Path;
 
 #[pyfunction]
 fn scan_files(
@@ -40,9 +42,21 @@ fn scan_files(
     Ok(files)
 }
 
+#[pyfunction]
+fn hash_file_md5(path: String) -> PyResult<Option<String>> {
+    Ok(hashing::hash_file(Path::new(&path)))
+}
+
+#[pyfunction]
+fn batch_hash_files(paths: Vec<String>) -> PyResult<Vec<(String, String)>> {
+    Ok(hashing::batch_hash_files(paths))
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
+    n.add_function(wrap_pyfunction!(hash_file_md5, n)?)?;
+    n.add_function(wrap_pyfunction!(batch_hash_files, n)?)?;
     Ok(())
 }
 

@@ -23,3 +23,5 @@ globset = "0.4"
 # rayon - Parallelism library ("fearless concurrency")
 # Requires Rust 1.80+ - this is what makes our scanner 10-25x faster!
 rayon = "1.11"
+
+md5 = "0.7"
