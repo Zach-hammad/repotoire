@@ -559,12 +559,25 @@ class PythonParser(CodeParser):
     def _calculate_complexity(self, node: ast.AST) -> int:
         """Calculate cyclomatic complexity of a code block.
 
+        Uses Rust implementation when available for better accuracy.
+
         Args:
             node: AST node
 
         Returns:
             Complexity score
         """
+        try:
+            from repotoire_fast import calculate_complexity_fast
+
+            source = ast.unparse(node)
+            result = calculate_complexity_fast(source)
+            if result is not None:
+                return result
+        except (ImportError, Exception):
+            pass
+
+        # Fallback to Python implementation
         complexity = 1  # Base complexity
 
         for child in ast.walk(node):

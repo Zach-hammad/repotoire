@@ -4,6 +4,7 @@ use globset::{Glob, GlobSetBuilder};
 use rayon::prelude::*;
 mod hashing;
 use std::path::Path;
+mod complexity;
 
 #[pyfunction]
 fn scan_files(
@@ -52,11 +53,40 @@ fn batch_hash_files(paths: Vec<String>) -> PyResult<Vec<(String, String)>> {
     Ok(hashing::batch_hash_files(paths))
 }
 
+use std::collections::HashMap;
+
+#[pyfunction]
+fn calculate_complexity_fast(source: String) -> PyResult<Option<u32>> {
+    Ok(complexity::calculate_complexity(&source))
+}
+
+#[pyfunction]
+fn calculate_complexity_batch(source: String) -> PyResult<Option<HashMap<String, u32>>> {
+    Ok(complexity::calculate_complexity_batch(&source))
+}
+
+/// Calculate complexity for multiple files in parallel
+/// Takes list of (path, source) tuples, returns list of (path, {func: complexity})
+#[pyfunction]
+fn calculate_complexity_files(files: Vec<(String, String)>) -> PyResult<Vec<(String, HashMap<String, u32>)>> {
+    let results: Vec<(String, HashMap<String, u32>)> = files
+        .into_par_iter()
+        .filter_map(|(path, source)| {
+            let result = complexity::calculate_complexity_batch(&source)?;
+            Some((path, result))
+        })
+        .collect();
+    Ok(results)
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
     n.add_function(wrap_pyfunction!(hash_file_md5, n)?)?;
     n.add_function(wrap_pyfunction!(batch_hash_files, n)?)?;
+    n.add_function(wrap_pyfunction!(calculate_complexity_fast, n)?)?;
+    n.add_function(wrap_pyfunction!(calculate_complexity_batch, n)?)?;
+    n.add_function(wrap_pyfunction!(calculate_complexity_files, n)?)?;
     Ok(())
 }
 
