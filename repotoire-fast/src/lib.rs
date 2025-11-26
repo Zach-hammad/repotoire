@@ -5,6 +5,7 @@ use rayon::prelude::*;
 mod hashing;
 use std::path::Path;
 mod complexity;
+mod lcom;
 
 #[pyfunction]
 fn scan_files(
@@ -79,6 +80,22 @@ fn calculate_complexity_files(files: Vec<(String, String)>) -> PyResult<Vec<(Str
     Ok(results)
 }
 
+/// Calculate LCOM (Lack of Cohesion of Methods) for a single class.
+/// Takes list of (method_name, [field_names]) tuples.
+/// Returns LCOM score between 0.0 (cohesive) and 1.0 (scattered).
+#[pyfunction]
+fn calculate_lcom_fast(method_field_pairs: Vec<(String, Vec<String>)>) -> PyResult<f64> {
+    Ok(lcom::calculate_lcom(&method_field_pairs))
+}
+
+/// Calculate LCOM for multiple classes in parallel.
+/// Takes list of (class_name, [(method_name, [field_names])]).
+/// Returns list of (class_name, lcom_score).
+#[pyfunction]
+fn calculate_lcom_batch(classes: Vec<(String, Vec<(String, Vec<String>)>)>) -> PyResult<Vec<(String, f64)>> {
+    Ok(lcom::calculate_lcom_batch(classes))
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -87,6 +104,8 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(calculate_complexity_fast, n)?)?;
     n.add_function(wrap_pyfunction!(calculate_complexity_batch, n)?)?;
     n.add_function(wrap_pyfunction!(calculate_complexity_files, n)?)?;
+    n.add_function(wrap_pyfunction!(calculate_lcom_fast, n)?)?;
+    n.add_function(wrap_pyfunction!(calculate_lcom_batch, n)?)?;
     Ok(())
 }
 

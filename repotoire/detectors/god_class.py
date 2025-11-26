@@ -750,7 +750,20 @@ class GodClassDetector(CodeSmellDetector):
             if method_count <= 1:
                 return 0.0  # Single method is perfectly cohesive
 
-            # Count pairs of methods that share no fields
+            # Try to use Rust implementation for better performance
+            try:
+                from repotoire_fast import calculate_lcom_fast
+
+                # Convert Neo4j result format to Rust format: [(method_name, [field_names])]
+                rust_pairs = [
+                    (pair.get("method", ""), pair.get("fields", []))
+                    for pair in method_field_pairs
+                ]
+                return calculate_lcom_fast(rust_pairs)
+            except ImportError:
+                pass  # Fall back to Python implementation
+
+            # Python fallback: Count pairs of methods that share no fields
             non_sharing_pairs = 0
             total_pairs = 0
 
