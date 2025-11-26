@@ -167,7 +167,7 @@ def get_config() -> FalkorConfig:
 
 
 @click.group()
-@click.version_option(version="0.1.0")
+@click.version_option(package_name="repotoire")
 @click.option(
     "--config",
     "-c",
