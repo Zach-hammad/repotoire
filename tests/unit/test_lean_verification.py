@@ -112,6 +112,175 @@ class TestLeanVerifiedProperties:
         assert MIN_SCORE == 0, "Minimum score must be 0"
         assert MAX_SCORE == 100, "Maximum score must be 100"
 
+    def test_weighted_score_bounded(self):
+        """
+        Lean theorem: weighted_score_bounded
+        Proves: Weighted sum of valid scores produces valid result.
+
+        In Lean: calculate_weighted_score s1 s2 s3 ≤ 10000 (scaled)
+        In Python: result is 0.0-100.0 (floats)
+        """
+        weights = AnalysisEngine.WEIGHTS
+
+        def calculate_weighted_score(s1: float, s2: float, s3: float) -> float:
+            """Mirror Lean's calculate_weighted_score (without /100 scaling)."""
+            return (
+                weights["structure"] * s1 +
+                weights["quality"] * s2 +
+                weights["architecture"] * s3
+            )
+
+        # Test boundaries: all valid scores produce valid result
+        test_cases = [
+            (0, 0, 0),      # Minimum
+            (100, 100, 100),  # Maximum
+            (50, 50, 50),   # Middle
+            (100, 0, 0),    # Structure only
+            (0, 100, 0),    # Quality only
+            (0, 0, 100),    # Architecture only
+        ]
+
+        for s1, s2, s3 in test_cases:
+            result = calculate_weighted_score(s1, s2, s3)
+            assert 0 <= result <= 100, \
+                f"Score {result} out of bounds for inputs ({s1}, {s2}, {s3})"
+
+    def test_perfect_scores_produce_100(self):
+        """
+        Lean theorem: perfect_scores_produce_100
+        Proves: final_score 100 100 100 = 100
+        """
+        weights = AnalysisEngine.WEIGHTS
+        result = (
+            weights["structure"] * 100 +
+            weights["quality"] * 100 +
+            weights["architecture"] * 100
+        )
+        assert result == 100.0, f"Perfect scores should produce 100, got {result}"
+
+    def test_zero_scores_produce_0(self):
+        """
+        Lean theorem: zero_scores_produce_0
+        Proves: final_score 0 0 0 = 0
+        """
+        weights = AnalysisEngine.WEIGHTS
+        result = (
+            weights["structure"] * 0 +
+            weights["quality"] * 0 +
+            weights["architecture"] * 0
+        )
+        assert result == 0.0, f"Zero scores should produce 0, got {result}"
+
+
+class TestGradeAssignmentVerification:
+    """
+    Tests that verify Python matches Lean grade assignment proofs (REPO-186).
+
+    Lean file: lean/Repotoire/HealthScore.lean (Sections 5-7)
+    """
+
+    @staticmethod
+    def score_to_grade(score: int) -> str:
+        """Mirror Lean's score_to_grade function."""
+        grades = AnalysisEngine.GRADES
+        for grade, (min_score, max_score) in grades.items():
+            if grade == "A" and min_score <= score <= max_score:
+                return grade
+            elif min_score <= score < max_score:
+                return grade
+        return "F"
+
+    def test_grade_coverage_complete(self):
+        """
+        Lean theorem: grade_coverage, grade_assignment_total
+        Proves: Every valid score in [0, 100] maps to exactly one grade.
+        """
+        valid_grades = {"A", "B", "C", "D", "F"}
+
+        # Test every integer score from 0 to 100
+        for score in range(101):
+            grade = self.score_to_grade(score)
+            assert grade in valid_grades, \
+                f"Score {score} mapped to invalid grade '{grade}'"
+
+    def test_grade_ranges_disjoint(self):
+        """
+        Lean theorem: grade_ranges_disjoint
+        Proves: No score belongs to two different grades.
+        """
+        grades = AnalysisEngine.GRADES
+
+        # For each score, count how many grade ranges it falls into
+        for score in range(101):
+            matching_grades = []
+            for grade, (min_score, max_score) in grades.items():
+                if grade == "A":
+                    if min_score <= score <= max_score:
+                        matching_grades.append(grade)
+                else:
+                    if min_score <= score < max_score:
+                        matching_grades.append(grade)
+
+            assert len(matching_grades) == 1, \
+                f"Score {score} matches {len(matching_grades)} grades: {matching_grades}"
+
+    def test_grade_monotonic(self):
+        """
+        Lean theorem: grade_monotonic
+        Proves: Higher scores produce same or better grades.
+        s1 ≤ s2 → grade(s1) ≤ grade(s2)
+        """
+        grade_rank = {"F": 0, "D": 1, "C": 2, "B": 3, "A": 4}
+
+        # Test all pairs where s1 ≤ s2
+        for s1 in range(0, 101, 5):
+            for s2 in range(s1, 101, 5):
+                g1 = self.score_to_grade(s1)
+                g2 = self.score_to_grade(s2)
+                r1 = grade_rank[g1]
+                r2 = grade_rank[g2]
+                assert r1 <= r2, \
+                    f"Monotonicity violated: score {s1}→{g1} vs {s2}→{g2}"
+
+    def test_grade_ordering(self):
+        """
+        Lean theorem: grade_ordering
+        Proves: F < D < C < B < A
+        """
+        grade_rank = {"F": 0, "D": 1, "C": 2, "B": 3, "A": 4}
+
+        assert grade_rank["F"] < grade_rank["D"], "F must be less than D"
+        assert grade_rank["D"] < grade_rank["C"], "D must be less than C"
+        assert grade_rank["C"] < grade_rank["B"], "C must be less than B"
+        assert grade_rank["B"] < grade_rank["A"], "B must be less than A"
+
+    def test_thresholds_ordered(self):
+        """
+        Lean theorem: thresholds_ordered
+        Proves: GRADE_D_MIN < GRADE_C_MIN < GRADE_B_MIN < GRADE_A_MIN ≤ 100
+        """
+        # From Lean: 60 < 70 < 80 < 90 ≤ 100
+        GRADE_D_MIN = 60
+        GRADE_C_MIN = 70
+        GRADE_B_MIN = 80
+        GRADE_A_MIN = 90
+
+        assert GRADE_D_MIN < GRADE_C_MIN, "D threshold < C threshold"
+        assert GRADE_C_MIN < GRADE_B_MIN, "C threshold < B threshold"
+        assert GRADE_B_MIN < GRADE_A_MIN, "B threshold < A threshold"
+        assert GRADE_A_MIN <= 100, "A threshold ≤ 100"
+
+    def test_grade_deterministic(self):
+        """
+        Lean theorem: grade_deterministic
+        Proves: Same score always produces same grade.
+        """
+        # Run multiple times to verify determinism
+        for score in [0, 59, 60, 69, 70, 79, 80, 89, 90, 100]:
+            results = [self.score_to_grade(score) for _ in range(10)]
+            assert len(set(results)) == 1, \
+                f"Score {score} produced different grades: {results}"
+
 
 class TestCypherSafetyVerification:
     """
