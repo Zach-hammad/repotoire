@@ -11,27 +11,17 @@ from .repotoire_fast import (
     cosine_similarity_fast,
     batch_cosine_similarity_fast,
     find_top_k_similar,
-    check_too_many_attributes,
-    check_too_few_public_methods,
-    check_too_many_public_methods,
-    check_too_many_boolean_expressions,
-    check_import_self,
-    check_too_many_returns,
-    check_too_many_branches,
-    check_too_many_arguments,
-    check_too_many_locals,
-    check_too_many_statements,
-    check_unused_imports,
-    check_line_too_long,
-    check_too_many_lines,
-    check_unused_variables,
-    check_unused_arguments,
-    check_too_many_ancestors,
-    check_attribute_defined_outside_init,
-    check_protected_access,
-    check_unused_wildcard_import,
-    check_undefined_loop_variable,
-    check_disallowed_name,
+    # Pylint rules not covered by Ruff
+    check_too_many_attributes,        # R0902
+    check_too_few_public_methods,     # R0903
+    check_import_self,                # R0401
+    check_too_many_lines,             # C0302
+    check_too_many_ancestors,         # R0901
+    check_attribute_defined_outside_init,  # W0201
+    check_protected_access,           # W0212
+    check_unused_wildcard_import,     # W0614
+    check_undefined_loop_variable,    # W0631
+    check_disallowed_name,            # C0104
 )
 
 __all__ = [
@@ -46,25 +36,15 @@ __all__ = [
     "cosine_similarity_fast",
     "batch_cosine_similarity_fast",
     "find_top_k_similar",
-    "check_too_many_attributes",
-    "check_too_few_public_methods",
-    "check_too_many_public_methods",
-    "check_too_many_boolean_expressions",
-    "check_import_self",
-    "check_too_many_returns",
-    "check_too_many_branches",
-    "check_too_many_arguments",
-    "check_too_many_locals",
-    "check_too_many_statements",
-    "check_unused_imports",
-    "check_line_too_long",
-    "check_too_many_lines",
-    "check_unused_variables",
-    "check_unused_arguments",
-    "check_too_many_ancestors",
-    "check_attribute_defined_outside_init",
-    "check_protected_access",
-    "check_unused_wildcard_import",
-    "check_undefined_loop_variable",
-    "check_disallowed_name",
+    # Pylint rules not covered by Ruff
+    "check_too_many_attributes",        # R0902
+    "check_too_few_public_methods",     # R0903
+    "check_import_self",                # R0401
+    "check_too_many_lines",             # C0302
+    "check_too_many_ancestors",         # R0901
+    "check_attribute_defined_outside_init",  # W0201
+    "check_protected_access",           # W0212
+    "check_unused_wildcard_import",     # W0614
+    "check_undefined_loop_variable",    # W0631
+    "check_disallowed_name",            # C0104
 ]

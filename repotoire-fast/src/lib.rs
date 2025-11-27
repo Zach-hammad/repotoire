@@ -184,52 +184,6 @@ fn check_too_few_public_methods(source: String, threshold: usize) -> PyResult<Ve
         .collect())
 }
 
-/// Check for too-many-public-methods (R0904)
-/// Returns list of (code, message, line) tuples
-#[pyfunction]
-fn check_too_many_public_methods(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
-    use rustpython_parser::{parse, Mode, ast::Mod};
-    use pylint_rules::{PylintRule, TooManyPublicMethods};
-
-    let ast = parse(&source, Mode::Module, "<string>")
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
-
-    let body = match ast {
-        Mod::Module(m) => m.body,
-        _ => return Ok(vec![]),
-    };
-
-    let rule = TooManyPublicMethods { threshold };
-    let findings = rule.check(&body, &source);
-
-    Ok(findings.into_iter()
-        .map(|f| (f.code, f.message, f.line))
-        .collect())
-}
-
-/// Check for too-many-boolean-expressions (R0916)
-/// Returns list of (code, message, line) tuples
-#[pyfunction]
-fn check_too_many_boolean_expressions(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
-    use rustpython_parser::{parse, Mode, ast::Mod};
-    use pylint_rules::{PylintRule, TooManyBooleanExpressions};
-
-    let ast = parse(&source, Mode::Module, "<string>")
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
-
-    let body = match ast {
-        Mod::Module(m) => m.body,
-        _ => return Ok(vec![]),
-    };
-
-    let rule = TooManyBooleanExpressions { threshold };
-    let findings = rule.check(&body, &source);
-
-    Ok(findings.into_iter()
-        .map(|f| (f.code, f.message, f.line))
-        .collect())
-}
-
 /// Check for cyclic-import / import-self (R0401)
 /// Returns list of (code, message, line) tuples
 #[pyfunction]
@@ -251,190 +205,11 @@ fn check_import_self(source: String, module_path: String) -> PyResult<Vec<(Strin
         .collect())
 }
 
-/// Check for too-many-return-statements (R0911)
-/// Returns list of (code, message, line) tuples
-#[pyfunction]
-fn check_too_many_returns(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
-    use rustpython_parser::{parse, Mode, ast::Mod};
-
-    let ast = parse(&source, Mode::Module, "<string>")
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
-
-    let body = match ast {
-        Mod::Module(m) => m.body,
-        _ => return Ok(vec![]),
-    };
-
-    let findings = pylint_rules::check_too_many_returns(&body, &source, threshold);
-
-    Ok(findings.into_iter()
-        .map(|f| (f.code, f.message, f.line))
-        .collect())
-}
-
-/// Check for too-many-branches (R0912)
-/// Returns list of (code, message, line) tuples
-#[pyfunction]
-fn check_too_many_branches(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
-    use rustpython_parser::{parse, Mode, ast::Mod};
-
-    let ast = parse(&source, Mode::Module, "<string>")
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
-
-    let body = match ast {
-        Mod::Module(m) => m.body,
-        _ => return Ok(vec![]),
-    };
-
-    let findings = pylint_rules::check_too_many_branches(&body, &source, threshold);
-
-    Ok(findings.into_iter()
-        .map(|f| (f.code, f.message, f.line))
-        .collect())
-}
-
-/// Check for too-many-arguments (R0913)
-/// Returns list of (code, message, line) tuples
-#[pyfunction]
-fn check_too_many_arguments(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
-    use rustpython_parser::{parse, Mode::Module, ast::Mod};
-
-    let ast = parse(&source, Module, "<string>")
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
-
-    let body = match ast {
-        Mod::Module(m) => m.body,
-        _ => return Ok(vec![]),
-    };
-
-    let findings = pylint_rules::check_too_many_arguments(&body, &source, threshold);
-
-    Ok(findings.into_iter()
-        .map(|f| (f.code, f.message, f.line))
-        .collect())
-}
-
-/// Check for too-many-locals (R0914)
-/// Returns list of (code, message, line) tuples
-#[pyfunction]
-fn check_too_many_locals(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
-    use rustpython_parser::{parse, Mode, ast::Mod};
-
-    let ast = parse(&source, Mode::Module, "<string>")
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
-
-    let body = match ast {
-        Mod::Module(m) => m.body,
-        _ => return Ok(vec![]),
-    };
-
-    let findings = pylint_rules::check_too_many_locals(&body, &source, threshold);
-
-    Ok(findings.into_iter()
-        .map(|f| (f.code, f.message, f.line))
-        .collect())
-}
-
-/// Check for too-many-statements (R0915)
-/// Returns list of (code, message, line) tuples
-#[pyfunction]
-fn check_too_many_statements(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
-    use rustpython_parser::{parse, Mode, ast::Mod};
-
-    let ast = parse(&source, Mode::Module, "<string>")
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
-
-    let body = match ast {
-        Mod::Module(m) => m.body,
-        _ => return Ok(vec![]),
-    };
-
-    let findings = pylint_rules::check_too_many_statements(&body, &source, threshold);
-
-    Ok(findings.into_iter()
-        .map(|f| (f.code, f.message, f.line))
-        .collect())
-}
-
-/// Check for unused-import (W0611)
-/// Returns list of (code, message, line) tuples
-#[pyfunction]
-fn check_unused_imports(source: String) -> PyResult<Vec<(String, String, usize)>> {
-    use rustpython_parser::{parse, Mode, ast::Mod};
-
-    let ast = parse(&source, Mode::Module, "<string>")
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
-
-    let body = match ast {
-        Mod::Module(m) => m.body,
-        _ => return Ok(vec![]),
-    };
-
-    let findings = pylint_rules::check_unused_imports(&body, &source);
-
-    Ok(findings.into_iter()
-        .map(|f| (f.code, f.message, f.line))
-        .collect())
-}
-
-/// Check for line-too-long (C0301)
-/// Returns list of (code, message, line) tuples
-#[pyfunction]
-fn check_line_too_long(source: String, max_length: usize) -> PyResult<Vec<(String, String, usize)>> {
-    let findings = pylint_rules::check_line_too_long(&source, max_length);
-
-    Ok(findings.into_iter()
-        .map(|f| (f.code, f.message, f.line))
-        .collect())
-}
-
 /// Check for too-many-lines (C0302)
 /// Returns list of (code, message, line) tuples
 #[pyfunction]
 fn check_too_many_lines(source: String, max_lines: usize) -> PyResult<Vec<(String, String, usize)>> {
     let findings = pylint_rules::check_too_many_lines(&source, max_lines);
-
-    Ok(findings.into_iter()
-        .map(|f| (f.code, f.message, f.line))
-        .collect())
-}
-
-/// Check for unused-variable (W0612)
-/// Returns list of (code, message, line) tuples
-#[pyfunction]
-fn check_unused_variables(source: String) -> PyResult<Vec<(String, String, usize)>> {
-    use rustpython_parser::{parse, Mode, ast::Mod};
-
-    let ast = parse(&source, Mode::Module, "<string>")
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
-
-    let body = match ast {
-        Mod::Module(m) => m.body,
-        _ => return Ok(vec![]),
-    };
-
-    let findings = pylint_rules::check_unused_variables(&body, &source);
-
-    Ok(findings.into_iter()
-        .map(|f| (f.code, f.message, f.line))
-        .collect())
-}
-
-/// Check for unused-argument (W0613)
-/// Returns list of (code, message, line) tuples
-#[pyfunction]
-fn check_unused_arguments(source: String) -> PyResult<Vec<(String, String, usize)>> {
-    use rustpython_parser::{parse, Mode, ast::Mod};
-
-    let ast = parse(&source, Mode::Module, "<string>")
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
-
-    let body = match ast {
-        Mod::Module(m) => m.body,
-        _ => return Ok(vec![]),
-    };
-
-    let findings = pylint_rules::check_unused_arguments(&body, &source);
 
     Ok(findings.into_iter()
         .map(|f| (f.code, f.message, f.line))
@@ -581,27 +356,17 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(cosine_similarity_fast, n)?)?;
     n.add_function(wrap_pyfunction!(batch_cosine_similarity_fast, n)?)?;
     n.add_function(wrap_pyfunction!(find_top_k_similar, n)?)?;
-    n.add_function(wrap_pyfunction!(check_too_many_attributes, n)?)?;
-    n.add_function(wrap_pyfunction!(check_too_few_public_methods, n)?)?;
-    n.add_function(wrap_pyfunction!(check_too_many_public_methods, n)?)?;
-    n.add_function(wrap_pyfunction!(check_too_many_boolean_expressions, n)?)?;
-    n.add_function(wrap_pyfunction!(check_import_self, n)?)?;
-    n.add_function(wrap_pyfunction!(check_too_many_returns, n)?)?;
-    n.add_function(wrap_pyfunction!(check_too_many_branches, n)?)?;
-    n.add_function(wrap_pyfunction!(check_too_many_arguments, n)?)?;
-    n.add_function(wrap_pyfunction!(check_too_many_locals, n)?)?;
-    n.add_function(wrap_pyfunction!(check_too_many_statements, n)?)?;
-    n.add_function(wrap_pyfunction!(check_unused_imports, n)?)?;
-    n.add_function(wrap_pyfunction!(check_line_too_long, n)?)?;
-    n.add_function(wrap_pyfunction!(check_too_many_lines, n)?)?;
-    n.add_function(wrap_pyfunction!(check_unused_variables, n)?)?;
-    n.add_function(wrap_pyfunction!(check_unused_arguments, n)?)?;
-    n.add_function(wrap_pyfunction!(check_too_many_ancestors, n)?)?;
-    n.add_function(wrap_pyfunction!(check_attribute_defined_outside_init, n)?)?;
-    n.add_function(wrap_pyfunction!(check_protected_access, n)?)?;
-    n.add_function(wrap_pyfunction!(check_unused_wildcard_import, n)?)?;
-    n.add_function(wrap_pyfunction!(check_undefined_loop_variable, n)?)?;
-    n.add_function(wrap_pyfunction!(check_disallowed_name, n)?)?;
+    // Pylint rules not covered by Ruff
+    n.add_function(wrap_pyfunction!(check_too_many_attributes, n)?)?;        // R0902
+    n.add_function(wrap_pyfunction!(check_too_few_public_methods, n)?)?;     // R0903
+    n.add_function(wrap_pyfunction!(check_import_self, n)?)?;                // R0401
+    n.add_function(wrap_pyfunction!(check_too_many_lines, n)?)?;             // C0302
+    n.add_function(wrap_pyfunction!(check_too_many_ancestors, n)?)?;         // R0901
+    n.add_function(wrap_pyfunction!(check_attribute_defined_outside_init, n)?)?;  // W0201
+    n.add_function(wrap_pyfunction!(check_protected_access, n)?)?;           // W0212
+    n.add_function(wrap_pyfunction!(check_unused_wildcard_import, n)?)?;     // W0614
+    n.add_function(wrap_pyfunction!(check_undefined_loop_variable, n)?)?;    // W0631
+    n.add_function(wrap_pyfunction!(check_disallowed_name, n)?)?;            // C0104
     Ok(())
 }
 

@@ -4,26 +4,15 @@ This hybrid detector combines pylint's comprehensive code quality checks with
 Neo4j graph data to provide detailed quality violation detection with rich context.
 
 Architecture:
-    1. Run Rust-based fast checks for 21 supported rules (100x faster than pylint):
+    1. Run Rust-based fast checks for 10 rules NOT covered by Ruff (100x faster than pylint):
        - C0104: disallowed-name
-       - C0301: line-too-long
        - C0302: too-many-lines
        - R0401: cyclic-import / import-self
        - R0901: too-many-ancestors
        - R0902: too-many-instance-attributes
        - R0903: too-few-public-methods
-       - R0904: too-many-public-methods
-       - R0911: too-many-return-statements
-       - R0912: too-many-branches
-       - R0913: too-many-arguments
-       - R0914: too-many-locals
-       - R0915: too-many-statements
-       - R0916: too-many-boolean-expressions
        - W0201: attribute-defined-outside-init
        - W0212: protected-access
-       - W0611: unused-import
-       - W0612: unused-variable
-       - W0613: unused-argument
        - W0614: unused-wildcard-import
        - W0631: undefined-loop-variable
     2. Fall back to pylint subprocess for remaining rules
@@ -31,8 +20,21 @@ Architecture:
     4. Enrich findings with Neo4j graph data (LOC, complexity, imports)
     5. Generate detailed findings with context
 
+Note: Rules covered by Ruff (use RuffLintDetector instead):
+    - C0301: line-too-long (Ruff E501)
+    - R0904: too-many-public-methods (Ruff PLR0904)
+    - R0911: too-many-return-statements (Ruff PLR0911)
+    - R0912: too-many-branches (Ruff PLR0912)
+    - R0913: too-many-arguments (Ruff PLR0913)
+    - R0914: too-many-locals (Ruff PLR0914)
+    - R0915: too-many-statements (Ruff PLR0915)
+    - R0916: too-many-boolean-expressions (Ruff PLR0916)
+    - W0611: unused-import (Ruff F401)
+    - W0612: unused-variable (Ruff F841)
+    - W0613: unused-argument (Ruff ARG001-005)
+
 This approach achieves:
-    - Fast detection via Rust for common rules (~100x faster)
+    - Fast detection via Rust for rules Ruff doesn't cover (~100x faster)
     - Comprehensive quality checks (pylint's extensive rules)
     - Rich context (graph-based metadata)
     - Actionable suggestions (fixes, refactorings)
@@ -54,24 +56,13 @@ from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# Try to import Rust-based pylint rules
+# Try to import Rust-based pylint rules (only rules NOT covered by Ruff)
 try:
     from repotoire_fast import (
         check_too_many_attributes,      # R0902
         check_too_few_public_methods,   # R0903
-        check_too_many_public_methods,  # R0904
-        check_too_many_boolean_expressions,  # R0916
         check_import_self,              # R0401
-        check_too_many_returns,         # R0911
-        check_too_many_branches,        # R0912
-        check_too_many_arguments,       # R0913
-        check_too_many_locals,          # R0914
-        check_too_many_statements,      # R0915
-        check_unused_imports,           # W0611
-        check_line_too_long,            # C0301
         check_too_many_lines,           # C0302
-        check_unused_variables,         # W0612
-        check_unused_arguments,         # W0613
         check_too_many_ancestors,       # R0901
         check_attribute_defined_outside_init,  # W0201
         check_protected_access,         # W0212
@@ -85,27 +76,16 @@ except ImportError:
     RUST_PYLINT_AVAILABLE = False
     logger.debug("Rust pylint rules not available, using pylint only")
 
-# Rules that have Rust implementations (100x faster than subprocess pylint)
+# Rules that have Rust implementations (NOT covered by Ruff, 100x faster than subprocess pylint)
 RUST_SUPPORTED_RULES = {
     "C0104",  # disallowed-name
-    "C0301",  # line-too-long
     "C0302",  # too-many-lines
     "R0401",  # cyclic-import / import-self
     "R0901",  # too-many-ancestors
     "R0902",  # too-many-instance-attributes
     "R0903",  # too-few-public-methods
-    "R0904",  # too-many-public-methods
-    "R0911",  # too-many-return-statements
-    "R0912",  # too-many-branches
-    "R0913",  # too-many-arguments
-    "R0914",  # too-many-locals
-    "R0915",  # too-many-statements
-    "R0916",  # too-many-boolean-expressions
     "W0201",  # attribute-defined-outside-init
     "W0212",  # protected-access
-    "W0611",  # unused-import
-    "W0612",  # unused-variable
-    "W0613",  # unused-argument
     "W0614",  # unused-wildcard-import
     "W0631",  # undefined-loop-variable
 }
@@ -166,18 +146,11 @@ class PylintDetector(CodeSmellDetector):
         self.use_rust = config.get("use_rust", True)  # Use Rust implementations when available
 
         # Thresholds for Rust-based rules (matching pylint defaults)
-        self.max_line_length = config.get("max_line_length", 100)  # C0301
+        # Note: Rules covered by Ruff are no longer configured here
         self.max_module_lines = config.get("max_module_lines", 1000)  # C0302
         self.max_ancestors = config.get("max_ancestors", 7)  # R0901
         self.max_attributes = config.get("max_attributes", 7)  # R0902
         self.min_public_methods = config.get("min_public_methods", 2)  # R0903
-        self.max_public_methods = config.get("max_public_methods", 20)  # R0904
-        self.max_returns = config.get("max_returns", 6)  # R0911
-        self.max_branches = config.get("max_branches", 12)  # R0912
-        self.max_arguments = config.get("max_arguments", 5)  # R0913
-        self.max_locals = config.get("max_locals", 15)  # R0914
-        self.max_statements = config.get("max_statements", 50)  # R0915
-        self.max_bool_expr = config.get("max_bool_expr", 5)  # R0916
         self.disallowed_names = config.get("disallowed_names", ["foo", "bar", "baz", "toto", "tutu", "tata"])  # C0104
 
         if not self.repository_path.exists():
@@ -221,6 +194,8 @@ class PylintDetector(CodeSmellDetector):
 
     def _run_rust_checks(self) -> List[Dict[str, Any]]:
         """Run Rust-based pylint rule checks on all Python files.
+
+        Only runs checks for rules NOT covered by Ruff (use RuffLintDetector for the rest).
 
         Returns:
             List of pylint-compatible result dictionaries
@@ -284,123 +259,6 @@ class PylintDetector(CodeSmellDetector):
                         "type": "refactor",
                     })
 
-            # R0904: too-many-public-methods
-            if "R0904" in self.enable_only or not self.enable_only:
-                for code, message, line in check_too_many_public_methods(source, self.max_public_methods):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "too-many-public-methods",
-                        "type": "refactor",
-                    })
-
-            # R0911: too-many-return-statements
-            if "R0911" in self.enable_only or not self.enable_only:
-                for code, message, line in check_too_many_returns(source, self.max_returns):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "too-many-return-statements",
-                        "type": "refactor",
-                    })
-
-            # R0912: too-many-branches
-            if "R0912" in self.enable_only or not self.enable_only:
-                for code, message, line in check_too_many_branches(source, self.max_branches):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "too-many-branches",
-                        "type": "refactor",
-                    })
-
-            # R0913: too-many-arguments
-            if "R0913" in self.enable_only or not self.enable_only:
-                for code, message, line in check_too_many_arguments(source, self.max_arguments):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "too-many-arguments",
-                        "type": "refactor",
-                    })
-
-            # R0914: too-many-locals
-            if "R0914" in self.enable_only or not self.enable_only:
-                for code, message, line in check_too_many_locals(source, self.max_locals):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "too-many-locals",
-                        "type": "refactor",
-                    })
-
-            # R0915: too-many-statements
-            if "R0915" in self.enable_only or not self.enable_only:
-                for code, message, line in check_too_many_statements(source, self.max_statements):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "too-many-statements",
-                        "type": "refactor",
-                    })
-
-            # R0916: too-many-boolean-expressions
-            if "R0916" in self.enable_only or not self.enable_only:
-                for code, message, line in check_too_many_boolean_expressions(source, self.max_bool_expr):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "too-many-boolean-expressions",
-                        "type": "refactor",
-                    })
-
-            # W0611: unused-import
-            if "W0611" in self.enable_only or not self.enable_only:
-                for code, message, line in check_unused_imports(source):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "unused-import",
-                        "type": "warning",
-                    })
-
-            # C0301: line-too-long
-            if "C0301" in self.enable_only or not self.enable_only:
-                for code, message, line in check_line_too_long(source, self.max_line_length):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "line-too-long",
-                        "type": "convention",
-                    })
-
             # C0302: too-many-lines
             if "C0302" in self.enable_only or not self.enable_only:
                 for code, message, line in check_too_many_lines(source, self.max_module_lines):
@@ -412,32 +270,6 @@ class PylintDetector(CodeSmellDetector):
                         "message-id": code,
                         "symbol": "too-many-lines",
                         "type": "convention",
-                    })
-
-            # W0612: unused-variable
-            if "W0612" in self.enable_only or not self.enable_only:
-                for code, message, line in check_unused_variables(source):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "unused-variable",
-                        "type": "warning",
-                    })
-
-            # W0613: unused-argument
-            if "W0613" in self.enable_only or not self.enable_only:
-                for code, message, line in check_unused_arguments(source):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "unused-argument",
-                        "type": "warning",
                     })
 
             # R0901: too-many-ancestors
