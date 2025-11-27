@@ -441,6 +441,133 @@ fn check_unused_arguments(source: String) -> PyResult<Vec<(String, String, usize
         .collect())
 }
 
+/// Check for too-many-ancestors (R0901)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_too_many_ancestors(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let findings = pylint_rules::check_too_many_ancestors(&body, &source, threshold);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Check for attribute-defined-outside-init (W0201)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_attribute_defined_outside_init(source: String) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let findings = pylint_rules::check_attribute_defined_outside_init(&body, &source);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Check for protected-access (W0212)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_protected_access(source: String) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let findings = pylint_rules::check_protected_access(&body, &source);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Check for unused-wildcard-import (W0614)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_unused_wildcard_import(source: String) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let findings = pylint_rules::check_unused_wildcard_import(&body, &source);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Check for undefined-loop-variable (W0631)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_undefined_loop_variable(source: String) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let findings = pylint_rules::check_undefined_loop_variable(&body, &source);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Check for disallowed-name (C0104)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_disallowed_name(source: String, disallowed: Vec<String>) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let disallowed_refs: Vec<&str> = disallowed.iter().map(|s| s.as_str()).collect();
+    let findings = pylint_rules::check_disallowed_name(&body, &source, &disallowed_refs);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -469,6 +596,12 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(check_too_many_lines, n)?)?;
     n.add_function(wrap_pyfunction!(check_unused_variables, n)?)?;
     n.add_function(wrap_pyfunction!(check_unused_arguments, n)?)?;
+    n.add_function(wrap_pyfunction!(check_too_many_ancestors, n)?)?;
+    n.add_function(wrap_pyfunction!(check_attribute_defined_outside_init, n)?)?;
+    n.add_function(wrap_pyfunction!(check_protected_access, n)?)?;
+    n.add_function(wrap_pyfunction!(check_unused_wildcard_import, n)?)?;
+    n.add_function(wrap_pyfunction!(check_undefined_loop_variable, n)?)?;
+    n.add_function(wrap_pyfunction!(check_disallowed_name, n)?)?;
     Ok(())
 }
 

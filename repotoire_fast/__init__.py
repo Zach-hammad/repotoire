@@ -26,6 +26,12 @@ from .repotoire_fast import (
     check_too_many_lines,
     check_unused_variables,
     check_unused_arguments,
+    check_too_many_ancestors,
+    check_attribute_defined_outside_init,
+    check_protected_access,
+    check_unused_wildcard_import,
+    check_undefined_loop_variable,
+    check_disallowed_name,
 )
 
 __all__ = [
@@ -55,4 +61,10 @@ __all__ = [
     "check_too_many_lines",
     "check_unused_variables",
     "check_unused_arguments",
+    "check_too_many_ancestors",
+    "check_attribute_defined_outside_init",
+    "check_protected_access",
+    "check_unused_wildcard_import",
+    "check_undefined_loop_variable",
+    "check_disallowed_name",
 ]

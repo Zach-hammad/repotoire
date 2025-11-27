@@ -4,10 +4,12 @@ This hybrid detector combines pylint's comprehensive code quality checks with
 Neo4j graph data to provide detailed quality violation detection with rich context.
 
 Architecture:
-    1. Run Rust-based fast checks for 15 supported rules (100x faster than pylint):
+    1. Run Rust-based fast checks for 21 supported rules (100x faster than pylint):
+       - C0104: disallowed-name
        - C0301: line-too-long
        - C0302: too-many-lines
        - R0401: cyclic-import / import-self
+       - R0901: too-many-ancestors
        - R0902: too-many-instance-attributes
        - R0903: too-few-public-methods
        - R0904: too-many-public-methods
@@ -17,9 +19,13 @@ Architecture:
        - R0914: too-many-locals
        - R0915: too-many-statements
        - R0916: too-many-boolean-expressions
+       - W0201: attribute-defined-outside-init
+       - W0212: protected-access
        - W0611: unused-import
        - W0612: unused-variable
        - W0613: unused-argument
+       - W0614: unused-wildcard-import
+       - W0631: undefined-loop-variable
     2. Fall back to pylint subprocess for remaining rules
     3. Parse pylint JSON output
     4. Enrich findings with Neo4j graph data (LOC, complexity, imports)
@@ -66,6 +72,12 @@ try:
         check_too_many_lines,           # C0302
         check_unused_variables,         # W0612
         check_unused_arguments,         # W0613
+        check_too_many_ancestors,       # R0901
+        check_attribute_defined_outside_init,  # W0201
+        check_protected_access,         # W0212
+        check_unused_wildcard_import,   # W0614
+        check_undefined_loop_variable,  # W0631
+        check_disallowed_name,          # C0104
     )
     RUST_PYLINT_AVAILABLE = True
     logger.debug("Rust pylint rules available")
@@ -75,9 +87,11 @@ except ImportError:
 
 # Rules that have Rust implementations (100x faster than subprocess pylint)
 RUST_SUPPORTED_RULES = {
+    "C0104",  # disallowed-name
     "C0301",  # line-too-long
     "C0302",  # too-many-lines
     "R0401",  # cyclic-import / import-self
+    "R0901",  # too-many-ancestors
     "R0902",  # too-many-instance-attributes
     "R0903",  # too-few-public-methods
     "R0904",  # too-many-public-methods
@@ -87,9 +101,13 @@ RUST_SUPPORTED_RULES = {
     "R0914",  # too-many-locals
     "R0915",  # too-many-statements
     "R0916",  # too-many-boolean-expressions
+    "W0201",  # attribute-defined-outside-init
+    "W0212",  # protected-access
     "W0611",  # unused-import
     "W0612",  # unused-variable
     "W0613",  # unused-argument
+    "W0614",  # unused-wildcard-import
+    "W0631",  # undefined-loop-variable
 }
 
 
@@ -150,6 +168,7 @@ class PylintDetector(CodeSmellDetector):
         # Thresholds for Rust-based rules (matching pylint defaults)
         self.max_line_length = config.get("max_line_length", 100)  # C0301
         self.max_module_lines = config.get("max_module_lines", 1000)  # C0302
+        self.max_ancestors = config.get("max_ancestors", 7)  # R0901
         self.max_attributes = config.get("max_attributes", 7)  # R0902
         self.min_public_methods = config.get("min_public_methods", 2)  # R0903
         self.max_public_methods = config.get("max_public_methods", 20)  # R0904
@@ -159,6 +178,7 @@ class PylintDetector(CodeSmellDetector):
         self.max_locals = config.get("max_locals", 15)  # R0914
         self.max_statements = config.get("max_statements", 50)  # R0915
         self.max_bool_expr = config.get("max_bool_expr", 5)  # R0916
+        self.disallowed_names = config.get("disallowed_names", ["foo", "bar", "baz", "toto", "tutu", "tata"])  # C0104
 
         if not self.repository_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repository_path}")
@@ -418,6 +438,84 @@ class PylintDetector(CodeSmellDetector):
                         "message-id": code,
                         "symbol": "unused-argument",
                         "type": "warning",
+                    })
+
+            # R0901: too-many-ancestors
+            if "R0901" in self.enable_only or not self.enable_only:
+                for code, message, line in check_too_many_ancestors(source, self.max_ancestors):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "too-many-ancestors",
+                        "type": "refactor",
+                    })
+
+            # W0201: attribute-defined-outside-init
+            if "W0201" in self.enable_only or not self.enable_only:
+                for code, message, line in check_attribute_defined_outside_init(source):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "attribute-defined-outside-init",
+                        "type": "warning",
+                    })
+
+            # W0212: protected-access
+            if "W0212" in self.enable_only or not self.enable_only:
+                for code, message, line in check_protected_access(source):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "protected-access",
+                        "type": "warning",
+                    })
+
+            # W0614: unused-wildcard-import
+            if "W0614" in self.enable_only or not self.enable_only:
+                for code, message, line in check_unused_wildcard_import(source):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "unused-wildcard-import",
+                        "type": "warning",
+                    })
+
+            # W0631: undefined-loop-variable
+            if "W0631" in self.enable_only or not self.enable_only:
+                for code, message, line in check_undefined_loop_variable(source):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "undefined-loop-variable",
+                        "type": "warning",
+                    })
+
+            # C0104: disallowed-name
+            if "C0104" in self.enable_only or not self.enable_only:
+                for code, message, line in check_disallowed_name(source, self.disallowed_names):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "disallowed-name",
+                        "type": "convention",
                     })
 
         return results
