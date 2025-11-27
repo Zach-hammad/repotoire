@@ -11,7 +11,7 @@ from .repotoire_fast import (
     cosine_similarity_fast,
     batch_cosine_similarity_fast,
     find_top_k_similar,
-    # Pylint rules not covered by Ruff
+    # Pylint rules not covered by Ruff (individual checks)
     check_too_many_attributes,        # R0902
     check_too_few_public_methods,     # R0903
     check_import_self,                # R0401
@@ -22,6 +22,9 @@ from .repotoire_fast import (
     check_unused_wildcard_import,     # W0614
     check_undefined_loop_variable,    # W0631
     check_disallowed_name,            # C0104
+    # Combined checks (parse once - faster)
+    check_all_pylint_rules,           # All rules, single file
+    check_all_pylint_rules_batch,     # All rules, multiple files in parallel
 )
 
 __all__ = [
@@ -36,7 +39,7 @@ __all__ = [
     "cosine_similarity_fast",
     "batch_cosine_similarity_fast",
     "find_top_k_similar",
-    # Pylint rules not covered by Ruff
+    # Pylint rules not covered by Ruff (individual checks)
     "check_too_many_attributes",        # R0902
     "check_too_few_public_methods",     # R0903
     "check_import_self",                # R0401
@@ -47,4 +50,7 @@ __all__ = [
     "check_unused_wildcard_import",     # W0614
     "check_undefined_loop_variable",    # W0631
     "check_disallowed_name",            # C0104
+    # Combined checks (parse once - faster)
+    "check_all_pylint_rules",           # All rules, single file
+    "check_all_pylint_rules_batch",     # All rules, multiple files in parallel
 ]

@@ -343,6 +343,164 @@ fn check_disallowed_name(source: String, disallowed: Vec<String>) -> PyResult<Ve
         .collect())
 }
 
+/// Configuration for pylint checks
+#[derive(Default)]
+struct PylintConfig {
+    max_attributes: usize,
+    min_public_methods: usize,
+    max_lines: usize,
+    max_ancestors: usize,
+    module_path: String,
+    disallowed_names: Vec<String>,
+}
+
+/// Run all pylint checks on a single source file (parses once)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+#[pyo3(signature = (source, module_path="", max_attributes=7, min_public_methods=2, max_lines=1000, max_ancestors=7, disallowed_names=vec![]))]
+fn check_all_pylint_rules(
+    source: String,
+    module_path: &str,
+    max_attributes: usize,
+    min_public_methods: usize,
+    max_lines: usize,
+    max_ancestors: usize,
+    disallowed_names: Vec<String>,
+) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+    use pylint_rules::{PylintRule, TooManyAttributes, TooFewPublicMethods};
+
+    let mut all_findings = Vec::new();
+
+    // C0302: too-many-lines (no parsing needed)
+    let line_findings = pylint_rules::check_too_many_lines(&source, max_lines);
+    all_findings.extend(line_findings);
+
+    // Parse once for all other checks
+    let ast = match parse(&source, Mode::Module, "<string>") {
+        Ok(ast) => ast,
+        Err(_) => return Ok(all_findings.into_iter().map(|f| (f.code, f.message, f.line)).collect()),
+    };
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(all_findings.into_iter().map(|f| (f.code, f.message, f.line)).collect()),
+    };
+
+    // R0902: too-many-instance-attributes
+    let rule = TooManyAttributes { threshold: max_attributes };
+    all_findings.extend(rule.check(&body, &source));
+
+    // R0903: too-few-public-methods
+    let rule = TooFewPublicMethods { threshold: min_public_methods };
+    all_findings.extend(rule.check(&body, &source));
+
+    // R0401: import-self
+    if !module_path.is_empty() {
+        all_findings.extend(pylint_rules::check_import_self(&body, &source, module_path));
+    }
+
+    // R0901: too-many-ancestors
+    all_findings.extend(pylint_rules::check_too_many_ancestors(&body, &source, max_ancestors));
+
+    // W0201: attribute-defined-outside-init
+    all_findings.extend(pylint_rules::check_attribute_defined_outside_init(&body, &source));
+
+    // W0212: protected-access
+    all_findings.extend(pylint_rules::check_protected_access(&body, &source));
+
+    // W0614: unused-wildcard-import
+    all_findings.extend(pylint_rules::check_unused_wildcard_import(&body, &source));
+
+    // W0631: undefined-loop-variable
+    all_findings.extend(pylint_rules::check_undefined_loop_variable(&body, &source));
+
+    // C0104: disallowed-name
+    if !disallowed_names.is_empty() {
+        let disallowed_refs: Vec<&str> = disallowed_names.iter().map(|s| s.as_str()).collect();
+        all_findings.extend(pylint_rules::check_disallowed_name(&body, &source, &disallowed_refs));
+    }
+
+    Ok(all_findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Run all pylint checks on multiple files in parallel (parses each file once)
+/// Takes list of (path, source) tuples
+/// Returns list of (path, [(code, message, line)]) tuples
+#[pyfunction]
+#[pyo3(signature = (files, max_attributes=7, min_public_methods=2, max_lines=1000, max_ancestors=7, disallowed_names=vec![]))]
+fn check_all_pylint_rules_batch(
+    files: Vec<(String, String)>,
+    max_attributes: usize,
+    min_public_methods: usize,
+    max_lines: usize,
+    max_ancestors: usize,
+    disallowed_names: Vec<String>,
+) -> PyResult<Vec<(String, Vec<(String, String, usize)>)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+    use pylint_rules::{PylintRule, TooManyAttributes, TooFewPublicMethods};
+
+    let results: Vec<(String, Vec<(String, String, usize)>)> = files
+        .into_par_iter()
+        .map(|(path, source)| {
+            let mut all_findings = Vec::new();
+
+            // C0302: too-many-lines (no parsing needed)
+            let line_findings = pylint_rules::check_too_many_lines(&source, max_lines);
+            all_findings.extend(line_findings);
+
+            // Parse once for all other checks
+            let ast = match parse(&source, Mode::Module, "<string>") {
+                Ok(ast) => ast,
+                Err(_) => return (path, all_findings.into_iter().map(|f| (f.code, f.message, f.line)).collect()),
+            };
+
+            let body = match ast {
+                Mod::Module(m) => m.body,
+                _ => return (path, all_findings.into_iter().map(|f| (f.code, f.message, f.line)).collect()),
+            };
+
+            // R0902: too-many-instance-attributes
+            let rule = TooManyAttributes { threshold: max_attributes };
+            all_findings.extend(rule.check(&body, &source));
+
+            // R0903: too-few-public-methods
+            let rule = TooFewPublicMethods { threshold: min_public_methods };
+            all_findings.extend(rule.check(&body, &source));
+
+            // R0401: import-self - use filename from path
+            all_findings.extend(pylint_rules::check_import_self(&body, &source, &path));
+
+            // R0901: too-many-ancestors
+            all_findings.extend(pylint_rules::check_too_many_ancestors(&body, &source, max_ancestors));
+
+            // W0201: attribute-defined-outside-init
+            all_findings.extend(pylint_rules::check_attribute_defined_outside_init(&body, &source));
+
+            // W0212: protected-access
+            all_findings.extend(pylint_rules::check_protected_access(&body, &source));
+
+            // W0614: unused-wildcard-import
+            all_findings.extend(pylint_rules::check_unused_wildcard_import(&body, &source));
+
+            // W0631: undefined-loop-variable
+            all_findings.extend(pylint_rules::check_undefined_loop_variable(&body, &source));
+
+            // C0104: disallowed-name
+            if !disallowed_names.is_empty() {
+                let disallowed_refs: Vec<&str> = disallowed_names.iter().map(|s| s.as_str()).collect();
+                all_findings.extend(pylint_rules::check_disallowed_name(&body, &source, &disallowed_refs));
+            }
+
+            (path, all_findings.into_iter().map(|f| (f.code, f.message, f.line)).collect())
+        })
+        .collect();
+
+    Ok(results)
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -367,6 +525,9 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(check_unused_wildcard_import, n)?)?;     // W0614
     n.add_function(wrap_pyfunction!(check_undefined_loop_variable, n)?)?;    // W0631
     n.add_function(wrap_pyfunction!(check_disallowed_name, n)?)?;            // C0104
+    // Combined checks (parse once)
+    n.add_function(wrap_pyfunction!(check_all_pylint_rules, n)?)?;
+    n.add_function(wrap_pyfunction!(check_all_pylint_rules_batch, n)?)?;
     Ok(())
 }
 
