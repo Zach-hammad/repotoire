@@ -80,10 +80,12 @@ fn count_public_methods(class: &StmtClassDef) -> usize {
         }).count()
 }
 
-/// Check if a class is an exception class (inherits from Exception/BaseException or similar)
-fn is_exception_class(class: &StmtClassDef) -> bool {
-    // Common exception base classes that should be excluded from R0903
-    const EXCEPTION_BASES: &[&str] = &[
+/// Check if a class should be excluded from R0903 (too-few-public-methods)
+/// Excludes: Exception subclasses, Enum subclasses, dataclasses, TypedDict, Protocol, ABC
+fn should_exclude_from_r0903(class: &StmtClassDef) -> bool {
+    // Common base classes that should be excluded from R0903
+    const EXCLUDED_BASES: &[&str] = &[
+        // Exception types
         "Exception", "BaseException", "ValueError", "TypeError", "KeyError",
         "IndexError", "AttributeError", "RuntimeError", "StopIteration",
         "OSError", "IOError", "ImportError", "LookupError", "ArithmeticError",
@@ -94,8 +96,34 @@ fn is_exception_class(class: &StmtClassDef) -> bool {
         "Warning", "UserWarning", "DeprecationWarning", "PendingDeprecationWarning",
         "SyntaxWarning", "RuntimeWarning", "FutureWarning", "ImportWarning",
         "UnicodeWarning", "BytesWarning", "ResourceWarning",
+        // Enum types
+        "Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto",
+        // Typing/Protocol types
+        "TypedDict", "Protocol", "ABC", "ABCMeta",
+        // NamedTuple
+        "NamedTuple",
     ];
 
+    // Check decorators for @dataclass, @attrs, etc.
+    for decorator in &class.decorator_list {
+        let dec_name = match decorator {
+            Expr::Name(name) => name.id.as_str(),
+            Expr::Attribute(attr) => attr.attr.as_str(),
+            Expr::Call(call) => match call.func.as_ref() {
+                Expr::Name(name) => name.id.as_str(),
+                Expr::Attribute(attr) => attr.attr.as_str(),
+                _ => continue,
+            },
+            _ => continue,
+        };
+
+        // Dataclass and similar decorators
+        if matches!(dec_name, "dataclass" | "dataclasses.dataclass" | "attrs" | "attr.s" | "define" | "frozen") {
+            return true;
+        }
+    }
+
+    // Check base classes
     for base in &class.bases {
         let base_name = match base {
             Expr::Name(name) => name.id.as_str(),
@@ -103,8 +131,8 @@ fn is_exception_class(class: &StmtClassDef) -> bool {
             _ => continue,
         };
 
-        // Check if base is a known exception type
-        if EXCEPTION_BASES.contains(&base_name) {
+        // Check if base is a known excluded type
+        if EXCLUDED_BASES.contains(&base_name) {
             return true;
         }
 
@@ -123,8 +151,9 @@ impl PylintRule for TooFewPublicMethods {
         let line_positions = LinePositions::from(source);
         for stmt in ast {
             if let Stmt::ClassDef(class) = stmt {
-                // Skip exception classes - they don't need public methods
-                if is_exception_class(class) {
+                // Skip special classes that don't need public methods
+                // (exceptions, enums, dataclasses, protocols, etc.)
+                if should_exclude_from_r0903(class) {
                     continue;
                 }
 

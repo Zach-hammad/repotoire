@@ -113,22 +113,34 @@ class PrivateHeavy:
         results = check_too_few_public_methods(source, 2)
         assert len(results) == 1
 
-    def test_r0903_exception_classes_excluded(self):
-        """Test R0903: exception classes are excluded (matches pylint behavior)."""
+    def test_r0903_special_classes_excluded(self):
+        """Test R0903: special classes are excluded (matches pylint behavior).
+
+        Excludes: exceptions, enums, dataclasses, protocols, etc.
+        """
         source = '''
+from enum import Enum
+from dataclasses import dataclass
+
 class MyException(Exception):
     pass
 
 class MyError(ValueError):
     pass
 
-class CustomError(RuntimeError):
-    pass
+class Severity(str, Enum):
+    LOW = "low"
+    HIGH = "high"
+
+@dataclass
+class Entity:
+    name: str
+    value: int
 
 class RegularClass:
     pass
 '''
-        # Only RegularClass should be flagged, not the exception classes
+        # Only RegularClass should be flagged
         results = check_too_few_public_methods(source, 2)
         assert len(results) == 1
         assert "RegularClass" in results[0][1]
