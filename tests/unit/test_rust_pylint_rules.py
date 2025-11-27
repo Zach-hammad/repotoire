@@ -8,6 +8,8 @@ try:
         check_too_many_attributes,
         check_too_few_public_methods,
         check_too_many_public_methods,
+        check_too_many_boolean_expressions,
+        check_import_self,
     )
     RUST_AVAILABLE = True
 except ImportError:
@@ -180,3 +182,89 @@ class Empty:
         except Exception:
             # Raising is also acceptable
             pass
+
+    # R0916: too-many-boolean-expressions tests
+
+    def test_r0916_too_many_boolean_expressions_detected(self):
+        """Test R0916: too-many-boolean-expressions is detected."""
+        source = '''
+if a and b and c and d and e:
+    pass
+'''
+        # 4 boolean operators (and/and/and/and)
+        results = check_too_many_boolean_expressions(source, 3)
+        assert len(results) == 1
+        code, message, line = results[0]
+        assert code == "R0916"
+        assert "4 boolean expressions" in message
+        assert "max, 3" in message
+
+    def test_r0916_under_threshold_ok(self):
+        """Test R0916: condition under threshold is not flagged."""
+        source = '''
+if a and b:
+    pass
+'''
+        results = check_too_many_boolean_expressions(source, 3)
+        assert len(results) == 0
+
+    def test_r0916_mixed_operators(self):
+        """Test R0916: counts both and/or operators."""
+        source = '''
+if a and b or c and d:
+    pass
+'''
+        # This is: (a and b) or (c and d) = 3 operators
+        results = check_too_many_boolean_expressions(source, 2)
+        assert len(results) == 1
+
+    def test_r0916_nested_conditions(self):
+        """Test R0916: handles nested conditions."""
+        source = '''
+if (a and b) and (c or d):
+    pass
+'''
+        # 3 operators total
+        results = check_too_many_boolean_expressions(source, 2)
+        assert len(results) == 1
+
+    # R0401: import-self tests
+
+    def test_r0401_import_self_detected(self):
+        """Test R0401: import-self is detected."""
+        source = '''
+import mymodule
+'''
+        results = check_import_self(source, "mymodule.py")
+        assert len(results) == 1
+        code, message, line = results[0]
+        assert code == "R0401"
+        assert "mymodule" in message
+
+    def test_r0401_from_import_self_detected(self):
+        """Test R0401: from X import Y self-import is detected."""
+        source = '''
+from mymodule import something
+'''
+        results = check_import_self(source, "mymodule.py")
+        assert len(results) == 1
+        code, message, line = results[0]
+        assert code == "R0401"
+
+    def test_r0401_no_self_import_ok(self):
+        """Test R0401: importing other modules is ok."""
+        source = '''
+import os
+from pathlib import Path
+'''
+        results = check_import_self(source, "mymodule.py")
+        assert len(results) == 0
+
+    def test_r0401_init_file_uses_package_name(self):
+        """Test R0401: __init__.py uses parent directory as module name."""
+        source = '''
+import mypackage
+'''
+        results = check_import_self(source, "mypackage/__init__.py")
+        assert len(results) == 1
+        assert "mypackage" in results[0][1]

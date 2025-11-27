@@ -207,6 +207,50 @@ fn check_too_many_public_methods(source: String, threshold: usize) -> PyResult<V
         .collect())
 }
 
+/// Check for too-many-boolean-expressions (R0916)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_too_many_boolean_expressions(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+    use pylint_rules::{PylintRule, TooManyBooleanExpressions};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let rule = TooManyBooleanExpressions { threshold };
+    let findings = rule.check(&body, &source);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Check for cyclic-import / import-self (R0401)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_import_self(source: String, module_path: String) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let findings = pylint_rules::check_import_self(&body, &source, &module_path);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -223,6 +267,8 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(check_too_many_attributes, n)?)?;
     n.add_function(wrap_pyfunction!(check_too_few_public_methods, n)?)?;
     n.add_function(wrap_pyfunction!(check_too_many_public_methods, n)?)?;
+    n.add_function(wrap_pyfunction!(check_too_many_boolean_expressions, n)?)?;
+    n.add_function(wrap_pyfunction!(check_import_self, n)?)?;
     Ok(())
 }
 

@@ -14,6 +14,8 @@ from .repotoire_fast import (
     check_too_many_attributes,
     check_too_few_public_methods,
     check_too_many_public_methods,
+    check_too_many_boolean_expressions,
+    check_import_self,
 )
 
 __all__ = [
@@ -31,4 +33,6 @@ __all__ = [
     "check_too_many_attributes",
     "check_too_few_public_methods",
     "check_too_many_public_methods",
+    "check_too_many_boolean_expressions",
+    "check_import_self",
 ]
