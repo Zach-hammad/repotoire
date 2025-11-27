@@ -520,6 +520,12 @@ fn check_protected_access_in_stmt(stmt: &Stmt, current_class: &str, line_positio
             check_protected_access_in_stmts(&try_stmt.orelse, current_class, line_positions, findings);
             check_protected_access_in_stmts(&try_stmt.finalbody, current_class, line_positions, findings);
         }
+        Stmt::Assert(assert_stmt) => {
+            check_protected_access_in_expr(&assert_stmt.test, current_class, line_positions, findings);
+            if let Some(msg) = &assert_stmt.msg {
+                check_protected_access_in_expr(msg, current_class, line_positions, findings);
+            }
+        }
         _ => {}
     }
 }
