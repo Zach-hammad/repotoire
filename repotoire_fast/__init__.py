@@ -21,6 +21,11 @@ from .repotoire_fast import (
     check_too_many_arguments,
     check_too_many_locals,
     check_too_many_statements,
+    check_unused_imports,
+    check_line_too_long,
+    check_too_many_lines,
+    check_unused_variables,
+    check_unused_arguments,
 )
 
 __all__ = [
@@ -45,4 +50,9 @@ __all__ = [
     "check_too_many_arguments",
     "check_too_many_locals",
     "check_too_many_statements",
+    "check_unused_imports",
+    "check_line_too_long",
+    "check_too_many_lines",
+    "check_unused_variables",
+    "check_unused_arguments",
 ]

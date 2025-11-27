@@ -597,3 +597,1197 @@ pub fn check_too_many_statements(ast: &Suite, source: &str, threshold: usize) ->
     }
     findings
 }
+
+// W0611: unused-import
+// Detects imports that are never used in the module
+pub fn check_unused_imports(ast: &Suite, source: &str) -> Vec<Finding> {
+    use std::collections::HashSet;
+
+    let mut findings = Vec::new();
+    let line_positions = LinePositions::from(source);
+
+    // Collect all imports: (name, line, is_from_import)
+    let mut imports: Vec<(String, usize, usize)> = Vec::new(); // (name, line, offset)
+
+    for stmt in ast {
+        match stmt {
+            Stmt::Import(import) => {
+                for alias in &import.names {
+                    // Use alias if provided, otherwise use module name
+                    let name = alias.asname.as_ref()
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| {
+                            // For "import foo.bar", the usable name is "foo"
+                            alias.name.to_string().split('.').next().unwrap_or("").to_string()
+                        });
+                    if !name.is_empty() {
+                        imports.push((name, import.range.start().into(), import.range.start().into()));
+                    }
+                }
+            }
+            Stmt::ImportFrom(import) => {
+                for alias in &import.names {
+                    // Skip "from x import *"
+                    if alias.name.as_str() == "*" {
+                        continue;
+                    }
+                    // Use alias if provided, otherwise use imported name
+                    let name = alias.asname.as_ref()
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| alias.name.to_string());
+                    imports.push((name, import.range.start().into(), import.range.start().into()));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Collect all name usages in the code (excluding import statements themselves)
+    let used_names: HashSet<String> = collect_used_names(ast);
+
+    // Report imports not found in used names
+    for (name, _offset, byte_offset) in imports {
+        if !used_names.contains(&name) {
+            let line_num = line_positions.from_offset(byte_offset).as_usize();
+            findings.push(Finding {
+                code: "W0611".to_string(),
+                message: format!("Unused import: {}", name),
+                line: line_num + 1,
+            });
+        }
+    }
+
+    findings
+}
+
+// Helper to collect all names used in the AST (excluding imports)
+fn collect_used_names(ast: &Suite) -> std::collections::HashSet<String> {
+    use std::collections::HashSet;
+
+    let mut names = HashSet::new();
+
+    fn visit_expr(expr: &Expr, names: &mut HashSet<String>) {
+        match expr {
+            Expr::Name(name) => {
+                names.insert(name.id.to_string());
+            }
+            Expr::Attribute(attr) => {
+                // For foo.bar, we need "foo"
+                visit_expr(&attr.value, names);
+            }
+            Expr::Call(call) => {
+                visit_expr(&call.func, names);
+                for arg in &call.args {
+                    visit_expr(arg, names);
+                }
+                for keyword in &call.keywords {
+                    visit_expr(&keyword.value, names);
+                }
+            }
+            Expr::BinOp(binop) => {
+                visit_expr(&binop.left, names);
+                visit_expr(&binop.right, names);
+            }
+            Expr::UnaryOp(unary) => {
+                visit_expr(&unary.operand, names);
+            }
+            Expr::Compare(cmp) => {
+                visit_expr(&cmp.left, names);
+                for comp in &cmp.comparators {
+                    visit_expr(comp, names);
+                }
+            }
+            Expr::BoolOp(boolop) => {
+                for val in &boolop.values {
+                    visit_expr(val, names);
+                }
+            }
+            Expr::IfExp(ifexp) => {
+                visit_expr(&ifexp.test, names);
+                visit_expr(&ifexp.body, names);
+                visit_expr(&ifexp.orelse, names);
+            }
+            Expr::Dict(dict) => {
+                for key in dict.keys.iter().flatten() {
+                    visit_expr(key, names);
+                }
+                for val in &dict.values {
+                    visit_expr(val, names);
+                }
+            }
+            Expr::List(list) => {
+                for elt in &list.elts {
+                    visit_expr(elt, names);
+                }
+            }
+            Expr::Tuple(tuple) => {
+                for elt in &tuple.elts {
+                    visit_expr(elt, names);
+                }
+            }
+            Expr::Set(set) => {
+                for elt in &set.elts {
+                    visit_expr(elt, names);
+                }
+            }
+            Expr::Subscript(sub) => {
+                visit_expr(&sub.value, names);
+                visit_expr(&sub.slice, names);
+            }
+            Expr::Starred(starred) => {
+                visit_expr(&starred.value, names);
+            }
+            Expr::Lambda(lambda) => {
+                visit_expr(&lambda.body, names);
+            }
+            Expr::ListComp(comp) => {
+                visit_expr(&comp.elt, names);
+                for gen in &comp.generators {
+                    visit_expr(&gen.iter, names);
+                    for if_clause in &gen.ifs {
+                        visit_expr(if_clause, names);
+                    }
+                }
+            }
+            Expr::SetComp(comp) => {
+                visit_expr(&comp.elt, names);
+                for gen in &comp.generators {
+                    visit_expr(&gen.iter, names);
+                    for if_clause in &gen.ifs {
+                        visit_expr(if_clause, names);
+                    }
+                }
+            }
+            Expr::DictComp(comp) => {
+                visit_expr(&comp.key, names);
+                visit_expr(&comp.value, names);
+                for gen in &comp.generators {
+                    visit_expr(&gen.iter, names);
+                    for if_clause in &gen.ifs {
+                        visit_expr(if_clause, names);
+                    }
+                }
+            }
+            Expr::GeneratorExp(gen) => {
+                visit_expr(&gen.elt, names);
+                for generator in &gen.generators {
+                    visit_expr(&generator.iter, names);
+                    for if_clause in &generator.ifs {
+                        visit_expr(if_clause, names);
+                    }
+                }
+            }
+            Expr::Await(await_expr) => {
+                visit_expr(&await_expr.value, names);
+            }
+            Expr::Yield(yield_expr) => {
+                if let Some(val) = &yield_expr.value {
+                    visit_expr(val, names);
+                }
+            }
+            Expr::YieldFrom(yf) => {
+                visit_expr(&yf.value, names);
+            }
+            Expr::FormattedValue(fv) => {
+                visit_expr(&fv.value, names);
+            }
+            Expr::JoinedStr(js) => {
+                for val in &js.values {
+                    visit_expr(val, names);
+                }
+            }
+            Expr::NamedExpr(named) => {
+                visit_expr(&named.value, names);
+            }
+            Expr::Slice(slice) => {
+                if let Some(lower) = &slice.lower {
+                    visit_expr(lower, names);
+                }
+                if let Some(upper) = &slice.upper {
+                    visit_expr(upper, names);
+                }
+                if let Some(step) = &slice.step {
+                    visit_expr(step, names);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn visit_stmt(stmt: &Stmt, names: &mut HashSet<String>) {
+        match stmt {
+            // Skip import statements - we don't want to count the import itself as a usage
+            Stmt::Import(_) | Stmt::ImportFrom(_) => {}
+
+            Stmt::Expr(expr_stmt) => {
+                visit_expr(&expr_stmt.value, names);
+            }
+            Stmt::Assign(assign) => {
+                visit_expr(&assign.value, names);
+                for target in &assign.targets {
+                    visit_expr(target, names);
+                }
+            }
+            Stmt::AugAssign(aug) => {
+                visit_expr(&aug.target, names);
+                visit_expr(&aug.value, names);
+            }
+            Stmt::AnnAssign(ann) => {
+                visit_expr(&ann.annotation, names);
+                if let Some(val) = &ann.value {
+                    visit_expr(val, names);
+                }
+            }
+            Stmt::Return(ret) => {
+                if let Some(val) = &ret.value {
+                    visit_expr(val, names);
+                }
+            }
+            Stmt::Raise(raise) => {
+                if let Some(exc) = &raise.exc {
+                    visit_expr(exc, names);
+                }
+                if let Some(cause) = &raise.cause {
+                    visit_expr(cause, names);
+                }
+            }
+            Stmt::Assert(assert) => {
+                visit_expr(&assert.test, names);
+                if let Some(msg) = &assert.msg {
+                    visit_expr(msg, names);
+                }
+            }
+            Stmt::If(if_stmt) => {
+                visit_expr(&if_stmt.test, names);
+                for s in &if_stmt.body {
+                    visit_stmt(s, names);
+                }
+                for s in &if_stmt.orelse {
+                    visit_stmt(s, names);
+                }
+            }
+            Stmt::For(for_stmt) => {
+                visit_expr(&for_stmt.iter, names);
+                for s in &for_stmt.body {
+                    visit_stmt(s, names);
+                }
+                for s in &for_stmt.orelse {
+                    visit_stmt(s, names);
+                }
+            }
+            Stmt::While(while_stmt) => {
+                visit_expr(&while_stmt.test, names);
+                for s in &while_stmt.body {
+                    visit_stmt(s, names);
+                }
+                for s in &while_stmt.orelse {
+                    visit_stmt(s, names);
+                }
+            }
+            Stmt::With(with_stmt) => {
+                for item in &with_stmt.items {
+                    visit_expr(&item.context_expr, names);
+                }
+                for s in &with_stmt.body {
+                    visit_stmt(s, names);
+                }
+            }
+            Stmt::Try(try_stmt) => {
+                for s in &try_stmt.body {
+                    visit_stmt(s, names);
+                }
+                for handler in &try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(h) = handler;
+                    if let Some(typ) = &h.type_ {
+                        visit_expr(typ, names);
+                    }
+                    for s in &h.body {
+                        visit_stmt(s, names);
+                    }
+                }
+                for s in &try_stmt.orelse {
+                    visit_stmt(s, names);
+                }
+                for s in &try_stmt.finalbody {
+                    visit_stmt(s, names);
+                }
+            }
+            Stmt::FunctionDef(func) => {
+                // Visit decorators
+                for dec in &func.decorator_list {
+                    visit_expr(dec, names);
+                }
+                // Visit annotations
+                if let Some(ret) = &func.returns {
+                    visit_expr(ret, names);
+                }
+                // Visit body
+                for s in &func.body {
+                    visit_stmt(s, names);
+                }
+            }
+            Stmt::ClassDef(class) => {
+                // Visit decorators
+                for dec in &class.decorator_list {
+                    visit_expr(dec, names);
+                }
+                // Visit base classes
+                for base in &class.bases {
+                    visit_expr(base, names);
+                }
+                // Visit keywords
+                for kw in &class.keywords {
+                    visit_expr(&kw.value, names);
+                }
+                // Visit body
+                for s in &class.body {
+                    visit_stmt(s, names);
+                }
+            }
+            Stmt::Match(match_stmt) => {
+                visit_expr(&match_stmt.subject, names);
+                // Match cases would need pattern visiting too
+            }
+            _ => {}
+        }
+    }
+
+    for stmt in ast {
+        visit_stmt(stmt, &mut names);
+    }
+
+    names
+}
+
+// C0301: line-too-long
+// Detects lines that exceed a specified length
+pub fn check_line_too_long(source: &str, max_length: usize) -> Vec<Finding> {
+    let mut findings = Vec::new();
+
+    for (line_num, line) in source.lines().enumerate() {
+        let length = line.len();
+        if length > max_length {
+            findings.push(Finding {
+                code: "C0301".to_string(),
+                message: format!("Line too long ({} > {} characters)", length, max_length),
+                line: line_num + 1,
+            });
+        }
+    }
+
+    findings
+}
+
+// C0302: too-many-lines
+// Detects modules that have too many lines
+pub fn check_too_many_lines(source: &str, max_lines: usize) -> Vec<Finding> {
+    let line_count = source.lines().count();
+    if line_count > max_lines {
+        vec![Finding {
+            code: "C0302".to_string(),
+            message: format!("Module has too many lines ({} > {} lines)", line_count, max_lines),
+            line: 1,
+        }]
+    } else {
+        vec![]
+    }
+}
+
+// W0612: unused-variable
+// Detects variables that are assigned but never used
+pub fn check_unused_variables(ast: &Suite, source: &str) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    let line_positions = LinePositions::from(source);
+
+    // Process each function/method independently
+    for stmt in ast {
+        match stmt {
+            Stmt::FunctionDef(func) => {
+                let func_findings = check_unused_vars_in_function(&func.body, &func.name, None, source, &line_positions);
+                findings.extend(func_findings);
+            }
+            Stmt::ClassDef(class) => {
+                for class_stmt in &class.body {
+                    if let Stmt::FunctionDef(func) = class_stmt {
+                        let func_findings = check_unused_vars_in_function(
+                            &func.body,
+                            &func.name,
+                            Some(&class.name),
+                            source,
+                            &line_positions
+                        );
+                        findings.extend(func_findings);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    findings
+}
+
+// Helper to check unused variables within a function
+fn check_unused_vars_in_function(
+    body: &[Stmt],
+    func_name: &str,
+    class_name: Option<&str>,
+    _source: &str,
+    line_positions: &LinePositions,
+) -> Vec<Finding> {
+    use std::collections::{HashMap, HashSet};
+
+    let mut findings = Vec::new();
+
+    // Collect all variable assignments: name -> (line, byte_offset)
+    let mut assigned_vars: HashMap<String, (usize, usize)> = HashMap::new();
+    // Collect all variable usages
+    let mut used_vars: HashSet<String> = HashSet::new();
+
+    fn collect_assignments(stmt: &Stmt, assigned: &mut HashMap<String, (usize, usize)>) {
+        match stmt {
+            Stmt::Assign(assign) => {
+                for target in &assign.targets {
+                    collect_assigned_names(target, assigned);
+                }
+            }
+            Stmt::AnnAssign(ann) => {
+                if let Expr::Name(name) = ann.target.as_ref() {
+                    let var_name = name.id.to_string();
+                    // Don't track underscore variables
+                    if !var_name.starts_with('_') {
+                        assigned.insert(var_name, (0, name.range.start().into()));
+                    }
+                }
+            }
+            Stmt::For(for_stmt) => {
+                collect_assigned_names(&for_stmt.target, assigned);
+                for s in &for_stmt.body {
+                    collect_assignments(s, assigned);
+                }
+                for s in &for_stmt.orelse {
+                    collect_assignments(s, assigned);
+                }
+            }
+            Stmt::While(while_stmt) => {
+                for s in &while_stmt.body {
+                    collect_assignments(s, assigned);
+                }
+                for s in &while_stmt.orelse {
+                    collect_assignments(s, assigned);
+                }
+            }
+            Stmt::If(if_stmt) => {
+                for s in &if_stmt.body {
+                    collect_assignments(s, assigned);
+                }
+                for s in &if_stmt.orelse {
+                    collect_assignments(s, assigned);
+                }
+            }
+            Stmt::With(with_stmt) => {
+                for item in &with_stmt.items {
+                    if let Some(optional_vars) = &item.optional_vars {
+                        collect_assigned_names(optional_vars, assigned);
+                    }
+                }
+                for s in &with_stmt.body {
+                    collect_assignments(s, assigned);
+                }
+            }
+            Stmt::Try(try_stmt) => {
+                for s in &try_stmt.body {
+                    collect_assignments(s, assigned);
+                }
+                for handler in &try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(h) = handler;
+                    // Exception variable binding
+                    if let Some(name) = &h.name {
+                        let var_name = name.to_string();
+                        if !var_name.starts_with('_') {
+                            assigned.insert(var_name, (0, h.range.start().into()));
+                        }
+                    }
+                    for s in &h.body {
+                        collect_assignments(s, assigned);
+                    }
+                }
+                for s in &try_stmt.orelse {
+                    collect_assignments(s, assigned);
+                }
+                for s in &try_stmt.finalbody {
+                    collect_assignments(s, assigned);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_assigned_names(expr: &Expr, assigned: &mut HashMap<String, (usize, usize)>) {
+        match expr {
+            Expr::Name(name) => {
+                let var_name = name.id.to_string();
+                // Don't track underscore variables (convention for unused)
+                if !var_name.starts_with('_') {
+                    assigned.insert(var_name, (0, name.range.start().into()));
+                }
+            }
+            Expr::Tuple(tuple) => {
+                for elt in &tuple.elts {
+                    collect_assigned_names(elt, assigned);
+                }
+            }
+            Expr::List(list) => {
+                for elt in &list.elts {
+                    collect_assigned_names(elt, assigned);
+                }
+            }
+            Expr::Starred(starred) => {
+                collect_assigned_names(&starred.value, assigned);
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_usages(stmt: &Stmt, used: &mut HashSet<String>) {
+        fn visit_expr_for_usage(expr: &Expr, used: &mut HashSet<String>) {
+            match expr {
+                Expr::Name(name) => {
+                    used.insert(name.id.to_string());
+                }
+                Expr::Attribute(attr) => {
+                    visit_expr_for_usage(&attr.value, used);
+                }
+                Expr::Call(call) => {
+                    visit_expr_for_usage(&call.func, used);
+                    for arg in &call.args {
+                        visit_expr_for_usage(arg, used);
+                    }
+                    for kw in &call.keywords {
+                        visit_expr_for_usage(&kw.value, used);
+                    }
+                }
+                Expr::BinOp(binop) => {
+                    visit_expr_for_usage(&binop.left, used);
+                    visit_expr_for_usage(&binop.right, used);
+                }
+                Expr::UnaryOp(unary) => {
+                    visit_expr_for_usage(&unary.operand, used);
+                }
+                Expr::Compare(cmp) => {
+                    visit_expr_for_usage(&cmp.left, used);
+                    for comp in &cmp.comparators {
+                        visit_expr_for_usage(comp, used);
+                    }
+                }
+                Expr::BoolOp(boolop) => {
+                    for val in &boolop.values {
+                        visit_expr_for_usage(val, used);
+                    }
+                }
+                Expr::IfExp(ifexp) => {
+                    visit_expr_for_usage(&ifexp.test, used);
+                    visit_expr_for_usage(&ifexp.body, used);
+                    visit_expr_for_usage(&ifexp.orelse, used);
+                }
+                Expr::Dict(dict) => {
+                    for key in dict.keys.iter().flatten() {
+                        visit_expr_for_usage(key, used);
+                    }
+                    for val in &dict.values {
+                        visit_expr_for_usage(val, used);
+                    }
+                }
+                Expr::List(list) => {
+                    for elt in &list.elts {
+                        visit_expr_for_usage(elt, used);
+                    }
+                }
+                Expr::Tuple(tuple) => {
+                    for elt in &tuple.elts {
+                        visit_expr_for_usage(elt, used);
+                    }
+                }
+                Expr::Set(set) => {
+                    for elt in &set.elts {
+                        visit_expr_for_usage(elt, used);
+                    }
+                }
+                Expr::Subscript(sub) => {
+                    visit_expr_for_usage(&sub.value, used);
+                    visit_expr_for_usage(&sub.slice, used);
+                }
+                Expr::Starred(starred) => {
+                    visit_expr_for_usage(&starred.value, used);
+                }
+                Expr::Lambda(lambda) => {
+                    visit_expr_for_usage(&lambda.body, used);
+                }
+                Expr::ListComp(comp) => {
+                    visit_expr_for_usage(&comp.elt, used);
+                    for gen in &comp.generators {
+                        visit_expr_for_usage(&gen.iter, used);
+                        for if_clause in &gen.ifs {
+                            visit_expr_for_usage(if_clause, used);
+                        }
+                    }
+                }
+                Expr::SetComp(comp) => {
+                    visit_expr_for_usage(&comp.elt, used);
+                    for gen in &comp.generators {
+                        visit_expr_for_usage(&gen.iter, used);
+                        for if_clause in &gen.ifs {
+                            visit_expr_for_usage(if_clause, used);
+                        }
+                    }
+                }
+                Expr::DictComp(comp) => {
+                    visit_expr_for_usage(&comp.key, used);
+                    visit_expr_for_usage(&comp.value, used);
+                    for gen in &comp.generators {
+                        visit_expr_for_usage(&gen.iter, used);
+                        for if_clause in &gen.ifs {
+                            visit_expr_for_usage(if_clause, used);
+                        }
+                    }
+                }
+                Expr::GeneratorExp(gen) => {
+                    visit_expr_for_usage(&gen.elt, used);
+                    for generator in &gen.generators {
+                        visit_expr_for_usage(&generator.iter, used);
+                        for if_clause in &generator.ifs {
+                            visit_expr_for_usage(if_clause, used);
+                        }
+                    }
+                }
+                Expr::Await(await_expr) => {
+                    visit_expr_for_usage(&await_expr.value, used);
+                }
+                Expr::Yield(yield_expr) => {
+                    if let Some(val) = &yield_expr.value {
+                        visit_expr_for_usage(val, used);
+                    }
+                }
+                Expr::YieldFrom(yf) => {
+                    visit_expr_for_usage(&yf.value, used);
+                }
+                Expr::FormattedValue(fv) => {
+                    visit_expr_for_usage(&fv.value, used);
+                }
+                Expr::JoinedStr(js) => {
+                    for val in &js.values {
+                        visit_expr_for_usage(val, used);
+                    }
+                }
+                Expr::NamedExpr(named) => {
+                    visit_expr_for_usage(&named.value, used);
+                }
+                Expr::Slice(slice) => {
+                    if let Some(lower) = &slice.lower {
+                        visit_expr_for_usage(lower, used);
+                    }
+                    if let Some(upper) = &slice.upper {
+                        visit_expr_for_usage(upper, used);
+                    }
+                    if let Some(step) = &slice.step {
+                        visit_expr_for_usage(step, used);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        match stmt {
+            Stmt::Expr(expr_stmt) => {
+                visit_expr_for_usage(&expr_stmt.value, used);
+            }
+            Stmt::Assign(assign) => {
+                visit_expr_for_usage(&assign.value, used);
+            }
+            Stmt::AugAssign(aug) => {
+                visit_expr_for_usage(&aug.target, used);
+                visit_expr_for_usage(&aug.value, used);
+            }
+            Stmt::AnnAssign(ann) => {
+                visit_expr_for_usage(&ann.annotation, used);
+                if let Some(val) = &ann.value {
+                    visit_expr_for_usage(val, used);
+                }
+            }
+            Stmt::Return(ret) => {
+                if let Some(val) = &ret.value {
+                    visit_expr_for_usage(val, used);
+                }
+            }
+            Stmt::Raise(raise) => {
+                if let Some(exc) = &raise.exc {
+                    visit_expr_for_usage(exc, used);
+                }
+                if let Some(cause) = &raise.cause {
+                    visit_expr_for_usage(cause, used);
+                }
+            }
+            Stmt::Assert(assert) => {
+                visit_expr_for_usage(&assert.test, used);
+                if let Some(msg) = &assert.msg {
+                    visit_expr_for_usage(msg, used);
+                }
+            }
+            Stmt::If(if_stmt) => {
+                visit_expr_for_usage(&if_stmt.test, used);
+                for s in &if_stmt.body {
+                    collect_usages(s, used);
+                }
+                for s in &if_stmt.orelse {
+                    collect_usages(s, used);
+                }
+            }
+            Stmt::For(for_stmt) => {
+                visit_expr_for_usage(&for_stmt.iter, used);
+                for s in &for_stmt.body {
+                    collect_usages(s, used);
+                }
+                for s in &for_stmt.orelse {
+                    collect_usages(s, used);
+                }
+            }
+            Stmt::While(while_stmt) => {
+                visit_expr_for_usage(&while_stmt.test, used);
+                for s in &while_stmt.body {
+                    collect_usages(s, used);
+                }
+                for s in &while_stmt.orelse {
+                    collect_usages(s, used);
+                }
+            }
+            Stmt::With(with_stmt) => {
+                for item in &with_stmt.items {
+                    visit_expr_for_usage(&item.context_expr, used);
+                }
+                for s in &with_stmt.body {
+                    collect_usages(s, used);
+                }
+            }
+            Stmt::Try(try_stmt) => {
+                for s in &try_stmt.body {
+                    collect_usages(s, used);
+                }
+                for handler in &try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(h) = handler;
+                    if let Some(typ) = &h.type_ {
+                        visit_expr_for_usage(typ, used);
+                    }
+                    for s in &h.body {
+                        collect_usages(s, used);
+                    }
+                }
+                for s in &try_stmt.orelse {
+                    collect_usages(s, used);
+                }
+                for s in &try_stmt.finalbody {
+                    collect_usages(s, used);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Collect assignments and usages
+    for stmt in body {
+        collect_assignments(stmt, &mut assigned_vars);
+        collect_usages(stmt, &mut used_vars);
+    }
+
+    // Report unused variables
+    for (var_name, (_, byte_offset)) in assigned_vars {
+        if !used_vars.contains(&var_name) {
+            let line_num = line_positions.from_offset(byte_offset).as_usize();
+            let location = match class_name {
+                Some(cls) => format!("{}.{}", cls, func_name),
+                None => func_name.to_string(),
+            };
+            findings.push(Finding {
+                code: "W0612".to_string(),
+                message: format!("Unused variable '{}' in {}", var_name, location),
+                line: line_num + 1,
+            });
+        }
+    }
+
+    findings
+}
+
+// W0613: unused-argument
+// Detects function arguments that are never used
+pub fn check_unused_arguments(ast: &Suite, source: &str) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    let line_positions = LinePositions::from(source);
+
+    for stmt in ast {
+        match stmt {
+            Stmt::FunctionDef(func) => {
+                let func_findings = check_unused_args_in_function(func, None, &line_positions);
+                findings.extend(func_findings);
+            }
+            Stmt::ClassDef(class) => {
+                for class_stmt in &class.body {
+                    if let Stmt::FunctionDef(func) = class_stmt {
+                        let func_findings = check_unused_args_in_function(func, Some(&class.name), &line_positions);
+                        findings.extend(func_findings);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    findings
+}
+
+fn check_unused_args_in_function(
+    func: &rustpython_parser::ast::StmtFunctionDef,
+    class_name: Option<&str>,
+    line_positions: &LinePositions,
+) -> Vec<Finding> {
+    let mut findings = Vec::new();
+
+    // Collect all argument names
+    let mut arg_names: Vec<(String, usize)> = Vec::new();
+
+    // Regular positional args
+    for arg in &func.args.args {
+        let name = arg.def.arg.to_string();
+        // Skip self/cls for methods
+        if class_name.is_some() && (name == "self" || name == "cls") {
+            continue;
+        }
+        // Skip underscore-prefixed args (convention for unused)
+        if !name.starts_with('_') {
+            arg_names.push((name, arg.def.range.start().into()));
+        }
+    }
+
+    // Positional-only args
+    for arg in &func.args.posonlyargs {
+        let name = arg.def.arg.to_string();
+        if !name.starts_with('_') {
+            arg_names.push((name, arg.def.range.start().into()));
+        }
+    }
+
+    // Keyword-only args
+    for arg in &func.args.kwonlyargs {
+        let name = arg.def.arg.to_string();
+        if !name.starts_with('_') {
+            arg_names.push((name, arg.def.range.start().into()));
+        }
+    }
+
+    // *args
+    if let Some(vararg) = &func.args.vararg {
+        let name = vararg.arg.to_string();
+        if !name.starts_with('_') {
+            arg_names.push((name, vararg.range.start().into()));
+        }
+    }
+
+    // **kwargs
+    if let Some(kwarg) = &func.args.kwarg {
+        let name = kwarg.arg.to_string();
+        if !name.starts_with('_') {
+            arg_names.push((name, kwarg.range.start().into()));
+        }
+    }
+
+    // Collect all names used in the function body
+    let used_names = collect_names_in_body(&func.body);
+
+    // Report unused arguments
+    for (arg_name, byte_offset) in arg_names {
+        if !used_names.contains(&arg_name) {
+            let line_num = line_positions.from_offset(byte_offset).as_usize();
+            let location = match class_name {
+                Some(cls) => format!("{}.{}", cls, func.name),
+                None => func.name.to_string(),
+            };
+            findings.push(Finding {
+                code: "W0613".to_string(),
+                message: format!("Unused argument '{}' in {}", arg_name, location),
+                line: line_num + 1,
+            });
+        }
+    }
+
+    findings
+}
+
+// Helper to collect all names used in a function body
+fn collect_names_in_body(body: &[Stmt]) -> std::collections::HashSet<String> {
+    use std::collections::HashSet;
+
+    let mut names = HashSet::new();
+
+    fn visit_expr(expr: &Expr, names: &mut HashSet<String>) {
+        match expr {
+            Expr::Name(name) => {
+                names.insert(name.id.to_string());
+            }
+            Expr::Attribute(attr) => {
+                visit_expr(&attr.value, names);
+            }
+            Expr::Call(call) => {
+                visit_expr(&call.func, names);
+                for arg in &call.args {
+                    visit_expr(arg, names);
+                }
+                for kw in &call.keywords {
+                    visit_expr(&kw.value, names);
+                }
+            }
+            Expr::BinOp(binop) => {
+                visit_expr(&binop.left, names);
+                visit_expr(&binop.right, names);
+            }
+            Expr::UnaryOp(unary) => {
+                visit_expr(&unary.operand, names);
+            }
+            Expr::Compare(cmp) => {
+                visit_expr(&cmp.left, names);
+                for comp in &cmp.comparators {
+                    visit_expr(comp, names);
+                }
+            }
+            Expr::BoolOp(boolop) => {
+                for val in &boolop.values {
+                    visit_expr(val, names);
+                }
+            }
+            Expr::IfExp(ifexp) => {
+                visit_expr(&ifexp.test, names);
+                visit_expr(&ifexp.body, names);
+                visit_expr(&ifexp.orelse, names);
+            }
+            Expr::Dict(dict) => {
+                for key in dict.keys.iter().flatten() {
+                    visit_expr(key, names);
+                }
+                for val in &dict.values {
+                    visit_expr(val, names);
+                }
+            }
+            Expr::List(list) => {
+                for elt in &list.elts {
+                    visit_expr(elt, names);
+                }
+            }
+            Expr::Tuple(tuple) => {
+                for elt in &tuple.elts {
+                    visit_expr(elt, names);
+                }
+            }
+            Expr::Set(set) => {
+                for elt in &set.elts {
+                    visit_expr(elt, names);
+                }
+            }
+            Expr::Subscript(sub) => {
+                visit_expr(&sub.value, names);
+                visit_expr(&sub.slice, names);
+            }
+            Expr::Starred(starred) => {
+                visit_expr(&starred.value, names);
+            }
+            Expr::Lambda(lambda) => {
+                visit_expr(&lambda.body, names);
+            }
+            Expr::ListComp(comp) => {
+                visit_expr(&comp.elt, names);
+                for gen in &comp.generators {
+                    visit_expr(&gen.iter, names);
+                    for if_clause in &gen.ifs {
+                        visit_expr(if_clause, names);
+                    }
+                }
+            }
+            Expr::SetComp(comp) => {
+                visit_expr(&comp.elt, names);
+                for gen in &comp.generators {
+                    visit_expr(&gen.iter, names);
+                    for if_clause in &gen.ifs {
+                        visit_expr(if_clause, names);
+                    }
+                }
+            }
+            Expr::DictComp(comp) => {
+                visit_expr(&comp.key, names);
+                visit_expr(&comp.value, names);
+                for gen in &comp.generators {
+                    visit_expr(&gen.iter, names);
+                    for if_clause in &gen.ifs {
+                        visit_expr(if_clause, names);
+                    }
+                }
+            }
+            Expr::GeneratorExp(gen) => {
+                visit_expr(&gen.elt, names);
+                for generator in &gen.generators {
+                    visit_expr(&generator.iter, names);
+                    for if_clause in &generator.ifs {
+                        visit_expr(if_clause, names);
+                    }
+                }
+            }
+            Expr::Await(await_expr) => {
+                visit_expr(&await_expr.value, names);
+            }
+            Expr::Yield(yield_expr) => {
+                if let Some(val) = &yield_expr.value {
+                    visit_expr(val, names);
+                }
+            }
+            Expr::YieldFrom(yf) => {
+                visit_expr(&yf.value, names);
+            }
+            Expr::FormattedValue(fv) => {
+                visit_expr(&fv.value, names);
+            }
+            Expr::JoinedStr(js) => {
+                for val in &js.values {
+                    visit_expr(val, names);
+                }
+            }
+            Expr::NamedExpr(named) => {
+                visit_expr(&named.value, names);
+            }
+            Expr::Slice(slice) => {
+                if let Some(lower) = &slice.lower {
+                    visit_expr(lower, names);
+                }
+                if let Some(upper) = &slice.upper {
+                    visit_expr(upper, names);
+                }
+                if let Some(step) = &slice.step {
+                    visit_expr(step, names);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn visit_stmt(stmt: &Stmt, names: &mut HashSet<String>) {
+        match stmt {
+            Stmt::Expr(expr_stmt) => {
+                visit_expr(&expr_stmt.value, names);
+            }
+            Stmt::Assign(assign) => {
+                visit_expr(&assign.value, names);
+                for target in &assign.targets {
+                    visit_expr(target, names);
+                }
+            }
+            Stmt::AugAssign(aug) => {
+                visit_expr(&aug.target, names);
+                visit_expr(&aug.value, names);
+            }
+            Stmt::AnnAssign(ann) => {
+                visit_expr(&ann.annotation, names);
+                if let Some(val) = &ann.value {
+                    visit_expr(val, names);
+                }
+            }
+            Stmt::Return(ret) => {
+                if let Some(val) = &ret.value {
+                    visit_expr(val, names);
+                }
+            }
+            Stmt::Raise(raise) => {
+                if let Some(exc) = &raise.exc {
+                    visit_expr(exc, names);
+                }
+                if let Some(cause) = &raise.cause {
+                    visit_expr(cause, names);
+                }
+            }
+            Stmt::Assert(assert) => {
+                visit_expr(&assert.test, names);
+                if let Some(msg) = &assert.msg {
+                    visit_expr(msg, names);
+                }
+            }
+            Stmt::If(if_stmt) => {
+                visit_expr(&if_stmt.test, names);
+                for s in &if_stmt.body {
+                    visit_stmt(s, names);
+                }
+                for s in &if_stmt.orelse {
+                    visit_stmt(s, names);
+                }
+            }
+            Stmt::For(for_stmt) => {
+                visit_expr(&for_stmt.iter, names);
+                for s in &for_stmt.body {
+                    visit_stmt(s, names);
+                }
+                for s in &for_stmt.orelse {
+                    visit_stmt(s, names);
+                }
+            }
+            Stmt::While(while_stmt) => {
+                visit_expr(&while_stmt.test, names);
+                for s in &while_stmt.body {
+                    visit_stmt(s, names);
+                }
+                for s in &while_stmt.orelse {
+                    visit_stmt(s, names);
+                }
+            }
+            Stmt::With(with_stmt) => {
+                for item in &with_stmt.items {
+                    visit_expr(&item.context_expr, names);
+                }
+                for s in &with_stmt.body {
+                    visit_stmt(s, names);
+                }
+            }
+            Stmt::Try(try_stmt) => {
+                for s in &try_stmt.body {
+                    visit_stmt(s, names);
+                }
+                for handler in &try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(h) = handler;
+                    if let Some(typ) = &h.type_ {
+                        visit_expr(typ, names);
+                    }
+                    for s in &h.body {
+                        visit_stmt(s, names);
+                    }
+                }
+                for s in &try_stmt.orelse {
+                    visit_stmt(s, names);
+                }
+                for s in &try_stmt.finalbody {
+                    visit_stmt(s, names);
+                }
+            }
+            Stmt::FunctionDef(func) => {
+                // Nested function - visit its body too
+                for s in &func.body {
+                    visit_stmt(s, names);
+                }
+            }
+            Stmt::ClassDef(class) => {
+                // Nested class - visit its body too
+                for s in &class.body {
+                    visit_stmt(s, names);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for stmt in body {
+        visit_stmt(stmt, &mut names);
+    }
+
+    names
+}

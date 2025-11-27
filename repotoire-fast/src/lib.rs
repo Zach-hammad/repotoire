@@ -356,6 +356,91 @@ fn check_too_many_statements(source: String, threshold: usize) -> PyResult<Vec<(
         .collect())
 }
 
+/// Check for unused-import (W0611)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_unused_imports(source: String) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let findings = pylint_rules::check_unused_imports(&body, &source);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Check for line-too-long (C0301)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_line_too_long(source: String, max_length: usize) -> PyResult<Vec<(String, String, usize)>> {
+    let findings = pylint_rules::check_line_too_long(&source, max_length);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Check for too-many-lines (C0302)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_too_many_lines(source: String, max_lines: usize) -> PyResult<Vec<(String, String, usize)>> {
+    let findings = pylint_rules::check_too_many_lines(&source, max_lines);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Check for unused-variable (W0612)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_unused_variables(source: String) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let findings = pylint_rules::check_unused_variables(&body, &source);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Check for unused-argument (W0613)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_unused_arguments(source: String) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let findings = pylint_rules::check_unused_arguments(&body, &source);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -379,6 +464,11 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(check_too_many_arguments, n)?)?;
     n.add_function(wrap_pyfunction!(check_too_many_locals, n)?)?;
     n.add_function(wrap_pyfunction!(check_too_many_statements, n)?)?;
+    n.add_function(wrap_pyfunction!(check_unused_imports, n)?)?;
+    n.add_function(wrap_pyfunction!(check_line_too_long, n)?)?;
+    n.add_function(wrap_pyfunction!(check_too_many_lines, n)?)?;
+    n.add_function(wrap_pyfunction!(check_unused_variables, n)?)?;
+    n.add_function(wrap_pyfunction!(check_unused_arguments, n)?)?;
     Ok(())
 }
 

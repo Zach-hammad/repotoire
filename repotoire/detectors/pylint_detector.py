@@ -4,14 +4,29 @@ This hybrid detector combines pylint's comprehensive code quality checks with
 Neo4j graph data to provide detailed quality violation detection with rich context.
 
 Architecture:
-    1. Run Rust-based fast checks for supported rules (R0902, R0903, R0904)
-    2. Fall back to pylint for remaining rules
+    1. Run Rust-based fast checks for 15 supported rules (100x faster than pylint):
+       - C0301: line-too-long
+       - C0302: too-many-lines
+       - R0401: cyclic-import / import-self
+       - R0902: too-many-instance-attributes
+       - R0903: too-few-public-methods
+       - R0904: too-many-public-methods
+       - R0911: too-many-return-statements
+       - R0912: too-many-branches
+       - R0913: too-many-arguments
+       - R0914: too-many-locals
+       - R0915: too-many-statements
+       - R0916: too-many-boolean-expressions
+       - W0611: unused-import
+       - W0612: unused-variable
+       - W0613: unused-argument
+    2. Fall back to pylint subprocess for remaining rules
     3. Parse pylint JSON output
     4. Enrich findings with Neo4j graph data (LOC, complexity, imports)
     5. Generate detailed findings with context
 
 This approach achieves:
-    - Fast detection via Rust for common rules
+    - Fast detection via Rust for common rules (~100x faster)
     - Comprehensive quality checks (pylint's extensive rules)
     - Rich context (graph-based metadata)
     - Actionable suggestions (fixes, refactorings)
@@ -36,9 +51,21 @@ logger = get_logger(__name__)
 # Try to import Rust-based pylint rules
 try:
     from repotoire_fast import (
-        check_too_many_attributes,
-        check_too_few_public_methods,
-        check_too_many_public_methods,
+        check_too_many_attributes,      # R0902
+        check_too_few_public_methods,   # R0903
+        check_too_many_public_methods,  # R0904
+        check_too_many_boolean_expressions,  # R0916
+        check_import_self,              # R0401
+        check_too_many_returns,         # R0911
+        check_too_many_branches,        # R0912
+        check_too_many_arguments,       # R0913
+        check_too_many_locals,          # R0914
+        check_too_many_statements,      # R0915
+        check_unused_imports,           # W0611
+        check_line_too_long,            # C0301
+        check_too_many_lines,           # C0302
+        check_unused_variables,         # W0612
+        check_unused_arguments,         # W0613
     )
     RUST_PYLINT_AVAILABLE = True
     logger.debug("Rust pylint rules available")
@@ -46,8 +73,24 @@ except ImportError:
     RUST_PYLINT_AVAILABLE = False
     logger.debug("Rust pylint rules not available, using pylint only")
 
-# Rules that have Rust implementations
-RUST_SUPPORTED_RULES = {"R0902", "R0903", "R0904"}
+# Rules that have Rust implementations (100x faster than subprocess pylint)
+RUST_SUPPORTED_RULES = {
+    "C0301",  # line-too-long
+    "C0302",  # too-many-lines
+    "R0401",  # cyclic-import / import-self
+    "R0902",  # too-many-instance-attributes
+    "R0903",  # too-few-public-methods
+    "R0904",  # too-many-public-methods
+    "R0911",  # too-many-return-statements
+    "R0912",  # too-many-branches
+    "R0913",  # too-many-arguments
+    "R0914",  # too-many-locals
+    "R0915",  # too-many-statements
+    "R0916",  # too-many-boolean-expressions
+    "W0611",  # unused-import
+    "W0612",  # unused-variable
+    "W0613",  # unused-argument
+}
 
 
 class PylintDetector(CodeSmellDetector):
@@ -105,9 +148,17 @@ class PylintDetector(CodeSmellDetector):
         self.use_rust = config.get("use_rust", True)  # Use Rust implementations when available
 
         # Thresholds for Rust-based rules (matching pylint defaults)
+        self.max_line_length = config.get("max_line_length", 100)  # C0301
+        self.max_module_lines = config.get("max_module_lines", 1000)  # C0302
         self.max_attributes = config.get("max_attributes", 7)  # R0902
         self.min_public_methods = config.get("min_public_methods", 2)  # R0903
         self.max_public_methods = config.get("max_public_methods", 20)  # R0904
+        self.max_returns = config.get("max_returns", 6)  # R0911
+        self.max_branches = config.get("max_branches", 12)  # R0912
+        self.max_arguments = config.get("max_arguments", 5)  # R0913
+        self.max_locals = config.get("max_locals", 15)  # R0914
+        self.max_statements = config.get("max_statements", 50)  # R0915
+        self.max_bool_expr = config.get("max_bool_expr", 5)  # R0916
 
         if not self.repository_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repository_path}")
@@ -174,6 +225,19 @@ class PylintDetector(CodeSmellDetector):
 
             rel_path = str(file_path.relative_to(self.repository_path))
 
+            # R0401: cyclic-import / import-self
+            if "R0401" in self.enable_only or not self.enable_only:
+                for code, message, line in check_import_self(source, rel_path):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "cyclic-import",
+                        "type": "refactor",
+                    })
+
             # R0902: too-many-instance-attributes
             if "R0902" in self.enable_only or not self.enable_only:
                 for code, message, line in check_too_many_attributes(source, self.max_attributes):
@@ -211,6 +275,149 @@ class PylintDetector(CodeSmellDetector):
                         "message-id": code,
                         "symbol": "too-many-public-methods",
                         "type": "refactor",
+                    })
+
+            # R0911: too-many-return-statements
+            if "R0911" in self.enable_only or not self.enable_only:
+                for code, message, line in check_too_many_returns(source, self.max_returns):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "too-many-return-statements",
+                        "type": "refactor",
+                    })
+
+            # R0912: too-many-branches
+            if "R0912" in self.enable_only or not self.enable_only:
+                for code, message, line in check_too_many_branches(source, self.max_branches):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "too-many-branches",
+                        "type": "refactor",
+                    })
+
+            # R0913: too-many-arguments
+            if "R0913" in self.enable_only or not self.enable_only:
+                for code, message, line in check_too_many_arguments(source, self.max_arguments):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "too-many-arguments",
+                        "type": "refactor",
+                    })
+
+            # R0914: too-many-locals
+            if "R0914" in self.enable_only or not self.enable_only:
+                for code, message, line in check_too_many_locals(source, self.max_locals):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "too-many-locals",
+                        "type": "refactor",
+                    })
+
+            # R0915: too-many-statements
+            if "R0915" in self.enable_only or not self.enable_only:
+                for code, message, line in check_too_many_statements(source, self.max_statements):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "too-many-statements",
+                        "type": "refactor",
+                    })
+
+            # R0916: too-many-boolean-expressions
+            if "R0916" in self.enable_only or not self.enable_only:
+                for code, message, line in check_too_many_boolean_expressions(source, self.max_bool_expr):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "too-many-boolean-expressions",
+                        "type": "refactor",
+                    })
+
+            # W0611: unused-import
+            if "W0611" in self.enable_only or not self.enable_only:
+                for code, message, line in check_unused_imports(source):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "unused-import",
+                        "type": "warning",
+                    })
+
+            # C0301: line-too-long
+            if "C0301" in self.enable_only or not self.enable_only:
+                for code, message, line in check_line_too_long(source, self.max_line_length):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "line-too-long",
+                        "type": "convention",
+                    })
+
+            # C0302: too-many-lines
+            if "C0302" in self.enable_only or not self.enable_only:
+                for code, message, line in check_too_many_lines(source, self.max_module_lines):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "too-many-lines",
+                        "type": "convention",
+                    })
+
+            # W0612: unused-variable
+            if "W0612" in self.enable_only or not self.enable_only:
+                for code, message, line in check_unused_variables(source):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "unused-variable",
+                        "type": "warning",
+                    })
+
+            # W0613: unused-argument
+            if "W0613" in self.enable_only or not self.enable_only:
+                for code, message, line in check_unused_arguments(source):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "unused-argument",
+                        "type": "warning",
                     })
 
         return results
