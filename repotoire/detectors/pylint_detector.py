@@ -4,12 +4,14 @@ This hybrid detector combines pylint's comprehensive code quality checks with
 Neo4j graph data to provide detailed quality violation detection with rich context.
 
 Architecture:
-    1. Run pylint on repository (comprehensive linting)
-    2. Parse pylint JSON output
-    3. Enrich findings with Neo4j graph data (LOC, complexity, imports)
-    4. Generate detailed findings with context
+    1. Run Rust-based fast checks for supported rules (R0902, R0903, R0904)
+    2. Fall back to pylint for remaining rules
+    3. Parse pylint JSON output
+    4. Enrich findings with Neo4j graph data (LOC, complexity, imports)
+    5. Generate detailed findings with context
 
 This approach achieves:
+    - Fast detection via Rust for common rules
     - Comprehensive quality checks (pylint's extensive rules)
     - Rich context (graph-based metadata)
     - Actionable suggestions (fixes, refactorings)
@@ -30,6 +32,22 @@ from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# Try to import Rust-based pylint rules
+try:
+    from repotoire_fast import (
+        check_too_many_attributes,
+        check_too_few_public_methods,
+        check_too_many_public_methods,
+    )
+    RUST_PYLINT_AVAILABLE = True
+    logger.debug("Rust pylint rules available")
+except ImportError:
+    RUST_PYLINT_AVAILABLE = False
+    logger.debug("Rust pylint rules not available, using pylint only")
+
+# Rules that have Rust implementations
+RUST_SUPPORTED_RULES = {"R0902", "R0903", "R0904"}
 
 
 class PylintDetector(CodeSmellDetector):
@@ -84,6 +102,12 @@ class PylintDetector(CodeSmellDetector):
         self.disable = config.get("disable", [])  # Disable specific checks
         self.jobs = config.get("jobs", os.cpu_count() or 1)  # Parallel jobs (default: all CPUs)
         self.enricher = enricher  # Graph enrichment for cross-detector collaboration
+        self.use_rust = config.get("use_rust", True)  # Use Rust implementations when available
+
+        # Thresholds for Rust-based rules (matching pylint defaults)
+        self.max_attributes = config.get("max_attributes", 7)  # R0902
+        self.min_public_methods = config.get("min_public_methods", 2)  # R0903
+        self.max_public_methods = config.get("max_public_methods", 20)  # R0904
 
         if not self.repository_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repository_path}")
@@ -96,25 +120,106 @@ class PylintDetector(CodeSmellDetector):
         """
         logger.info(f"Running pylint on {self.repository_path}")
 
-        # Run pylint and get results
-        pylint_results = self._run_pylint()
-
-        if not pylint_results:
-            logger.info("No pylint violations found")
-            return []
-
-        # Enrich with graph data and create findings
         findings = []
-        for result in pylint_results[:self.max_findings]:
+
+        # Run Rust-based checks first (faster)
+        if self.use_rust and RUST_PYLINT_AVAILABLE:
+            rust_results = self._run_rust_checks()
+            for result in rust_results:
+                finding = self._create_finding(result)
+                if finding:
+                    findings.append(finding)
+            logger.info(f"Rust checks found {len(findings)} issues")
+
+        # Run pylint for remaining rules (exclude Rust-handled rules if Rust succeeded)
+        pylint_results = self._run_pylint(exclude_rust_rules=self.use_rust and RUST_PYLINT_AVAILABLE)
+
+        for result in pylint_results:
+            if len(findings) >= self.max_findings:
+                break
             finding = self._create_finding(result)
             if finding:
                 findings.append(finding)
 
-        logger.info(f"Created {len(findings)} code quality findings")
-        return findings
+        if not findings:
+            logger.info("No pylint violations found")
+            return []
 
-    def _run_pylint(self) -> List[Dict[str, Any]]:
+        logger.info(f"Created {len(findings)} code quality findings")
+        return findings[:self.max_findings]
+
+    def _run_rust_checks(self) -> List[Dict[str, Any]]:
+        """Run Rust-based pylint rule checks on all Python files.
+
+        Returns:
+            List of pylint-compatible result dictionaries
+        """
+        results = []
+
+        # Find all Python files in repository
+        python_files = list(self.repository_path.rglob("*.py"))
+        logger.info(f"Running Rust checks on {len(python_files)} Python files")
+
+        for file_path in python_files:
+            # Skip common non-source directories
+            path_str = str(file_path)
+            if any(skip in path_str for skip in [".venv", "venv", "__pycache__", ".git", "node_modules", ".tox"]):
+                continue
+
+            try:
+                source = file_path.read_text(encoding="utf-8")
+            except Exception as e:
+                logger.debug(f"Failed to read {file_path}: {e}")
+                continue
+
+            rel_path = str(file_path.relative_to(self.repository_path))
+
+            # R0902: too-many-instance-attributes
+            if "R0902" in self.enable_only or not self.enable_only:
+                for code, message, line in check_too_many_attributes(source, self.max_attributes):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "too-many-instance-attributes",
+                        "type": "refactor",
+                    })
+
+            # R0903: too-few-public-methods
+            if "R0903" in self.enable_only or not self.enable_only:
+                for code, message, line in check_too_few_public_methods(source, self.min_public_methods):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "too-few-public-methods",
+                        "type": "refactor",
+                    })
+
+            # R0904: too-many-public-methods
+            if "R0904" in self.enable_only or not self.enable_only:
+                for code, message, line in check_too_many_public_methods(source, self.max_public_methods):
+                    results.append({
+                        "path": rel_path,
+                        "line": line,
+                        "column": 0,
+                        "message": message,
+                        "message-id": code,
+                        "symbol": "too-many-public-methods",
+                        "type": "refactor",
+                    })
+
+        return results
+
+    def _run_pylint(self, exclude_rust_rules: bool = False) -> List[Dict[str, Any]]:
         """Run pylint and parse JSON output.
+
+        Args:
+            exclude_rust_rules: If True, exclude rules that have Rust implementations
 
         Returns:
             List of pylint message dictionaries
@@ -133,13 +238,25 @@ class PylintDetector(CodeSmellDetector):
 
             # Selective mode: only enable specific checks (e.g., Pylint-only checks not covered by Ruff)
             if self.enable_only:
+                # Filter out Rust-handled rules if requested
+                rules_to_enable = self.enable_only
+                if exclude_rust_rules:
+                    rules_to_enable = [r for r in self.enable_only if r not in RUST_SUPPORTED_RULES]
+
+                if not rules_to_enable:
+                    logger.info("All enabled rules handled by Rust, skipping pylint")
+                    return []
+
                 # Disable all checks first, then enable only specified ones
                 cmd.extend(["--disable=all"])
-                cmd.extend(["--enable", ",".join(self.enable_only)])
-                logger.info(f"Running pylint in selective mode: {len(self.enable_only)} checks enabled")
+                cmd.extend(["--enable", ",".join(rules_to_enable)])
+                logger.info(f"Running pylint in selective mode: {len(rules_to_enable)} checks enabled")
             elif self.disable:
-                # Disable specific checks
-                cmd.extend(["--disable", ",".join(self.disable)])
+                # Add Rust-handled rules to disable list
+                disable_list = list(self.disable)
+                if exclude_rust_rules:
+                    disable_list.extend(RUST_SUPPORTED_RULES)
+                cmd.extend(["--disable", ",".join(disable_list)])
 
             # Add repository path
             cmd.append(str(self.repository_path))

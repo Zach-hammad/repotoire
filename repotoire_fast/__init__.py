@@ -12,6 +12,8 @@ from .repotoire_fast import (
     batch_cosine_similarity_fast,
     find_top_k_similar,
     check_too_many_attributes,
+    check_too_few_public_methods,
+    check_too_many_public_methods,
 )
 
 __all__ = [
@@ -27,4 +29,6 @@ __all__ = [
     "batch_cosine_similarity_fast",
     "find_top_k_similar",
     "check_too_many_attributes",
+    "check_too_few_public_methods",
+    "check_too_many_public_methods",
 ]

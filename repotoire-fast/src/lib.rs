@@ -161,6 +161,52 @@ fn check_too_many_attributes(source: String, threshold: usize) -> PyResult<Vec<(
         .collect())
 }
 
+/// Check for too-few-public-methods (R0903)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_too_few_public_methods(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+    use pylint_rules::{PylintRule, TooFewPublicMethods};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let rule = TooFewPublicMethods { threshold };
+    let findings = rule.check(&body, &source);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Check for too-many-public-methods (R0904)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_too_many_public_methods(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+    use pylint_rules::{PylintRule, TooManyPublicMethods};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let rule = TooManyPublicMethods { threshold };
+    let findings = rule.check(&body, &source);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -175,6 +221,8 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(batch_cosine_similarity_fast, n)?)?;
     n.add_function(wrap_pyfunction!(find_top_k_similar, n)?)?;
     n.add_function(wrap_pyfunction!(check_too_many_attributes, n)?)?;
+    n.add_function(wrap_pyfunction!(check_too_few_public_methods, n)?)?;
+    n.add_function(wrap_pyfunction!(check_too_many_public_methods, n)?)?;
     Ok(())
 }
 
