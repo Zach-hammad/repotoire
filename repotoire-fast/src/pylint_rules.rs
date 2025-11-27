@@ -80,12 +80,54 @@ fn count_public_methods(class: &StmtClassDef) -> usize {
         }).count()
 }
 
+/// Check if a class is an exception class (inherits from Exception/BaseException or similar)
+fn is_exception_class(class: &StmtClassDef) -> bool {
+    // Common exception base classes that should be excluded from R0903
+    const EXCEPTION_BASES: &[&str] = &[
+        "Exception", "BaseException", "ValueError", "TypeError", "KeyError",
+        "IndexError", "AttributeError", "RuntimeError", "StopIteration",
+        "OSError", "IOError", "ImportError", "LookupError", "ArithmeticError",
+        "AssertionError", "EnvironmentError", "EOFError", "FloatingPointError",
+        "GeneratorExit", "MemoryError", "NameError", "NotImplementedError",
+        "OverflowError", "RecursionError", "ReferenceError", "SystemError",
+        "SystemExit", "UnboundLocalError", "UnicodeError", "ZeroDivisionError",
+        "Warning", "UserWarning", "DeprecationWarning", "PendingDeprecationWarning",
+        "SyntaxWarning", "RuntimeWarning", "FutureWarning", "ImportWarning",
+        "UnicodeWarning", "BytesWarning", "ResourceWarning",
+    ];
+
+    for base in &class.bases {
+        let base_name = match base {
+            Expr::Name(name) => name.id.as_str(),
+            Expr::Attribute(attr) => attr.attr.as_str(),
+            _ => continue,
+        };
+
+        // Check if base is a known exception type
+        if EXCEPTION_BASES.contains(&base_name) {
+            return true;
+        }
+
+        // Check if base name ends with "Error" or "Exception"
+        if base_name.ends_with("Error") || base_name.ends_with("Exception") {
+            return true;
+        }
+    }
+
+    false
+}
+
 impl PylintRule for TooFewPublicMethods {
     fn check(&self, ast: &Suite, source: &str) -> Vec<Finding> {
         let mut findings = Vec::new();
         let line_positions = LinePositions::from(source);
         for stmt in ast {
             if let Stmt::ClassDef(class) = stmt {
+                // Skip exception classes - they don't need public methods
+                if is_exception_class(class) {
+                    continue;
+                }
+
                 let count = count_public_methods(class);
                 if count < self.threshold {
                     let line_num = line_positions.from_offset(class.range.start().into()).as_usize();

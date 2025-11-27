@@ -113,6 +113,26 @@ class PrivateHeavy:
         results = check_too_few_public_methods(source, 2)
         assert len(results) == 1
 
+    def test_r0903_exception_classes_excluded(self):
+        """Test R0903: exception classes are excluded (matches pylint behavior)."""
+        source = '''
+class MyException(Exception):
+    pass
+
+class MyError(ValueError):
+    pass
+
+class CustomError(RuntimeError):
+    pass
+
+class RegularClass:
+    pass
+'''
+        # Only RegularClass should be flagged, not the exception classes
+        results = check_too_few_public_methods(source, 2)
+        assert len(results) == 1
+        assert "RegularClass" in results[0][1]
+
     def test_multiple_classes(self):
         """Test that multiple classes are checked independently."""
         source = '''
