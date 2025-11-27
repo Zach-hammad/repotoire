@@ -251,6 +251,111 @@ fn check_import_self(source: String, module_path: String) -> PyResult<Vec<(Strin
         .collect())
 }
 
+/// Check for too-many-return-statements (R0911)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_too_many_returns(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let findings = pylint_rules::check_too_many_returns(&body, &source, threshold);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Check for too-many-branches (R0912)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_too_many_branches(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let findings = pylint_rules::check_too_many_branches(&body, &source, threshold);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Check for too-many-arguments (R0913)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_too_many_arguments(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode::Module, ast::Mod};
+
+    let ast = parse(&source, Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let findings = pylint_rules::check_too_many_arguments(&body, &source, threshold);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Check for too-many-locals (R0914)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_too_many_locals(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let findings = pylint_rules::check_too_many_locals(&body, &source, threshold);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
+/// Check for too-many-statements (R0915)
+/// Returns list of (code, message, line) tuples
+#[pyfunction]
+fn check_too_many_statements(source: String, threshold: usize) -> PyResult<Vec<(String, String, usize)>> {
+    use rustpython_parser::{parse, Mode, ast::Mod};
+
+    let ast = parse(&source, Mode::Module, "<string>")
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?;
+
+    let body = match ast {
+        Mod::Module(m) => m.body,
+        _ => return Ok(vec![]),
+    };
+
+    let findings = pylint_rules::check_too_many_statements(&body, &source, threshold);
+
+    Ok(findings.into_iter()
+        .map(|f| (f.code, f.message, f.line))
+        .collect())
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -269,6 +374,11 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(check_too_many_public_methods, n)?)?;
     n.add_function(wrap_pyfunction!(check_too_many_boolean_expressions, n)?)?;
     n.add_function(wrap_pyfunction!(check_import_self, n)?)?;
+    n.add_function(wrap_pyfunction!(check_too_many_returns, n)?)?;
+    n.add_function(wrap_pyfunction!(check_too_many_branches, n)?)?;
+    n.add_function(wrap_pyfunction!(check_too_many_arguments, n)?)?;
+    n.add_function(wrap_pyfunction!(check_too_many_locals, n)?)?;
+    n.add_function(wrap_pyfunction!(check_too_many_statements, n)?)?;
     Ok(())
 }
 

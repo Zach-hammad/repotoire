@@ -16,6 +16,11 @@ from .repotoire_fast import (
     check_too_many_public_methods,
     check_too_many_boolean_expressions,
     check_import_self,
+    check_too_many_returns,
+    check_too_many_branches,
+    check_too_many_arguments,
+    check_too_many_locals,
+    check_too_many_statements,
 )
 
 __all__ = [
@@ -35,4 +40,9 @@ __all__ = [
     "check_too_many_public_methods",
     "check_too_many_boolean_expressions",
     "check_import_self",
+    "check_too_many_returns",
+    "check_too_many_branches",
+    "check_too_many_arguments",
+    "check_too_many_locals",
+    "check_too_many_statements",
 ]
