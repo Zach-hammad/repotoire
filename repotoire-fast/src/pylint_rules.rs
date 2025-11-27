@@ -28,9 +28,67 @@ impl PylintRule for TooManyAttributes {
     fn check(&self, ast: &Suite, source: &str) -> Vec<Finding> {
         let mut findings = Vec::new();
         let line_positions = LinePositions::from(source);
+
+        // Build a map of class names to their dataclass attributes (for inheritance)
+        let mut class_attrs: std::collections::HashMap<String, HashSet<String>> = std::collections::HashMap::new();
+        let mut class_bases: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        let mut dataclass_set: HashSet<String> = HashSet::new();
+
+        // First pass: collect all class info
         for stmt in ast {
             if let Stmt::ClassDef(class) = stmt {
-                let count = Self::count_instance_attributes(class);
+                let class_name = class.name.to_string();
+
+                // Check if this is a dataclass
+                let is_dc = class.decorator_list.iter().any(|dec| {
+                    match dec {
+                        Expr::Name(name) => name.id.as_str() == "dataclass",
+                        Expr::Attribute(attr) => attr.attr.as_str() == "dataclass",
+                        Expr::Call(call) => match call.func.as_ref() {
+                            Expr::Name(name) => name.id.as_str() == "dataclass",
+                            Expr::Attribute(attr) => attr.attr.as_str() == "dataclass",
+                            _ => false,
+                        },
+                        _ => false,
+                    }
+                });
+
+                if is_dc {
+                    dataclass_set.insert(class_name.clone());
+                }
+
+                // Collect base classes
+                let bases: Vec<String> = class.bases.iter()
+                    .filter_map(|base| {
+                        match base {
+                            Expr::Name(name) => Some(name.id.to_string()),
+                            Expr::Attribute(attr) => Some(attr.attr.to_string()),
+                            _ => None,
+                        }
+                    })
+                    .collect();
+                class_bases.insert(class_name.clone(), bases);
+
+                // Collect this class's own attributes
+                let mut attrs: HashSet<String> = HashSet::new();
+                Self::collect_class_own_attributes(class, is_dc, &mut attrs);
+                class_attrs.insert(class_name, attrs);
+            }
+        }
+
+        // Second pass: count total attributes including inherited
+        for stmt in ast {
+            if let Stmt::ClassDef(class) = stmt {
+                let class_name = class.name.to_string();
+                let is_dataclass = dataclass_set.contains(&class_name);
+
+                // For dataclasses, count inherited attributes too
+                let count = if is_dataclass {
+                    Self::count_total_attributes(&class_name, &class_attrs, &class_bases, &dataclass_set, &mut HashSet::new())
+                } else {
+                    class_attrs.get(&class_name).map(|a| a.len()).unwrap_or(0)
+                };
+
                 if count > self.threshold {
                     let line_num = line_positions.from_offset(class.range.start().into()).as_usize();
                     findings.push(Finding {
@@ -46,28 +104,116 @@ impl PylintRule for TooManyAttributes {
 }
 
 impl TooManyAttributes {
-    fn count_instance_attributes(class: &StmtClassDef) -> usize {
-        let mut attrs: HashSet<String> = HashSet::new();
+    fn collect_class_own_attributes(class: &StmtClassDef, is_dataclass: bool, attrs: &mut HashSet<String>) {
         for class_stmt in &class.body {
-            if let Stmt::FunctionDef(func) = class_stmt {
-                if func.name.as_str() == "__init__" {
-                    for stmt in &func.body {
-                        if let Stmt::Assign(assign) = stmt {
-                            for target in &assign.targets {
-                                if let Expr::Attribute(attr) = target {
-                                    if let Expr::Name(name) = attr.value.as_ref() {
-                                        if name.id.as_str() == "self" {
-                                            attrs.insert(attr.attr.to_string());
-                                        }
-                                    }
+            match class_stmt {
+                // For dataclasses: count annotated class variables as instance attributes
+                Stmt::AnnAssign(ann) if is_dataclass => {
+                    if let Expr::Name(name) = ann.target.as_ref() {
+                        // Skip ClassVar annotations
+                        let is_class_var = match &ann.annotation.as_ref() {
+                            Expr::Subscript(sub) => {
+                                match sub.value.as_ref() {
+                                    Expr::Name(n) => n.id.as_str() == "ClassVar",
+                                    Expr::Attribute(a) => a.attr.as_str() == "ClassVar",
+                                    _ => false,
+                                }
+                            }
+                            _ => false,
+                        };
+                        if !is_class_var {
+                            attrs.insert(name.id.to_string());
+                        }
+                    }
+                }
+                // For regular classes: count self.x = y in __init__
+                Stmt::FunctionDef(func) if func.name.as_str() == "__init__" => {
+                    Self::collect_init_attributes(&func.body, attrs);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn count_total_attributes(
+        class_name: &str,
+        class_attrs: &std::collections::HashMap<String, HashSet<String>>,
+        class_bases: &std::collections::HashMap<String, Vec<String>>,
+        dataclass_set: &HashSet<String>,
+        visited: &mut HashSet<String>,
+    ) -> usize {
+        if visited.contains(class_name) {
+            return 0;
+        }
+        visited.insert(class_name.to_string());
+
+        // Get this class's own attributes
+        let own_count = class_attrs.get(class_name).map(|a| a.len()).unwrap_or(0);
+
+        // For dataclasses, add inherited attributes from parent dataclasses
+        let inherited_count: usize = if dataclass_set.contains(class_name) {
+            class_bases.get(class_name)
+                .map(|bases| {
+                    bases.iter()
+                        .filter(|base| dataclass_set.contains(*base))
+                        .map(|base| Self::count_total_attributes(base, class_attrs, class_bases, dataclass_set, visited))
+                        .sum()
+                })
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        own_count + inherited_count
+    }
+
+    fn collect_init_attributes(stmts: &[Stmt], attrs: &mut HashSet<String>) {
+        for stmt in stmts {
+            match stmt {
+                Stmt::Assign(assign) => {
+                    for target in &assign.targets {
+                        if let Expr::Attribute(attr) = target {
+                            if let Expr::Name(name) = attr.value.as_ref() {
+                                if name.id.as_str() == "self" {
+                                    attrs.insert(attr.attr.to_string());
                                 }
                             }
                         }
                     }
                 }
+                Stmt::AnnAssign(ann) => {
+                    if let Expr::Attribute(attr) = ann.target.as_ref() {
+                        if let Expr::Name(name) = attr.value.as_ref() {
+                            if name.id.as_str() == "self" {
+                                attrs.insert(attr.attr.to_string());
+                            }
+                        }
+                    }
+                }
+                // Recurse into if/for/while/try blocks
+                Stmt::If(if_stmt) => {
+                    Self::collect_init_attributes(&if_stmt.body, attrs);
+                    Self::collect_init_attributes(&if_stmt.orelse, attrs);
+                }
+                Stmt::For(for_stmt) => {
+                    Self::collect_init_attributes(&for_stmt.body, attrs);
+                }
+                Stmt::While(while_stmt) => {
+                    Self::collect_init_attributes(&while_stmt.body, attrs);
+                }
+                Stmt::Try(try_stmt) => {
+                    Self::collect_init_attributes(&try_stmt.body, attrs);
+                    for handler in &try_stmt.handlers {
+                        let ExceptHandler::ExceptHandler(h) = handler;
+                        Self::collect_init_attributes(&h.body, attrs);
+                    }
+                }
+                Stmt::With(with_stmt) => {
+                    Self::collect_init_attributes(&with_stmt.body, attrs);
+                }
+                _ => {}
             }
         }
-        attrs.len()
     }
 }
 
@@ -296,6 +442,22 @@ fn count_ancestors(
     }
 }
 
+/// Check if a class is a dataclass (has @dataclass decorator)
+fn is_dataclass(class: &StmtClassDef) -> bool {
+    class.decorator_list.iter().any(|dec| {
+        match dec {
+            Expr::Name(name) => name.id.as_str() == "dataclass",
+            Expr::Attribute(attr) => attr.attr.as_str() == "dataclass",
+            Expr::Call(call) => match call.func.as_ref() {
+                Expr::Name(name) => name.id.as_str() == "dataclass",
+                Expr::Attribute(attr) => attr.attr.as_str() == "dataclass",
+                _ => false,
+            },
+            _ => false,
+        }
+    })
+}
+
 // W0201: attribute-defined-outside-init
 pub fn check_attribute_defined_outside_init(ast: &Suite, source: &str) -> Vec<Finding> {
     let mut findings = Vec::new();
@@ -303,7 +465,21 @@ pub fn check_attribute_defined_outside_init(ast: &Suite, source: &str) -> Vec<Fi
 
     for stmt in ast {
         if let Stmt::ClassDef(class) = stmt {
+            // Skip dataclasses - their attributes are defined via class-level annotations
+            if is_dataclass(class) {
+                continue;
+            }
+
             let mut init_attrs: HashSet<String> = HashSet::new();
+
+            // Also collect class-level annotated attributes (for dataclass-like patterns)
+            for class_stmt in &class.body {
+                if let Stmt::AnnAssign(ann) = class_stmt {
+                    if let Expr::Name(name) = ann.target.as_ref() {
+                        init_attrs.insert(name.id.to_string());
+                    }
+                }
+            }
 
             for class_stmt in &class.body {
                 if let Stmt::FunctionDef(func) = class_stmt {
