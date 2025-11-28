@@ -13,11 +13,34 @@
 // - Harmonic Centrality: BFS from each source in parallel (~Nx speedup)
 // - Betweenness Centrality: BFS from each source in parallel (~Nx speedup)
 // - PageRank: Score updates parallelized per iteration (~2-4x speedup)
+//
+// ERROR HANDLING (REPO-227):
+// All algorithms return Result<T, GraphError> instead of silently ignoring invalid data.
+// Errors are converted to Python ValueError via PyO3.
 
 use petgraph::graph::DiGraph;
 use petgraph::algo::tarjan_scc as petgraph_tarjan;
 use rayon::prelude::*;
 use std::collections::HashMap;
+
+use crate::errors::GraphError;
+
+// ============================================================================
+// VALIDATION HELPERS
+// ============================================================================
+
+/// Validate that all edges reference valid node indices.
+fn validate_edges(edges: &[(u32, u32)], num_nodes: u32) -> Result<(), GraphError> {
+    for &(src, dst) in edges {
+        if src >= num_nodes {
+            return Err(GraphError::NodeOutOfBounds(src, num_nodes));
+        }
+        if dst >= num_nodes {
+            return Err(GraphError::NodeOutOfBounds(dst, num_nodes));
+        }
+    }
+    Ok(())
+}
 
 // ============================================================================
 // STRONGLY CONNECTED COMPONENTS (SCC)
@@ -49,7 +72,18 @@ use std::collections::HashMap;
 /// # Returns
 /// List of SCCs, where each SCC is a list of node IDs.
 /// SCCs with size > 1 are circular dependencies!
-pub fn find_sccs(edges: &[(u32, u32)], num_nodes: usize) -> Vec<Vec<u32>> {
+///
+/// # Errors
+/// - `NodeOutOfBounds` if any edge references a node >= num_nodes
+pub fn find_sccs(edges: &[(u32, u32)], num_nodes: usize) -> Result<Vec<Vec<u32>>, GraphError> {
+    // Empty graph is valid - returns empty result
+    if num_nodes == 0 {
+        return Ok(vec![]);
+    }
+
+    // Validate all edges before processing
+    validate_edges(edges, num_nodes as u32)?;
+
     // Step 1: Build a petgraph DiGraph (Directed Graph)
     // DiGraph<N, E> where N = node weight type, E = edge weight type
     // We use () for both since we only care about structure, not weights
@@ -62,13 +96,9 @@ pub fn find_sccs(edges: &[(u32, u32)], num_nodes: usize) -> Vec<Vec<u32>> {
         .map(|_| graph.add_node(()))
         .collect();
 
-    // Step 3: Add edges
-    // Each edge connects two NodeIndex values
+    // Step 3: Add edges (already validated)
     for &(src, dst) in edges {
-        // Safety: src and dst should be < num_nodes
-        if (src as usize) < num_nodes && (dst as usize) < num_nodes {
-            graph.add_edge(node_indices[src as usize], node_indices[dst as usize], ());
-        }
+        graph.add_edge(node_indices[src as usize], node_indices[dst as usize], ());
     }
 
     // Step 4: Run Tarjan's SCC algorithm
@@ -77,22 +107,25 @@ pub fn find_sccs(edges: &[(u32, u32)], num_nodes: usize) -> Vec<Vec<u32>> {
 
     // Step 5: Convert NodeIndex back to our u32 IDs
     // NodeIndex has an .index() method that gives us the position
-    sccs.into_iter()
+    Ok(sccs.into_iter()
         .map(|scc| {
             scc.into_iter()
                 .map(|node_idx| node_idx.index() as u32)
                 .collect()
         })
-        .collect()
+        .collect())
 }
 
 /// Find only the cycles (SCCs with more than 1 node)
 /// These are the circular dependencies we want to report!
-pub fn find_cycles(edges: &[(u32, u32)], num_nodes: usize, min_size: usize) -> Vec<Vec<u32>> {
-    find_sccs(edges, num_nodes)
+///
+/// # Errors
+/// - `NodeOutOfBounds` if any edge references a node >= num_nodes
+pub fn find_cycles(edges: &[(u32, u32)], num_nodes: usize, min_size: usize) -> Result<Vec<Vec<u32>>, GraphError> {
+    Ok(find_sccs(edges, num_nodes)?
         .into_iter()
         .filter(|scc| scc.len() >= min_size)
-        .collect()
+        .collect())
 }
 
 // ============================================================================
@@ -127,22 +160,43 @@ pub fn find_cycles(edges: &[(u32, u32)], num_nodes: usize, min_size: usize) -> V
 /// # Arguments
 /// * `edges` - List of (source, target) directed edges
 /// * `num_nodes` - Total number of nodes
-/// * `damping` - Damping factor, typically 0.85
+/// * `damping` - Damping factor, typically 0.85 (must be in [0, 1])
 /// * `max_iterations` - Maximum iterations before stopping
-/// * `tolerance` - Stop when score changes are below this (convergence)
+/// * `tolerance` - Stop when score changes are below this (convergence, must be positive)
 ///
 /// # Returns
 /// Vector of PageRank scores, one per node (index = node ID)
+///
+/// # Errors
+/// - `InvalidParameter` if damping not in [0, 1] or tolerance <= 0
+/// - `NodeOutOfBounds` if any edge references a node >= num_nodes
 pub fn pagerank(
     edges: &[(u32, u32)],
     num_nodes: usize,
     damping: f64,
     max_iterations: usize,
     tolerance: f64,
-) -> Vec<f64> {
+) -> Result<Vec<f64>, GraphError> {
+    // Empty graph is valid
     if num_nodes == 0 {
-        return vec![];
+        return Ok(vec![]);
     }
+
+    // Validate parameters
+    if !(0.0..=1.0).contains(&damping) {
+        return Err(GraphError::InvalidParameter(
+            format!("damping must be in [0, 1], got {}", damping)
+        ));
+    }
+
+    if tolerance <= 0.0 {
+        return Err(GraphError::InvalidParameter(
+            format!("tolerance must be positive, got {}", tolerance)
+        ));
+    }
+
+    // Validate all edges
+    validate_edges(edges, num_nodes as u32)?;
 
     // Step 1: Build adjacency lists
     // We need: who points TO each node (for receiving score)
@@ -153,10 +207,8 @@ pub fn pagerank(
     for &(src, dst) in edges {
         let src = src as usize;
         let dst = dst as usize;
-        if src < num_nodes && dst < num_nodes {
-            incoming[dst].push(src as u32);  // dst receives from src
-            out_degree[src] += 1;            // src has one more outgoing edge
-        }
+        incoming[dst].push(src as u32);  // dst receives from src
+        out_degree[src] += 1;            // src has one more outgoing edge
     }
 
     // Step 2: Initialize scores
@@ -205,7 +257,7 @@ pub fn pagerank(
         }
     }
 
-    scores
+    Ok(scores)
 }
 
 // ============================================================================
@@ -244,19 +296,24 @@ pub fn pagerank(
 ///
 /// # Returns
 /// Vector of betweenness scores, one per node (index = node ID)
-pub fn betweenness_centrality(edges: &[(u32, u32)], num_nodes: usize) -> Vec<f64> {
+///
+/// # Errors
+/// - `NodeOutOfBounds` if any edge references a node >= num_nodes
+pub fn betweenness_centrality(edges: &[(u32, u32)], num_nodes: usize) -> Result<Vec<f64>, GraphError> {
+    // Empty graph is valid
     if num_nodes == 0 {
-        return vec![];
+        return Ok(vec![]);
     }
+
+    // Validate all edges
+    validate_edges(edges, num_nodes as u32)?;
 
     // Build adjacency list (directed graph)
     let mut adj: Vec<Vec<u32>> = vec![vec![]; num_nodes];
     for &(src, dst) in edges {
         let src = src as usize;
         let dst = dst as usize;
-        if src < num_nodes && dst < num_nodes {
-            adj[src].push(dst as u32);
-        }
+        adj[src].push(dst as u32);
     }
 
     // PARALLEL: Run BFS from each source node in parallel
@@ -338,7 +395,7 @@ pub fn betweenness_centrality(edges: &[(u32, u32)], num_nodes: usize) -> Vec<f64
     // For undirected graphs, divide by 2 (each path counted twice)
     // We're doing directed, so no division needed
 
-    betweenness
+    Ok(betweenness)
 }
 
 // ============================================================================
@@ -405,14 +462,29 @@ fn modularity_gain(
 
 /// Louvain community detection algorithm.
 /// Returns community assignments (index = node, value = community ID).
-pub fn louvain(
+///
+/// # Errors
+/// - `InvalidParameter` if resolution <= 0
+/// - `NodeOutOfBounds` if any edge references a node >= num_nodes
+fn louvain(
     edges: &[(u32, u32)],
     num_nodes: usize,
     resolution: f64,  // Higher = more/smaller communities
-) -> Vec<u32> {
+) -> Result<Vec<u32>, GraphError> {
+    // Empty graph is valid
     if num_nodes == 0 {
-        return vec![];
+        return Ok(vec![]);
     }
+
+    // Validate parameters
+    if resolution <= 0.0 {
+        return Err(GraphError::InvalidParameter(
+            format!("resolution must be positive, got {}", resolution)
+        ));
+    }
+
+    // Validate all edges
+    validate_edges(edges, num_nodes as u32)?;
 
     // Build weighted undirected adjacency list
     let mut neighbors: Vec<Vec<(u32, f64)>> = vec![vec![]; num_nodes];
@@ -421,7 +493,7 @@ pub fn louvain(
     for &(src, dst) in edges {
         let src = src as usize;
         let dst = dst as usize;
-        if src < num_nodes && dst < num_nodes && src != dst {
+        if src != dst {  // Already validated bounds, just skip self-loops
             neighbors[src].push((dst as u32, 1.0));
             neighbors[dst].push((src as u32, 1.0));
             total_weight += 1.0;  // Count each edge once (undirected adds twice)
@@ -530,7 +602,7 @@ pub fn louvain(
         }
     }
 
-    communities
+    Ok(communities)
 }
 
 // ============================================================================
@@ -570,14 +642,21 @@ pub fn louvain(
 ///
 /// # Returns
 /// Vector of harmonic centrality scores, one per node (index = node ID)
-pub fn harmonic_centrality(edges: &[(u32, u32)], num_nodes: usize, normalized: bool) -> Vec<f64> {
+///
+/// # Errors
+/// - `NodeOutOfBounds` if any edge references a node >= num_nodes
+pub fn harmonic_centrality(edges: &[(u32, u32)], num_nodes: usize, normalized: bool) -> Result<Vec<f64>, GraphError> {
+    // Empty graph is valid
     if num_nodes == 0 {
-        return vec![];
+        return Ok(vec![]);
     }
 
     if num_nodes == 1 {
-        return vec![0.0];  // Single node has no other nodes to reach
+        return Ok(vec![0.0]);  // Single node has no other nodes to reach
     }
+
+    // Validate all edges
+    validate_edges(edges, num_nodes as u32)?;
 
     // Build adjacency list (directed graph)
     // For centrality, we often want undirected - treat edges as bidirectional
@@ -585,7 +664,7 @@ pub fn harmonic_centrality(edges: &[(u32, u32)], num_nodes: usize, normalized: b
     for &(src, dst) in edges {
         let src = src as usize;
         let dst = dst as usize;
-        if src < num_nodes && dst < num_nodes && src != dst {
+        if src != dst {  // Already validated bounds, just skip self-loops
             adj[src].push(dst as u32);
             adj[dst].push(src as u32);  // Undirected for centrality
         }
@@ -634,30 +713,45 @@ pub fn harmonic_centrality(edges: &[(u32, u32)], num_nodes: usize, normalized: b
         })
         .collect();
 
-    harmonic
+    Ok(harmonic)
 }
 
 /// Leiden community detection (improved Louvain with refinement).
 /// Guarantees well-connected communities.
+///
+/// # Errors
+/// - `InvalidParameter` if resolution <= 0
+/// - `NodeOutOfBounds` if any edge references a node >= num_nodes
 pub fn leiden(
     edges: &[(u32, u32)],
     num_nodes: usize,
     resolution: f64,
     max_iterations: usize,
-) -> Vec<u32> {
+) -> Result<Vec<u32>, GraphError> {
+    // Empty graph is valid
     if num_nodes == 0 {
-        return vec![];
+        return Ok(vec![]);
     }
 
+    // Validate parameters
+    if resolution <= 0.0 {
+        return Err(GraphError::InvalidParameter(
+            format!("resolution must be positive, got {}", resolution)
+        ));
+    }
+
+    // Validate edges once (louvain will skip validation since we already did it)
+    validate_edges(edges, num_nodes as u32)?;
+
     // Start with Louvain result
-    let mut communities = louvain(edges, num_nodes, resolution);
+    let mut communities = louvain(edges, num_nodes, resolution)?;
 
     // Build adjacency for refinement checks
     let mut neighbors: Vec<Vec<u32>> = vec![vec![]; num_nodes];
     for &(src, dst) in edges {
         let src = src as usize;
         let dst = dst as usize;
-        if src < num_nodes && dst < num_nodes && src != dst {
+        if src != dst {  // Already validated bounds, just skip self-loops
             neighbors[src].push(dst as u32);
             neighbors[dst].push(src as u32);
         }
@@ -724,5 +818,762 @@ pub fn leiden(
         }
     }
 
-    communities
+    Ok(communities)
+}
+
+// ============================================================================
+// UNIT TESTS (REPO-218)
+// Comprehensive tests covering:
+// - Edge cases (empty, single node, self-loops, duplicates)
+// - Known graph topologies (star, cycle, complete, path)
+// - Disconnected graphs (components, isolated nodes)
+// - Convergence and numerical precision
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // TEST HELPERS
+    // -------------------------------------------------------------------------
+
+    const EPSILON: f64 = 1e-6;
+
+    /// Check if two floats are approximately equal
+    fn approx_eq(a: f64, b: f64) -> bool {
+        (a - b).abs() < EPSILON
+    }
+
+    /// Check if a is greater than b with some tolerance
+    fn approx_gt(a: f64, b: f64) -> bool {
+        a > b - EPSILON
+    }
+
+    /// Create a complete graph (every node connected to every other)
+    fn complete_graph(n: usize) -> Vec<(u32, u32)> {
+        let mut edges = Vec::new();
+        for i in 0..n {
+            for j in 0..n {
+                if i != j {
+                    edges.push((i as u32, j as u32));
+                }
+            }
+        }
+        edges
+    }
+
+    /// Create a cycle graph (0 -> 1 -> 2 -> ... -> n-1 -> 0)
+    fn cycle_graph(n: usize) -> Vec<(u32, u32)> {
+        (0..n).map(|i| (i as u32, ((i + 1) % n) as u32)).collect()
+    }
+
+    /// Create a path graph (0 - 1 - 2 - ... - n-1), bidirectional
+    fn path_graph(n: usize) -> Vec<(u32, u32)> {
+        let mut edges = Vec::new();
+        for i in 0..n.saturating_sub(1) {
+            edges.push((i as u32, (i + 1) as u32));
+            edges.push(((i + 1) as u32, i as u32));
+        }
+        edges
+    }
+
+    /// Create a star graph with center node 0, bidirectional
+    fn star_graph(n: usize) -> Vec<(u32, u32)> {
+        let mut edges = Vec::new();
+        for i in 1..n {
+            edges.push((0, i as u32));
+            edges.push((i as u32, 0));
+        }
+        edges
+    }
+
+    // =========================================================================
+    // ERROR HANDLING TESTS (REPO-227)
+    // =========================================================================
+
+    #[test]
+    fn test_sccs_node_out_of_bounds() {
+        let edges = vec![(0, 5)];
+        let result = find_sccs(&edges, 3);
+        assert!(matches!(result, Err(GraphError::NodeOutOfBounds(5, 3))));
+    }
+
+    #[test]
+    fn test_pagerank_invalid_damping_high() {
+        let result = pagerank(&[(0, 1)], 2, 1.5, 20, 1e-4);
+        assert!(matches!(result, Err(GraphError::InvalidParameter(_))));
+    }
+
+    #[test]
+    fn test_pagerank_invalid_damping_negative() {
+        let result = pagerank(&[(0, 1)], 2, -0.1, 20, 1e-4);
+        assert!(matches!(result, Err(GraphError::InvalidParameter(_))));
+    }
+
+    #[test]
+    fn test_pagerank_invalid_tolerance_zero() {
+        let result = pagerank(&[(0, 1)], 2, 0.85, 20, 0.0);
+        assert!(matches!(result, Err(GraphError::InvalidParameter(_))));
+    }
+
+    #[test]
+    fn test_pagerank_invalid_tolerance_negative() {
+        let result = pagerank(&[(0, 1)], 2, 0.85, 20, -1e-4);
+        assert!(matches!(result, Err(GraphError::InvalidParameter(_))));
+    }
+
+    #[test]
+    fn test_leiden_invalid_resolution_zero() {
+        let result = leiden(&[(0, 1)], 2, 0.0, 10);
+        assert!(matches!(result, Err(GraphError::InvalidParameter(_))));
+    }
+
+    #[test]
+    fn test_leiden_invalid_resolution_negative() {
+        let result = leiden(&[(0, 1)], 2, -1.0, 10);
+        assert!(matches!(result, Err(GraphError::InvalidParameter(_))));
+    }
+
+    #[test]
+    fn test_betweenness_node_out_of_bounds() {
+        let result = betweenness_centrality(&[(0, 10)], 5);
+        assert!(matches!(result, Err(GraphError::NodeOutOfBounds(10, 5))));
+    }
+
+    #[test]
+    fn test_harmonic_node_out_of_bounds() {
+        let result = harmonic_centrality(&[(5, 0)], 4, true);
+        assert!(matches!(result, Err(GraphError::NodeOutOfBounds(5, 4))));
+    }
+
+    // =========================================================================
+    // EDGE CASE TESTS
+    // =========================================================================
+
+    mod edge_cases {
+        use super::*;
+
+        // ----- Empty Graph Tests -----
+
+        #[test]
+        fn test_empty_graph_sccs() {
+            let result = find_sccs(&[], 0).unwrap();
+            assert!(result.is_empty());
+        }
+
+        #[test]
+        fn test_empty_graph_pagerank() {
+            let result = pagerank(&[], 0, 0.85, 20, 1e-4).unwrap();
+            assert!(result.is_empty());
+        }
+
+        #[test]
+        fn test_empty_graph_betweenness() {
+            let result = betweenness_centrality(&[], 0).unwrap();
+            assert!(result.is_empty());
+        }
+
+        #[test]
+        fn test_empty_graph_harmonic() {
+            let result = harmonic_centrality(&[], 0, true).unwrap();
+            assert!(result.is_empty());
+        }
+
+        #[test]
+        fn test_empty_graph_leiden() {
+            let result = leiden(&[], 0, 1.0, 10).unwrap();
+            assert!(result.is_empty());
+        }
+
+        // ----- Single Node Tests -----
+
+        #[test]
+        fn test_single_node_sccs() {
+            let result = find_sccs(&[], 1).unwrap();
+            assert_eq!(result.len(), 1);
+            assert_eq!(result[0], vec![0]);
+        }
+
+        #[test]
+        fn test_single_node_pagerank() {
+            let result = pagerank(&[], 1, 0.85, 20, 1e-4).unwrap();
+            assert_eq!(result.len(), 1);
+            // Single node has initial score of 1.0 but algorithm applies damping
+            // The result is (1 - damping) / N = 0.15 for d=0.85, N=1 since no incoming edges
+            assert!(result[0] > 0.0, "Single node should have positive PageRank");
+        }
+
+        #[test]
+        fn test_single_node_betweenness() {
+            let result = betweenness_centrality(&[], 1).unwrap();
+            assert_eq!(result.len(), 1);
+            assert!(approx_eq(result[0], 0.0)); // No paths through single node
+        }
+
+        #[test]
+        fn test_single_node_harmonic() {
+            let result = harmonic_centrality(&[], 1, true).unwrap();
+            assert_eq!(result.len(), 1);
+            assert!(approx_eq(result[0], 0.0)); // No other nodes to reach
+        }
+
+        #[test]
+        fn test_single_node_leiden() {
+            let result = leiden(&[], 1, 1.0, 10).unwrap();
+            assert_eq!(result.len(), 1);
+            assert_eq!(result[0], 0);
+        }
+
+        // ----- Self-Loop Tests -----
+
+        #[test]
+        fn test_self_loop_pagerank() {
+            // Self-loops should be handled (not crash or error)
+            let edges = vec![(0, 0), (0, 1), (1, 0)];
+            let result = pagerank(&edges, 2, 0.85, 20, 1e-4).unwrap();
+            assert_eq!(result.len(), 2);
+            for score in &result {
+                assert!(*score > 0.0);
+            }
+        }
+
+        #[test]
+        fn test_self_loop_betweenness() {
+            let edges = vec![(0, 0), (0, 1), (1, 0)];
+            let result = betweenness_centrality(&edges, 2).unwrap();
+            assert_eq!(result.len(), 2);
+        }
+
+        #[test]
+        fn test_self_loop_harmonic() {
+            // Harmonic centrality skips self-loops
+            let edges = vec![(0, 0), (0, 1)];
+            let result = harmonic_centrality(&edges, 2, true).unwrap();
+            assert_eq!(result.len(), 2);
+        }
+
+        // ----- Duplicate Edge Tests -----
+
+        #[test]
+        fn test_duplicate_edges_pagerank() {
+            let edges = vec![(0, 1), (0, 1), (0, 1), (1, 0)];
+            let result = pagerank(&edges, 2, 0.85, 20, 1e-4).unwrap();
+            assert_eq!(result.len(), 2);
+            // Both nodes should have positive scores
+            assert!(result[0] > 0.0);
+            assert!(result[1] > 0.0);
+        }
+
+        #[test]
+        fn test_duplicate_edges_sccs() {
+            let edges = vec![(0, 1), (0, 1), (1, 0), (1, 0)];
+            let result = find_sccs(&edges, 2).unwrap();
+            // Should still find 1 SCC with both nodes
+            let cycle_sccs: Vec<_> = result.iter().filter(|scc| scc.len() > 1).collect();
+            assert_eq!(cycle_sccs.len(), 1);
+        }
+
+        // ----- Nodes Without Edges -----
+
+        #[test]
+        fn test_isolated_nodes_no_edges() {
+            // 5 nodes but no edges
+            let result = pagerank(&[], 5, 0.85, 20, 1e-4).unwrap();
+            assert_eq!(result.len(), 5);
+            // All nodes should have equal PageRank
+            for i in 1..5 {
+                assert!(approx_eq(result[0], result[i]));
+            }
+        }
+    }
+
+    // =========================================================================
+    // KNOWN GRAPH TOPOLOGY TESTS
+    // =========================================================================
+
+    mod known_graphs {
+        use super::*;
+
+        // ----- Cycle Graph Tests -----
+
+        #[test]
+        fn test_pagerank_cycle() {
+            // In a cycle, all nodes should have equal PageRank
+            let edges = cycle_graph(5);
+            let result = pagerank(&edges, 5, 0.85, 100, 1e-8).unwrap();
+
+            for i in 1..5 {
+                assert!(approx_eq(result[0], result[i]),
+                    "Cycle: all nodes should be equal, got {:?}", result);
+            }
+        }
+
+        #[test]
+        fn test_betweenness_cycle() {
+            // In a cycle, all nodes have equal betweenness
+            let edges = cycle_graph(5);
+            let result = betweenness_centrality(&edges, 5).unwrap();
+
+            for i in 1..5 {
+                assert!(approx_eq(result[0], result[i]),
+                    "Cycle: all nodes should have equal betweenness");
+            }
+        }
+
+        #[test]
+        fn test_harmonic_cycle() {
+            // In a cycle, all nodes have equal harmonic centrality
+            let edges = cycle_graph(5);
+            let result = harmonic_centrality(&edges, 5, true).unwrap();
+
+            for i in 1..5 {
+                assert!(approx_eq(result[0], result[i]),
+                    "Cycle: all nodes should have equal harmonic centrality");
+            }
+        }
+
+        #[test]
+        fn test_sccs_cycle() {
+            // Cycle forms a single SCC
+            let edges = cycle_graph(5);
+            let result = find_sccs(&edges, 5).unwrap();
+
+            // Should have exactly one large SCC
+            let large_sccs: Vec<_> = result.iter().filter(|scc| scc.len() == 5).collect();
+            assert_eq!(large_sccs.len(), 1, "Cycle should form single SCC");
+        }
+
+        // ----- Star Graph Tests -----
+
+        #[test]
+        fn test_pagerank_star_inward() {
+            // All leaves point to center: center has highest PageRank
+            let edges: Vec<(u32, u32)> = (1..5).map(|i| (i, 0)).collect();
+            let result = pagerank(&edges, 5, 0.85, 100, 1e-8).unwrap();
+
+            for i in 1..5 {
+                assert!(result[0] > result[i],
+                    "Star (inward): center should have highest PageRank");
+            }
+        }
+
+        #[test]
+        fn test_pagerank_star_outward() {
+            // Center points to all leaves: center has lowest PageRank (no incoming)
+            let edges: Vec<(u32, u32)> = (1..5).map(|i| (0, i)).collect();
+            let result = pagerank(&edges, 5, 0.85, 100, 1e-8).unwrap();
+
+            for i in 1..5 {
+                assert!(result[i] > result[0],
+                    "Star (outward): leaves should have higher PageRank than center");
+            }
+        }
+
+        #[test]
+        fn test_betweenness_star() {
+            // Center node has highest betweenness in star graph
+            let edges = star_graph(5);
+            let result = betweenness_centrality(&edges, 5).unwrap();
+
+            for i in 1..5 {
+                assert!(approx_gt(result[0], result[i]),
+                    "Star: center should have highest betweenness, got {:?}", result);
+            }
+        }
+
+        #[test]
+        fn test_harmonic_star() {
+            // Center node has highest harmonic centrality
+            let edges = star_graph(5);
+            let result = harmonic_centrality(&edges, 5, true).unwrap();
+
+            for i in 1..5 {
+                assert!(result[0] > result[i],
+                    "Star: center should have highest harmonic centrality");
+            }
+        }
+
+        // ----- Path Graph Tests -----
+
+        #[test]
+        fn test_betweenness_path() {
+            // 0 - 1 - 2 - 3 - 4: middle nodes have higher betweenness
+            let edges = path_graph(5);
+            let result = betweenness_centrality(&edges, 5).unwrap();
+
+            // Middle node (2) should have highest betweenness
+            assert!(result[2] > result[0], "Path: middle > endpoint");
+            assert!(result[2] > result[4], "Path: middle > endpoint");
+
+            // Nodes 1 and 3 should be higher than endpoints
+            assert!(result[1] > result[0], "Path: internal > endpoint");
+            assert!(result[3] > result[4], "Path: internal > endpoint");
+        }
+
+        #[test]
+        fn test_harmonic_path() {
+            // Middle nodes closer to all others
+            let edges = path_graph(5);
+            let result = harmonic_centrality(&edges, 5, true).unwrap();
+
+            // Middle node should have highest centrality
+            assert!(result[2] >= result[0], "Path: middle >= endpoint");
+            assert!(result[2] >= result[4], "Path: middle >= endpoint");
+        }
+
+        #[test]
+        fn test_sccs_path() {
+            // Bidirectional path forms single SCC
+            let edges = path_graph(5);
+            let result = find_sccs(&edges, 5).unwrap();
+
+            let large_sccs: Vec<_> = result.iter().filter(|scc| scc.len() == 5).collect();
+            assert_eq!(large_sccs.len(), 1, "Bidirectional path should form single SCC");
+        }
+
+        // ----- Complete Graph Tests -----
+
+        #[test]
+        fn test_pagerank_complete() {
+            // All nodes equal in complete graph
+            let edges = complete_graph(5);
+            let result = pagerank(&edges, 5, 0.85, 100, 1e-8).unwrap();
+
+            for i in 1..5 {
+                assert!(approx_eq(result[0], result[i]),
+                    "Complete graph: all nodes should be equal");
+            }
+        }
+
+        #[test]
+        fn test_betweenness_complete() {
+            // All nodes equal in complete graph
+            let edges = complete_graph(5);
+            let result = betweenness_centrality(&edges, 5).unwrap();
+
+            for i in 1..5 {
+                assert!(approx_eq(result[0], result[i]),
+                    "Complete graph: all nodes should have equal betweenness");
+            }
+        }
+
+        #[test]
+        fn test_harmonic_complete() {
+            // All nodes equal in complete graph
+            let edges = complete_graph(5);
+            let result = harmonic_centrality(&edges, 5, true).unwrap();
+
+            for i in 1..5 {
+                assert!(approx_eq(result[0], result[i]),
+                    "Complete graph: all nodes should have equal harmonic centrality");
+            }
+        }
+
+        #[test]
+        fn test_leiden_complete() {
+            // Complete graph should form single community
+            let edges = complete_graph(5);
+            let result = leiden(&edges, 5, 1.0, 10).unwrap();
+
+            for i in 1..5 {
+                assert_eq!(result[0], result[i],
+                    "Complete graph: all nodes should be in same community");
+            }
+        }
+    }
+
+    // =========================================================================
+    // DISCONNECTED GRAPH TESTS
+    // =========================================================================
+
+    mod disconnected {
+        use super::*;
+
+        #[test]
+        fn test_two_components_sccs() {
+            // Two separate triangles
+            let edges = vec![
+                // Component 1: 0-1-2
+                (0, 1), (1, 2), (2, 0),
+                // Component 2: 3-4-5
+                (3, 4), (4, 5), (5, 3),
+            ];
+            let result = find_sccs(&edges, 6).unwrap();
+
+            // Should have exactly 2 SCCs of size 3
+            let large_sccs: Vec<_> = result.iter().filter(|scc| scc.len() == 3).collect();
+            assert_eq!(large_sccs.len(), 2, "Should find 2 triangle SCCs");
+        }
+
+        #[test]
+        fn test_two_components_leiden() {
+            // Two separate cliques should be different communities
+            let edges = vec![
+                // Clique 1: 0-1-2 (complete)
+                (0, 1), (1, 0), (1, 2), (2, 1), (2, 0), (0, 2),
+                // Clique 2: 3-4-5 (complete)
+                (3, 4), (4, 3), (4, 5), (5, 4), (5, 3), (3, 5),
+            ];
+            let result = leiden(&edges, 6, 1.0, 10).unwrap();
+
+            // Same clique = same community
+            assert_eq!(result[0], result[1]);
+            assert_eq!(result[1], result[2]);
+            assert_eq!(result[3], result[4]);
+            assert_eq!(result[4], result[5]);
+
+            // Different cliques = different communities
+            assert_ne!(result[0], result[3],
+                "Separate cliques should be different communities");
+        }
+
+        #[test]
+        fn test_isolated_nodes_pagerank() {
+            // Some nodes connected, some isolated
+            let edges = vec![(0, 1), (1, 0)];
+            let result = pagerank(&edges, 4, 0.85, 100, 1e-8).unwrap();
+
+            assert_eq!(result.len(), 4);
+            // Isolated nodes (2, 3) should still have positive PageRank (from random jumps)
+            assert!(result[2] > 0.0, "Isolated nodes should have positive PageRank");
+            assert!(result[3] > 0.0, "Isolated nodes should have positive PageRank");
+        }
+
+        #[test]
+        fn test_isolated_nodes_betweenness() {
+            let edges = vec![(0, 1), (1, 0)];
+            let result = betweenness_centrality(&edges, 4).unwrap();
+
+            assert_eq!(result.len(), 4);
+            // Isolated nodes have zero betweenness
+            assert!(approx_eq(result[2], 0.0), "Isolated nodes should have 0 betweenness");
+            assert!(approx_eq(result[3], 0.0), "Isolated nodes should have 0 betweenness");
+        }
+
+        #[test]
+        fn test_isolated_nodes_harmonic() {
+            let edges = vec![(0, 1), (1, 0)];
+            let result = harmonic_centrality(&edges, 4, true).unwrap();
+
+            assert_eq!(result.len(), 4);
+            // Connected nodes have higher harmonic centrality
+            assert!(result[0] > result[2], "Connected nodes > isolated nodes");
+        }
+
+        #[test]
+        fn test_mixed_components_leiden() {
+            // Two cliques connected by weak bridge
+            let edges = vec![
+                // Clique 1
+                (0, 1), (1, 0), (1, 2), (2, 1), (2, 0), (0, 2),
+                // Clique 2
+                (3, 4), (4, 3), (4, 5), (5, 4), (5, 3), (3, 5),
+                // Weak bridge
+                (2, 3), (3, 2),
+            ];
+            let result = leiden(&edges, 6, 1.0, 10).unwrap();
+
+            // Nodes in same clique should be same community
+            assert_eq!(result[0], result[1]);
+            assert_eq!(result[1], result[2]);
+            assert_eq!(result[3], result[4]);
+            assert_eq!(result[4], result[5]);
+
+            // Different cliques may or may not merge depending on bridge strength
+            // Just verify result is valid
+            assert_eq!(result.len(), 6);
+        }
+    }
+
+    // =========================================================================
+    // CONVERGENCE AND ALGORITHM CORRECTNESS TESTS
+    // =========================================================================
+
+    mod convergence {
+        use super::*;
+
+        #[test]
+        fn test_pagerank_tolerance_respected() {
+            // Tight tolerance should give more precise results
+            let edges = cycle_graph(10);
+
+            let result_loose = pagerank(&edges, 10, 0.85, 100, 1e-2).unwrap();
+            let result_tight = pagerank(&edges, 10, 0.85, 1000, 1e-10).unwrap();
+
+            // Both should work and give similar results
+            assert_eq!(result_loose.len(), 10);
+            assert_eq!(result_tight.len(), 10);
+
+            // Results should be reasonably close
+            for i in 0..10 {
+                assert!((result_loose[i] - result_tight[i]).abs() < 0.01,
+                    "Tolerance should affect precision");
+            }
+        }
+
+        #[test]
+        fn test_pagerank_damping_effect() {
+            // Higher damping = more influenced by link structure
+            let edges = vec![(1, 0), (2, 0), (3, 0)]; // All point to 0
+
+            let result_low = pagerank(&edges, 4, 0.5, 100, 1e-8).unwrap();
+            let result_high = pagerank(&edges, 4, 0.95, 100, 1e-8).unwrap();
+
+            // Higher damping should make node 0 even more important
+            let ratio_low = result_low[0] / result_low[1];
+            let ratio_high = result_high[0] / result_high[1];
+
+            assert!(ratio_high > ratio_low,
+                "Higher damping should amplify link importance");
+        }
+
+        #[test]
+        fn test_leiden_resolution_effect() {
+            // Higher resolution = more/smaller communities
+            let edges = complete_graph(10);
+
+            let result_low = leiden(&edges, 10, 0.5, 10).unwrap();
+            let result_high = leiden(&edges, 10, 2.0, 10).unwrap();
+
+            let communities_low: std::collections::HashSet<_> = result_low.iter().collect();
+            let communities_high: std::collections::HashSet<_> = result_high.iter().collect();
+
+            // Higher resolution should find >= communities
+            assert!(communities_high.len() >= communities_low.len(),
+                "Higher resolution should find more communities");
+        }
+
+        #[test]
+        fn test_scc_finds_correct_components() {
+            // Mixed graph with clear SCCs
+            let edges = vec![
+                // SCC 1: 0 <-> 1
+                (0, 1), (1, 0),
+                // SCC 2: 2 -> 3 -> 4 -> 2
+                (2, 3), (3, 4), (4, 2),
+                // One-way edges (not part of SCCs)
+                (1, 2),
+            ];
+            let result = find_sccs(&edges, 5).unwrap();
+
+            // Should find 2 non-trivial SCCs
+            let large_sccs: Vec<_> = result.iter().filter(|scc| scc.len() > 1).collect();
+            assert_eq!(large_sccs.len(), 2, "Should find 2 cycles");
+
+            // Verify SCC sizes
+            let scc_sizes: Vec<_> = large_sccs.iter().map(|scc| scc.len()).collect();
+            assert!(scc_sizes.contains(&2), "Should find SCC of size 2");
+            assert!(scc_sizes.contains(&3), "Should find SCC of size 3");
+        }
+
+        #[test]
+        fn test_find_cycles_min_size() {
+            let edges = vec![
+                (0, 1), (1, 0),  // Size 2
+                (2, 3), (3, 4), (4, 2),  // Size 3
+            ];
+
+            let cycles_2 = find_cycles(&edges, 5, 2).unwrap();
+            let cycles_3 = find_cycles(&edges, 5, 3).unwrap();
+
+            assert_eq!(cycles_2.len(), 2, "min_size=2 should find 2 cycles");
+            assert_eq!(cycles_3.len(), 1, "min_size=3 should find 1 cycle");
+        }
+    }
+
+    // =========================================================================
+    // NUMERICAL PRECISION TESTS
+    // =========================================================================
+
+    mod numerical {
+        use super::*;
+
+        #[test]
+        fn test_pagerank_sums_to_one() {
+            // PageRank scores should sum to approximately 1
+            let edges = vec![(0, 1), (1, 2), (2, 0), (0, 2)];
+            let result = pagerank(&edges, 3, 0.85, 100, 1e-8).unwrap();
+
+            let sum: f64 = result.iter().sum();
+            assert!((sum - 1.0).abs() < 0.01,
+                "PageRank should sum to ~1, got {}", sum);
+        }
+
+        #[test]
+        fn test_harmonic_normalized_range() {
+            // Normalized harmonic centrality should be in [0, 1]
+            let edges = complete_graph(5);
+            let result = harmonic_centrality(&edges, 5, true).unwrap();
+
+            for score in &result {
+                assert!(*score >= 0.0 && *score <= 1.0,
+                    "Normalized harmonic should be in [0, 1], got {}", score);
+            }
+        }
+
+        #[test]
+        fn test_betweenness_non_negative() {
+            // Betweenness centrality should never be negative
+            let edges = star_graph(10);
+            let result = betweenness_centrality(&edges, 10).unwrap();
+
+            for score in &result {
+                assert!(*score >= 0.0, "Betweenness should be non-negative");
+            }
+        }
+
+        #[test]
+        fn test_large_graph_performance() {
+            // Test with 1000 nodes to verify scalability
+            let n = 1000;
+            let mut edges = Vec::new();
+            for i in 0..n {
+                edges.push((i as u32, ((i + 1) % n) as u32));  // Cycle
+                edges.push((i as u32, ((i + 2) % n) as u32));  // Skip-1
+            }
+
+            let pr = pagerank(&edges, n, 0.85, 20, 1e-4).unwrap();
+            assert_eq!(pr.len(), n);
+
+            let bc = betweenness_centrality(&edges, n).unwrap();
+            assert_eq!(bc.len(), n);
+
+            let hc = harmonic_centrality(&edges, n, true).unwrap();
+            assert_eq!(hc.len(), n);
+
+            let leiden_result = leiden(&edges, n, 1.0, 10).unwrap();
+            assert_eq!(leiden_result.len(), n);
+        }
+
+        #[test]
+        fn test_deterministic_results() {
+            // Same input should give same output
+            let edges = vec![(0, 1), (1, 2), (2, 0), (1, 3), (3, 2)];
+
+            let pr1 = pagerank(&edges, 4, 0.85, 100, 1e-8).unwrap();
+            let pr2 = pagerank(&edges, 4, 0.85, 100, 1e-8).unwrap();
+
+            for i in 0..4 {
+                assert!(approx_eq(pr1[i], pr2[i]),
+                    "Results should be deterministic");
+            }
+        }
+
+        #[test]
+        fn test_edge_damping_boundaries() {
+            // Test damping at exact boundaries
+            let edges = vec![(0, 1), (1, 0)];
+
+            let result_0 = pagerank(&edges, 2, 0.0, 20, 1e-4).unwrap();
+            let result_1 = pagerank(&edges, 2, 1.0, 20, 1e-4).unwrap();
+
+            assert_eq!(result_0.len(), 2);
+            assert_eq!(result_1.len(), 2);
+
+            // With damping=0, all nodes get equal random jump probability
+            assert!(approx_eq(result_0[0], result_0[1]),
+                "Damping=0 should give equal scores");
+        }
+    }
 }

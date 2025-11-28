@@ -361,3 +361,144 @@ class TestValidation:
 
         with pytest.raises(ValidationError):
             graph_algorithms.calculate_communities("test", "'; injection;--")
+
+
+class TestRustGraphAlgorithmValidation:
+    """Test input validation in Rust graph algorithms (REPO-227).
+
+    These tests verify that Rust algorithms raise ValueError on invalid inputs
+    instead of silently failing or returning incorrect results.
+    """
+
+    def test_pagerank_invalid_damping_too_high(self):
+        """Should raise ValueError for damping > 1."""
+        from repotoire_fast import graph_pagerank
+
+        with pytest.raises(ValueError, match="damping must be in"):
+            graph_pagerank([(0, 1)], 2, damping=1.5)
+
+    def test_pagerank_invalid_damping_negative(self):
+        """Should raise ValueError for damping < 0."""
+        from repotoire_fast import graph_pagerank
+
+        with pytest.raises(ValueError, match="damping must be in"):
+            graph_pagerank([(0, 1)], 2, damping=-0.1)
+
+    def test_pagerank_invalid_tolerance_zero(self):
+        """Should raise ValueError for tolerance = 0."""
+        from repotoire_fast import graph_pagerank
+
+        with pytest.raises(ValueError, match="tolerance must be positive"):
+            graph_pagerank([(0, 1)], 2, tolerance=0.0)
+
+    def test_pagerank_invalid_tolerance_negative(self):
+        """Should raise ValueError for tolerance < 0."""
+        from repotoire_fast import graph_pagerank
+
+        with pytest.raises(ValueError, match="tolerance must be positive"):
+            graph_pagerank([(0, 1)], 2, tolerance=-1e-4)
+
+    def test_pagerank_node_out_of_bounds(self):
+        """Should raise ValueError for invalid node indices."""
+        from repotoire_fast import graph_pagerank
+
+        with pytest.raises(ValueError, match="out of bounds"):
+            graph_pagerank([(0, 5)], 3)  # Node 5 doesn't exist
+
+    def test_find_sccs_node_out_of_bounds(self):
+        """Should raise ValueError for invalid node indices in SCC."""
+        from repotoire_fast import graph_find_sccs
+
+        with pytest.raises(ValueError, match="out of bounds"):
+            graph_find_sccs([(0, 10)], 5)  # Node 10 doesn't exist
+
+    def test_find_cycles_node_out_of_bounds(self):
+        """Should raise ValueError for invalid node indices in cycles."""
+        from repotoire_fast import graph_find_cycles
+
+        with pytest.raises(ValueError, match="out of bounds"):
+            graph_find_cycles([(3, 0)], 2)  # Node 3 doesn't exist
+
+    def test_betweenness_node_out_of_bounds(self):
+        """Should raise ValueError for invalid node indices in betweenness."""
+        from repotoire_fast import graph_betweenness_centrality
+
+        with pytest.raises(ValueError, match="out of bounds"):
+            graph_betweenness_centrality([(0, 100)], 10)
+
+    def test_harmonic_node_out_of_bounds(self):
+        """Should raise ValueError for invalid node indices in harmonic."""
+        from repotoire_fast import graph_harmonic_centrality
+
+        with pytest.raises(ValueError, match="out of bounds"):
+            graph_harmonic_centrality([(0, 5), (5, 0)], 4)
+
+    def test_leiden_invalid_resolution_zero(self):
+        """Should raise ValueError for resolution = 0."""
+        from repotoire_fast import graph_leiden
+
+        with pytest.raises(ValueError, match="resolution must be positive"):
+            graph_leiden([(0, 1)], 2, resolution=0.0)
+
+    def test_leiden_invalid_resolution_negative(self):
+        """Should raise ValueError for resolution < 0."""
+        from repotoire_fast import graph_leiden
+
+        with pytest.raises(ValueError, match="resolution must be positive"):
+            graph_leiden([(0, 1)], 2, resolution=-1.0)
+
+    def test_leiden_node_out_of_bounds(self):
+        """Should raise ValueError for invalid node indices in Leiden."""
+        from repotoire_fast import graph_leiden
+
+        with pytest.raises(ValueError, match="out of bounds"):
+            graph_leiden([(0, 7)], 5)
+
+    def test_empty_graph_valid(self):
+        """Empty graphs should return empty results, not errors."""
+        from repotoire_fast import (
+            graph_pagerank,
+            graph_find_sccs,
+            graph_betweenness_centrality,
+            graph_harmonic_centrality,
+            graph_leiden,
+        )
+
+        assert graph_pagerank([], 0) == []
+        assert graph_find_sccs([], 0) == []
+        assert graph_betweenness_centrality([], 0) == []
+        assert graph_harmonic_centrality([], 0) == []
+        assert graph_leiden([], 0) == []
+
+    def test_valid_graph_with_edges(self):
+        """Valid graphs with edges should work correctly."""
+        from repotoire_fast import (
+            graph_pagerank,
+            graph_find_sccs,
+            graph_betweenness_centrality,
+            graph_harmonic_centrality,
+            graph_leiden,
+        )
+
+        edges = [(0, 1), (1, 2), (2, 0)]  # Simple cycle
+
+        # PageRank should return scores for all 3 nodes
+        scores = graph_pagerank(edges, 3)
+        assert len(scores) == 3
+        assert all(s > 0 for s in scores)
+
+        # SCCs should find the cycle
+        sccs = graph_find_sccs(edges, 3)
+        assert len(sccs) >= 1
+
+        # Betweenness should return scores for all 3 nodes
+        bc = graph_betweenness_centrality(edges, 3)
+        assert len(bc) == 3
+
+        # Harmonic should return scores for all 3 nodes
+        hc = graph_harmonic_centrality(edges, 3)
+        assert len(hc) == 3
+
+        # Leiden should assign communities
+        communities = graph_leiden(edges, 3)
+        assert len(communities) == 3

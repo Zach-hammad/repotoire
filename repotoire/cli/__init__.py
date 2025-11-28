@@ -12,6 +12,7 @@ from rich.tree import Tree
 from rich.text import Text
 from rich.prompt import Confirm
 from rich import box
+from rich.markup import escape
 
 from repotoire.pipeline import IngestionPipeline
 from repotoire.graph import Neo4jClient
@@ -846,46 +847,62 @@ def _display_health_report(health) -> None:
 
 
 def _display_findings_tree(findings, severity_colors, severity_emoji):
-    """Display findings in a tree structure grouped by detector."""
+    """Display findings in a tree structure grouped by detector.
+
+    Note: All user-provided content (titles, descriptions, file paths, fixes)
+    is escaped using rich.markup.escape() to prevent Rich from interpreting
+    square brackets as markup tags. This fixes REPO-179 where content like
+    'arr[0]' or '[config]' would be incorrectly interpreted as Rich markup.
+
+    Note: We use `builtins.list` explicitly because this module has a Click
+    command named `list` that shadows the builtin. This was causing REPO-179
+    where calling this function would trigger Click's argument parser.
+    """
+    import builtins
     from collections import defaultdict
 
     # Group findings by detector
-    by_detector = defaultdict(list)
+    # Use builtins.list to avoid shadowing by the `list` Click command in this module
+    by_detector = defaultdict(builtins.list)
     for finding in findings:
         by_detector[finding.detector].append(finding)
 
     # Create tree for each detector
     for detector, detector_findings in sorted(by_detector.items()):
-        tree = Tree(f"[bold cyan]{detector}[/bold cyan]")
+        tree = Tree(f"[bold cyan]{escape(detector)}[/bold cyan]")
 
         for finding in detector_findings:
             color = severity_colors[finding.severity]
             emoji = severity_emoji[finding.severity]
 
-            # Create finding branch
+            # Create finding branch - escape title to prevent markup interpretation
             severity_label = f"{emoji} [{color}]{finding.severity.value.upper()}[/{color}]"
-            finding_text = f"{severity_label}: {finding.title}"
+            escaped_title = escape(finding.title)
+            finding_text = f"{severity_label}: {escaped_title}"
             finding_branch = tree.add(finding_text)
 
-            # Add description
+            # Add description - escape to prevent markup interpretation
             if finding.description:
-                finding_branch.add(f"[dim]{finding.description}[/dim]")
+                escaped_desc = escape(finding.description)
+                finding_branch.add(f"[dim]{escaped_desc}[/dim]")
 
-            # Add affected files
+            # Add affected files - escape file paths (may contain brackets)
             if finding.affected_files:
-                files_text = ", ".join(finding.affected_files[:3])
+                escaped_files = [escape(f) for f in finding.affected_files[:3]]
+                files_text = ", ".join(escaped_files)
                 if len(finding.affected_files) > 3:
                     files_text += f" [dim](+{len(finding.affected_files) - 3} more)[/dim]"
                 finding_branch.add(f"[yellow]Files:[/yellow] {files_text}")
 
-            # Add suggested fix if available
+            # Add suggested fix if available - escape fix text
             if finding.suggested_fix:
                 fix_branch = finding_branch.add("[green]💡 Suggested Fix:[/green]")
                 # Limit fix text length for display
                 fix_text = finding.suggested_fix
                 if len(fix_text) > 200:
                     fix_text = fix_text[:200] + "..."
-                fix_branch.add(f"[dim]{fix_text}[/dim]")
+                escaped_fix = escape(fix_text)
+                fix_branch.add(f"[dim]{escaped_fix}[/dim]")
 
         console.print(tree)
         console.print()  # Add spacing between detectors
@@ -3302,10 +3319,14 @@ def test(
 
         if findings:
             for i, finding in enumerate(findings[:10], 1):  # Show first 10
-                console.print(f"{i}. [{finding.severity.value}] {finding.title}")
-                console.print(f"   {finding.description}")
+                # Escape finding content to prevent Rich markup interpretation (REPO-179)
+                escaped_title = escape(finding.title)
+                escaped_desc = escape(finding.description)
+                console.print(f"{i}. [{finding.severity.value}] {escaped_title}")
+                console.print(f"   {escaped_desc}")
                 if finding.affected_files:
-                    console.print(f"   Files: {', '.join(finding.affected_files)}")
+                    escaped_files = [escape(f) for f in finding.affected_files]
+                    console.print(f"   Files: {', '.join(escaped_files)}")
                 console.print()
 
             if len(findings) > 10:
@@ -4352,7 +4373,9 @@ def auto_fix(
             if failed and not quiet_mode:
                 console.print(f"[red]✗[/red] {len(failed)} fix(es) failed to apply:")
                 for fix, error in failed:
-                    console.print(f"  - {fix.title}: {error}")
+                    # Escape fix title to prevent Rich markup interpretation (REPO-179)
+                    escaped_title = escape(fix.title) if hasattr(fix, 'title') else str(fix)
+                    console.print(f"  - {escaped_title}: {error}")
 
         # Step 5: Run tests if requested (skip in dry-run mode)
         tests_passed = True

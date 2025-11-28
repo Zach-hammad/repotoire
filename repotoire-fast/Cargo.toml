@@ -38,3 +38,6 @@ petgraph = "0.6"
 
 # indexmap - Ordered hash maps (preserves insertion order)
 indexmap = "2.0"
+
+# thiserror - Derive macro for Error trait (REPO-227)
+thiserror = "1.0"

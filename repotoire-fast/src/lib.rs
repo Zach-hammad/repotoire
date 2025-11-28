@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+use pyo3::exceptions::PyValueError;
 use walkdir::WalkDir;
 use globset::{Glob, GlobSetBuilder};
 use rayon::prelude::*;
@@ -10,6 +11,14 @@ mod similarity;
 use numpy::{PyReadonlyArray1, PyReadonlyArray2};
 mod pylint_rules;
 mod graph_algo;
+mod errors;
+
+// Convert GraphError to Python ValueError (REPO-227)
+impl From<errors::GraphError> for PyErr {
+    fn from(err: errors::GraphError) -> PyErr {
+        PyValueError::new_err(err.to_string())
+    }
+}
 
 #[pyfunction]
 fn scan_files(
@@ -498,14 +507,18 @@ fn check_all_pylint_rules_batch(
 
 /// Find strongly connected components (circular dependencies)
 /// Returns list of SCCs, each SCC is a list of node IDs
+///
+/// Raises ValueError if any edge references a node >= num_nodes
 #[pyfunction]
 #[pyo3(signature = (edges, num_nodes))]
 fn graph_find_sccs(edges: Vec<(u32, u32)>, num_nodes: usize) -> PyResult<Vec<Vec<u32>>> {
-    Ok(graph_algo::find_sccs(&edges, num_nodes))
+    graph_algo::find_sccs(&edges, num_nodes).map_err(|e| e.into())
 }
 
 /// Find cycles (SCCs with size >= min_size)
 /// This is what circular dependency detection needs!
+///
+/// Raises ValueError if any edge references a node >= num_nodes
 #[pyfunction]
 #[pyo3(signature = (edges, num_nodes, min_size=2))]
 fn graph_find_cycles(
@@ -513,11 +526,16 @@ fn graph_find_cycles(
     num_nodes: usize,
     min_size: usize,
 ) -> PyResult<Vec<Vec<u32>>> {
-    Ok(graph_algo::find_cycles(&edges, num_nodes, min_size))
+    graph_algo::find_cycles(&edges, num_nodes, min_size).map_err(|e| e.into())
 }
 
 /// Calculate PageRank scores for all nodes
 /// Returns list of scores (index = node ID)
+///
+/// Raises ValueError if:
+/// - damping is not in [0, 1]
+/// - tolerance is not positive
+/// - any edge references a node >= num_nodes
 #[pyfunction]
 #[pyo3(signature = (edges, num_nodes, damping=0.85, max_iterations=20, tolerance=1e-4))]
 fn graph_pagerank(
@@ -527,23 +545,29 @@ fn graph_pagerank(
     max_iterations: usize,
     tolerance: f64,
 ) -> PyResult<Vec<f64>> {
-    Ok(graph_algo::pagerank(&edges, num_nodes, damping, max_iterations, tolerance))
+    graph_algo::pagerank(&edges, num_nodes, damping, max_iterations, tolerance).map_err(|e| e.into())
 }
 
 /// Calculate Betweenness Centrality (Brandes algorithm)
 /// Returns list of scores (index = node ID)
+///
+/// Raises ValueError if any edge references a node >= num_nodes
 #[pyfunction]
 #[pyo3(signature = (edges, num_nodes))]
 fn graph_betweenness_centrality(
     edges: Vec<(u32, u32)>,
     num_nodes: usize,
 ) -> PyResult<Vec<f64>> {
-    Ok(graph_algo::betweenness_centrality(&edges, num_nodes))
+    graph_algo::betweenness_centrality(&edges, num_nodes).map_err(|e| e.into())
 }
 
 /// Leiden community detection (best algorithm for community detection)
 /// Guarantees well-connected communities
 /// Returns list where index = node ID, value = community ID
+///
+/// Raises ValueError if:
+/// - resolution is not positive
+/// - any edge references a node >= num_nodes
 #[pyfunction]
 #[pyo3(signature = (edges, num_nodes, resolution=1.0, max_iterations=10))]
 fn graph_leiden(
@@ -552,12 +576,14 @@ fn graph_leiden(
     resolution: f64,
     max_iterations: usize,
 ) -> PyResult<Vec<u32>> {
-    Ok(graph_algo::leiden(&edges, num_nodes, resolution, max_iterations))
+    graph_algo::leiden(&edges, num_nodes, resolution, max_iterations).map_err(|e| e.into())
 }
 
 /// Calculate Harmonic Centrality for all nodes
 /// Measures how easily a node can reach all other nodes
 /// Returns list of scores (index = node ID)
+///
+/// Raises ValueError if any edge references a node >= num_nodes
 #[pyfunction]
 #[pyo3(signature = (edges, num_nodes, normalized=true))]
 fn graph_harmonic_centrality(
@@ -565,7 +591,7 @@ fn graph_harmonic_centrality(
     num_nodes: usize,
     normalized: bool,
 ) -> PyResult<Vec<f64>> {
-    Ok(graph_algo::harmonic_centrality(&edges, num_nodes, normalized))
+    graph_algo::harmonic_centrality(&edges, num_nodes, normalized).map_err(|e| e.into())
 }
 
 #[pymodule]
