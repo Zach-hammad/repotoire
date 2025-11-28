@@ -1,8 +1,12 @@
-"""Influential code detector using PageRank (REPO-169).
+"""Influential code detector using PageRank (REPO-169, REPO-200).
 
-Uses Neo4j GDS PageRank to identify truly important code components based on
+Uses Rust-based PageRank to identify truly important code components based on
 incoming dependencies. Distinguishes legitimate core infrastructure from
 bloated god classes.
+
+No GDS plugin required - runs entirely with Rust algorithms.
+
+REPO-200: Updated to use Rust algorithms directly (no GDS dependency).
 """
 
 from typing import List, Optional
@@ -47,31 +51,22 @@ class InfluentialCodeDetector(CodeSmellDetector):
     def detect(self) -> List[Finding]:
         """Detect influential code and potential god classes.
 
+        Uses Rust PageRank algorithm - no GDS plugin required.
+
         Returns:
             List of findings
         """
         findings = []
 
+        # Initialize graph algorithms (uses Rust - no GDS required)
         graph_algo = GraphAlgorithms(self.db)
 
-        # Check GDS availability
-        if not graph_algo.check_gds_available():
-            logger.warning(
-                "Neo4j GDS plugin not available - skipping PageRank detection"
-            )
-            return findings
-
         try:
-            # Create call graph projection for function-level analysis
-            if not graph_algo.create_call_graph_projection():
-                logger.warning("Failed to create call graph projection")
-                return findings
-
-            # Calculate PageRank
+            # Calculate PageRank using Rust algorithm
+            logger.info("Calculating PageRank using Rust algorithm")
             result = graph_algo.calculate_pagerank()
             if not result:
                 logger.warning("Failed to calculate PageRank")
-                graph_algo.cleanup_projection()
                 return findings
 
             # Get high PageRank functions (core infrastructure)
@@ -88,17 +83,10 @@ class InfluentialCodeDetector(CodeSmellDetector):
                 if finding:
                     findings.append(finding)
 
-            # Cleanup
-            graph_algo.cleanup_projection()
-
             return findings
 
         except Exception as e:
             logger.error(f"Error in PageRank detection: {e}", exc_info=True)
-            try:
-                graph_algo.cleanup_projection()
-            except Exception:
-                pass
             return findings
 
     def _get_high_pagerank_functions(

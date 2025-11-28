@@ -1,8 +1,9 @@
-"""Circular dependency detector using graph algorithms (REPO-170).
+"""Circular dependency detector using graph algorithms (REPO-170, REPO-200).
 
-Uses Neo4j GDS Strongly Connected Components (Tarjan's SCC) for O(V+E) cycle
-detection - 10-100x faster than pairwise path queries. Falls back to traditional
-path queries if GDS is not available.
+Uses Rust-based Strongly Connected Components (Tarjan's SCC) for O(V+E) cycle
+detection - 10-100x faster than pairwise path queries. No GDS plugin required.
+
+REPO-200: Updated to use Rust algorithms directly (no GDS dependency).
 """
 
 import uuid
@@ -44,31 +45,31 @@ class CircularDependencyDetector(CodeSmellDetector):
     def detect(self) -> List[Finding]:
         """Find circular dependencies in the codebase.
 
-        Uses GDS SCC algorithm (O(V+E)) when available for 10-100x faster
-        detection. Falls back to path-based queries if GDS is unavailable.
+        Uses Rust SCC algorithm (Tarjan's) for O(V+E) cycle detection.
+        No GDS plugin required - runs entirely with Rust algorithms.
 
         Returns:
             List of findings, one per circular dependency cycle
         """
         graph_algo = GraphAlgorithms(self.db)
 
-        # Try GDS-based SCC detection first (much faster)
-        if graph_algo.check_gds_available():
-            logger.info("Using GDS SCC algorithm for circular dependency detection")
-            findings = self._detect_with_scc(graph_algo)
-            if findings is not None:
-                return findings
-            logger.warning("GDS SCC detection failed, falling back to path queries")
+        # Use Rust-based SCC detection (no GDS required)
+        logger.info("Using Rust SCC algorithm for circular dependency detection")
+        findings = self._detect_with_scc(graph_algo)
+        if findings is not None:
+            return findings
 
-        # Fall back to traditional path-based detection
-        logger.info("Using path-based queries for circular dependency detection")
+        # Fall back to traditional path-based detection only if Rust fails
+        logger.warning("Rust SCC detection failed, falling back to path queries")
         return self._detect_with_path_queries()
 
     def _detect_with_scc(self, graph_algo: GraphAlgorithms) -> Optional[List[Finding]]:
-        """Detect circular dependencies using GDS SCC algorithm.
+        """Detect circular dependencies using Rust SCC algorithm.
 
         SCC (Strongly Connected Components) finds all cycles in O(V+E) time.
         Components with size > 1 represent circular dependencies.
+
+        Uses Rust Tarjan's algorithm - no GDS projection required.
 
         Args:
             graph_algo: GraphAlgorithms instance
@@ -79,16 +80,10 @@ class CircularDependencyDetector(CodeSmellDetector):
         findings: List[Finding] = []
 
         try:
-            # Create import graph projection
-            if not graph_algo.create_import_graph_projection():
-                logger.warning("Failed to create import graph projection")
-                return None
-
-            # Calculate SCC
+            # Calculate SCC using Rust algorithm (no projection needed)
             result = graph_algo.calculate_scc()
             if not result:
                 logger.warning("Failed to calculate SCC")
-                graph_algo.cleanup_projection("imports-graph")
                 return None
 
             component_count = result.get("componentCount", 0)
@@ -116,18 +111,11 @@ class CircularDependencyDetector(CodeSmellDetector):
                 )
                 findings.append(finding)
 
-            # Cleanup
-            graph_algo.cleanup_projection("imports-graph")
-
             logger.info(f"SCC detection found {len(findings)} circular dependencies")
             return findings
 
         except Exception as e:
             logger.error(f"Error in SCC detection: {e}", exc_info=True)
-            try:
-                graph_algo.cleanup_projection("imports-graph")
-            except Exception:
-                pass
             return None
 
     def _detect_with_path_queries(self) -> List[Finding]:

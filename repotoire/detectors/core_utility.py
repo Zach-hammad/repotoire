@@ -1,8 +1,12 @@
-"""Core utility detector using Harmonic Centrality (REPO-173).
+"""Core utility detector using Harmonic Centrality (REPO-173, REPO-200).
 
-Uses Neo4j GDS Harmonic Centrality to identify central coordinator functions
+Uses Rust-based Harmonic Centrality to identify central coordinator functions
 and isolated/dead code. Harmonic centrality handles disconnected graphs
 better than closeness centrality.
+
+No GDS plugin required - runs entirely with Rust algorithms.
+
+REPO-200: Updated to use Rust algorithms directly (no GDS dependency).
 """
 
 from typing import List, Optional
@@ -43,38 +47,28 @@ class CoreUtilityDetector(CodeSmellDetector):
     def detect(self) -> List[Finding]:
         """Detect central coordinators and isolated code.
 
+        Uses Rust harmonic centrality algorithm - no GDS plugin required.
+
         Returns:
             List of findings
         """
         findings = []
 
+        # Initialize graph algorithms (uses Rust - no GDS required)
         graph_algo = GraphAlgorithms(self.db)
 
-        # Check GDS availability
-        if not graph_algo.check_gds_available():
-            logger.warning(
-                "Neo4j GDS plugin not available - skipping harmonic centrality detection"
-            )
-            return findings
-
         try:
-            # Create call graph projection
-            if not graph_algo.create_call_graph_projection():
-                logger.warning("Failed to create call graph projection")
-                return findings
-
-            # Calculate harmonic centrality
+            # Calculate harmonic centrality using Rust algorithm
+            logger.info("Calculating harmonic centrality using Rust algorithm")
             result = graph_algo.calculate_harmonic_centrality()
             if not result:
                 logger.warning("Failed to calculate harmonic centrality")
-                graph_algo.cleanup_projection()
                 return findings
 
             # Get statistics for dynamic thresholds
             stats = graph_algo.get_harmonic_statistics()
             if not stats:
                 logger.warning("Failed to get harmonic statistics")
-                graph_algo.cleanup_projection()
                 return findings
 
             total_functions = stats.get("total_functions", 0)
@@ -110,17 +104,10 @@ class CoreUtilityDetector(CodeSmellDetector):
                     if finding:
                         findings.append(finding)
 
-            # Cleanup
-            graph_algo.cleanup_projection()
-
             return findings
 
         except Exception as e:
             logger.error(f"Error in harmonic centrality detection: {e}", exc_info=True)
-            try:
-                graph_algo.cleanup_projection()
-            except Exception:
-                pass
             return findings
 
     def _create_central_coordinator_finding(

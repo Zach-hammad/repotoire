@@ -1,4 +1,4 @@
-"""Unit tests for CoreUtilityDetector."""
+"""Unit tests for CoreUtilityDetector (REPO-173, REPO-200)."""
 
 from unittest.mock import Mock, patch
 
@@ -17,35 +17,7 @@ def mock_db():
 
 
 class TestCoreUtilityDetector:
-    """Test CoreUtilityDetector."""
-
-    def test_no_issues_when_gds_not_available(self, mock_db):
-        """Test that detector returns empty when GDS is not available."""
-        with patch(
-            "repotoire.detectors.core_utility.GraphAlgorithms"
-        ) as MockGraphAlgo:
-            mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = False
-
-            detector = CoreUtilityDetector(mock_db)
-            findings = detector.detect()
-
-            assert len(findings) == 0
-            mock_algo.check_gds_available.assert_called_once()
-
-    def test_no_issues_when_projection_fails(self, mock_db):
-        """Test that detector returns empty when projection fails."""
-        with patch(
-            "repotoire.detectors.core_utility.GraphAlgorithms"
-        ) as MockGraphAlgo:
-            mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = False
-
-            detector = CoreUtilityDetector(mock_db)
-            findings = detector.detect()
-
-            assert len(findings) == 0
+    """Test CoreUtilityDetector with Rust harmonic centrality."""
 
     def test_no_issues_when_harmonic_fails(self, mock_db):
         """Test that detector handles harmonic centrality failure gracefully."""
@@ -53,15 +25,12 @@ class TestCoreUtilityDetector:
             "repotoire.detectors.core_utility.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_harmonic_centrality.return_value = None
 
             detector = CoreUtilityDetector(mock_db)
             findings = detector.detect()
 
             assert len(findings) == 0
-            mock_algo.cleanup_projection.assert_called()
 
     def test_no_issues_when_stats_fail(self, mock_db):
         """Test that detector handles statistics failure gracefully."""
@@ -69,8 +38,6 @@ class TestCoreUtilityDetector:
             "repotoire.detectors.core_utility.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_harmonic_centrality.return_value = {
                 "nodePropertiesWritten": 100
             }
@@ -80,7 +47,6 @@ class TestCoreUtilityDetector:
             findings = detector.detect()
 
             assert len(findings) == 0
-            mock_algo.cleanup_projection.assert_called()
 
     def test_central_coordinator_detection(self, mock_db):
         """Test detection of central coordinator functions."""
@@ -88,8 +54,6 @@ class TestCoreUtilityDetector:
             "repotoire.detectors.core_utility.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_harmonic_centrality.return_value = {
                 "nodePropertiesWritten": 100
             }
@@ -130,8 +94,6 @@ class TestCoreUtilityDetector:
             "repotoire.detectors.core_utility.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_harmonic_centrality.return_value = {
                 "nodePropertiesWritten": 100
             }
@@ -171,8 +133,6 @@ class TestCoreUtilityDetector:
             "repotoire.detectors.core_utility.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_harmonic_centrality.return_value = {
                 "nodePropertiesWritten": 100
             }
@@ -212,8 +172,6 @@ class TestCoreUtilityDetector:
             "repotoire.detectors.core_utility.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_harmonic_centrality.return_value = {
                 "nodePropertiesWritten": 100
             }
@@ -252,8 +210,6 @@ class TestCoreUtilityDetector:
             "repotoire.detectors.core_utility.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_harmonic_centrality.return_value = {
                 "nodePropertiesWritten": 100
             }
@@ -291,8 +247,6 @@ class TestCoreUtilityDetector:
             "repotoire.detectors.core_utility.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_harmonic_centrality.return_value = {
                 "nodePropertiesWritten": 100
             }
@@ -330,8 +284,6 @@ class TestCoreUtilityDetector:
             "repotoire.detectors.core_utility.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_harmonic_centrality.return_value = {
                 "nodePropertiesWritten": 100
             }
@@ -391,24 +343,20 @@ class TestCoreUtilityDetector:
             assert Severity.HIGH in severities  # High complexity central
             assert Severity.MEDIUM in severities  # Normal central or isolated
 
-    def test_cleanup_on_error(self, mock_db):
-        """Test that cleanup is called even on error."""
+    def test_handles_exception(self, mock_db):
+        """Test that exceptions are handled gracefully."""
         with patch(
             "repotoire.detectors.core_utility.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_harmonic_centrality.side_effect = Exception(
                 "Query failed"
             )
-            mock_algo.cleanup_projection = Mock()
 
             detector = CoreUtilityDetector(mock_db)
             findings = detector.detect()
 
             assert len(findings) == 0
-            mock_algo.cleanup_projection.assert_called()
 
     def test_collaboration_metadata_central(self, mock_db):
         """Test that collaboration metadata is added to central coordinator findings."""
@@ -416,8 +364,6 @@ class TestCoreUtilityDetector:
             "repotoire.detectors.core_utility.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_harmonic_centrality.return_value = {
                 "nodePropertiesWritten": 100
             }
@@ -459,8 +405,6 @@ class TestCoreUtilityDetector:
             "repotoire.detectors.core_utility.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_harmonic_centrality.return_value = {
                 "nodePropertiesWritten": 100
             }
@@ -501,8 +445,6 @@ class TestCoreUtilityDetector:
             "repotoire.detectors.core_utility.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_harmonic_centrality.return_value = {
                 "nodePropertiesWritten": 100
             }
@@ -541,8 +483,6 @@ class TestCoreUtilityDetector:
             "repotoire.detectors.core_utility.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_harmonic_centrality.return_value = {
                 "nodePropertiesWritten": 100
             }

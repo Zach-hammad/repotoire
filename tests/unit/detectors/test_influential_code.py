@@ -1,4 +1,4 @@
-"""Unit tests for InfluentialCodeDetector (REPO-169)."""
+"""Unit tests for InfluentialCodeDetector (REPO-169, REPO-200)."""
 
 from unittest.mock import Mock, patch
 
@@ -17,35 +17,7 @@ def mock_db():
 
 
 class TestInfluentialCodeDetector:
-    """Test InfluentialCodeDetector."""
-
-    def test_no_issues_when_gds_not_available(self, mock_db):
-        """Test that detector returns empty when GDS is not available."""
-        with patch(
-            "repotoire.detectors.influential_code.GraphAlgorithms"
-        ) as MockGraphAlgo:
-            mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = False
-
-            detector = InfluentialCodeDetector(mock_db)
-            findings = detector.detect()
-
-            assert len(findings) == 0
-            mock_algo.check_gds_available.assert_called_once()
-
-    def test_no_issues_when_projection_fails(self, mock_db):
-        """Test that detector returns empty when projection fails."""
-        with patch(
-            "repotoire.detectors.influential_code.GraphAlgorithms"
-        ) as MockGraphAlgo:
-            mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = False
-
-            detector = InfluentialCodeDetector(mock_db)
-            findings = detector.detect()
-
-            assert len(findings) == 0
+    """Test InfluentialCodeDetector with Rust PageRank."""
 
     def test_no_issues_when_pagerank_fails(self, mock_db):
         """Test that detector handles PageRank failure gracefully."""
@@ -53,15 +25,12 @@ class TestInfluentialCodeDetector:
             "repotoire.detectors.influential_code.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_pagerank.return_value = None
 
             detector = InfluentialCodeDetector(mock_db)
             findings = detector.detect()
 
             assert len(findings) == 0
-            mock_algo.cleanup_projection.assert_called()
 
     def test_influential_code_detection_high_pagerank(self, mock_db):
         """Test detection of high PageRank influential code."""
@@ -69,8 +38,6 @@ class TestInfluentialCodeDetector:
             "repotoire.detectors.influential_code.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_pagerank.return_value = {
                 "nodePropertiesWritten": 100
             }
@@ -103,13 +70,11 @@ class TestInfluentialCodeDetector:
             assert "pagerank" in findings[0].graph_context
 
     def test_critical_bottleneck_high_pagerank_high_complexity(self, mock_db):
-        """Test that high PageRank + high complexity = CRITICAL severity."""
+        """Test that high PageRank + high complexity = HIGH severity."""
         with patch(
             "repotoire.detectors.influential_code.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_pagerank.return_value = {
                 "nodePropertiesWritten": 100
             }
@@ -145,8 +110,6 @@ class TestInfluentialCodeDetector:
             "repotoire.detectors.influential_code.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_pagerank.return_value = {
                 "nodePropertiesWritten": 100
             }
@@ -181,8 +144,6 @@ class TestInfluentialCodeDetector:
             "repotoire.detectors.influential_code.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_pagerank.return_value = {
                 "nodePropertiesWritten": 100
             }
@@ -208,14 +169,12 @@ class TestInfluentialCodeDetector:
             assert len(findings) == 1
             assert findings[0].severity == Severity.MEDIUM
 
-    def test_cleanup_on_exception(self, mock_db):
-        """Test that projection is cleaned up on exception."""
+    def test_handles_exception(self, mock_db):
+        """Test that exceptions are handled gracefully."""
         with patch(
             "repotoire.detectors.influential_code.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_pagerank.return_value = {"nodePropertiesWritten": 100}
             mock_db.execute_query.side_effect = Exception("DB error")
 
@@ -223,7 +182,6 @@ class TestInfluentialCodeDetector:
             findings = detector.detect()
 
             assert len(findings) == 0
-            mock_algo.cleanup_projection.assert_called()
 
     def test_collaboration_metadata(self, mock_db):
         """Test that findings include collaboration metadata."""
@@ -231,8 +189,6 @@ class TestInfluentialCodeDetector:
             "repotoire.detectors.influential_code.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_pagerank.return_value = {"nodePropertiesWritten": 100}
 
             mock_db.execute_query.side_effect = [
@@ -266,8 +222,6 @@ class TestInfluentialCodeDetector:
             "repotoire.detectors.influential_code.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_call_graph_projection.return_value = True
             mock_algo.calculate_pagerank.return_value = {"nodePropertiesWritten": 100}
 
             mock_db.execute_query.side_effect = [

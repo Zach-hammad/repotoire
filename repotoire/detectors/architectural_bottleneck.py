@@ -1,10 +1,14 @@
-"""Architectural bottleneck detector using betweenness centrality.
+"""Architectural bottleneck detector using betweenness centrality (REPO-200).
 
 Identifies functions that sit on many execution paths (high betweenness),
 indicating architectural bottlenecks that are critical points of failure.
 
+Uses Rust Brandes algorithm for betweenness centrality - no GDS plugin required.
+
 REPO-154: Enhanced with cross-detector risk amplification to escalate
 severity when bottlenecks combine with high complexity and security issues.
+
+REPO-200: Updated to use Rust algorithms directly (no GDS dependency).
 """
 
 import json
@@ -55,6 +59,8 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
     ) -> List[Finding]:
         """Detect architectural bottlenecks using betweenness centrality.
 
+        Uses Rust Brandes algorithm - no GDS plugin required.
+
         REPO-154: Now supports cross-detector risk amplification via
         previous_findings parameter. When radon/bandit findings are passed,
         severity is escalated for bottlenecks with compound risk factors.
@@ -83,35 +89,21 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
             if f not in radon_findings and f not in bandit_findings
         ]
 
-        # Initialize graph algorithms
+        # Initialize graph algorithms (uses Rust - no GDS required)
         graph_algo = GraphAlgorithms(self.db)
 
-        # Check if GDS is available
-        if not graph_algo.check_gds_available():
-            logger.warning(
-                "Neo4j GDS plugin not available - skipping architectural bottleneck detection. "
-                "Install GDS plugin or run with 'gds' extra: pip install falkor[gds]"
-            )
-            return findings
-
         try:
-            # Create graph projection
-            if not graph_algo.create_call_graph_projection():
-                logger.error("Failed to create call graph projection")
-                return findings
-
-            # Calculate betweenness centrality
+            # Calculate betweenness centrality using Rust Brandes algorithm
+            logger.info("Calculating betweenness centrality using Rust algorithm")
             result = graph_algo.calculate_betweenness_centrality()
             if not result:
                 logger.error("Failed to calculate betweenness centrality")
-                graph_algo.cleanup_projection()
                 return findings
 
             # Get betweenness statistics to determine thresholds
             stats = graph_algo.get_betweenness_statistics()
             if not stats:
                 logger.error("Failed to get betweenness statistics")
-                graph_algo.cleanup_projection()
                 return findings
 
             total_functions = stats['total_functions']
@@ -269,18 +261,10 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
                 # Store assessments in instance for reporting
                 self._last_risk_assessments = risk_assessments
 
-            # Cleanup projection
-            graph_algo.cleanup_projection()
-
             return findings
 
         except Exception as e:
             logger.error(f"Error in architectural bottleneck detection: {e}", exc_info=True)
-            # Attempt cleanup
-            try:
-                graph_algo.cleanup_projection()
-            except Exception:
-                pass
             return findings
 
     def severity(self, finding: Finding) -> Severity:

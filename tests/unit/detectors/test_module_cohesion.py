@@ -1,4 +1,4 @@
-"""Unit tests for ModuleCohesionDetector."""
+"""Unit tests for ModuleCohesionDetector (REPO-172, REPO-200)."""
 
 from unittest.mock import Mock, patch
 
@@ -17,51 +17,20 @@ def mock_db():
 
 
 class TestModuleCohesionDetector:
-    """Test ModuleCohesionDetector."""
+    """Test ModuleCohesionDetector with Rust Leiden algorithm."""
 
-    def test_no_issues_when_gds_not_available(self, mock_db):
-        """Test that detector returns empty when GDS is not available."""
+    def test_no_issues_when_leiden_fails(self, mock_db):
+        """Test that detector handles Leiden failure gracefully."""
         with patch(
             "repotoire.detectors.module_cohesion.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = False
-
-            detector = ModuleCohesionDetector(mock_db)
-            findings = detector.detect()
-
-            assert len(findings) == 0
-            mock_algo.check_gds_available.assert_called_once()
-
-    def test_no_issues_when_projection_fails(self, mock_db):
-        """Test that detector returns empty when projection fails."""
-        with patch(
-            "repotoire.detectors.module_cohesion.GraphAlgorithms"
-        ) as MockGraphAlgo:
-            mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = False
-
-            detector = ModuleCohesionDetector(mock_db)
-            findings = detector.detect()
-
-            assert len(findings) == 0
-
-    def test_no_issues_when_louvain_fails(self, mock_db):
-        """Test that detector handles Louvain failure gracefully."""
-        with patch(
-            "repotoire.detectors.module_cohesion.GraphAlgorithms"
-        ) as MockGraphAlgo:
-            mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = True
             mock_algo.calculate_file_communities.return_value = None
 
             detector = ModuleCohesionDetector(mock_db)
             findings = detector.detect()
 
             assert len(findings) == 0
-            mock_algo.cleanup_projection.assert_called()
 
     def test_poor_modularity_detection_very_poor(self, mock_db):
         """Test detection of very poor modularity (< 0.2)."""
@@ -69,8 +38,6 @@ class TestModuleCohesionDetector:
             "repotoire.detectors.module_cohesion.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = True
             mock_algo.calculate_file_communities.return_value = {
                 "modularity": 0.15,  # Very poor
                 "communityCount": 3,
@@ -94,8 +61,6 @@ class TestModuleCohesionDetector:
             "repotoire.detectors.module_cohesion.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = True
             mock_algo.calculate_file_communities.return_value = {
                 "modularity": 0.25,  # Poor but not very poor
                 "communityCount": 5,
@@ -117,8 +82,6 @@ class TestModuleCohesionDetector:
             "repotoire.detectors.module_cohesion.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = True
             mock_algo.calculate_file_communities.return_value = {
                 "modularity": 0.65,  # Good
                 "communityCount": 8,
@@ -138,8 +101,6 @@ class TestModuleCohesionDetector:
             "repotoire.detectors.module_cohesion.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = True
             mock_algo.calculate_file_communities.return_value = {
                 "modularity": 0.5,  # Good enough to not trigger poor modularity
                 "communityCount": 5,
@@ -170,8 +131,6 @@ class TestModuleCohesionDetector:
             "repotoire.detectors.module_cohesion.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = True
             mock_algo.calculate_file_communities.return_value = {
                 "modularity": 0.5,
                 "communityCount": 3,
@@ -199,8 +158,6 @@ class TestModuleCohesionDetector:
             "repotoire.detectors.module_cohesion.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = True
             mock_algo.calculate_file_communities.return_value = {
                 "modularity": 0.5,
                 "communityCount": 5,
@@ -231,8 +188,6 @@ class TestModuleCohesionDetector:
             "repotoire.detectors.module_cohesion.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = True
             mock_algo.calculate_file_communities.return_value = {
                 "modularity": 0.5,
                 "communityCount": 5,
@@ -262,8 +217,6 @@ class TestModuleCohesionDetector:
             "repotoire.detectors.module_cohesion.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = True
             mock_algo.calculate_file_communities.return_value = {
                 "modularity": 0.5,
                 "communityCount": 5,
@@ -297,8 +250,6 @@ class TestModuleCohesionDetector:
             "repotoire.detectors.module_cohesion.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = True
             mock_algo.calculate_file_communities.return_value = {
                 "modularity": 0.5,
                 "communityCount": 5,
@@ -324,8 +275,6 @@ class TestModuleCohesionDetector:
             "repotoire.detectors.module_cohesion.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = True
             mock_algo.calculate_file_communities.return_value = {
                 "modularity": 0.2,  # Poor modularity
                 "communityCount": 3,
@@ -362,22 +311,18 @@ class TestModuleCohesionDetector:
             # Should find: poor modularity + god module + misplaced file + coupling
             assert len(findings) == 4
 
-    def test_cleanup_on_error(self, mock_db):
-        """Test that cleanup is called even on error."""
+    def test_handles_exception(self, mock_db):
+        """Test that exceptions are handled gracefully."""
         with patch(
             "repotoire.detectors.module_cohesion.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = True
             mock_algo.calculate_file_communities.side_effect = Exception("Query failed")
-            mock_algo.cleanup_projection = Mock()
 
             detector = ModuleCohesionDetector(mock_db)
             findings = detector.detect()
 
             assert len(findings) == 0
-            mock_algo.cleanup_projection.assert_called()
 
     def test_get_modularity_score(self, mock_db):
         """Test get_modularity_score accessor."""
@@ -385,8 +330,6 @@ class TestModuleCohesionDetector:
             "repotoire.detectors.module_cohesion.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = True
             mock_algo.calculate_file_communities.return_value = {
                 "modularity": 0.65,
                 "communityCount": 8,
@@ -406,8 +349,6 @@ class TestModuleCohesionDetector:
             "repotoire.detectors.module_cohesion.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = True
             mock_algo.calculate_file_communities.return_value = {
                 "modularity": 0.65,
                 "communityCount": 8,
@@ -427,8 +368,6 @@ class TestModuleCohesionDetector:
             "repotoire.detectors.module_cohesion.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_file_import_projection.return_value = True
             mock_algo.calculate_file_communities.return_value = {
                 "modularity": 0.15,
                 "communityCount": 2,

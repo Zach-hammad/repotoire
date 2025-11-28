@@ -1,4 +1,4 @@
-"""Unit tests for CircularDependencyDetector with SCC (REPO-170)."""
+"""Unit tests for CircularDependencyDetector with Rust SCC (REPO-170, REPO-200)."""
 
 from unittest.mock import Mock, patch
 from datetime import datetime
@@ -18,16 +18,14 @@ def mock_db():
 
 
 class TestCircularDependencyDetectorSCC:
-    """Test CircularDependencyDetector with SCC algorithm."""
+    """Test CircularDependencyDetector with Rust SCC algorithm."""
 
-    def test_uses_scc_when_gds_available(self, mock_db):
-        """Test that detector uses SCC when GDS is available."""
+    def test_uses_rust_scc(self, mock_db):
+        """Test that detector uses Rust SCC algorithm."""
         with patch(
             "repotoire.detectors.circular_dependency.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_scc.return_value = {
                 "componentCount": 10,
                 "nodePropertiesWritten": 50
@@ -37,55 +35,34 @@ class TestCircularDependencyDetectorSCC:
             detector = CircularDependencyDetector(mock_db)
             findings = detector.detect()
 
-            mock_algo.create_import_graph_projection.assert_called_once()
             mock_algo.calculate_scc.assert_called_once()
-            mock_algo.cleanup_projection.assert_called_with("imports-graph")
 
-    def test_falls_back_to_path_queries_when_gds_unavailable(self, mock_db):
-        """Test fallback to path queries when GDS is not available."""
+    def test_falls_back_to_path_queries_when_rust_fails(self, mock_db):
+        """Test fallback to path queries when Rust SCC fails."""
         with patch(
             "repotoire.detectors.circular_dependency.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = False
-            mock_db.execute_query.return_value = []
-
-            detector = CircularDependencyDetector(mock_db)
-            findings = detector.detect()
-
-            mock_algo.calculate_scc.assert_not_called()
-            mock_db.execute_query.assert_called_once()  # Path query
-
-    def test_falls_back_when_scc_projection_fails(self, mock_db):
-        """Test fallback when import graph projection fails."""
-        with patch(
-            "repotoire.detectors.circular_dependency.GraphAlgorithms"
-        ) as MockGraphAlgo:
-            mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = False
-            mock_db.execute_query.return_value = []
-
-            detector = CircularDependencyDetector(mock_db)
-            findings = detector.detect()
-
-            mock_db.execute_query.assert_called_once()  # Fallback path query
-
-    def test_falls_back_when_scc_calculation_fails(self, mock_db):
-        """Test fallback when SCC calculation fails."""
-        with patch(
-            "repotoire.detectors.circular_dependency.GraphAlgorithms"
-        ) as MockGraphAlgo:
-            mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_scc.return_value = None
             mock_db.execute_query.return_value = []
 
             detector = CircularDependencyDetector(mock_db)
             findings = detector.detect()
 
-            mock_algo.cleanup_projection.assert_called_with("imports-graph")
+            mock_db.execute_query.assert_called_once()  # Path query fallback
+
+    def test_falls_back_when_scc_calculation_fails(self, mock_db):
+        """Test fallback when SCC calculation returns None."""
+        with patch(
+            "repotoire.detectors.circular_dependency.GraphAlgorithms"
+        ) as MockGraphAlgo:
+            mock_algo = MockGraphAlgo.return_value
+            mock_algo.calculate_scc.return_value = None
+            mock_db.execute_query.return_value = []
+
+            detector = CircularDependencyDetector(mock_db)
+            findings = detector.detect()
+
             mock_db.execute_query.assert_called_once()  # Fallback
 
     def test_scc_detects_cycles(self, mock_db):
@@ -94,8 +71,6 @@ class TestCircularDependencyDetectorSCC:
             "repotoire.detectors.circular_dependency.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_scc.return_value = {
                 "componentCount": 5,
                 "nodePropertiesWritten": 20
@@ -128,8 +103,6 @@ class TestCircularDependencyDetectorSCC:
             "repotoire.detectors.circular_dependency.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_scc.return_value = {"componentCount": 1}
 
             # Create a large cycle
@@ -158,7 +131,7 @@ class TestCircularDependencyDetectorSCC:
             "repotoire.detectors.circular_dependency.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = False
+            mock_algo.calculate_scc.return_value = None  # Force fallback
 
             mock_db.execute_query.return_value = [
                 {
@@ -180,7 +153,7 @@ class TestCircularDependencyDetectorSCC:
             "repotoire.detectors.circular_dependency.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = False
+            mock_algo.calculate_scc.return_value = None  # Force fallback
 
             # Same cycle reported twice (from different starting points)
             mock_db.execute_query.return_value = [
@@ -235,8 +208,6 @@ class TestCircularDependencyDetectorSCC:
             "repotoire.detectors.circular_dependency.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_scc.return_value = {"componentCount": 1}
             mock_algo.get_scc_cycles.return_value = [
                 {
@@ -259,8 +230,6 @@ class TestCircularDependencyDetectorSCC:
             "repotoire.detectors.circular_dependency.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_scc.return_value = {"componentCount": 1}
             mock_algo.get_scc_cycles.return_value = [
                 {
@@ -281,22 +250,20 @@ class TestCircularDependencyDetectorSCC:
             assert len(findings) == 1
             assert "import" in findings[0].description.lower()
 
-    def test_cleanup_on_scc_exception(self, mock_db):
-        """Test cleanup happens even when SCC throws exception."""
+    def test_handles_scc_exception(self, mock_db):
+        """Test graceful handling when SCC throws exception."""
         with patch(
             "repotoire.detectors.circular_dependency.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
-            mock_algo.calculate_scc.side_effect = Exception("GDS error")
+            mock_algo.calculate_scc.side_effect = Exception("Rust error")
             mock_db.execute_query.return_value = []
 
             detector = CircularDependencyDetector(mock_db)
             findings = detector.detect()
 
-            # Should have attempted cleanup and fallen back
-            mock_algo.cleanup_projection.assert_called()
+            # Should have fallen back to path queries
+            mock_db.execute_query.assert_called_once()
 
     def test_collaboration_metadata(self, mock_db):
         """Test findings include collaboration metadata."""
@@ -304,8 +271,6 @@ class TestCircularDependencyDetectorSCC:
             "repotoire.detectors.circular_dependency.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_scc.return_value = {"componentCount": 1}
             mock_algo.get_scc_cycles.return_value = [
                 {

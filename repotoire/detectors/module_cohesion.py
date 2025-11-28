@@ -1,8 +1,12 @@
-"""Module cohesion detector using Louvain community detection (REPO-172).
+"""Module cohesion detector using Leiden community detection (REPO-172, REPO-200).
 
-Uses Neo4j GDS Louvain algorithm to identify natural module boundaries
+Uses Rust-based Leiden algorithm to identify natural module boundaries
 and detect modularity issues like misplaced files, god modules, and
 poor overall architecture.
+
+No GDS plugin required - runs entirely with Rust algorithms.
+
+REPO-200: Updated to use Rust Leiden algorithm (no GDS dependency).
 """
 
 from typing import List, Optional
@@ -16,11 +20,11 @@ logger = get_logger(__name__)
 
 
 class ModuleCohesionDetector(CodeSmellDetector):
-    """Detects modularity issues using Louvain community detection.
+    """Detects modularity issues using Leiden community detection.
 
-    Louvain algorithm identifies natural module boundaries by maximizing
+    Leiden algorithm identifies natural module boundaries by maximizing
     modularity - finding groups of files that are densely connected internally
-    but sparsely connected externally.
+    but sparsely connected externally. Uses Rust implementation for speed.
 
     Detects:
     - Poor global modularity (monolithic architecture)
@@ -48,33 +52,24 @@ class ModuleCohesionDetector(CodeSmellDetector):
         self.community_count: int = 0
 
     def detect(self) -> List[Finding]:
-        """Detect modularity issues using Louvain community detection.
+        """Detect modularity issues using Leiden community detection.
+
+        Uses Rust Leiden algorithm - no GDS plugin required.
 
         Returns:
             List of findings for modularity issues
         """
         findings = []
 
+        # Initialize graph algorithms (uses Rust - no GDS required)
         graph_algo = GraphAlgorithms(self.db)
 
-        # Check GDS availability
-        if not graph_algo.check_gds_available():
-            logger.warning(
-                "Neo4j GDS plugin not available - skipping module cohesion detection"
-            )
-            return findings
-
         try:
-            # Create file-level projection
-            if not graph_algo.create_file_import_projection():
-                logger.warning("Failed to create file import projection")
-                return findings
-
-            # Run Louvain community detection
+            # Run Leiden community detection using Rust algorithm
+            logger.info("Running Leiden community detection using Rust algorithm")
             result = graph_algo.calculate_file_communities()
             if not result:
-                logger.warning("Failed to run Louvain community detection")
-                graph_algo.cleanup_projection("file-import-graph")
+                logger.warning("Failed to run Leiden community detection")
                 return findings
 
             self.modularity_score = result.get("modularity", 0.0)
@@ -105,17 +100,10 @@ class ModuleCohesionDetector(CodeSmellDetector):
             if high_coupling:
                 findings.append(self._create_coupling_finding(high_coupling))
 
-            # Cleanup
-            graph_algo.cleanup_projection("file-import-graph")
-
             return findings
 
         except Exception as e:
             logger.error(f"Error in module cohesion detection: {e}", exc_info=True)
-            try:
-                graph_algo.cleanup_projection("file-import-graph")
-            except Exception:
-                pass
             return findings
 
     def _create_poor_modularity_finding(self) -> Finding:
@@ -129,7 +117,7 @@ class ModuleCohesionDetector(CodeSmellDetector):
 
         description = (
             f"The codebase has {level} modularity (score: {self.modularity_score:.3f}). "
-            f"Louvain algorithm detected {self.community_count} natural module boundaries.\n\n"
+            f"Leiden algorithm detected {self.community_count} natural module boundaries.\n\n"
             f"**Modularity Score Interpretation:**\n"
             f"- < 0.3: Poor (monolithic, tightly coupled)\n"
             f"- 0.3-0.5: Moderate (some structure, room for improvement)\n"
