@@ -83,6 +83,12 @@ class IngestionPipeline:
         # Track skipped files for reporting
         self.skipped_files: List[Dict[str, str]] = []
 
+        # Callbacks to run after ingestion completes (e.g., cache invalidation)
+        self._on_ingest_complete_callbacks: List[Callable[[], None]] = []
+
+        # Optional RAG retriever for automatic cache invalidation
+        self._rag_retriever = None
+
         # Initialize clue generator if needed
         self.clue_generator = None
         if self.generate_clues:
@@ -133,6 +139,48 @@ class IngestionPipeline:
         """
         self.parsers[language] = parser
         logger.info(f"Registered parser for {language}")
+
+    def register_on_ingest_complete(self, callback: Callable[[], None]) -> None:
+        """Register a callback to run after ingestion completes.
+
+        Use this to register cache invalidation or other cleanup functions.
+
+        Args:
+            callback: Zero-argument callable to execute after ingestion
+
+        Example:
+            >>> pipeline.register_on_ingest_complete(retriever.invalidate_cache)
+        """
+        self._on_ingest_complete_callbacks.append(callback)
+        logger.debug(f"Registered on_ingest_complete callback: {callback.__name__}")
+
+    def set_rag_retriever(self, retriever) -> None:
+        """Set the RAG retriever for automatic cache invalidation.
+
+        When a retriever is set, its cache will be automatically invalidated
+        after each ingestion completes.
+
+        Args:
+            retriever: GraphRAGRetriever instance with invalidate_cache method
+        """
+        self._rag_retriever = retriever
+        logger.info("RAG retriever registered for automatic cache invalidation")
+
+    def _run_on_ingest_complete_callbacks(self) -> None:
+        """Execute all registered on_ingest_complete callbacks."""
+        # Invalidate RAG cache if retriever is set
+        if self._rag_retriever is not None:
+            try:
+                self._rag_retriever.invalidate_cache()
+            except Exception as e:
+                logger.warning(f"Failed to invalidate RAG cache: {e}")
+
+        # Run other registered callbacks
+        for callback in self._on_ingest_complete_callbacks:
+            try:
+                callback()
+            except Exception as e:
+                logger.warning(f"On-ingest-complete callback failed: {e}")
 
     def _validate_file_path(self, file_path: Path) -> None:
         """Validate file path is within repository boundary.
@@ -762,6 +810,9 @@ class IngestionPipeline:
         # Report skipped files if any
         if self.skipped_files:
             self._report_skipped_files()
+
+        # Run post-ingestion callbacks (e.g., RAG cache invalidation)
+        self._run_on_ingest_complete_callbacks()
 
     def _report_skipped_files(self) -> None:
         """Report skipped files summary."""

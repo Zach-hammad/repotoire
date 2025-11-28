@@ -1,5 +1,9 @@
 """Graph-aware retrieval for code Q&A using hybrid vector + graph search."""
 
+import hashlib
+import threading
+import time
+from collections import OrderedDict
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -9,6 +13,174 @@ from repotoire.ai.embeddings import CodeEmbedder
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class CacheEntry:
+    """Entry in the RAG cache.
+
+    Attributes:
+        results: Cached retrieval results
+        timestamp: Unix timestamp when entry was created
+        query_embedding: Optional embedding for semantic similarity matching
+    """
+
+    results: List[Any]
+    timestamp: float
+    query_embedding: Optional[List[float]] = None
+
+
+class RAGCache:
+    """Thread-safe LRU cache with TTL for RAG queries.
+
+    Provides efficient caching of retrieval results to avoid redundant
+    embedding generation and vector search operations.
+
+    Features:
+        - TTL-based expiration (default 1 hour)
+        - LRU eviction when at capacity
+        - Thread-safe operations
+        - Cache statistics (hits, misses, hit rate)
+        - Optional semantic similarity matching for similar queries
+
+    Example:
+        >>> cache = RAGCache(max_size=1000, ttl=3600)
+        >>> cache.set("How does auth work?", 10, results)
+        >>> cached = cache.get("How does auth work?", 10)
+        >>> print(cache.stats)
+        {'size': 1, 'max_size': 1000, 'hits': 1, 'misses': 0, 'hit_rate': 1.0}
+    """
+
+    def __init__(self, max_size: int = 1000, ttl: int = 3600):
+        """Initialize the cache.
+
+        Args:
+            max_size: Maximum number of entries (LRU eviction when exceeded)
+            ttl: Time-to-live in seconds (default: 1 hour)
+        """
+        self._cache: OrderedDict[str, CacheEntry] = OrderedDict()
+        self._lock = threading.Lock()
+        self.max_size = max_size
+        self.ttl = ttl
+        self.hits = 0
+        self.misses = 0
+
+    def _make_key(self, query: str, top_k: int) -> str:
+        """Generate cache key from normalized query and parameters.
+
+        Args:
+            query: The search query
+            top_k: Number of results requested
+
+        Returns:
+            MD5 hash of normalized query + parameters
+        """
+        normalized = query.lower().strip()
+        return hashlib.md5(f"{normalized}:{top_k}".encode()).hexdigest()
+
+    def get(self, query: str, top_k: int) -> Optional[List[Any]]:
+        """Get cached results if valid.
+
+        Args:
+            query: The search query
+            top_k: Number of results requested
+
+        Returns:
+            Cached results if found and not expired, None otherwise
+        """
+        key = self._make_key(query, top_k)
+
+        with self._lock:
+            if key not in self._cache:
+                self.misses += 1
+                return None
+
+            entry = self._cache[key]
+
+            # Check TTL expiration
+            if time.time() - entry.timestamp > self.ttl:
+                del self._cache[key]
+                self.misses += 1
+                return None
+
+            # Move to end for LRU tracking
+            self._cache.move_to_end(key)
+            self.hits += 1
+            return entry.results
+
+    def set(
+        self,
+        query: str,
+        top_k: int,
+        results: List[Any],
+        query_embedding: Optional[List[float]] = None,
+    ) -> None:
+        """Cache results with timestamp.
+
+        Args:
+            query: The search query
+            top_k: Number of results requested
+            results: Retrieval results to cache
+            query_embedding: Optional embedding for semantic similarity matching
+        """
+        key = self._make_key(query, top_k)
+
+        with self._lock:
+            # Evict oldest entries if at capacity
+            while len(self._cache) >= self.max_size:
+                self._cache.popitem(last=False)
+
+            self._cache[key] = CacheEntry(
+                results=results,
+                timestamp=time.time(),
+                query_embedding=query_embedding,
+            )
+
+    def clear(self) -> None:
+        """Clear all cached entries and reset statistics."""
+        with self._lock:
+            self._cache.clear()
+            self.hits = 0
+            self.misses = 0
+
+    def invalidate_expired(self) -> int:
+        """Remove all expired entries.
+
+        Returns:
+            Number of entries removed
+        """
+        now = time.time()
+        removed = 0
+
+        with self._lock:
+            expired_keys = [
+                key
+                for key, entry in self._cache.items()
+                if now - entry.timestamp > self.ttl
+            ]
+            for key in expired_keys:
+                del self._cache[key]
+                removed += 1
+
+        return removed
+
+    @property
+    def stats(self) -> Dict[str, Any]:
+        """Return cache statistics.
+
+        Returns:
+            Dict with size, max_size, hits, misses, and hit_rate
+        """
+        with self._lock:
+            total = self.hits + self.misses
+            return {
+                "size": len(self._cache),
+                "max_size": self.max_size,
+                "ttl": self.ttl,
+                "hits": self.hits,
+                "misses": self.misses,
+                "hit_rate": self.hits / total if total > 0 else 0.0,
+            }
 
 
 @dataclass
@@ -52,18 +224,28 @@ class GraphRAGRetriever:
     code knowledge graph structure (IMPORTS, CALLS, INHERITS, etc.)
     combined with semantic vector search for optimal results.
 
+    Features:
+        - Query result caching with TTL expiration
+        - LRU eviction for memory management
+        - Thread-safe cache operations
+        - Cache statistics for monitoring
+
     Example:
         >>> retriever = GraphRAGRetriever(neo4j_client, embedder)
         >>> results = retriever.retrieve("How does authentication work?", top_k=10)
         >>> for result in results:
         ...     print(f"{result.qualified_name}: {result.similarity_score}")
+        >>> print(retriever.cache_stats)  # View cache performance
     """
 
     def __init__(
         self,
         client: DatabaseClient,
         embedder: CodeEmbedder,
-        context_lines: int = 5
+        context_lines: int = 5,
+        cache_enabled: bool = True,
+        cache_ttl: int = 3600,
+        cache_max_size: int = 1000,
     ):
         """Initialize retriever.
 
@@ -71,6 +253,9 @@ class GraphRAGRetriever:
             client: Connected database client (Neo4j or FalkorDB)
             embedder: Code embedder for query encoding
             context_lines: Lines of context to include before/after code
+            cache_enabled: Whether to enable query result caching (default: True)
+            cache_ttl: Cache time-to-live in seconds (default: 3600 = 1 hour)
+            cache_max_size: Maximum cache entries (default: 1000)
         """
         self.client = client
         self.embedder = embedder
@@ -78,7 +263,16 @@ class GraphRAGRetriever:
         # Detect if we're using FalkorDB
         self.is_falkordb = type(client).__name__ == "FalkorDBClient"
 
-        logger.info(f"Initialized GraphRAGRetriever (backend: {'FalkorDB' if self.is_falkordb else 'Neo4j'})")
+        # Initialize cache
+        self._cache_enabled = cache_enabled
+        self._cache: Optional[RAGCache] = None
+        if cache_enabled:
+            self._cache = RAGCache(max_size=cache_max_size, ttl=cache_ttl)
+
+        logger.info(
+            f"Initialized GraphRAGRetriever (backend: {'FalkorDB' if self.is_falkordb else 'Neo4j'}, "
+            f"cache: {'enabled' if cache_enabled else 'disabled'})"
+        )
 
     def get_hot_rules_context(self, top_k: int = 10) -> str:
         """Get context about hot custom rules for RAG prompts.
@@ -148,7 +342,8 @@ class GraphRAGRetriever:
         query: str,
         top_k: int = 10,
         entity_types: Optional[List[str]] = None,
-        include_related: bool = True
+        include_related: bool = True,
+        use_cache: bool = True,
     ) -> List[RetrievalResult]:
         """Retrieve relevant code using hybrid vector + graph search.
 
@@ -162,12 +357,50 @@ class GraphRAGRetriever:
             top_k: Number of results to return
             entity_types: Filter by types (e.g., ["Function", "Class"])
             include_related: Whether to fetch related entities via graph
+            use_cache: Whether to use cached results if available (default: True)
 
         Returns:
             List of retrieval results ordered by relevance
         """
         logger.info(f"Retrieving for query: {query[:100]}...")
 
+        # Check cache first if enabled
+        if self._cache_enabled and use_cache and self._cache is not None:
+            cached_results = self._cache.get(query, top_k)
+            if cached_results is not None:
+                logger.debug(f"Cache hit for query: {query[:50]}...")
+                return cached_results
+
+        # Cache miss - execute full retrieval
+        enriched_results = self._execute_retrieval(
+            query, top_k, entity_types, include_related
+        )
+
+        # Cache results
+        if self._cache_enabled and use_cache and self._cache is not None:
+            self._cache.set(query, top_k, enriched_results)
+
+        logger.info(f"Retrieved {len(enriched_results)} results")
+        return enriched_results
+
+    def _execute_retrieval(
+        self,
+        query: str,
+        top_k: int,
+        entity_types: Optional[List[str]],
+        include_related: bool,
+    ) -> List[RetrievalResult]:
+        """Execute the actual retrieval logic (used by retrieve with caching).
+
+        Args:
+            query: Natural language question
+            top_k: Number of results to return
+            entity_types: Filter by types (e.g., ["Function", "Class"])
+            include_related: Whether to fetch related entities via graph
+
+        Returns:
+            List of retrieval results ordered by relevance
+        """
         # Step 1: Encode query as vector
         query_embedding = self.embedder.embed_query(query)
 
@@ -210,7 +443,6 @@ class GraphRAGRetriever:
                 )
             )
 
-        logger.info(f"Retrieved {len(enriched_results)} results")
         return enriched_results
 
     def retrieve_by_path(
@@ -494,11 +726,45 @@ class GraphRAGRetriever:
             logger.warning(f"Could not fetch code from {file_path}: {e}")
             return f"# Could not fetch code: {e}"
 
+    def invalidate_cache(self) -> None:
+        """Clear the cache (call after code changes/ingestion).
+
+        This should be called after any code changes that could affect
+        retrieval results, such as after running the ingestion pipeline.
+        """
+        if self._cache:
+            cache_size = self._cache.stats["size"]
+            self._cache.clear()
+            logger.info(f"Invalidated RAG cache ({cache_size} entries cleared)")
+
+    @property
+    def cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics.
+
+        Returns:
+            Dict with cache metrics including:
+            - enabled: Whether caching is enabled
+            - size: Current number of cached entries
+            - max_size: Maximum cache capacity
+            - ttl: Time-to-live in seconds
+            - hits: Number of cache hits
+            - misses: Number of cache misses
+            - hit_rate: Cache hit rate (0.0 to 1.0)
+        """
+        if self._cache:
+            stats = self._cache.stats
+            stats["enabled"] = True
+            return stats
+        return {"enabled": False}
+
 
 def create_retriever(
     client: DatabaseClient,
     embedder: CodeEmbedder,
-    context_lines: int = 5
+    context_lines: int = 5,
+    cache_enabled: bool = True,
+    cache_ttl: int = 3600,
+    cache_max_size: int = 1000,
 ) -> GraphRAGRetriever:
     """Factory function to create a configured retriever.
 
@@ -506,6 +772,9 @@ def create_retriever(
         client: Connected database client (Neo4j or FalkorDB)
         embedder: Code embedder instance
         context_lines: Lines of context around code snippets
+        cache_enabled: Whether to enable query result caching (default: True)
+        cache_ttl: Cache time-to-live in seconds (default: 3600 = 1 hour)
+        cache_max_size: Maximum cache entries (default: 1000)
 
     Returns:
         Configured GraphRAGRetriever
@@ -513,5 +782,8 @@ def create_retriever(
     return GraphRAGRetriever(
         client=client,
         embedder=embedder,
-        context_lines=context_lines
+        context_lines=context_lines,
+        cache_enabled=cache_enabled,
+        cache_ttl=cache_ttl,
+        cache_max_size=cache_max_size,
     )

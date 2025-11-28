@@ -214,6 +214,23 @@ class TimescaleConfig:
 
 
 @dataclass
+class RAGConfig:
+    """RAG (Retrieval-Augmented Generation) configuration.
+
+    Example configuration:
+    ```yaml
+    rag:
+      cache_enabled: true
+      cache_ttl: 3600
+      cache_max_size: 1000
+    ```
+    """
+    cache_enabled: bool = True  # Enable query result caching
+    cache_ttl: int = 3600  # Time-to-live in seconds (default: 1 hour)
+    cache_max_size: int = 1000  # Maximum cache entries (LRU eviction)
+
+
+@dataclass
 class FalkorConfig:
     """Complete Falkor configuration."""
     neo4j: Neo4jConfig = field(default_factory=Neo4jConfig)
@@ -223,6 +240,7 @@ class FalkorConfig:
     secrets: SecretsConfig = field(default_factory=SecretsConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     timescale: TimescaleConfig = field(default_factory=TimescaleConfig)
+    rag: RAGConfig = field(default_factory=RAGConfig)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "FalkorConfig":
@@ -244,6 +262,7 @@ class FalkorConfig:
             detectors=DetectorConfig(**data.get("detectors", {})),
             secrets=SecretsConfig(**data.get("secrets", {})),
             logging=LoggingConfig(**data.get("logging", {})),
+            rag=RAGConfig(**data.get("rag", {})),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -296,6 +315,11 @@ class FalkorConfig:
                 "level": self.logging.level,
                 "format": self.logging.format,
                 "file": self.logging.file,
+            },
+            "rag": {
+                "cache_enabled": self.rag.cache_enabled,
+                "cache_ttl": self.rag.cache_ttl,
+                "cache_max_size": self.rag.cache_max_size,
             },
         }
 
@@ -579,6 +603,23 @@ def load_config_from_env() -> Dict[str, Any]:
         timescale["auto_track"] = auto_track.lower() in ("true", "1", "yes")
     if timescale:
         config["timescale"] = timescale
+
+    # RAG configuration (support both REPOTOIRE_ and FALKOR_ prefixes)
+    rag = {}
+    if cache_enabled := os.getenv("FALKOR_RAG_CACHE_ENABLED") or os.getenv("REPOTOIRE_RAG_CACHE_ENABLED"):
+        rag["cache_enabled"] = cache_enabled.lower() in ("true", "1", "yes")
+    if cache_ttl := os.getenv("FALKOR_RAG_CACHE_TTL") or os.getenv("REPOTOIRE_RAG_CACHE_TTL"):
+        try:
+            rag["cache_ttl"] = int(cache_ttl)
+        except ValueError:
+            logger.warning(f"Invalid RAG_CACHE_TTL value: {cache_ttl}")
+    if cache_max_size := os.getenv("FALKOR_RAG_CACHE_MAX_SIZE") or os.getenv("REPOTOIRE_RAG_CACHE_MAX_SIZE"):
+        try:
+            rag["cache_max_size"] = int(cache_max_size)
+        except ValueError:
+            logger.warning(f"Invalid RAG_CACHE_MAX_SIZE value: {cache_max_size}")
+    if rag:
+        config["rag"] = rag
 
     return config
 
