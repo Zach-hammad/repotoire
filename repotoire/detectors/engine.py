@@ -33,6 +33,9 @@ from repotoire.detectors.shotgun_surgery import ShotgunSurgeryDetector
 from repotoire.detectors.middle_man import MiddleManDetector
 from repotoire.detectors.inappropriate_intimacy import InappropriateIntimacyDetector
 
+# Data clumps detector (REPO-216)
+from repotoire.detectors.data_clumps import DataClumpsDetector
+
 # Hybrid detectors (external tool + graph)
 from repotoire.detectors.ruff_import_detector import RuffImportDetector
 from repotoire.detectors.ruff_lint_detector import RuffLintDetector
@@ -141,6 +144,8 @@ class AnalysisEngine:
             ShotgunSurgeryDetector(neo4j_client, detector_config=config.get("shotgun_surgery"), enricher=self.enricher),
             MiddleManDetector(neo4j_client, detector_config=config.get("middle_man"), enricher=self.enricher),
             InappropriateIntimacyDetector(neo4j_client, detector_config=config.get("inappropriate_intimacy"), enricher=self.enricher),
+            # Data clumps detector (REPO-216)
+            DataClumpsDetector(neo4j_client, detector_config=config.get("data_clumps"), enricher=self.enricher),
             # TrulyUnusedImportsDetector has high false positive rate - replaced by RuffImportDetector
             # TrulyUnusedImportsDetector(neo4j_client, detector_config=config.get("truly_unused_imports")),
             # Hybrid detectors (external tool + graph)
