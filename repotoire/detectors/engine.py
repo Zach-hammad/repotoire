@@ -3,7 +3,7 @@
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from repotoire.graph import Neo4jClient
 from repotoire.graph.enricher import GraphEnricher
@@ -41,6 +41,11 @@ from repotoire.detectors.async_antipattern import AsyncAntipatternDetector
 from repotoire.detectors.type_hint_coverage import TypeHintCoverageDetector
 from repotoire.detectors.long_parameter_list import LongParameterListDetector
 
+# Additional graph-based detectors (REPO-221, REPO-223, REPO-232)
+from repotoire.detectors.message_chain import MessageChainDetector
+from repotoire.detectors.test_smell import TestSmellDetector
+from repotoire.detectors.generator_misuse import GeneratorMisuseDetector
+
 # Hybrid detectors (external tool + graph)
 from repotoire.detectors.ruff_import_detector import RuffImportDetector
 from repotoire.detectors.ruff_lint_detector import RuffLintDetector
@@ -58,6 +63,20 @@ from repotoire.detectors.voting_engine import VotingEngine, VotingStrategy, Conf
 from repotoire.logging_config import get_logger, LogContext
 
 logger = get_logger(__name__)
+
+# Optional observability (REPO-224)
+try:
+    from repotoire.observability import (
+        get_metrics,
+        DETECTOR_DURATION,
+        FINDINGS_TOTAL,
+        HAS_PROMETHEUS,
+    )
+except ImportError:
+    HAS_PROMETHEUS = False
+    get_metrics = None  # type: ignore
+    DETECTOR_DURATION = None  # type: ignore
+    FINDINGS_TOTAL = None  # type: ignore
 
 
 class AnalysisEngine:
@@ -155,6 +174,10 @@ class AnalysisEngine:
             AsyncAntipatternDetector(neo4j_client, detector_config=config.get("async_antipattern"), enricher=self.enricher),
             TypeHintCoverageDetector(neo4j_client, detector_config=config.get("type_hint_coverage"), enricher=self.enricher),
             LongParameterListDetector(neo4j_client, detector_config=config.get("long_parameter_list"), enricher=self.enricher),
+            # Additional graph-based detectors (REPO-221, REPO-223, REPO-232)
+            MessageChainDetector(neo4j_client, detector_config=config.get("message_chain"), enricher=self.enricher),
+            TestSmellDetector(neo4j_client, detector_config=config.get("test_smell"), enricher=self.enricher),
+            GeneratorMisuseDetector(neo4j_client, detector_config=config.get("generator_misuse"), enricher=self.enricher),
             # TrulyUnusedImportsDetector has high false positive rate - replaced by RuffImportDetector
             # TrulyUnusedImportsDetector(neo4j_client, detector_config=config.get("truly_unused_imports")),
             # Hybrid detectors (external tool + graph)
@@ -580,7 +603,7 @@ class AnalysisEngine:
         return all_findings
 
     def _run_single_detector(self, detector) -> List[Finding]:
-        """Run a single detector with timing and error handling.
+        """Run a single detector with timing, error handling, and metrics.
 
         Args:
             detector: Detector instance to run
@@ -602,6 +625,16 @@ class AnalysisEngine:
                     "findings_count": len(findings),
                     "duration_seconds": round(duration, 3)
                 })
+
+                # Record observability metrics (REPO-224)
+                if HAS_PROMETHEUS and DETECTOR_DURATION is not None:
+                    DETECTOR_DURATION.labels(detector=detector_name).observe(duration)
+                    # Record findings by severity
+                    for finding in findings:
+                        FINDINGS_TOTAL.labels(
+                            detector=detector_name,
+                            severity=finding.severity.value
+                        ).inc()
 
                 return findings
 
