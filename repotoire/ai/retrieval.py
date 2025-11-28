@@ -1,10 +1,17 @@
-"""Graph-aware retrieval for code Q&A using hybrid vector + graph search."""
+"""Graph-aware retrieval for code Q&A using hybrid vector + graph search.
+
+Features (REPO-220):
+- Hybrid vector + graph search for optimal relevance
+- Cross-encoder reranking for improved result quality
+- Query result caching with TTL and LRU eviction
+- Configurable retrieval pipeline stages
+"""
 
 import hashlib
 import threading
 import time
 from collections import OrderedDict
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -13,6 +20,15 @@ from repotoire.ai.embeddings import CodeEmbedder
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# Optional cross-encoder support (REPO-220)
+# Requires: pip install repotoire[local-embeddings]
+try:
+    from sentence_transformers import CrossEncoder
+    HAS_CROSS_ENCODER = True
+except ImportError:
+    HAS_CROSS_ENCODER = False
+    CrossEncoder = None  # type: ignore
 
 
 @dataclass
@@ -229,6 +245,7 @@ class GraphRAGRetriever:
         - LRU eviction for memory management
         - Thread-safe cache operations
         - Cache statistics for monitoring
+        - Cross-encoder reranking for improved relevance (REPO-220)
 
     Example:
         >>> retriever = GraphRAGRetriever(neo4j_client, embedder)
@@ -238,6 +255,9 @@ class GraphRAGRetriever:
         >>> print(retriever.cache_stats)  # View cache performance
     """
 
+    # Default cross-encoder model for reranking
+    DEFAULT_RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
     def __init__(
         self,
         client: DatabaseClient,
@@ -246,6 +266,9 @@ class GraphRAGRetriever:
         cache_enabled: bool = True,
         cache_ttl: int = 3600,
         cache_max_size: int = 1000,
+        enable_reranking: bool = True,
+        reranker_model: Optional[str] = None,
+        rerank_multiplier: int = 3,
     ):
         """Initialize retriever.
 
@@ -256,6 +279,9 @@ class GraphRAGRetriever:
             cache_enabled: Whether to enable query result caching (default: True)
             cache_ttl: Cache time-to-live in seconds (default: 3600 = 1 hour)
             cache_max_size: Maximum cache entries (default: 1000)
+            enable_reranking: Enable cross-encoder reranking (REPO-220, default: True)
+            reranker_model: Cross-encoder model name (default: ms-marco-MiniLM-L-6-v2)
+            rerank_multiplier: Retrieve top_k * multiplier candidates before reranking (default: 3)
         """
         self.client = client
         self.embedder = embedder
@@ -269,9 +295,30 @@ class GraphRAGRetriever:
         if cache_enabled:
             self._cache = RAGCache(max_size=cache_max_size, ttl=cache_ttl)
 
+        # Initialize cross-encoder reranking (REPO-220)
+        self._enable_reranking = enable_reranking and HAS_CROSS_ENCODER
+        self._reranker: Optional[Any] = None
+        self._rerank_multiplier = rerank_multiplier
+
+        if enable_reranking:
+            if HAS_CROSS_ENCODER:
+                model_name = reranker_model or self.DEFAULT_RERANKER_MODEL
+                try:
+                    self._reranker = CrossEncoder(model_name)
+                    logger.info(f"Initialized cross-encoder reranker: {model_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to load cross-encoder model: {e}")
+                    self._enable_reranking = False
+            else:
+                logger.info(
+                    "Cross-encoder reranking disabled (sentence-transformers not installed). "
+                    "Install with: pip install repotoire[local-embeddings]"
+                )
+
         logger.info(
             f"Initialized GraphRAGRetriever (backend: {'FalkorDB' if self.is_falkordb else 'Neo4j'}, "
-            f"cache: {'enabled' if cache_enabled else 'disabled'})"
+            f"cache: {'enabled' if cache_enabled else 'disabled'}, "
+            f"reranking: {'enabled' if self._enable_reranking else 'disabled'})"
         )
 
     def get_hot_rules_context(self, top_k: int = 10) -> str:
@@ -392,6 +439,13 @@ class GraphRAGRetriever:
     ) -> List[RetrievalResult]:
         """Execute the actual retrieval logic (used by retrieve with caching).
 
+        Pipeline stages (REPO-220):
+        1. Query embedding
+        2. Vector similarity search (retrieve top_k * multiplier candidates)
+        3. Cross-encoder reranking (if enabled)
+        4. Graph context enrichment
+        5. Return top_k results
+
         Args:
             query: Natural language question
             top_k: Number of results to return
@@ -405,13 +459,19 @@ class GraphRAGRetriever:
         query_embedding = self.embedder.embed_query(query)
 
         # Step 2: Vector similarity search
+        # If reranking is enabled, retrieve more candidates than needed
+        retrieval_k = top_k * self._rerank_multiplier if self._enable_reranking else top_k
         vector_results = self._vector_search(
             query_embedding,
-            top_k=top_k,
+            top_k=retrieval_k,
             entity_types=entity_types
         )
 
-        # Step 3: Enrich with graph context
+        # Step 3: Cross-encoder reranking (REPO-220)
+        if self._enable_reranking and self._reranker and len(vector_results) > top_k:
+            vector_results = self._rerank_results(query, vector_results, top_k)
+
+        # Step 4: Enrich with graph context
         enriched_results = []
         for result in vector_results:
             # Get related entities if requested
@@ -444,6 +504,73 @@ class GraphRAGRetriever:
             )
 
         return enriched_results
+
+    def _rerank_results(
+        self,
+        query: str,
+        results: List[Dict[str, Any]],
+        top_k: int
+    ) -> List[Dict[str, Any]]:
+        """Rerank results using cross-encoder for improved relevance (REPO-220).
+
+        Cross-encoders jointly encode query and document, providing more accurate
+        relevance scores than bi-encoder (embedding) similarity. This is slower
+        but significantly improves retrieval quality.
+
+        Args:
+            query: The search query
+            results: Candidate results from vector search
+            top_k: Number of results to return after reranking
+
+        Returns:
+            Reranked and truncated results list
+        """
+        if not results:
+            return results
+
+        start_time = time.time()
+
+        # Build query-document pairs for cross-encoder
+        # Use docstring + name as document representation (lightweight)
+        pairs = []
+        for result in results:
+            doc = f"{result['name']}: {result.get('docstring', '') or ''}"
+            pairs.append([query, doc])
+
+        try:
+            # Get cross-encoder scores
+            scores = self._reranker.predict(pairs)
+
+            # Sort by reranker scores (descending)
+            ranked_results = sorted(
+                zip(results, scores),
+                key=lambda x: x[1],
+                reverse=True
+            )
+
+            # Update similarity scores with reranker scores and truncate
+            reranked = []
+            for result, score in ranked_results[:top_k]:
+                # Store original vector score in metadata
+                result["metadata"] = result.get("metadata", {})
+                result["metadata"]["vector_score"] = result["score"]
+                result["metadata"]["reranker_score"] = float(score)
+                # Use normalized reranker score as primary score
+                # Cross-encoder scores can vary widely, normalize to 0-1
+                result["score"] = float(score)
+                reranked.append(result)
+
+            duration = time.time() - start_time
+            logger.debug(
+                f"Cross-encoder reranking: {len(results)} candidates -> {len(reranked)} results "
+                f"in {duration:.3f}s"
+            )
+
+            return reranked
+
+        except Exception as e:
+            logger.warning(f"Reranking failed, using vector scores: {e}")
+            return results[:top_k]
 
     def retrieve_by_path(
         self,
