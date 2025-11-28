@@ -119,7 +119,9 @@ def test_no_assertions():
     result = some_function()
     process(result)
     transform(result)
-    # No assertions!
+    another_call(result)
+    final_step(result)
+    # No assertions at all!
 '''
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
             f.write(code)
