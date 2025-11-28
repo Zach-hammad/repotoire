@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Callable
 from repotoire_fast import scan_files as rust_scan_files
 
 from repotoire.graph import Neo4jClient, GraphSchema
+from repotoire.graph.base import DatabaseClient
 from repotoire.parsers import CodeParser, PythonParser
 from repotoire.models import Entity, Relationship, SecretsPolicy, RelationshipType
 from repotoire.logging_config import get_logger, LogContext, log_operation
@@ -30,7 +31,7 @@ class IngestionPipeline:
     def __init__(
         self,
         repo_path: str,
-        neo4j_client: Neo4jClient,
+        neo4j_client: DatabaseClient,
         follow_symlinks: bool = DEFAULT_FOLLOW_SYMLINKS,
         max_file_size_mb: float = MAX_FILE_SIZE_MB,
         batch_size: int = DEFAULT_BATCH_SIZE,
@@ -42,7 +43,7 @@ class IngestionPipeline:
 
         Args:
             repo_path: Path to repository root
-            neo4j_client: Neo4j database client
+            neo4j_client: Database client (Neo4j or FalkorDB)
             follow_symlinks: Whether to follow symbolic links (default: False for security)
             max_file_size_mb: Maximum file size in MB to process (default: 10MB)
             batch_size: Number of entities to batch before loading to graph (default: 100)
@@ -69,6 +70,8 @@ class IngestionPipeline:
         self._validate_repo_path()
 
         self.db = neo4j_client
+        # Detect if we're using FalkorDB
+        self.is_falkordb = type(neo4j_client).__name__ == "FalkorDBClient"
         self.parsers: Dict[str, CodeParser] = {}
         self.follow_symlinks = follow_symlinks
         self.max_file_size_mb = max_file_size_mb
@@ -369,6 +372,9 @@ class IngestionPipeline:
         entities_embedded = 0
         embedding_batch_size = 50  # Smaller batches for API rate limits
 
+        # FalkorDB uses id() while Neo4j uses elementId()
+        id_func = "id" if self.is_falkordb else "elementId"
+
         # Process each entity type
         for entity_type, entity_class in [
             ("Function", FunctionEntity),
@@ -382,7 +388,7 @@ class IngestionPipeline:
             MATCH (e:{entity_type})
             WHERE e.embedding IS NULL
             RETURN
-                elementId(e) as id,
+                {id_func}(e) as id,
                 e.name as name,
                 e.qualifiedName as qualified_name,
                 e.docstring as docstring,
@@ -441,13 +447,21 @@ class IngestionPipeline:
                     # Generate embeddings in batch
                     embeddings = self.embedder.embed_entities_batch(entity_objects)
 
-                    # Update Neo4j with embeddings
+                    # Update database with embeddings
                     for entity, embedding in zip(batch, embeddings):
-                        update_query = f"""
-                        MATCH (e:{entity_type})
-                        WHERE elementId(e) = $id
-                        SET e.embedding = $embedding
-                        """
+                        # FalkorDB requires vecf32() wrapper for vector storage
+                        if self.is_falkordb:
+                            update_query = f"""
+                            MATCH (e:{entity_type})
+                            WHERE {id_func}(e) = $id
+                            SET e.embedding = vecf32($embedding)
+                            """
+                        else:
+                            update_query = f"""
+                            MATCH (e:{entity_type})
+                            WHERE {id_func}(e) = $id
+                            SET e.embedding = $embedding
+                            """
                         self.db.execute_query(update_query, {
                             "id": entity["id"],
                             "embedding": embedding

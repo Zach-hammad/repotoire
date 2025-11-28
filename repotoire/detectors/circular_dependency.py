@@ -41,6 +41,9 @@ class CircularDependencyDetector(CodeSmellDetector):
         """
         super().__init__(neo4j_client)
         self.enricher = enricher
+        # FalkorDB uses id() while Neo4j uses elementId()
+        self.is_falkordb = type(neo4j_client).__name__ == "FalkorDBClient"
+        self.id_func = "id" if self.is_falkordb else "elementId"
 
     def detect(self) -> List[Finding]:
         """Find circular dependencies in the codebase.
@@ -130,10 +133,10 @@ class CircularDependencyDetector(CodeSmellDetector):
         findings: List[Finding] = []
 
         # Original optimized query using bounded path traversal
-        query = """
+        query = f"""
         MATCH (f1:File)
         MATCH (f2:File)
-        WHERE elementId(f1) < elementId(f2) AND f1 <> f2
+        WHERE {self.id_func}(f1) < {self.id_func}(f2) AND f1 <> f2
         MATCH path = shortestPath((f1)-[:IMPORTS*1..15]->(f2))
         MATCH cyclePath = shortestPath((f2)-[:IMPORTS*1..15]->(f1))
         WITH DISTINCT [node IN nodes(path) + nodes(cyclePath) WHERE node:File | node.filePath] AS cycle

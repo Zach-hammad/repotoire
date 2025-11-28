@@ -48,6 +48,32 @@ export REPOTOIRE_NEO4J_URI=bolt://localhost:7688
 export REPOTOIRE_NEO4J_PASSWORD=your-password
 ```
 
+### FalkorDB Setup (Alternative to Neo4j)
+
+FalkorDB is a lightweight, Redis-based graph database that can be used instead of Neo4j for development, testing, or smaller deployments.
+
+```bash
+docker run \
+    --name repotoire-falkordb \
+    -p 6379:6379 \
+    -d \
+    falkordb/falkordb:latest
+```
+
+Configure for FalkorDB:
+```bash
+export REPOTOIRE_NEO4J_URI=bolt://localhost:6379
+export REPOTOIRE_NEO4J_PASSWORD=  # Empty for no auth
+```
+
+**Key differences from Neo4j:**
+- No `datetime()` or `duration()` functions (uses UNIX timestamps)
+- No GDS algorithms (uses Rust-based alternatives)
+- No APOC procedures
+- Lower memory footprint, faster startup
+
+See [docs/FALKORDB.md](docs/FALKORDB.md) for complete documentation.
+
 ### TimescaleDB Setup (Optional)
 
 TimescaleDB provides historical metrics tracking for trend analysis and regression detection. Start with Docker:

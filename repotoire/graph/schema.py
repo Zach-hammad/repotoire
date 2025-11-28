@@ -134,6 +134,28 @@ class GraphSchema:
         "CREATE INDEX ON :Class(name)",
     ]
 
+    # FalkorDB vector indexes for RAG semantic search
+    FALKORDB_VECTOR_INDEXES = [
+        # Function embeddings
+        """
+        CREATE VECTOR INDEX FOR (f:Function)
+        ON (f.embedding)
+        OPTIONS {dimension: 1536, similarityFunction: 'cosine'}
+        """,
+        # Class embeddings
+        """
+        CREATE VECTOR INDEX FOR (c:Class)
+        ON (c.embedding)
+        OPTIONS {dimension: 1536, similarityFunction: 'cosine'}
+        """,
+        # File embeddings
+        """
+        CREATE VECTOR INDEX FOR (f:File)
+        ON (f.embedding)
+        OPTIONS {dimension: 1536, similarityFunction: 'cosine'}
+        """,
+    ]
+
     def __init__(self, client):
         """Initialize schema manager.
 
@@ -178,11 +200,16 @@ class GraphSchema:
     def create_vector_indexes(self) -> None:
         """Create vector indexes for RAG semantic search.
 
-        Requires Neo4j 5.18+ with vector index support.
-        FalkorDB does not support vector indexes.
+        Requires Neo4j 5.18+ or FalkorDB with vector support.
         """
         if self.is_falkordb:
-            print("Skipping vector indexes (FalkorDB does not support them)")
+            # Use FalkorDB vector index syntax
+            for vector_index in self.FALKORDB_VECTOR_INDEXES:
+                try:
+                    self.client.execute_query(vector_index)
+                except Exception as e:
+                    # Index may already exist or vector support not enabled
+                    print(f"Info: Could not create FalkorDB vector index: {e}")
             return
 
         for vector_index in self.VECTOR_INDEXES:

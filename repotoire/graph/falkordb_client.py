@@ -21,6 +21,14 @@ class FalkorDBClient(DatabaseClient):
     This client provides the same interface as Neo4jClient for compatibility.
     """
 
+    @property
+    def is_falkordb(self) -> bool:
+        """Check if this is a FalkorDB client.
+
+        Override base class to return True for FalkorDB.
+        """
+        return True
+
     def __init__(
         self,
         host: str = "localhost",

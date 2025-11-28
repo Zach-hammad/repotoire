@@ -13,6 +13,23 @@ class DatabaseClient(ABC):
     This allows the codebase to be database-agnostic.
     """
 
+    @property
+    def is_falkordb(self) -> bool:
+        """Check if this is a FalkorDB client.
+
+        Subclasses should override if needed. Default returns False (Neo4j).
+        Used for database-specific query adaptations.
+        """
+        return False
+
+    @property
+    def supports_temporal_types(self) -> bool:
+        """Check if database supports Neo4j temporal types (datetime, duration).
+
+        FalkorDB doesn't support these - use UNIX timestamps instead.
+        """
+        return not self.is_falkordb
+
     @abstractmethod
     def close(self) -> None:
         """Close database connection."""

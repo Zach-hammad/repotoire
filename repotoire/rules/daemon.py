@@ -1,8 +1,10 @@
 """Background daemon for rule priority management (REPO-125 Phase 3)."""
 
 import asyncio
+import time
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Optional, Union
+from repotoire.graph.base import DatabaseClient
 from repotoire.graph.client import Neo4jClient
 from repotoire.logging_config import get_logger
 
@@ -29,7 +31,7 @@ class RuleRefreshDaemon:
 
     def __init__(
         self,
-        client: Neo4jClient,
+        client: Union[Neo4jClient, DatabaseClient],
         refresh_interval: int = 3600,  # 1 hour
         decay_threshold_days: int = 7,
         decay_factor: float = 0.9,  # Reduce priority by 10%
@@ -39,7 +41,7 @@ class RuleRefreshDaemon:
         """Initialize daemon.
 
         Args:
-            client: Neo4j client instance
+            client: Database client instance (Neo4j or FalkorDB)
             refresh_interval: Seconds between refresh cycles
             decay_threshold_days: Days before starting decay
             decay_factor: Multiplier for priority decay (0.9 = 10% reduction)
@@ -52,6 +54,7 @@ class RuleRefreshDaemon:
         self.decay_factor = decay_factor
         self.archive_threshold_days = archive_threshold_days
         self.auto_archive = auto_archive
+        self._is_falkordb = getattr(client, 'is_falkordb', False)
 
         self._task: Optional[asyncio.Task] = None
         self._running = False
@@ -129,20 +132,38 @@ class RuleRefreshDaemon:
         """
         decay_date = datetime.now(timezone.utc) - timedelta(days=self.decay_threshold_days)
 
-        query = """
-        MATCH (r:Rule)
-        WHERE r.enabled = true
-          AND r.lastUsed < datetime($decay_date)
-          AND r.userPriority > 10
-        SET r.userPriority = toInteger(r.userPriority * $decay_factor),
-            r.updatedAt = datetime()
-        RETURN count(r) as decayed
-        """
-
-        params = {
-            "decay_date": decay_date.isoformat(),
-            "decay_factor": self.decay_factor,
-        }
+        # FalkorDB doesn't support datetime() - use UNIX timestamps
+        if self._is_falkordb:
+            decay_timestamp = int(decay_date.timestamp())
+            current_timestamp = int(time.time())
+            query = """
+            MATCH (r:Rule)
+            WHERE r.enabled = true
+              AND r.lastUsed < $decay_timestamp
+              AND r.userPriority > 10
+            SET r.userPriority = toInteger(r.userPriority * $decay_factor),
+                r.updatedAt = $current_timestamp
+            RETURN count(r) as decayed
+            """
+            params = {
+                "decay_timestamp": decay_timestamp,
+                "current_timestamp": current_timestamp,
+                "decay_factor": self.decay_factor,
+            }
+        else:
+            query = """
+            MATCH (r:Rule)
+            WHERE r.enabled = true
+              AND r.lastUsed < datetime($decay_date)
+              AND r.userPriority > 10
+            SET r.userPriority = toInteger(r.userPriority * $decay_factor),
+                r.updatedAt = datetime()
+            RETURN count(r) as decayed
+            """
+            params = {
+                "decay_date": decay_date.isoformat(),
+                "decay_factor": self.decay_factor,
+            }
 
         results = self.client.execute_query(query, params)
         return results[0]["decayed"] if results else 0
@@ -155,17 +176,34 @@ class RuleRefreshDaemon:
         """
         archive_date = datetime.now(timezone.utc) - timedelta(days=self.archive_threshold_days)
 
-        query = """
-        MATCH (r:Rule)
-        WHERE r.enabled = true
-          AND (r.lastUsed < datetime($archive_date) OR r.lastUsed IS NULL)
-          AND r.accessCount = 0
-        SET r.enabled = false,
-            r.updatedAt = datetime()
-        RETURN count(r) as archived
-        """
-
-        params = {"archive_date": archive_date.isoformat()}
+        # FalkorDB doesn't support datetime() - use UNIX timestamps
+        if self._is_falkordb:
+            archive_timestamp = int(archive_date.timestamp())
+            current_timestamp = int(time.time())
+            query = """
+            MATCH (r:Rule)
+            WHERE r.enabled = true
+              AND (r.lastUsed < $archive_timestamp OR r.lastUsed IS NULL)
+              AND r.accessCount = 0
+            SET r.enabled = false,
+                r.updatedAt = $current_timestamp
+            RETURN count(r) as archived
+            """
+            params = {
+                "archive_timestamp": archive_timestamp,
+                "current_timestamp": current_timestamp,
+            }
+        else:
+            query = """
+            MATCH (r:Rule)
+            WHERE r.enabled = true
+              AND (r.lastUsed < datetime($archive_date) OR r.lastUsed IS NULL)
+              AND r.accessCount = 0
+            SET r.enabled = false,
+                r.updatedAt = datetime()
+            RETURN count(r) as archived
+            """
+            params = {"archive_date": archive_date.isoformat()}
 
         results = self.client.execute_query(query, params)
         return results[0]["archived"] if results else 0
@@ -180,15 +218,26 @@ class RuleRefreshDaemon:
         now = datetime.now(timezone.utc)
         decay_cutoff = now - timedelta(days=self.decay_threshold_days)
 
-        query = """
-        MATCH (r:Rule)
-        RETURN
-            count(CASE WHEN r.enabled THEN 1 END) as active_rules,
-            count(CASE WHEN NOT r.enabled THEN 1 END) as archived_rules,
-            count(CASE WHEN r.enabled AND (r.lastUsed IS NULL OR r.lastUsed < datetime($decay_cutoff)) THEN 1 END) as stale_rules
-        """
-
-        params = {"decay_cutoff": decay_cutoff.isoformat()}
+        # FalkorDB doesn't support datetime() - use UNIX timestamps
+        if self._is_falkordb:
+            decay_timestamp = int(decay_cutoff.timestamp())
+            query = """
+            MATCH (r:Rule)
+            RETURN
+                count(CASE WHEN r.enabled THEN 1 END) as active_rules,
+                count(CASE WHEN NOT r.enabled THEN 1 END) as archived_rules,
+                count(CASE WHEN r.enabled AND (r.lastUsed IS NULL OR r.lastUsed < $decay_timestamp) THEN 1 END) as stale_rules
+            """
+            params = {"decay_timestamp": decay_timestamp}
+        else:
+            query = """
+            MATCH (r:Rule)
+            RETURN
+                count(CASE WHEN r.enabled THEN 1 END) as active_rules,
+                count(CASE WHEN NOT r.enabled THEN 1 END) as archived_rules,
+                count(CASE WHEN r.enabled AND (r.lastUsed IS NULL OR r.lastUsed < datetime($decay_cutoff)) THEN 1 END) as stale_rules
+            """
+            params = {"decay_cutoff": decay_cutoff.isoformat()}
 
         results = self.client.execute_query(query, params)
         if not results:
@@ -224,11 +273,11 @@ class RuleRefreshDaemon:
 _daemon_instance: Optional[RuleRefreshDaemon] = None
 
 
-def get_daemon(client: Neo4jClient, **kwargs) -> RuleRefreshDaemon:
+def get_daemon(client: Union[Neo4jClient, DatabaseClient], **kwargs) -> RuleRefreshDaemon:
     """Get or create singleton daemon instance.
 
     Args:
-        client: Neo4j client
+        client: Database client (Neo4j or FalkorDB)
         **kwargs: Daemon configuration options
 
     Returns:

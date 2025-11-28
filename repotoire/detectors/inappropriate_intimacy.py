@@ -30,6 +30,9 @@ class InappropriateIntimacyDetector(CodeSmellDetector):
         self.threshold_medium = thresholds.get("medium", 10)
         self.min_mutual_access = config.get("min_mutual_access", 5)
         self.logger = get_logger(__name__)
+        # FalkorDB uses id() while Neo4j uses elementId()
+        self.is_falkordb = type(neo4j_client).__name__ == "FalkorDBClient"
+        self.id_func = "id" if self.is_falkordb else "elementId"
 
     def detect(self) -> List[Finding]:
         """
@@ -38,7 +41,7 @@ class InappropriateIntimacyDetector(CodeSmellDetector):
         Returns:
             List of Finding objects for mutually coupled class pairs.
         """
-        query = """
+        query = f"""
         // Find pairs of classes with excessive mutual access
         MATCH (c1:Class)-[:CONTAINS]->(m1:Function)
         MATCH (m1)-[r:USES|CALLS]->()-[:CONTAINS*0..1]-(c2:Class)
@@ -53,7 +56,7 @@ class InappropriateIntimacyDetector(CodeSmellDetector):
         // Filter for mutual high coupling
         WHERE c1_to_c2 >= $min_mutual_access
           AND c2_to_c1 >= $min_mutual_access
-          AND elementId(c1) < elementId(c2)  // Avoid duplicates
+          AND {self.id_func}(c1) < {self.id_func}(c2)  // Avoid duplicates
 
         RETURN c1.qualifiedName as class1,
                c1.name as class1_name,

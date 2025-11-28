@@ -107,9 +107,9 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
                 return findings
 
             total_functions = stats['total_functions']
-            max_betweenness = stats['max_betweenness']
-            avg_betweenness = stats['avg_betweenness']
-            stdev_betweenness = stats.get('stdev_betweenness', 0)
+            max_betweenness = stats.get('max_betweenness') or 0
+            avg_betweenness = stats.get('avg_betweenness') or 0
+            stdev_betweenness = stats.get('stdev_betweenness') or 0
 
             logger.info(
                 f"Betweenness statistics: "

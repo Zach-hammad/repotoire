@@ -1,7 +1,9 @@
 """Rule execution engine with time-based priority refresh (REPO-125)."""
 
+import time
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
+from repotoire.graph.base import DatabaseClient
 from repotoire.graph.client import Neo4jClient
 from repotoire.models import Rule, Finding, Severity
 from repotoire.logging_config import get_logger
@@ -29,13 +31,14 @@ class RuleEngine:
         >>> hot_rules = engine.get_hot_rules(top_k=10)  # For RAG context
     """
 
-    def __init__(self, client: Neo4jClient):
+    def __init__(self, client: Union[Neo4jClient, DatabaseClient]):
         """Initialize rule engine.
 
         Args:
-            client: Neo4j client instance
+            client: Database client instance (Neo4j or FalkorDB)
         """
         self.client = client
+        self._is_falkordb = getattr(client, 'is_falkordb', False)
 
     # ========================================================================
     # CRUD Operations
@@ -302,15 +305,28 @@ class RuleEngine:
         Args:
             rule_id: Rule to refresh
         """
-        query = """
-        MATCH (r:Rule {id: $rule_id})
-        SET r.lastUsed = datetime(),
-            r.accessCount = r.accessCount + 1,
-            r.updatedAt = datetime()
-        RETURN r.accessCount as new_count
-        """
+        # FalkorDB doesn't support datetime() - use UNIX timestamps
+        if self._is_falkordb:
+            current_timestamp = int(time.time())
+            query = """
+            MATCH (r:Rule {id: $rule_id})
+            SET r.lastUsed = $timestamp,
+                r.accessCount = r.accessCount + 1,
+                r.updatedAt = $timestamp
+            RETURN r.accessCount as new_count
+            """
+            params = {"rule_id": rule_id, "timestamp": current_timestamp}
+        else:
+            query = """
+            MATCH (r:Rule {id: $rule_id})
+            SET r.lastUsed = datetime(),
+                r.accessCount = r.accessCount + 1,
+                r.updatedAt = datetime()
+            RETURN r.accessCount as new_count
+            """
+            params = {"rule_id": rule_id}
 
-        results = self.client.execute_query(query, {"rule_id": rule_id})
+        results = self.client.execute_query(query, params)
         if results:
             new_count = results[0]["new_count"]
             logger.debug(f"Rule {rule_id} refreshed (accessCount: {new_count})")

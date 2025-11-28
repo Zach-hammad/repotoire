@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph.base import DatabaseClient
 from repotoire.ai.embeddings import CodeEmbedder
 from repotoire.logging_config import get_logger
 
@@ -61,22 +61,24 @@ class GraphRAGRetriever:
 
     def __init__(
         self,
-        neo4j_client: Neo4jClient,
+        client: DatabaseClient,
         embedder: CodeEmbedder,
         context_lines: int = 5
     ):
         """Initialize retriever.
 
         Args:
-            neo4j_client: Connected Neo4j client
+            client: Connected database client (Neo4j or FalkorDB)
             embedder: Code embedder for query encoding
             context_lines: Lines of context to include before/after code
         """
-        self.client = neo4j_client
+        self.client = client
         self.embedder = embedder
         self.context_lines = context_lines
+        # Detect if we're using FalkorDB
+        self.is_falkordb = type(client).__name__ == "FalkorDBClient"
 
-        logger.info("Initialized GraphRAGRetriever")
+        logger.info(f"Initialized GraphRAGRetriever (backend: {'FalkorDB' if self.is_falkordb else 'Neo4j'})")
 
     def get_hot_rules_context(self, top_k: int = 10) -> str:
         """Get context about hot custom rules for RAG prompts.
@@ -239,12 +241,15 @@ class GraphRAGRetriever:
 
         # Build Cypher query for graph traversal
         rel_pattern = "|".join(relationship_types)
+        # FalkorDB uses id() while Neo4j uses elementId()
+        id_func = "id" if self.is_falkordb else "elementId"
+
         query = f"""
         MATCH (start {{qualifiedName: $start_qname}})
         MATCH path = (start)-[:{rel_pattern}*1..{max_hops}]-(target)
         WHERE target.qualifiedName IS NOT NULL
         RETURN DISTINCT
-            elementId(target) as element_id,
+            {id_func}(target) as element_id,
             target.qualifiedName as qualified_name,
             target.name as name,
             labels(target)[0] as entity_type,
@@ -312,43 +317,66 @@ class GraphRAGRetriever:
         all_results = []
 
         for entity_type in search_types:
-            # Map entity type to vector index name
-            index_name = f"{entity_type.lower()}_embeddings"
-
-            # Neo4j vector search query
-            query = """
-            CALL db.index.vector.queryNodes(
-                $index_name,
-                $top_k,
-                $embedding
-            ) YIELD node, score
-            RETURN
-                elementId(node) as element_id,
-                node.qualifiedName as qualified_name,
-                node.name as name,
-                $entity_type as entity_type,
-                node.docstring as docstring,
-                node.filePath as file_path,
-                node.lineStart as line_start,
-                node.lineEnd as line_end,
-                score
-            ORDER BY score DESC
-            """
+            if self.is_falkordb:
+                # FalkorDB vector search query
+                # Uses db.idx.vector.queryNodes with vecf32() wrapper
+                query = f"""
+                CALL db.idx.vector.queryNodes(
+                    '{entity_type}',
+                    'embedding',
+                    $top_k,
+                    vecf32($embedding)
+                ) YIELD node, score
+                RETURN
+                    id(node) as element_id,
+                    node.qualifiedName as qualified_name,
+                    node.name as name,
+                    '{entity_type}' as entity_type,
+                    node.docstring as docstring,
+                    node.filePath as file_path,
+                    node.lineStart as line_start,
+                    node.lineEnd as line_end,
+                    score
+                ORDER BY score DESC
+                """
+                params = {
+                    "top_k": top_k,
+                    "embedding": query_embedding
+                }
+            else:
+                # Neo4j vector search query
+                index_name = f"{entity_type.lower()}_embeddings"
+                query = """
+                CALL db.index.vector.queryNodes(
+                    $index_name,
+                    $top_k,
+                    $embedding
+                ) YIELD node, score
+                RETURN
+                    elementId(node) as element_id,
+                    node.qualifiedName as qualified_name,
+                    node.name as name,
+                    $entity_type as entity_type,
+                    node.docstring as docstring,
+                    node.filePath as file_path,
+                    node.lineStart as line_start,
+                    node.lineEnd as line_end,
+                    score
+                ORDER BY score DESC
+                """
+                params = {
+                    "index_name": index_name,
+                    "top_k": top_k,
+                    "embedding": query_embedding,
+                    "entity_type": entity_type
+                }
 
             try:
-                results = self.client.execute_query(
-                    query,
-                    {
-                        "index_name": index_name,
-                        "top_k": top_k,
-                        "embedding": query_embedding,
-                        "entity_type": entity_type
-                    }
-                )
+                results = self.client.execute_query(query, params)
                 all_results.extend(results)
             except Exception as e:
                 # Index might not exist yet
-                logger.warning(f"Could not search {index_name}: {e}")
+                logger.warning(f"Could not search {entity_type} embeddings: {e}")
 
         # Sort by score and return top_k
         all_results.sort(key=lambda x: x["score"], reverse=True)
@@ -365,15 +393,18 @@ class GraphRAGRetriever:
         code relationships (CALLS, IMPORTS, INHERITS, USES, CONTAINS).
 
         Args:
-            entity_id: Neo4j element ID of entity
+            entity_id: Database element ID of entity
             max_relationships: Maximum relationships to return
 
         Returns:
             List of relationship dicts with entity and type
         """
-        query = """
+        # FalkorDB uses id() while Neo4j uses elementId()
+        id_func = "id" if self.is_falkordb else "elementId"
+
+        query = f"""
         MATCH (start)
-        WHERE elementId(start) = $id
+        WHERE {id_func}(start) = $id
 
         // Get direct relationships (1 hop)
         OPTIONAL MATCH (start)-[r1:CALLS|USES|INHERITS|IMPORTS]-(related1)
@@ -383,15 +414,15 @@ class GraphRAGRetriever:
         OPTIONAL MATCH (start)-[r2:CONTAINS]-(related2)
         WHERE related2.qualifiedName IS NOT NULL
 
-        WITH collect(DISTINCT {
+        WITH collect(DISTINCT {{
             entity: related1.qualifiedName,
             relationship: type(r1),
             distance: 1
-        }) + collect(DISTINCT {
+        }}) + collect(DISTINCT {{
             entity: related2.qualifiedName,
             relationship: type(r2),
             distance: 1
-        }) as relationships
+        }}) as relationships
 
         UNWIND relationships as rel
         RETURN rel.entity as entity,
@@ -465,14 +496,14 @@ class GraphRAGRetriever:
 
 
 def create_retriever(
-    neo4j_client: Neo4jClient,
+    client: DatabaseClient,
     embedder: CodeEmbedder,
     context_lines: int = 5
 ) -> GraphRAGRetriever:
     """Factory function to create a configured retriever.
 
     Args:
-        neo4j_client: Connected Neo4j client
+        client: Connected database client (Neo4j or FalkorDB)
         embedder: Code embedder instance
         context_lines: Lines of context around code snippets
 
@@ -480,7 +511,7 @@ def create_retriever(
         Configured GraphRAGRetriever
     """
     return GraphRAGRetriever(
-        neo4j_client=neo4j_client,
+        client=client,
         embedder=embedder,
         context_lines=context_lines
     )

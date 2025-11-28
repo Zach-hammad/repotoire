@@ -149,6 +149,11 @@ class GraphAlgorithms:
         Returns:
             True if GDS is available, False otherwise
         """
+        # FalkorDB doesn't have GDS - skip immediately without retry
+        if type(self.client).__name__ == "FalkorDBClient":
+            logger.info("FalkorDB detected - GDS not available (using Rust algorithms)")
+            return False
+
         try:
             query = "RETURN gds.version() as version"
             result = self.client.execute_query(query)
@@ -420,6 +425,40 @@ class GraphAlgorithms:
             f.filePath as file_path,
             f.lineStart as line_number
         ORDER BY f.harmonic_centrality DESC
+        LIMIT $limit
+        """
+        return self.client.execute_query(query, parameters={
+            "threshold": threshold,
+            "limit": limit
+        })
+
+    def get_low_harmonic_functions(
+        self,
+        threshold: float = 0.5,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """Get functions with low harmonic centrality scores (isolated code).
+
+        Args:
+            threshold: Maximum harmonic centrality score
+            limit: Maximum number of results
+
+        Returns:
+            List of function data with low harmonic centrality scores
+        """
+        query = """
+        MATCH (f:Function)
+        WHERE f.harmonic_centrality IS NOT NULL
+          AND f.harmonic_centrality < $threshold
+          AND f.harmonic_centrality > 0
+        RETURN
+            f.qualifiedName as qualified_name,
+            f.harmonic_centrality as harmonic_centrality,
+            f.complexity as complexity,
+            f.loc as loc,
+            f.filePath as file_path,
+            f.lineStart as line_number
+        ORDER BY f.harmonic_centrality ASC
         LIMIT $limit
         """
         return self.client.execute_query(query, parameters={

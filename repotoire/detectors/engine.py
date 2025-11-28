@@ -91,6 +91,8 @@ class AnalysisEngine:
         self.repository_path = repository_path
         self.keep_metadata = keep_metadata
         self.enable_voting = enable_voting
+        # Check if using FalkorDB (no GDS support)
+        self.is_falkordb = type(neo4j_client).__name__ == "FalkorDBClient"
         config = detector_config or {}
 
         # Initialize GraphEnricher for cross-detector collaboration (REPO-151 Phase 2)
@@ -512,34 +514,36 @@ class AnalysisEngine:
             Modularity score (0-1, typically 0.3-0.7 for well-modularized code)
         """
         try:
-            # Try using Neo4j GDS Louvain algorithm if available
-            gds_query = """
-            CALL gds.graph.exists('codeGraph') YIELD exists
-            WHERE exists
-            CALL gds.louvain.stream('codeGraph')
-            YIELD nodeId, communityId
-            WITH gds.util.asNode(nodeId) AS node, communityId
-            RETURN count(DISTINCT communityId) AS num_communities,
-                   count(node) AS num_nodes
-            """
+            # Skip GDS for FalkorDB (no GDS plugin support)
+            if not self.is_falkordb:
+                # Try using Neo4j GDS Louvain algorithm if available
+                gds_query = """
+                CALL gds.graph.exists('codeGraph') YIELD exists
+                WHERE exists
+                CALL gds.louvain.stream('codeGraph')
+                YIELD nodeId, communityId
+                WITH gds.util.asNode(nodeId) AS node, communityId
+                RETURN count(DISTINCT communityId) AS num_communities,
+                       count(node) AS num_nodes
+                """
 
-            try:
-                result = self.db.execute_query(gds_query)
-                if result and result[0].get("num_communities", 0) > 0:
-                    # Calculate modularity from communities
-                    # Simple approximation: more balanced communities = higher modularity
-                    num_communities = result[0]["num_communities"]
-                    num_nodes = result[0]["num_nodes"]
+                try:
+                    result = self.db.execute_query(gds_query)
+                    if result and result[0].get("num_communities", 0) > 0:
+                        # Calculate modularity from communities
+                        # Simple approximation: more balanced communities = higher modularity
+                        num_communities = result[0]["num_communities"]
+                        num_nodes = result[0]["num_nodes"]
 
-                    # Ideal: sqrt(n) communities for n nodes
-                    import math
-                    ideal_communities = math.sqrt(num_nodes) if num_nodes > 0 else 1
-                    ratio = min(num_communities, ideal_communities) / max(num_communities, ideal_communities, 1)
+                        # Ideal: sqrt(n) communities for n nodes
+                        import math
+                        ideal_communities = math.sqrt(num_nodes) if num_nodes > 0 else 1
+                        ratio = min(num_communities, ideal_communities) / max(num_communities, ideal_communities, 1)
 
-                    return min(0.9, max(0.3, ratio * 0.7))
-            except Exception:
-                # GDS not available or graph not created, fall back to simpler method
-                pass
+                        return min(0.9, max(0.3, ratio * 0.7))
+                except Exception:
+                    # GDS not available or graph not created, fall back to simpler method
+                    pass
 
             # Fallback: Calculate simple modularity based on file cohesion
             cohesion_query = """

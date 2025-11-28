@@ -1819,6 +1819,298 @@ def down(
         raise
 
 
+@migrate.command("export")
+@click.option(
+    "--output", "-o",
+    type=click.Path(),
+    required=True,
+    help="Output file path (JSON or .json.gz)"
+)
+@click.option(
+    "--neo4j-uri", default=None, help="Neo4j/FalkorDB connection URI"
+)
+@click.option("--neo4j-user", default=None, help="Neo4j username")
+@click.option(
+    "--neo4j-password",
+    default=None,
+    help="Neo4j password (prompts if not provided)",
+)
+@click.option(
+    "--compress/--no-compress",
+    default=True,
+    help="Compress output with gzip (default: true)"
+)
+@click.pass_context
+def export_data(
+    ctx: click.Context,
+    output: str,
+    neo4j_uri: str | None,
+    neo4j_user: str | None,
+    neo4j_password: str | None,
+    compress: bool,
+) -> None:
+    """Export graph data to a portable JSON format.
+
+    Exports all nodes and relationships for migration between
+    Neo4j and FalkorDB or for backup purposes.
+
+    Example:
+        repotoire migrate export -o backup.json.gz
+        repotoire migrate export -o backup.json --no-compress
+    """
+    from pathlib import Path
+    from repotoire.graph.migration import GraphMigration
+    from repotoire.graph.factory import create_client as create_database_client
+
+    config: FalkorConfig = ctx.obj['config']
+
+    # Get connection details
+    try:
+        final_neo4j_uri = validate_neo4j_uri(neo4j_uri or config.neo4j.uri)
+        final_neo4j_user = neo4j_user or config.neo4j.user
+        final_neo4j_password = neo4j_password or config.neo4j.password
+
+        if not final_neo4j_password:
+            final_neo4j_password = click.prompt("Database password", hide_input=True)
+
+    except ValidationError as e:
+        console.print(f"\n[red]❌ Validation Error:[/red] {e.message}")
+        raise click.Abort()
+
+    console.print(f"\n[bold cyan]📦 Exporting Graph Data[/bold cyan]\n")
+
+    try:
+        client = create_database_client(
+            uri=final_neo4j_uri,
+            username=final_neo4j_user,
+            password=final_neo4j_password
+        )
+
+        with client:
+            migration = GraphMigration(client)
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                progress.add_task("[cyan]Exporting nodes and relationships...", total=None)
+                stats = migration.export_graph(Path(output), compress=compress)
+
+            console.print(f"\n[green]✓ Export complete[/green]")
+            console.print(f"  Nodes exported: [cyan]{stats.nodes_exported}[/cyan]")
+            console.print(f"  Relationships exported: [cyan]{stats.relationships_exported}[/cyan]")
+            console.print(f"  Output file: [dim]{output}[/dim]")
+
+            if stats.errors:
+                console.print(f"\n[yellow]⚠️  {len(stats.errors)} errors during export:[/yellow]")
+                for error in stats.errors[:5]:
+                    console.print(f"  - {error}")
+
+    except Exception as e:
+        console.print(f"\n[red]❌ Export failed:[/red] {e}")
+        raise click.Abort()
+
+
+@migrate.command("import")
+@click.option(
+    "--input", "-i",
+    "input_file",
+    type=click.Path(exists=True),
+    required=True,
+    help="Input file path (JSON or .json.gz)"
+)
+@click.option(
+    "--neo4j-uri", default=None, help="Neo4j/FalkorDB connection URI"
+)
+@click.option("--neo4j-user", default=None, help="Neo4j username")
+@click.option(
+    "--neo4j-password",
+    default=None,
+    help="Neo4j password (prompts if not provided)",
+)
+@click.option(
+    "--clear/--no-clear",
+    default=False,
+    help="Clear existing data before import (default: false)"
+)
+@click.option(
+    "--batch-size",
+    type=int,
+    default=100,
+    help="Batch size for import operations (default: 100)"
+)
+@click.pass_context
+def import_data(
+    ctx: click.Context,
+    input_file: str,
+    neo4j_uri: str | None,
+    neo4j_user: str | None,
+    neo4j_password: str | None,
+    clear: bool,
+    batch_size: int,
+) -> None:
+    """Import graph data from a portable JSON format.
+
+    Imports nodes and relationships from an export file,
+    useful for migration between Neo4j and FalkorDB.
+
+    Example:
+        repotoire migrate import -i backup.json.gz
+        repotoire migrate import -i backup.json --clear
+    """
+    from pathlib import Path
+    from repotoire.graph.migration import GraphMigration
+    from repotoire.graph.factory import create_client as create_database_client
+
+    config: FalkorConfig = ctx.obj['config']
+
+    # Get connection details
+    try:
+        final_neo4j_uri = validate_neo4j_uri(neo4j_uri or config.neo4j.uri)
+        final_neo4j_user = neo4j_user or config.neo4j.user
+        final_neo4j_password = neo4j_password or config.neo4j.password
+
+        if not final_neo4j_password:
+            final_neo4j_password = click.prompt("Database password", hide_input=True)
+
+    except ValidationError as e:
+        console.print(f"\n[red]❌ Validation Error:[/red] {e.message}")
+        raise click.Abort()
+
+    console.print(f"\n[bold cyan]📥 Importing Graph Data[/bold cyan]\n")
+
+    if clear:
+        console.print("[yellow]⚠️  WARNING: This will clear all existing data![/yellow]")
+        if not click.confirm("Are you sure you want to continue?", default=False):
+            console.print("\n[dim]Import cancelled[/dim]")
+            return
+
+    try:
+        client = create_database_client(
+            uri=final_neo4j_uri,
+            username=final_neo4j_user,
+            password=final_neo4j_password
+        )
+
+        with client:
+            migration = GraphMigration(client)
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                progress.add_task("[cyan]Importing nodes and relationships...", total=None)
+                stats = migration.import_graph(
+                    Path(input_file),
+                    clear_existing=clear,
+                    batch_size=batch_size
+                )
+
+            console.print(f"\n[green]✓ Import complete[/green]")
+            console.print(f"  Nodes imported: [cyan]{stats.nodes_imported}[/cyan]")
+            console.print(f"  Relationships imported: [cyan]{stats.relationships_imported}[/cyan]")
+
+            if stats.errors:
+                console.print(f"\n[yellow]⚠️  {len(stats.errors)} errors during import:[/yellow]")
+                for error in stats.errors[:5]:
+                    console.print(f"  - {error}")
+
+    except Exception as e:
+        console.print(f"\n[red]❌ Import failed:[/red] {e}")
+        raise click.Abort()
+
+
+@migrate.command("validate")
+@click.option(
+    "--neo4j-uri", default=None, help="Neo4j/FalkorDB connection URI"
+)
+@click.option("--neo4j-user", default=None, help="Neo4j username")
+@click.option(
+    "--neo4j-password",
+    default=None,
+    help="Neo4j password (prompts if not provided)",
+)
+@click.pass_context
+def validate_migration(
+    ctx: click.Context,
+    neo4j_uri: str | None,
+    neo4j_user: str | None,
+    neo4j_password: str | None,
+) -> None:
+    """Validate graph data integrity after migration.
+
+    Checks node counts, relationship counts, and schema integrity
+    to ensure data was migrated correctly.
+
+    Example:
+        repotoire migrate validate
+    """
+    from repotoire.graph.migration import GraphMigration
+    from repotoire.graph.factory import create_client as create_database_client
+
+    config: FalkorConfig = ctx.obj['config']
+
+    # Get connection details
+    try:
+        final_neo4j_uri = validate_neo4j_uri(neo4j_uri or config.neo4j.uri)
+        final_neo4j_user = neo4j_user or config.neo4j.user
+        final_neo4j_password = neo4j_password or config.neo4j.password
+
+        if not final_neo4j_password:
+            final_neo4j_password = click.prompt("Database password", hide_input=True)
+
+    except ValidationError as e:
+        console.print(f"\n[red]❌ Validation Error:[/red] {e.message}")
+        raise click.Abort()
+
+    console.print(f"\n[bold cyan]🔍 Validating Graph Data[/bold cyan]\n")
+
+    try:
+        client = create_database_client(
+            uri=final_neo4j_uri,
+            username=final_neo4j_user,
+            password=final_neo4j_password
+        )
+
+        with client:
+            migration = GraphMigration(client)
+            result = migration.validate()
+
+            # Display stats
+            stats_table = Table(title="Graph Statistics", box=box.ROUNDED)
+            stats_table.add_column("Label/Type", style="cyan")
+            stats_table.add_column("Count", style="white", justify="right")
+
+            for label, count in result.source_stats.get("by_label", {}).items():
+                if count > 0:
+                    stats_table.add_row(f":{label}", str(count))
+
+            stats_table.add_row("─" * 20, "─" * 10)
+            stats_table.add_row("Total Nodes", str(result.source_stats["total_nodes"]))
+
+            for rel_type, count in result.source_stats.get("by_rel_type", {}).items():
+                if count > 0:
+                    stats_table.add_row(f"-[{rel_type}]->", str(count))
+
+            stats_table.add_row("─" * 20, "─" * 10)
+            stats_table.add_row("Total Relationships", str(result.source_stats["total_relationships"]))
+
+            console.print(stats_table)
+
+            if result.valid:
+                console.print(f"\n[green]✓ Graph validation passed[/green]")
+            else:
+                console.print(f"\n[red]❌ Validation issues found:[/red]")
+                for issue in result.issues:
+                    console.print(f"  - {issue}")
+
+    except Exception as e:
+        console.print(f"\n[red]❌ Validation failed:[/red] {e}")
+        raise click.Abort()
+
+
 @cli.command()
 @click.argument("repo_path", type=click.Path(exists=True))
 @click.option("--neo4j-uri", default=None, help="Neo4j connection URI")

@@ -4,10 +4,12 @@ Analyzes how code metrics change over time to detect degradation patterns,
 code hotspots, and technical debt velocity.
 """
 
-from datetime import datetime
-from typing import List, Optional
+import time
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional, Union
 from statistics import mean
 
+from repotoire.graph.base import DatabaseClient
 from repotoire.graph.client import Neo4jClient
 from repotoire.models import MetricTrend, CodeHotspot
 from repotoire.logging_config import get_logger
@@ -31,13 +33,14 @@ class TemporalMetrics:
         >>> hotspots = analyzer.find_code_hotspots(window_days=90)
     """
 
-    def __init__(self, client: Neo4jClient):
+    def __init__(self, client: Union[Neo4jClient, DatabaseClient]):
         """Initialize temporal metrics analyzer.
 
         Args:
-            client: Neo4j database client
+            client: Database client (Neo4j or FalkorDB)
         """
         self.client = client
+        self._is_falkordb = getattr(client, 'is_falkordb', False)
         logger.info("Initialized TemporalMetrics analyzer")
 
     def get_metric_trend(
@@ -64,20 +67,35 @@ class TemporalMetrics:
         # so we validate the metric name and use it in f-string
         validated_metric_name = validate_identifier(metric_name, "metric name")
 
-        # Query session nodes for metric values
-        query = f"""
-        MATCH (s:Session)
-        WHERE s.committedAt >= datetime() - duration({{days: $window_days}})
-        AND s.metricsSnapshot IS NOT NULL
-        AND s.metricsSnapshot.{validated_metric_name} IS NOT NULL
-        RETURN
-            s.committedAt as timestamp,
-            s.metricsSnapshot.{validated_metric_name} as value
-        ORDER BY s.committedAt ASC
-        """
+        # FalkorDB doesn't support datetime() or duration() - use UNIX timestamps
+        if self._is_falkordb:
+            cutoff_timestamp = int((datetime.now(timezone.utc) - timedelta(days=window_days)).timestamp())
+            query = f"""
+            MATCH (s:Session)
+            WHERE s.committedAt >= $cutoff_timestamp
+            AND s.metricsSnapshot IS NOT NULL
+            AND s.metricsSnapshot.{validated_metric_name} IS NOT NULL
+            RETURN
+                s.committedAt as timestamp,
+                s.metricsSnapshot.{validated_metric_name} as value
+            ORDER BY s.committedAt ASC
+            """
+            params = {"cutoff_timestamp": cutoff_timestamp}
+        else:
+            query = f"""
+            MATCH (s:Session)
+            WHERE s.committedAt >= datetime() - duration({{days: $window_days}})
+            AND s.metricsSnapshot IS NOT NULL
+            AND s.metricsSnapshot.{validated_metric_name} IS NOT NULL
+            RETURN
+                s.committedAt as timestamp,
+                s.metricsSnapshot.{validated_metric_name} as value
+            ORDER BY s.committedAt ASC
+            """
+            params = {"window_days": window_days}
 
         try:
-            results = self.client.execute_query(query, {"window_days": window_days})
+            results = self.client.execute_query(query, params)
 
             if not results or len(results) < 2:
                 logger.warning(f"Insufficient data for metric '{metric_name}'")
@@ -139,22 +157,33 @@ class TemporalMetrics:
             >>> all(h.churn_count >= 5 for h in hotspots)
             True
         """
-        # Query for files with high modification count
-        query = """
-        MATCH (s:Session)-[:MODIFIED]->(f:File)
-        WHERE s.committedAt >= datetime() - duration({days: $window_days})
-        WITH f.filePath as path, count(s) as churn_count, max(s.committedAt) as last_modified
-        WHERE churn_count >= $min_churn
-        RETURN path, churn_count, last_modified
-        ORDER BY churn_count DESC
-        LIMIT 50
-        """
+        # FalkorDB doesn't support datetime() or duration() - use UNIX timestamps
+        if self._is_falkordb:
+            cutoff_timestamp = int((datetime.now(timezone.utc) - timedelta(days=window_days)).timestamp())
+            query = """
+            MATCH (s:Session)-[:MODIFIED]->(f:File)
+            WHERE s.committedAt >= $cutoff_timestamp
+            WITH f.filePath as path, count(s) as churn_count, max(s.committedAt) as last_modified
+            WHERE churn_count >= $min_churn
+            RETURN path, churn_count, last_modified
+            ORDER BY churn_count DESC
+            LIMIT 50
+            """
+            params = {"cutoff_timestamp": cutoff_timestamp, "min_churn": min_churn}
+        else:
+            query = """
+            MATCH (s:Session)-[:MODIFIED]->(f:File)
+            WHERE s.committedAt >= datetime() - duration({days: $window_days})
+            WITH f.filePath as path, count(s) as churn_count, max(s.committedAt) as last_modified
+            WHERE churn_count >= $min_churn
+            RETURN path, churn_count, last_modified
+            ORDER BY churn_count DESC
+            LIMIT 50
+            """
+            params = {"window_days": window_days, "min_churn": min_churn}
 
         try:
-            results = self.client.execute_query(query, {
-                "window_days": window_days,
-                "min_churn": min_churn
-            })
+            results = self.client.execute_query(query, params)
 
             if not results:
                 logger.info("No code hotspots found")
@@ -377,20 +406,31 @@ class TemporalMetrics:
         Returns:
             List of author names sorted by modification count
         """
-        query = """
-        MATCH (s:Session)-[:MODIFIED]->(f:File {filePath: $file_path})
-        WHERE s.committedAt >= datetime() - duration({days: $window_days})
-        WITH s.author as author, count(*) as mod_count
-        RETURN author
-        ORDER BY mod_count DESC
-        LIMIT 5
-        """
+        # FalkorDB doesn't support datetime() or duration() - use UNIX timestamps
+        if self._is_falkordb:
+            cutoff_timestamp = int((datetime.now(timezone.utc) - timedelta(days=window_days)).timestamp())
+            query = """
+            MATCH (s:Session)-[:MODIFIED]->(f:File {filePath: $file_path})
+            WHERE s.committedAt >= $cutoff_timestamp
+            WITH s.author as author, count(*) as mod_count
+            RETURN author
+            ORDER BY mod_count DESC
+            LIMIT 5
+            """
+            params = {"file_path": file_path, "cutoff_timestamp": cutoff_timestamp}
+        else:
+            query = """
+            MATCH (s:Session)-[:MODIFIED]->(f:File {filePath: $file_path})
+            WHERE s.committedAt >= datetime() - duration({days: $window_days})
+            WITH s.author as author, count(*) as mod_count
+            RETURN author
+            ORDER BY mod_count DESC
+            LIMIT 5
+            """
+            params = {"file_path": file_path, "window_days": window_days}
 
         try:
-            results = self.client.execute_query(query, {
-                "file_path": file_path,
-                "window_days": window_days
-            })
+            results = self.client.execute_query(query, params)
 
             return [r["author"] for r in results]
 

@@ -1,9 +1,11 @@
-"""Degree centrality detector using GDS (REPO-171).
+"""Degree centrality detector (REPO-171, REPO-204).
 
-Uses Neo4j GDS Degree Centrality to detect:
+Uses pure Cypher to detect:
 - God Classes: High in-degree (many dependents) + high complexity
 - Feature Envy: High out-degree (reaching into many modules)
 - Coupling hotspots: Both high in and out degree
+
+No GDS or plugins required - works with both Neo4j and FalkorDB.
 """
 
 from typing import List, Optional
@@ -50,6 +52,9 @@ class DegreeCentralityDetector(CodeSmellDetector):
     def detect(self) -> List[Finding]:
         """Detect coupling issues using degree centrality.
 
+        Uses pure Cypher queries - works with both Neo4j and FalkorDB.
+        No GDS plugin required.
+
         Returns:
             List of findings
         """
@@ -57,24 +62,11 @@ class DegreeCentralityDetector(CodeSmellDetector):
 
         graph_algo = GraphAlgorithms(self.db)
 
-        # Check GDS availability
-        if not graph_algo.check_gds_available():
-            logger.warning(
-                "Neo4j GDS plugin not available - skipping degree centrality detection"
-            )
-            return findings
-
         try:
-            # Create import graph projection
-            if not graph_algo.create_import_graph_projection():
-                logger.warning("Failed to create import graph projection")
-                return findings
-
-            # Calculate degree centrality
+            # Calculate degree centrality using pure Cypher (no GDS needed)
             result = graph_algo.calculate_degree_centrality()
             if not result:
                 logger.warning("Failed to calculate degree centrality")
-                graph_algo.cleanup_projection("imports-graph")
                 return findings
 
             # Get statistics for context
@@ -115,17 +107,10 @@ class DegreeCentralityDetector(CodeSmellDetector):
                 if finding:
                     findings.append(finding)
 
-            # Cleanup
-            graph_algo.cleanup_projection("imports-graph")
-
             return findings
 
         except Exception as e:
             logger.error(f"Error in degree centrality detection: {e}", exc_info=True)
-            try:
-                graph_algo.cleanup_projection("imports-graph")
-            except Exception:
-                pass
             return findings
 
     def _find_coupling_hotspots(

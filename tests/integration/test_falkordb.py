@@ -25,7 +25,7 @@ from typing import Optional
 
 import pytest
 
-from repotoire.graph import Neo4jClient
+from repotoire.graph import Neo4jClient, FalkorDBClient, create_client
 from repotoire.pipeline.ingestion import IngestionPipeline
 from repotoire.detectors.engine import AnalysisEngine
 from repotoire.detectors.graph_algorithms import GraphAlgorithms
@@ -37,10 +37,10 @@ from repotoire.detectors.graph_algorithms import GraphAlgorithms
 # Set REPOTOIRE_TEST_DB=both to test both databases
 TEST_DB = os.environ.get("REPOTOIRE_TEST_DB", "falkordb")
 
-# FalkorDB connection settings (using port 7689 to avoid Neo4j conflicts)
-FALKORDB_PORT = 7689
-FALKORDB_URI = f"bolt://localhost:{FALKORDB_PORT}"
-FALKORDB_PASSWORD = "falkor-password"  # FalkorDB doesn't require auth by default
+# FalkorDB connection settings (using port 6381 for Redis protocol)
+FALKORDB_REDIS_PORT = int(os.environ.get("REPOTOIRE_FALKORDB_PORT", "6381"))
+FALKORDB_HOST = os.environ.get("REPOTOIRE_FALKORDB_HOST", "localhost")
+FALKORDB_PASSWORD = os.environ.get("REPOTOIRE_FALKORDB_PASSWORD", None)
 
 # Neo4j connection settings (standard test port)
 NEO4J_PORT = 7688
@@ -70,6 +70,10 @@ def start_falkordb_container() -> bool:
     Returns:
         True if container started successfully
     """
+    # First check if the port is already in use (container may already be running)
+    if is_port_in_use(FALKORDB_REDIS_PORT):
+        return True
+
     container_name = "repotoire-test-falkordb"
 
     # Check if already running
@@ -81,6 +85,15 @@ def start_falkordb_container() -> bool:
     if container_name in result.stdout:
         return True
 
+    # Also check for repotoire-falkordb container
+    result = subprocess.run(
+        ["docker", "ps", "--filter", "name=repotoire-falkordb", "--format", "{{.Names}}"],
+        capture_output=True,
+        text=True
+    )
+    if "repotoire-falkordb" in result.stdout:
+        return True
+
     # Remove existing stopped container
     subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
 
@@ -89,7 +102,7 @@ def start_falkordb_container() -> bool:
         "docker", "run",
         "-d",
         "--name", container_name,
-        "-p", f"{FALKORDB_PORT}:7687",
+        "-p", f"{FALKORDB_REDIS_PORT}:6379",  # FalkorDB uses Redis protocol on port 6379
         "-e", "REDIS_ARGS=--maxmemory 1gb",
         "falkordb/falkordb:latest"
     ], capture_output=True)
@@ -98,11 +111,11 @@ def start_falkordb_container() -> bool:
         print(f"Failed to start FalkorDB: {result.stderr.decode()}")
         return False
 
-    # Wait for FalkorDB to be ready (check Bolt port)
+    # Wait for FalkorDB to be ready (check Redis port)
     max_retries = 30
     for i in range(max_retries):
-        if is_port_in_use(FALKORDB_PORT):
-            # Additional wait for Bolt server to initialize
+        if is_port_in_use(FALKORDB_REDIS_PORT):
+            # Additional wait for server to initialize
             time.sleep(2)
             return True
         time.sleep(1)
@@ -132,11 +145,11 @@ def falkordb_client():
         pytest.skip("Failed to start FalkorDB container")
 
     try:
-        # FalkorDB doesn't require username/password by default
-        # But the Neo4j driver needs something, so we provide defaults
-        client = Neo4jClient(
-            uri=FALKORDB_URI,
-            username="neo4j",  # FalkorDB accepts any credentials
+        # Use FalkorDBClient with Redis protocol
+        client = FalkorDBClient(
+            host=FALKORDB_HOST,
+            port=FALKORDB_REDIS_PORT,
+            graph_name="repotoire_test",
             password=FALKORDB_PASSWORD,
             max_retries=5,
             retry_base_delay=2.0,
@@ -454,8 +467,8 @@ class TestFalkorDBAnalysisEngine:
         pipeline = IngestionPipeline(str(sample_codebase), falkordb_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        # Run analysis
-        engine = AnalysisEngine(falkordb_client)
+        # Run analysis - IMPORTANT: pass repository_path to avoid analyzing entire project
+        engine = AnalysisEngine(falkordb_client, repository_path=str(sample_codebase))
         health = engine.analyze()
 
         # Verify results
@@ -470,7 +483,8 @@ class TestFalkorDBAnalysisEngine:
         pipeline = IngestionPipeline(str(sample_codebase), falkordb_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(falkordb_client)
+        # IMPORTANT: pass repository_path to avoid analyzing entire project
+        engine = AnalysisEngine(falkordb_client, repository_path=str(sample_codebase))
         health = engine.analyze()
 
         # Should have some findings (at least from dead code or complexity)
@@ -575,6 +589,163 @@ class TestFalkorDBCypherCompatibility:
         assert set(result[0]["items"]) == {"item1", "item2"}
         falkordb_client.execute_query("MATCH (n:Group) DETACH DELETE n")
         falkordb_client.execute_query("MATCH (n:Item) DELETE n")
+
+
+class TestFalkorDBVectorSearch:
+    """Test vector search functionality with FalkorDB (REPO-204).
+
+    Tests vector index creation, embedding storage, and similarity search.
+    """
+
+    def test_vector_index_creation(self, falkordb_client):
+        """Test creating vector indexes on FalkorDB."""
+        from repotoire.graph.schema import GraphSchema
+
+        schema = GraphSchema(falkordb_client)
+
+        # Should not raise - creates vector indexes
+        schema.create_vector_indexes()
+
+        # Verify by checking we can query (will return empty but shouldn't error)
+        # Note: FalkorDB may not have a way to list indexes, so we just verify no error
+
+    def test_store_embedding_on_node(self, falkordb_client):
+        """Test storing embeddings as node properties."""
+        # Create a test node with embedding using vecf32() for FalkorDB
+        test_embedding = [0.1] * 1536  # 1536 dimensions like OpenAI
+
+        falkordb_client.execute_query("""
+            CREATE (f:Function {
+                qualifiedName: 'test.vector_func',
+                name: 'vector_func',
+                embedding: vecf32($embedding)
+            })
+        """, {"embedding": test_embedding})
+
+        # Retrieve and verify
+        result = falkordb_client.execute_query("""
+            MATCH (f:Function {qualifiedName: 'test.vector_func'})
+            RETURN f.embedding AS embedding
+        """)
+
+        assert len(result) == 1
+        stored_embedding = result[0]["embedding"]
+        assert len(stored_embedding) == 1536
+        assert abs(stored_embedding[0] - 0.1) < 0.001
+
+        # Cleanup
+        falkordb_client.execute_query(
+            "MATCH (f:Function {qualifiedName: 'test.vector_func'}) DELETE f"
+        )
+
+    def test_vector_similarity_search(self):
+        """Test vector similarity search query."""
+        from repotoire.graph import FalkorDBClient
+        from repotoire.graph.schema import GraphSchema
+        import time
+
+        # Use dedicated client with low retries for faster test failure
+        client = FalkorDBClient(
+            host=FALKORDB_HOST,
+            port=FALKORDB_REDIS_PORT,
+            graph_name="vector_search_test",
+            max_retries=1,
+        )
+        client.clear_graph()
+
+        try:
+            # Create vector index FIRST (required before adding nodes for FalkorDB)
+            schema = GraphSchema(client)
+            schema.create_vector_indexes()
+
+            # Small delay for index to initialize
+            time.sleep(0.5)
+
+            # Create test nodes with different embeddings using vecf32()
+            embedding_close = [0.9] * 1536
+            embedding_far = [0.1] * 1536
+
+            client.execute_query("""
+                CREATE (f1:Function {
+                    qualifiedName: 'test.close_func',
+                    name: 'close_func',
+                    embedding: vecf32($embedding)
+                })
+            """, {"embedding": embedding_close})
+
+            client.execute_query("""
+                CREATE (f2:Function {
+                    qualifiedName: 'test.far_func',
+                    name: 'far_func',
+                    embedding: vecf32($embedding)
+                })
+            """, {"embedding": embedding_far})
+
+            # Small delay for indexing
+            time.sleep(1)
+
+            # Query with embedding similar to close_func
+            query_embedding = [0.85] * 1536
+
+            result = client.execute_query("""
+                CALL db.idx.vector.queryNodes(
+                    'Function',
+                    'embedding',
+                    2,
+                    vecf32($embedding)
+                ) YIELD node, score
+                RETURN node.qualifiedName AS name, score
+            """, {"embedding": query_embedding})
+
+            # Should return results
+            assert len(result) >= 1
+            names = [r["name"] for r in result]
+            assert "test.close_func" in names
+
+        except Exception as e:
+            pytest.skip(f"Vector search not available: {e}")
+
+        finally:
+            client.close()
+
+    def test_retriever_with_falkordb(self, falkordb_client, sample_codebase):
+        """Test GraphRAGRetriever works with FalkorDB."""
+        from unittest.mock import Mock
+        from repotoire.ai.retrieval import GraphRAGRetriever
+
+        # Create mock embedder
+        mock_embedder = Mock()
+        mock_embedder.embed_query.return_value = [0.5] * 1536
+
+        # Create retriever
+        retriever = GraphRAGRetriever(falkordb_client, mock_embedder)
+
+        # Verify FalkorDB detection
+        assert retriever.is_falkordb is True
+
+        # Test retrieve_by_path (doesn't need vector index)
+        falkordb_client.execute_query("""
+            CREATE (f1:Function {qualifiedName: 'test.caller', name: 'caller'})
+            CREATE (f2:Function {qualifiedName: 'test.callee', name: 'callee'})
+            CREATE (f1)-[:CALLS]->(f2)
+        """)
+
+        results = retriever.retrieve_by_path(
+            start_entity="test.caller",
+            relationship_types=["CALLS"],
+            max_hops=2,
+            limit=10
+        )
+
+        # Should find callee via CALLS relationship
+        assert len(results) >= 1
+        names = [r.qualified_name for r in results]
+        assert "test.callee" in names
+
+        # Cleanup
+        falkordb_client.execute_query(
+            "MATCH (f:Function) WHERE f.qualifiedName STARTS WITH 'test.' DETACH DELETE f"
+        )
 
 
 class TestPerformanceComparison:

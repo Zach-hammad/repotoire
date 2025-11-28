@@ -72,9 +72,9 @@ class CoreUtilityDetector(CodeSmellDetector):
                 return findings
 
             total_functions = stats.get("total_functions", 0)
-            p95 = stats.get("p95_harmonic", 0.8)
-            p10 = stats.get("p10_harmonic", 0.2)
-            avg = stats.get("avg_harmonic", 0.5)
+            p95 = stats.get("p95_harmonic") or 0.8
+            p10 = stats.get("p10_harmonic") or 0.2
+            avg = stats.get("avg_harmonic") or 0.5
 
             logger.info(
                 f"Harmonic centrality stats: avg={avg:.3f}, p10={p10:.3f}, p95={p95:.3f}"
