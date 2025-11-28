@@ -294,7 +294,18 @@ def cli(ctx: click.Context, config: str | None, log_level: str | None, log_forma
     "--generate-embeddings",
     is_flag=True,
     default=False,
-    help="Generate vector embeddings for RAG (requires OpenAI API key)",
+    help="Generate vector embeddings for RAG (requires OpenAI API key or local backend)",
+)
+@click.option(
+    "--embedding-backend",
+    type=click.Choice(["openai", "local"], case_sensitive=False),
+    default=None,
+    help="Embedding backend: 'openai' (high quality, paid) or 'local' (free, fast)",
+)
+@click.option(
+    "--embedding-model",
+    default=None,
+    help="Embedding model name (default: text-embedding-3-small for OpenAI, all-MiniLM-L6-v2 for local)",
 )
 @click.option(
     "--batch-size",
@@ -318,6 +329,8 @@ def ingest(
     quiet: bool,
     generate_clues: bool,
     generate_embeddings: bool,
+    embedding_backend: str | None,
+    embedding_model: str | None,
     batch_size: int | None,
 ) -> None:
     """Ingest a codebase into the knowledge graph with security validation.
@@ -345,6 +358,10 @@ def ingest(
         final_max_file_size = max_file_size if max_file_size is not None else config.ingestion.max_file_size_mb
         final_secrets_policy_str = secrets_policy if secrets_policy is not None else config.secrets.policy
         final_batch_size = batch_size if batch_size is not None else config.ingestion.batch_size
+
+        # Apply embedding config (CLI options override config)
+        final_embedding_backend = embedding_backend or config.embeddings.backend
+        final_embedding_model = embedding_model or config.embeddings.model
 
         # Convert secrets policy string to enum
         final_secrets_policy = SecretsPolicy(final_secrets_policy_str)
@@ -393,7 +410,8 @@ def ingest(
     if generate_clues:
         console.print(f"[cyan]✨ AI Clue Generation: Enabled (spaCy)[/cyan]")
     if generate_embeddings:
-        console.print(f"[cyan]🔮 Vector Embeddings: Enabled (OpenAI)[/cyan]")
+        backend_display = "local" if final_embedding_backend == "local" else "OpenAI"
+        console.print(f"[cyan]🔮 Vector Embeddings: Enabled ({backend_display})[/cyan]")
     console.print()
 
     try:
@@ -422,7 +440,9 @@ def ingest(
                     batch_size=validated_batch_size,
                     secrets_policy=final_secrets_policy,
                     generate_clues=generate_clues,
-                    generate_embeddings=generate_embeddings
+                    generate_embeddings=generate_embeddings,
+                    embedding_backend=final_embedding_backend,
+                    embedding_model=final_embedding_model,
                 )
 
                 # Setup progress bar if not in quiet mode

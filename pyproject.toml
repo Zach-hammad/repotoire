@@ -85,6 +85,10 @@ security = [
     "cyclonedx-bom>=4.0.0",  # SBOM generation (CycloneDX format)
 ]
 
+local-embeddings = [
+    "sentence-transformers>=2.2.0",  # Local embedding models (free, no API key required)
+]
+
 detectors = [
     "mypy>=1.7.0",  # Type checking detector
     "pylint>=3.0.0",  # Advanced linting detector

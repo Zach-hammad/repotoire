@@ -1,6 +1,6 @@
 """Graph schema definition and initialization."""
 
-from typing import Union
+from typing import Optional
 
 
 class GraphSchema:
@@ -83,44 +83,12 @@ class GraphSchema:
         "CREATE INDEX flagged_by_confidence_idx IF NOT EXISTS FOR ()-[r:FLAGGED_BY]-() ON (r.confidence)",
     ]
 
-    # Vector indexes for RAG (Neo4j 5.18+)
-    VECTOR_INDEXES = [
-        # Function embeddings for semantic code search
-        """
-        CREATE VECTOR INDEX function_embeddings IF NOT EXISTS
-        FOR (f:Function)
-        ON f.embedding
-        OPTIONS {
-            indexConfig: {
-                `vector.dimensions`: 1536,
-                `vector.similarity_function`: 'cosine'
-            }
-        }
-        """,
-        # Class embeddings for semantic search
-        """
-        CREATE VECTOR INDEX class_embeddings IF NOT EXISTS
-        FOR (c:Class)
-        ON c.embedding
-        OPTIONS {
-            indexConfig: {
-                `vector.dimensions`: 1536,
-                `vector.similarity_function`: 'cosine'
-            }
-        }
-        """,
-        # File embeddings for document-level search
-        """
-        CREATE VECTOR INDEX file_embeddings IF NOT EXISTS
-        FOR (f:File)
-        ON f.embedding
-        OPTIONS {
-            indexConfig: {
-                `vector.dimensions`: 1536,
-                `vector.similarity_function`: 'cosine'
-            }
-        }
-        """,
+    # Vector index definitions (labels and index names)
+    # Dimensions are configured at runtime via create_vector_indexes()
+    VECTOR_INDEX_DEFS = [
+        ("Function", "function_embeddings", "f"),
+        ("Class", "class_embeddings", "c"),
+        ("File", "file_embeddings", "f"),
     ]
 
     # FalkorDB index definitions (simpler syntax)
@@ -134,27 +102,50 @@ class GraphSchema:
         "CREATE INDEX ON :Class(name)",
     ]
 
-    # FalkorDB vector indexes for RAG semantic search
-    FALKORDB_VECTOR_INDEXES = [
-        # Function embeddings
+    @staticmethod
+    def _neo4j_vector_index_query(
+        label: str, index_name: str, alias: str, dimensions: int
+    ) -> str:
+        """Generate Neo4j vector index creation query.
+
+        Args:
+            label: Node label (e.g., "Function")
+            index_name: Index name (e.g., "function_embeddings")
+            alias: Query alias (e.g., "f")
+            dimensions: Vector dimensions (384 for local, 1536 for OpenAI)
+
+        Returns:
+            Cypher query string
         """
-        CREATE VECTOR INDEX FOR (f:Function)
-        ON (f.embedding)
-        OPTIONS {dimension: 1536, similarityFunction: 'cosine'}
-        """,
-        # Class embeddings
+        return f"""
+        CREATE VECTOR INDEX {index_name} IF NOT EXISTS
+        FOR ({alias}:{label})
+        ON {alias}.embedding
+        OPTIONS {{
+            indexConfig: {{
+                `vector.dimensions`: {dimensions},
+                `vector.similarity_function`: 'cosine'
+            }}
+        }}
         """
-        CREATE VECTOR INDEX FOR (c:Class)
-        ON (c.embedding)
-        OPTIONS {dimension: 1536, similarityFunction: 'cosine'}
-        """,
-        # File embeddings
+
+    @staticmethod
+    def _falkordb_vector_index_query(label: str, alias: str, dimensions: int) -> str:
+        """Generate FalkorDB vector index creation query.
+
+        Args:
+            label: Node label (e.g., "Function")
+            alias: Query alias (e.g., "f")
+            dimensions: Vector dimensions (384 for local, 1536 for OpenAI)
+
+        Returns:
+            Cypher query string
         """
-        CREATE VECTOR INDEX FOR (f:File)
-        ON (f.embedding)
-        OPTIONS {dimension: 1536, similarityFunction: 'cosine'}
-        """,
-    ]
+        return f"""
+        CREATE VECTOR INDEX FOR ({alias}:{label})
+        ON ({alias}.embedding)
+        OPTIONS {{dimension: {dimensions}, similarityFunction: 'cosine'}}
+        """
 
     def __init__(self, client):
         """Initialize schema manager.
@@ -197,41 +188,47 @@ class GraphSchema:
             except Exception as e:
                 print(f"Warning: Could not create index: {e}")
 
-    def create_vector_indexes(self) -> None:
+    def create_vector_indexes(self, dimensions: int = 1536) -> None:
         """Create vector indexes for RAG semantic search.
 
         Requires Neo4j 5.18+ or FalkorDB with vector support.
+
+        Args:
+            dimensions: Vector dimensions (1536 for OpenAI, 384 for local)
         """
-        if self.is_falkordb:
-            # Use FalkorDB vector index syntax
-            for vector_index in self.FALKORDB_VECTOR_INDEXES:
-                try:
-                    self.client.execute_query(vector_index)
-                except Exception as e:
-                    # Index may already exist or vector support not enabled
-                    print(f"Info: Could not create FalkorDB vector index: {e}")
-            return
+        print(f"Creating vector indexes with {dimensions} dimensions...")
 
-        for vector_index in self.VECTOR_INDEXES:
+        for label, index_name, alias in self.VECTOR_INDEX_DEFS:
             try:
-                self.client.execute_query(vector_index)
+                if self.is_falkordb:
+                    query = self._falkordb_vector_index_query(label, alias, dimensions)
+                else:
+                    query = self._neo4j_vector_index_query(
+                        label, index_name, alias, dimensions
+                    )
+                self.client.execute_query(query)
             except Exception as e:
-                # Vector indexes may not be supported in older Neo4j versions
-                print(f"Info: Could not create vector index (requires Neo4j 5.18+): {e}")
+                # Index may already exist or vector support not enabled
+                db_type = "FalkorDB" if self.is_falkordb else "Neo4j 5.18+"
+                print(f"Info: Could not create vector index for {label} (requires {db_type}): {e}")
 
-    def initialize(self, enable_vector_search: bool = False) -> None:
+    def initialize(
+        self,
+        enable_vector_search: bool = False,
+        vector_dimensions: int = 1536,
+    ) -> None:
         """Initialize complete schema.
 
         Args:
             enable_vector_search: Whether to create vector indexes for RAG (requires Neo4j 5.18+)
+            vector_dimensions: Vector dimensions for embeddings (1536 for OpenAI, 384 for local)
         """
         print("Creating graph schema...")
         self.create_constraints()
         self.create_indexes()
 
         if enable_vector_search:
-            print("Creating vector indexes for RAG...")
-            self.create_vector_indexes()
+            self.create_vector_indexes(dimensions=vector_dimensions)
 
         print("Schema created successfully!")
 

@@ -214,6 +214,25 @@ class TimescaleConfig:
 
 
 @dataclass
+class EmbeddingsConfig:
+    """Embeddings configuration for RAG vector search.
+
+    Example configuration:
+    ```yaml
+    embeddings:
+      backend: "local"  # "openai" or "local"
+      model: "all-MiniLM-L6-v2"  # optional, uses backend default if not set
+    ```
+
+    Backends:
+    - openai: High quality (1536 dims), requires API key, $0.13/1M tokens
+    - local: Free, fast (384 dims), uses sentence-transformers (~85-90% quality)
+    """
+    backend: str = "openai"  # "openai" or "local"
+    model: Optional[str] = None  # Uses backend default if not set
+
+
+@dataclass
 class RAGConfig:
     """RAG (Retrieval-Augmented Generation) configuration.
 
@@ -241,6 +260,7 @@ class FalkorConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     timescale: TimescaleConfig = field(default_factory=TimescaleConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
+    embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "FalkorConfig":
@@ -263,6 +283,7 @@ class FalkorConfig:
             secrets=SecretsConfig(**data.get("secrets", {})),
             logging=LoggingConfig(**data.get("logging", {})),
             rag=RAGConfig(**data.get("rag", {})),
+            embeddings=EmbeddingsConfig(**data.get("embeddings", {})),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -320,6 +341,10 @@ class FalkorConfig:
                 "cache_enabled": self.rag.cache_enabled,
                 "cache_ttl": self.rag.cache_ttl,
                 "cache_max_size": self.rag.cache_max_size,
+            },
+            "embeddings": {
+                "backend": self.embeddings.backend,
+                "model": self.embeddings.model,
             },
         }
 

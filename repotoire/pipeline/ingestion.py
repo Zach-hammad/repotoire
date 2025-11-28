@@ -37,7 +37,9 @@ class IngestionPipeline:
         batch_size: int = DEFAULT_BATCH_SIZE,
         secrets_policy: SecretsPolicy = SecretsPolicy.REDACT,
         generate_clues: bool = False,
-        generate_embeddings: bool = False
+        generate_embeddings: bool = False,
+        embedding_backend: str = "openai",
+        embedding_model: Optional[str] = None,
     ):
         """Initialize ingestion pipeline with security validation.
 
@@ -50,6 +52,8 @@ class IngestionPipeline:
             secrets_policy: Policy for handling detected secrets (default: REDACT)
             generate_clues: Whether to generate AI semantic clues (default: False)
             generate_embeddings: Whether to generate vector embeddings for RAG (default: False)
+            embedding_backend: Backend for embeddings: 'openai' or 'local' (default: openai)
+            embedding_model: Model name override for embeddings (default: uses backend default)
 
         Raises:
             ValueError: If repository path is invalid
@@ -79,6 +83,8 @@ class IngestionPipeline:
         self.secrets_policy = secrets_policy
         self.generate_clues = generate_clues
         self.generate_embeddings = generate_embeddings
+        self.embedding_backend = embedding_backend
+        self.embedding_model = embedding_model
 
         # Track skipped files for reporting
         self.skipped_files: List[Dict[str, str]] = []
@@ -106,8 +112,21 @@ class IngestionPipeline:
         if self.generate_embeddings:
             try:
                 from repotoire.ai import CodeEmbedder
-                self.embedder = CodeEmbedder()
-                logger.info("Embedding generation enabled (using text-embedding-3-small)")
+                self.embedder = CodeEmbedder(
+                    backend=self.embedding_backend,
+                    model=self.embedding_model,
+                )
+                logger.info(
+                    f"Embedding generation enabled (backend={self.embedding_backend}, "
+                    f"model={self.embedder.config.effective_model}, "
+                    f"dimensions={self.embedder.dimensions})"
+                )
+            except ImportError as e:
+                logger.warning(f"Could not initialize embedder: {e}")
+                if self.embedding_backend == "local":
+                    logger.warning("Install with: pip install repotoire[local-embeddings]")
+                logger.warning("Continuing without embedding generation")
+                self.generate_embeddings = False
             except Exception as e:
                 logger.warning(f"Could not initialize embedder: {e}")
                 logger.warning("Continuing without embedding generation")
@@ -627,7 +646,14 @@ class IngestionPipeline:
         # Initialize schema
         with LogContext(operation="init_schema"):
             schema = GraphSchema(self.db)
-            schema.initialize()
+            # Pass vector dimensions when embeddings are enabled
+            if self.generate_embeddings and self.embedder:
+                schema.initialize(
+                    enable_vector_search=True,
+                    vector_dimensions=self.embedder.dimensions,
+                )
+            else:
+                schema.initialize()
             logger.debug("Schema initialized")
 
         # Scan for files

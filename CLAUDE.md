@@ -400,9 +400,13 @@ Repotoire includes a complete RAG system for natural language code intelligence.
 ### Quick Start
 
 ```bash
-# Enable during ingestion
+# Option 1: OpenAI backend (high quality, paid)
 export OPENAI_API_KEY="sk-..."
 repotoire ingest /path/to/repo --generate-embeddings
+
+# Option 2: Local backend (free, no API key required)
+pip install repotoire[local-embeddings]
+repotoire ingest /path/to/repo --generate-embeddings --embedding-backend local
 
 # Query via API
 python -m repotoire.api.app
@@ -411,16 +415,48 @@ curl -X POST "http://localhost:8000/api/v1/code/search" \
   -d '{"query": "authentication functions", "top_k": 5}'
 ```
 
+### Embedding Backends
+
+| Aspect | OpenAI | Local (MiniLM) |
+|--------|--------|----------------|
+| Quality | 100% baseline | 85-90% |
+| Cost | $0.13/1M tokens | $0 |
+| Latency | 50-150ms | 5-20ms |
+| Dependencies | API key | +50MB model |
+| Dimensions | 1536 | 384 |
+
+### Configuration
+
+Via CLI:
+```bash
+repotoire ingest /path/to/repo --generate-embeddings --embedding-backend local
+repotoire ingest /path/to/repo --generate-embeddings --embedding-model all-MiniLM-L6-v2
+```
+
+Via config file (`.repotoirerc` or `falkor.toml`):
+```yaml
+embeddings:
+  backend: "local"  # or "openai"
+  model: "all-MiniLM-L6-v2"  # optional, uses backend default if not set
+```
+
 ### Key Components
-- **CodeEmbedder**: OpenAI text-embedding-3-small (1536 dims)
+- **CodeEmbedder**: Supports OpenAI (1536 dims) and local sentence-transformers (384 dims)
 - **GraphRAGRetriever**: Hybrid vector + graph search
 - **FastAPI Endpoints**: `/search`, `/ask`, `/embeddings/status`
-- **Vector Indexes**: Neo4j 5.18+ native vector support
+- **Vector Indexes**: Neo4j 5.18+ native vector support (dimensions auto-configured)
 
 ### Performance
+
+**OpenAI backend:**
 - **Embedding**: ~10-20 entities/sec, ~$0.13/1M tokens
 - **Query**: <2s total (vector search + GPT-4o generation)
 - **Cost**: ~$0.65 for 10k files (one-time), $0.0075/query
+
+**Local backend:**
+- **Embedding**: ~50-100 entities/sec, $0
+- **Query**: <1s total (no network latency)
+- **Cost**: Free (one-time ~50MB model download)
 
 ## Formal Verification (Lean 4)
 
@@ -551,6 +587,7 @@ See full troubleshooting guide in project documentation.
 ### Optional
 - **graphdatascience** (>=1.9.0): Neo4j GDS algorithms
 - **tree-sitter** (>=0.20.0): Multi-language parsing
+- **sentence-transformers** (>=2.2.0): Local embeddings (free, no API key)
 
 ### Development
 - **pytest** (>=7.4.0): Testing framework
