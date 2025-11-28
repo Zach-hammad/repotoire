@@ -362,13 +362,24 @@ class AnalysisEngine:
         all_findings.extend(phase1_findings)
         logger.info(f"Phase 1 complete: {len(phase1_findings)} findings from independent detectors")
 
-        # Phase 2: Run dependent detectors sequentially with previous_findings
+        # Phase 2: Run dependent detectors (can also be parallel since they depend
+        # on Phase 1 detectors, not on each other)
         if dependent_detectors:
-            logger.info(f"Phase 2: Running {len(dependent_detectors)} dependent detectors sequentially")
-            phase2_findings = self._run_detectors_sequential(
-                dependent_detectors,
-                previous_findings=all_findings
-            )
+            if self.parallel and len(dependent_detectors) > 1:
+                logger.info(
+                    f"Phase 2: Running {len(dependent_detectors)} dependent detectors "
+                    f"in parallel (workers={self.max_workers})"
+                )
+                phase2_findings = self._run_detectors_parallel_with_findings(
+                    dependent_detectors,
+                    previous_findings=all_findings
+                )
+            else:
+                logger.info(f"Phase 2: Running {len(dependent_detectors)} dependent detectors sequentially")
+                phase2_findings = self._run_detectors_sequential(
+                    dependent_detectors,
+                    previous_findings=all_findings
+                )
             all_findings.extend(phase2_findings)
             logger.info(f"Phase 2 complete: {len(phase2_findings)} findings from dependent detectors")
 
@@ -414,6 +425,91 @@ class AnalysisEngine:
                     )
 
         return all_findings
+
+    def _run_detectors_parallel_with_findings(
+        self,
+        detectors: list,
+        previous_findings: List[Finding]
+    ) -> List[Finding]:
+        """Run dependent detectors in parallel, passing previous_findings to each.
+
+        Since dependent detectors only depend on Phase 1 findings (not on each other),
+        they can safely run in parallel with a shared read-only view of previous_findings.
+
+        Args:
+            detectors: List of detector instances that need previous_findings
+            previous_findings: Findings from Phase 1 (read-only, shared across threads)
+
+        Returns:
+            Combined list of findings from all detectors
+        """
+        all_findings: List[Finding] = []
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # Submit all detectors with previous_findings
+            future_to_detector = {
+                executor.submit(
+                    self._run_single_detector_with_findings, d, previous_findings
+                ): d
+                for d in detectors
+            }
+
+            # Collect results as they complete
+            for future in as_completed(future_to_detector):
+                detector = future_to_detector[future]
+                detector_name = detector.__class__.__name__
+
+                try:
+                    findings = future.result()
+                    all_findings.extend(findings)
+                except Exception as e:
+                    logger.error(
+                        f"Detector failed in parallel execution: {detector_name}",
+                        extra={"error": str(e)},
+                        exc_info=True
+                    )
+
+        return all_findings
+
+    def _run_single_detector_with_findings(
+        self,
+        detector,
+        previous_findings: List[Finding]
+    ) -> List[Finding]:
+        """Run a single detector that needs previous_findings.
+
+        Args:
+            detector: Detector instance to run
+            previous_findings: Findings from previous detectors
+
+        Returns:
+            List of findings (empty list on error)
+        """
+        detector_name = detector.__class__.__name__
+
+        with LogContext(detector=detector_name):
+            start_time = time.time()
+            logger.info(f"Running detector: {detector_name}")
+
+            try:
+                findings = detector.detect(previous_findings=previous_findings)
+                duration = time.time() - start_time
+
+                logger.info(f"Detector complete: {detector_name}", extra={
+                    "findings_count": len(findings),
+                    "duration_seconds": round(duration, 3)
+                })
+
+                return findings
+
+            except Exception as e:
+                duration = time.time() - start_time
+                logger.error(
+                    f"Detector failed: {detector_name}",
+                    extra={"error": str(e), "duration_seconds": round(duration, 3)},
+                    exc_info=True
+                )
+                return []
 
     def _run_detectors_sequential(
         self,
