@@ -3,11 +3,116 @@
 Provides a pre-configured Jupyter-like environment where Claude can write
 and execute Python code to interact with Repotoire, following Anthropic's
 code execution MCP pattern.
+
+Supports progressive discovery (REPO-208/209/213) with on-demand documentation.
 """
 
 import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
+
+
+# API documentation - loaded on-demand via resources
+API_DOCUMENTATION = """# Repotoire Code Execution API
+
+## Pre-configured Objects
+
+### `client: Neo4jClient`
+Connected Neo4j client for graph database operations.
+
+**Properties:**
+- `client.uri`: Connection URI
+- `client.driver`: Neo4j driver instance
+
+**Methods:**
+- `client.execute_query(cypher, params)`: Execute Cypher query
+- `client.batch_create_nodes(entities)`: Batch create nodes
+- `client.batch_create_relationships(relationships)`: Batch create relationships
+- `client.close()`: Close connection
+
+### `rule_engine: RuleEngine`
+Engine for managing and executing custom quality rules.
+
+**Methods:**
+- `rule_engine.list_rules(enabled_only=True)`: List all rules
+- `rule_engine.get_rule(rule_id)`: Get specific rule
+- `rule_engine.execute_rule(rule)`: Execute a rule
+- `rule_engine.get_hot_rules(top_k=10)`: Get high-priority rules
+
+## Utility Functions
+
+### `query(cypher: str, params: Dict = None) -> List[Dict]`
+Execute a Cypher query and return results.
+
+```python
+results = query('''
+    MATCH (c:Class)
+    WHERE c.complexity > 50
+    RETURN c.qualifiedName, c.complexity
+    LIMIT 5
+''')
+```
+
+### `search_code(query_text: str, top_k: int = 10, entity_types: List[str] = None)`
+Search codebase using vector similarity.
+
+```python
+results = search_code("authentication functions", top_k=5)
+for result in results:
+    print(f"{result.qualified_name}: {result.similarity_score}")
+```
+
+### `list_rules(enabled_only: bool = True) -> List[Rule]`
+List all custom quality rules.
+
+```python
+rules = list_rules()
+for rule in rules:
+    priority = rule.calculate_priority()
+    print(f"{rule.id}: {rule.name} (priority: {priority:.1f})")
+```
+
+### `execute_rule(rule_id: str) -> List[Finding]`
+Execute a custom rule by ID.
+
+```python
+findings = execute_rule("no-god-classes")
+print(f"Found {len(findings)} violations")
+```
+
+### `stats()`
+Print quick statistics about the codebase.
+
+```python
+stats()
+# Codebase Statistics:
+# --------------------
+# Function             1,234
+# Class                  567
+```
+
+## Available Models
+
+All Repotoire models are imported:
+- `CodebaseHealth`, `Finding`, `Severity`
+- `File`, `Class`, `Function`, `Module`, `Rule`
+- `GraphRAGRetriever`, `CodeEmbedder`
+
+## Environment Variables
+
+Pre-configured:
+- `REPOTOIRE_NEO4J_URI`: bolt://localhost:7688
+- `REPOTOIRE_NEO4J_PASSWORD`: From env or default
+"""
+
+
+def get_api_documentation() -> str:
+    """Get complete API documentation for code execution.
+
+    Returns:
+        Markdown documentation string
+    """
+    return API_DOCUMENTATION
 
 # Startup script that runs when the execution environment initializes
 REPOTOIRE_STARTUP_SCRIPT = """
