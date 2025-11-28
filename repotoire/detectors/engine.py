@@ -36,6 +36,11 @@ from repotoire.detectors.inappropriate_intimacy import InappropriateIntimacyDete
 # Data clumps detector (REPO-216)
 from repotoire.detectors.data_clumps import DataClumpsDetector
 
+# New graph-based detectors (REPO-228, REPO-229, REPO-231)
+from repotoire.detectors.async_antipattern import AsyncAntipatternDetector
+from repotoire.detectors.type_hint_coverage import TypeHintCoverageDetector
+from repotoire.detectors.long_parameter_list import LongParameterListDetector
+
 # Hybrid detectors (external tool + graph)
 from repotoire.detectors.ruff_import_detector import RuffImportDetector
 from repotoire.detectors.ruff_lint_detector import RuffLintDetector
@@ -146,6 +151,10 @@ class AnalysisEngine:
             InappropriateIntimacyDetector(neo4j_client, detector_config=config.get("inappropriate_intimacy"), enricher=self.enricher),
             # Data clumps detector (REPO-216)
             DataClumpsDetector(neo4j_client, detector_config=config.get("data_clumps"), enricher=self.enricher),
+            # New graph-based detectors (REPO-228, REPO-229, REPO-231)
+            AsyncAntipatternDetector(neo4j_client, detector_config=config.get("async_antipattern"), enricher=self.enricher),
+            TypeHintCoverageDetector(neo4j_client, detector_config=config.get("type_hint_coverage"), enricher=self.enricher),
+            LongParameterListDetector(neo4j_client, detector_config=config.get("long_parameter_list"), enricher=self.enricher),
             # TrulyUnusedImportsDetector has high false positive rate - replaced by RuffImportDetector
             # TrulyUnusedImportsDetector(neo4j_client, detector_config=config.get("truly_unused_imports")),
             # Hybrid detectors (external tool + graph)
