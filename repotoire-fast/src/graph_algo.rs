@@ -21,7 +21,7 @@
 use petgraph::graph::DiGraph;
 use petgraph::algo::tarjan_scc as petgraph_tarjan;
 use rayon::prelude::*;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use crate::errors::GraphError;
 
@@ -435,7 +435,7 @@ fn modularity_gain(
     neighbors: &[Vec<(u32, f64)>],
     communities: &[u32],
     degrees: &[f64],
-    community_weights: &HashMap<u32, f64>,  // sum of degrees in each community
+    community_weights: &FxHashMap<u32, f64>,  // sum of degrees in each community
     total_weight: f64,
 ) -> f64 {
     if total_weight == 0.0 {
@@ -509,7 +509,7 @@ fn louvain(
     let mut communities: Vec<u32> = (0..num_nodes as u32).collect();
 
     // Track sum of degrees per community
-    let mut community_weights: HashMap<u32, f64> = degrees.iter()
+    let mut community_weights: FxHashMap<u32, f64> = degrees.iter()
         .enumerate()
         .map(|(i, &d)| (i as u32, d))
         .collect();
@@ -526,7 +526,7 @@ fn louvain(
             let current_community = communities[node];
 
             // Find neighboring communities
-            let mut neighbor_communities: HashMap<u32, f64> = HashMap::new();
+            let mut neighbor_communities: FxHashMap<u32, f64> = FxHashMap::default();
             for &(neighbor, weight) in &neighbors[node] {
                 let nc = communities[neighbor as usize];
                 *neighbor_communities.entry(nc).or_insert(0.0) += weight;
@@ -589,7 +589,7 @@ fn louvain(
     }
 
     // Renumber communities to be contiguous (0, 1, 2, ...)
-    let mut community_map: HashMap<u32, u32> = HashMap::new();
+    let mut community_map: FxHashMap<u32, u32> = FxHashMap::default();
     let mut next_id = 0u32;
 
     for c in &mut communities {
@@ -830,7 +830,7 @@ fn leiden_impl(
                     // If more external than internal, consider moving
                     if external > internal && !neighbors[node].is_empty() {
                         // Find best neighboring community
-                        let mut community_counts: HashMap<u32, usize> = HashMap::new();
+                        let mut community_counts: FxHashMap<u32, usize> = FxHashMap::default();
                         for &neighbor in &neighbors[node] {
                             let nc = communities[neighbor as usize];
                             *community_counts.entry(nc).or_insert(0) += 1;
@@ -882,7 +882,7 @@ fn leiden_impl(
                 // If more external than internal, consider moving
                 if external > internal && !neighbors[node].is_empty() {
                     // Find best neighboring community
-                    let mut community_counts: HashMap<u32, usize> = HashMap::new();
+                    let mut community_counts: FxHashMap<u32, usize> = FxHashMap::default();
                     for &neighbor in &neighbors[node] {
                         let nc = communities[neighbor as usize];
                         *community_counts.entry(nc).or_insert(0) += 1;
@@ -909,7 +909,7 @@ fn leiden_impl(
     }
 
     // Renumber communities
-    let mut community_map: HashMap<u32, u32> = HashMap::new();
+    let mut community_map: FxHashMap<u32, u32> = FxHashMap::default();
     let mut next_id = 0u32;
 
     for c in &mut communities {

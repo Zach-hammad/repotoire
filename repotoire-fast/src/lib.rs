@@ -24,6 +24,7 @@ impl From<errors::GraphError> for PyErr {
 
 #[pyfunction]
 fn scan_files(
+    py: Python<'_>,
     repo_path: String,
     patterns: Vec<String>,
     ignore_dirs: Vec<String>,
@@ -39,23 +40,26 @@ fn scan_files(
         pyo3::exceptions::PyValueError:: new_err(format!("Failed to build globset: {}", e))
     })?;
 
-    let entries: Vec<_> = WalkDir::new(&repo_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .collect();
+    // Detach Python thread state during parallel file scanning to allow Python threads to run
+    let files = py.detach(|| {
+        let entries: Vec<_> = WalkDir::new(&repo_path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .collect();
 
-    let files: Vec<String> = entries
-        .into_par_iter()
-        .filter(|entry| entry.file_type().is_file())
-        .filter(|entry| {
-            let path = entry.path();
-            !path.components().any(|c| {
-                ignore_dirs.contains(&c.as_os_str().to_string_lossy().to_string())
+        entries
+            .into_par_iter()
+            .filter(|entry| entry.file_type().is_file())
+            .filter(|entry| {
+                let path = entry.path();
+                !path.components().any(|c| {
+                    ignore_dirs.contains(&c.as_os_str().to_string_lossy().to_string())
+                })
             })
-        })
-        .filter(|entry| glob_set.is_match(entry.path()))
-        .map(|entry| entry.path().to_string_lossy().to_string())
-        .collect();
+            .filter(|entry| glob_set.is_match(entry.path()))
+            .map(|entry| entry.path().to_string_lossy().to_string())
+            .collect()
+    });
     Ok(files)
 }
 
@@ -65,8 +69,9 @@ fn hash_file_md5(path: String) -> PyResult<Option<String>> {
 }
 
 #[pyfunction]
-fn batch_hash_files(paths: Vec<String>) -> PyResult<Vec<(String, String)>> {
-    Ok(hashing::batch_hash_files(paths))
+fn batch_hash_files(py: Python<'_>, paths: Vec<String>) -> PyResult<Vec<(String, String)>> {
+    // Detach Python thread state during parallel file hashing
+    Ok(py.detach(|| hashing::batch_hash_files(paths)))
 }
 
 use std::collections::HashMap;
@@ -84,14 +89,17 @@ fn calculate_complexity_batch(source: String) -> PyResult<Option<HashMap<String,
 /// Calculate complexity for multiple files in parallel
 /// Takes list of (path, source) tuples, returns list of (path, {func: complexity})
 #[pyfunction]
-fn calculate_complexity_files(files: Vec<(String, String)>) -> PyResult<Vec<(String, HashMap<String, u32>)>> {
-    let results: Vec<(String, HashMap<String, u32>)> = files
-        .into_par_iter()
-        .filter_map(|(path, source)| {
-            let result = complexity::calculate_complexity_batch(&source)?;
-            Some((path, result))
-        })
-        .collect();
+fn calculate_complexity_files(py: Python<'_>, files: Vec<(String, String)>) -> PyResult<Vec<(String, HashMap<String, u32>)>> {
+    // Detach Python thread state during parallel complexity calculation
+    let results = py.detach(|| {
+        files
+            .into_par_iter()
+            .filter_map(|(path, source)| {
+                let result = complexity::calculate_complexity_batch(&source)?;
+                Some((path, result))
+            })
+            .collect()
+    });
     Ok(results)
 }
 
@@ -107,8 +115,9 @@ fn calculate_lcom_fast(method_field_pairs: Vec<(String, Vec<String>)>) -> PyResu
 /// Takes list of (class_name, [(method_name, [field_names])]).
 /// Returns list of (class_name, lcom_score).
 #[pyfunction]
-fn calculate_lcom_batch(classes: Vec<(String, Vec<(String, Vec<String>)>)>) -> PyResult<Vec<(String, f64)>> {
-    Ok(lcom::calculate_lcom_batch(classes))
+fn calculate_lcom_batch(py: Python<'_>, classes: Vec<(String, Vec<(String, Vec<String>)>)>) -> PyResult<Vec<(String, f64)>> {
+    // Detach Python thread state during parallel LCOM calculation
+    Ok(py.detach(|| lcom::calculate_lcom_batch(classes)))
 }
 #[pyfunction]
 pub fn cosine_similarity_fast<'py>(a: PyReadonlyArray1<'py, f32>, b: PyReadonlyArray1<'py, f32>) -> PyResult<f32> {
@@ -124,19 +133,27 @@ pub fn cosine_similarity_fast<'py>(a: PyReadonlyArray1<'py, f32>, b: PyReadonlyA
 
 #[pyfunction]
 pub fn batch_cosine_similarity_fast<'py>(
+    py: Python<'py>,
     query: PyReadonlyArray1<'py, f32>,
     matrix: PyReadonlyArray2<'py, f32>
 ) -> PyResult<Vec<f32>> {
     let query_slice = query.as_slice()?;
     let matrix_view = matrix.as_array();
 
+    // Copy data to owned vectors so we can release GIL
+    let query_vec: Vec<f32> = query_slice.to_vec();
     let rows: Vec<Vec<f32>> = matrix_view.rows().into_iter().map(|r| r.to_vec()).collect();
-    let row_slices: Vec<&[f32]> = rows.iter().map(|r| r.as_slice()).collect();
-    Ok(similarity::batch_cosine_similarity(query_slice, &row_slices))
+
+    // Detach Python thread state during parallel computation
+    Ok(py.detach(|| {
+        let row_slices: Vec<&[f32]> = rows.iter().map(|r| r.as_slice()).collect();
+        similarity::batch_cosine_similarity(&query_vec, &row_slices)
+    }))
 }
 
 #[pyfunction]
 pub fn find_top_k_similar<'py>(
+    py: Python<'py>,
     query: PyReadonlyArray1<'py, f32>,
     matrix: PyReadonlyArray2<'py, f32>,
     k: usize,
@@ -144,9 +161,15 @@ pub fn find_top_k_similar<'py>(
     let query_slice = query.as_slice()?;
     let matrix_view = matrix.as_array();
 
+    // Copy data to owned vectors so we can release GIL
+    let query_vec: Vec<f32> = query_slice.to_vec();
     let rows: Vec<Vec<f32>> = matrix_view.rows().into_iter().map(|r| r.to_vec()).collect();
-    let row_slices: Vec<&[f32]> = rows.iter().map(|r| r.as_slice()).collect();
-    Ok(similarity::find_top_k(query_slice, &row_slices, k))
+
+    // Detach Python thread state during parallel computation
+    Ok(py.detach(|| {
+        let row_slices: Vec<&[f32]> = rows.iter().map(|r| r.as_slice()).collect();
+        similarity::find_top_k(&query_vec, &row_slices, k)
+    }))
 }
 
 /// Check for too-many-instance-attributes (R0902)
@@ -433,6 +456,7 @@ fn check_all_pylint_rules(
 #[pyfunction]
 #[pyo3(signature = (files, max_attributes=7, min_public_methods=2, max_lines=1000, max_ancestors=7, disallowed_names=vec![]))]
 fn check_all_pylint_rules_batch(
+    py: Python<'_>,
     files: Vec<(String, String)>,
     max_attributes: usize,
     min_public_methods: usize,
@@ -443,61 +467,64 @@ fn check_all_pylint_rules_batch(
     use rustpython_parser::{parse, Mode, ast::Mod};
     use pylint_rules::{PylintRule, TooManyAttributes, TooFewPublicMethods};
 
-    let results: Vec<(String, Vec<(String, String, usize)>)> = files
-        .into_par_iter()
-        .map(|(path, source)| {
-            let mut all_findings = Vec::new();
+    // Detach Python thread state during parallel pylint checking
+    let results = py.detach(|| {
+        files
+            .into_par_iter()
+            .map(|(path, source)| {
+                let mut all_findings = Vec::new();
 
-            // C0302: too-many-lines (no parsing needed)
-            let line_findings = pylint_rules::check_too_many_lines(&source, max_lines);
-            all_findings.extend(line_findings);
+                // C0302: too-many-lines (no parsing needed)
+                let line_findings = pylint_rules::check_too_many_lines(&source, max_lines);
+                all_findings.extend(line_findings);
 
-            // Parse once for all other checks
-            let ast = match parse(&source, Mode::Module, "<string>") {
-                Ok(ast) => ast,
-                Err(_) => return (path, all_findings.into_iter().map(|f| (f.code, f.message, f.line)).collect()),
-            };
+                // Parse once for all other checks
+                let ast = match parse(&source, Mode::Module, "<string>") {
+                    Ok(ast) => ast,
+                    Err(_) => return (path, all_findings.into_iter().map(|f| (f.code, f.message, f.line)).collect()),
+                };
 
-            let body = match ast {
-                Mod::Module(m) => m.body,
-                _ => return (path, all_findings.into_iter().map(|f| (f.code, f.message, f.line)).collect()),
-            };
+                let body = match ast {
+                    Mod::Module(m) => m.body,
+                    _ => return (path, all_findings.into_iter().map(|f| (f.code, f.message, f.line)).collect()),
+                };
 
-            // R0902: too-many-instance-attributes
-            let rule = TooManyAttributes { threshold: max_attributes };
-            all_findings.extend(rule.check(&body, &source));
+                // R0902: too-many-instance-attributes
+                let rule = TooManyAttributes { threshold: max_attributes };
+                all_findings.extend(rule.check(&body, &source));
 
-            // R0903: too-few-public-methods
-            let rule = TooFewPublicMethods { threshold: min_public_methods };
-            all_findings.extend(rule.check(&body, &source));
+                // R0903: too-few-public-methods
+                let rule = TooFewPublicMethods { threshold: min_public_methods };
+                all_findings.extend(rule.check(&body, &source));
 
-            // R0401: import-self - use filename from path
-            all_findings.extend(pylint_rules::check_import_self(&body, &source, &path));
+                // R0401: import-self - use filename from path
+                all_findings.extend(pylint_rules::check_import_self(&body, &source, &path));
 
-            // R0901: too-many-ancestors
-            all_findings.extend(pylint_rules::check_too_many_ancestors(&body, &source, max_ancestors));
+                // R0901: too-many-ancestors
+                all_findings.extend(pylint_rules::check_too_many_ancestors(&body, &source, max_ancestors));
 
-            // W0201: attribute-defined-outside-init
-            all_findings.extend(pylint_rules::check_attribute_defined_outside_init(&body, &source));
+                // W0201: attribute-defined-outside-init
+                all_findings.extend(pylint_rules::check_attribute_defined_outside_init(&body, &source));
 
-            // W0212: protected-access
-            all_findings.extend(pylint_rules::check_protected_access(&body, &source));
+                // W0212: protected-access
+                all_findings.extend(pylint_rules::check_protected_access(&body, &source));
 
-            // W0614: unused-wildcard-import
-            all_findings.extend(pylint_rules::check_unused_wildcard_import(&body, &source));
+                // W0614: unused-wildcard-import
+                all_findings.extend(pylint_rules::check_unused_wildcard_import(&body, &source));
 
-            // W0631: undefined-loop-variable
-            all_findings.extend(pylint_rules::check_undefined_loop_variable(&body, &source));
+                // W0631: undefined-loop-variable
+                all_findings.extend(pylint_rules::check_undefined_loop_variable(&body, &source));
 
-            // C0104: disallowed-name
-            if !disallowed_names.is_empty() {
-                let disallowed_refs: Vec<&str> = disallowed_names.iter().map(|s| s.as_str()).collect();
-                all_findings.extend(pylint_rules::check_disallowed_name(&body, &source, &disallowed_refs));
-            }
+                // C0104: disallowed-name
+                if !disallowed_names.is_empty() {
+                    let disallowed_refs: Vec<&str> = disallowed_names.iter().map(|s| s.as_str()).collect();
+                    all_findings.extend(pylint_rules::check_disallowed_name(&body, &source, &disallowed_refs));
+                }
 
-            (path, all_findings.into_iter().map(|f| (f.code, f.message, f.line)).collect())
-        })
-        .collect();
+                (path, all_findings.into_iter().map(|f| (f.code, f.message, f.line)).collect())
+            })
+            .collect()
+    });
 
     Ok(results)
 }
@@ -513,8 +540,10 @@ fn check_all_pylint_rules_batch(
 /// Raises ValueError if any edge references a node >= num_nodes
 #[pyfunction]
 #[pyo3(signature = (edges, num_nodes))]
-fn graph_find_sccs(edges: Vec<(u32, u32)>, num_nodes: usize) -> PyResult<Vec<Vec<u32>>> {
-    graph_algo::find_sccs(&edges, num_nodes).map_err(|e| e.into())
+fn graph_find_sccs(py: Python<'_>, edges: Vec<(u32, u32)>, num_nodes: usize) -> PyResult<Vec<Vec<u32>>> {
+    // Detach Python thread state during graph computation
+    py.detach(|| graph_algo::find_sccs(&edges, num_nodes))
+        .map_err(|e| e.into())
 }
 
 /// Find cycles (SCCs with size >= min_size)
@@ -524,11 +553,14 @@ fn graph_find_sccs(edges: Vec<(u32, u32)>, num_nodes: usize) -> PyResult<Vec<Vec
 #[pyfunction]
 #[pyo3(signature = (edges, num_nodes, min_size=2))]
 fn graph_find_cycles(
+    py: Python<'_>,
     edges: Vec<(u32, u32)>,
     num_nodes: usize,
     min_size: usize,
 ) -> PyResult<Vec<Vec<u32>>> {
-    graph_algo::find_cycles(&edges, num_nodes, min_size).map_err(|e| e.into())
+    // Detach Python thread state during graph computation
+    py.detach(|| graph_algo::find_cycles(&edges, num_nodes, min_size))
+        .map_err(|e| e.into())
 }
 
 /// Calculate PageRank scores for all nodes
@@ -541,13 +573,16 @@ fn graph_find_cycles(
 #[pyfunction]
 #[pyo3(signature = (edges, num_nodes, damping=0.85, max_iterations=20, tolerance=1e-4))]
 fn graph_pagerank(
+    py: Python<'_>,
     edges: Vec<(u32, u32)>,
     num_nodes: usize,
     damping: f64,
     max_iterations: usize,
     tolerance: f64,
 ) -> PyResult<Vec<f64>> {
-    graph_algo::pagerank(&edges, num_nodes, damping, max_iterations, tolerance).map_err(|e| e.into())
+    // Detach Python thread state during iterative PageRank computation
+    py.detach(|| graph_algo::pagerank(&edges, num_nodes, damping, max_iterations, tolerance))
+        .map_err(|e| e.into())
 }
 
 /// Calculate Betweenness Centrality (Brandes algorithm)
@@ -557,10 +592,13 @@ fn graph_pagerank(
 #[pyfunction]
 #[pyo3(signature = (edges, num_nodes))]
 fn graph_betweenness_centrality(
+    py: Python<'_>,
     edges: Vec<(u32, u32)>,
     num_nodes: usize,
 ) -> PyResult<Vec<f64>> {
-    graph_algo::betweenness_centrality(&edges, num_nodes).map_err(|e| e.into())
+    // Detach Python thread state during parallel betweenness computation
+    py.detach(|| graph_algo::betweenness_centrality(&edges, num_nodes))
+        .map_err(|e| e.into())
 }
 
 /// Leiden community detection (best algorithm for community detection)
@@ -573,12 +611,15 @@ fn graph_betweenness_centrality(
 #[pyfunction]
 #[pyo3(signature = (edges, num_nodes, resolution=1.0, max_iterations=10))]
 fn graph_leiden(
+    py: Python<'_>,
     edges: Vec<(u32, u32)>,
     num_nodes: usize,
     resolution: f64,
     max_iterations: usize,
 ) -> PyResult<Vec<u32>> {
-    graph_algo::leiden(&edges, num_nodes, resolution, max_iterations).map_err(|e| e.into())
+    // Detach Python thread state during community detection
+    py.detach(|| graph_algo::leiden(&edges, num_nodes, resolution, max_iterations))
+        .map_err(|e| e.into())
 }
 
 /// Leiden community detection with optional parallelization (REPO-215)
@@ -599,13 +640,16 @@ fn graph_leiden(
 #[pyfunction]
 #[pyo3(signature = (edges, num_nodes, resolution=1.0, max_iterations=10, parallel=true))]
 fn graph_leiden_parallel(
+    py: Python<'_>,
     edges: Vec<(u32, u32)>,
     num_nodes: usize,
     resolution: f64,
     max_iterations: usize,
     parallel: bool,
 ) -> PyResult<Vec<u32>> {
-    graph_algo::leiden_parallel(&edges, num_nodes, resolution, max_iterations, parallel).map_err(|e| e.into())
+    // Detach Python thread state during parallel community detection
+    py.detach(|| graph_algo::leiden_parallel(&edges, num_nodes, resolution, max_iterations, parallel))
+        .map_err(|e| e.into())
 }
 
 /// Calculate Harmonic Centrality for all nodes
@@ -616,11 +660,14 @@ fn graph_leiden_parallel(
 #[pyfunction]
 #[pyo3(signature = (edges, num_nodes, normalized=true))]
 fn graph_harmonic_centrality(
+    py: Python<'_>,
     edges: Vec<(u32, u32)>,
     num_nodes: usize,
     normalized: bool,
 ) -> PyResult<Vec<f64>> {
-    graph_algo::harmonic_centrality(&edges, num_nodes, normalized).map_err(|e| e.into())
+    // Detach Python thread state during parallel harmonic centrality computation
+    py.detach(|| graph_algo::harmonic_centrality(&edges, num_nodes, normalized))
+        .map_err(|e| e.into())
 }
 
 // ============================================================================
@@ -714,6 +761,7 @@ impl From<duplicate::DuplicateBlock> for PyDuplicateBlock {
 #[pyfunction]
 #[pyo3(signature = (files, min_tokens=50, min_lines=5, min_similarity=0.0))]
 fn find_duplicates(
+    py: Python<'_>,
     files: Vec<(String, String)>,
     min_tokens: usize,
     min_lines: usize,
@@ -725,7 +773,8 @@ fn find_duplicates(
         ));
     }
 
-    let duplicates = duplicate::find_duplicates(files, min_tokens, min_lines, min_similarity);
+    // Detach Python thread state during parallel duplicate detection
+    let duplicates = py.detach(|| duplicate::find_duplicates(files, min_tokens, min_lines, min_similarity));
     Ok(duplicates.into_iter().map(PyDuplicateBlock::from).collect())
 }
 

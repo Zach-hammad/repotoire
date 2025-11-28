@@ -1,5 +1,6 @@
 use rustpython_parser::ast::{Stmt, Suite, Expr, StmtClassDef, ExceptHandler};
 use std::collections::HashSet;
+use rustc_hash::FxHashMap;
 use line_numbers::LinePositions;
 use std::path::Path;
 
@@ -30,8 +31,8 @@ impl PylintRule for TooManyAttributes {
         let line_positions = LinePositions::from(source);
 
         // Build a map of class names to their dataclass attributes (for inheritance)
-        let mut class_attrs: std::collections::HashMap<String, HashSet<String>> = std::collections::HashMap::new();
-        let mut class_bases: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        let mut class_attrs: FxHashMap<String, HashSet<String>> = FxHashMap::default();
+        let mut class_bases: FxHashMap<String, Vec<String>> = FxHashMap::default();
         let mut dataclass_set: HashSet<String> = HashSet::new();
 
         // First pass: collect all class info
@@ -137,8 +138,8 @@ impl TooManyAttributes {
 
     fn count_total_attributes(
         class_name: &str,
-        class_attrs: &std::collections::HashMap<String, HashSet<String>>,
-        class_bases: &std::collections::HashMap<String, Vec<String>>,
+        class_attrs: &FxHashMap<String, HashSet<String>>,
+        class_bases: &FxHashMap<String, Vec<String>>,
         dataclass_set: &HashSet<String>,
         visited: &mut HashSet<String>,
     ) -> usize {
@@ -386,7 +387,7 @@ pub fn check_too_many_ancestors(ast: &Suite, source: &str, threshold: usize) -> 
     let line_positions = LinePositions::from(source);
 
     // Build a map of class names to their direct base classes
-    let mut class_bases: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut class_bases: FxHashMap<String, Vec<String>> = FxHashMap::default();
 
     for stmt in ast {
         if let Stmt::ClassDef(class) = stmt {
@@ -423,7 +424,7 @@ pub fn check_too_many_ancestors(ast: &Suite, source: &str, threshold: usize) -> 
 
 fn count_ancestors(
     class_name: &str,
-    class_bases: &std::collections::HashMap<String, Vec<String>>,
+    class_bases: &FxHashMap<String, Vec<String>>,
     visited: &mut HashSet<String>,
 ) -> usize {
     if visited.contains(class_name) {

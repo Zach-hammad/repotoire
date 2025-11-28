@@ -25,9 +25,8 @@
 //! ```
 
 use rayon::prelude::*;
-use std::collections::HashMap;
+use rustc_hash::{FxHashMap, FxHasher};
 use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
 
 // ============================================================================
 // CONSTANTS
@@ -134,6 +133,7 @@ fn tokenize_line(line: &str) -> Vec<String> {
 ///
 /// # Returns
 /// A vector of Token structs with normalized values and line numbers
+#[must_use]
 pub fn tokenize(source: &str) -> Vec<Token> {
     source
         .lines()
@@ -154,8 +154,10 @@ pub fn tokenize(source: &str) -> Vec<Token> {
 // ============================================================================
 
 /// Compute a hash for a single token string.
+/// Uses FxHasher for better performance (2-5x faster than DefaultHasher)
+#[inline]
 fn hash_token(token: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = FxHasher::default();
     token.hash(&mut hasher);
     hasher.finish() % ROLLING_HASH_MOD
 }
@@ -170,6 +172,7 @@ fn hash_token(token: &str) -> u64 {
 ///
 /// # Returns
 /// Vector of (hash, start_index, start_line) tuples
+#[must_use]
 pub fn rolling_hash(tokens: &[Token], window_size: usize) -> Vec<(u64, usize, usize)> {
     if tokens.len() < window_size || window_size == 0 {
         return vec![];
@@ -395,7 +398,6 @@ fn merge_overlapping(mut duplicates: Vec<DuplicateBlock>) -> Vec<DuplicateBlock>
             if same_files && overlaps1 && overlaps2 {
                 // Extend the previous block to cover this one
                 let end1 = (last.start1 + last.line_length).max(dup.start1 + dup.line_length);
-                let _end2 = (last.start2 + last.line_length).max(dup.start2 + dup.line_length);
                 last.line_length = end1 - last.start1;
                 last.token_length = last.token_length.max(dup.token_length);
                 continue;
@@ -427,6 +429,7 @@ fn merge_overlapping(mut duplicates: Vec<DuplicateBlock>) -> Vec<DuplicateBlock>
 /// files = [("a.py", "def foo(): pass"), ("b.py", "def foo(): pass")]
 /// duplicates = find_duplicates(files, min_tokens=5, min_lines=1, similarity=0.0)
 /// ```
+#[must_use]
 pub fn find_duplicates(
     files: Vec<(String, String)>,
     min_tokens: usize,
@@ -444,7 +447,13 @@ pub fn find_duplicates(
         .collect();
 
     // Step 2: Build hash index (hash -> list of locations)
-    let mut hash_index: HashMap<u64, Vec<TokenLocation>> = HashMap::new();
+    // Pre-size the HashMap based on estimated number of hash windows
+    let estimated_entries: usize = file_tokens
+        .iter()
+        .map(|(_, tokens)| tokens.len().saturating_sub(min_tokens).saturating_add(1))
+        .sum();
+    let mut hash_index: FxHashMap<u64, Vec<TokenLocation>> =
+        FxHashMap::with_capacity_and_hasher(estimated_entries, Default::default());
 
     for (file_idx, (_, tokens)) in file_tokens.iter().enumerate() {
         for (hash, token_idx, start_line) in rolling_hash(tokens, min_tokens) {
