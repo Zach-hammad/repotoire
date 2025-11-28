@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: repotoire-falkordb
+    environment:
+      # FalkorDB authentication (optional in dev, recommended for production)
+      # FALKORDB_PASSWORD: ${FALKORDB_PASSWORD:-falkor-password}
+      # Redis configuration for optimal graph operations
+      REDIS_ARGS: "--maxmemory 2gb --maxmemory-policy noeviction --appendonly yes"
+    ports:
+      # Redis protocol (for redis-cli and some clients)
+      # Use 6381 to avoid conflicts with existing Redis installations
+      - "6381:6379"
+      # Bolt protocol (Neo4j-compatible, used by Neo4j Python driver)
+      - "7689:7687"
+    volumes:
+      # Persist data between container restarts
+      - falkordb_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - repotoire-net
+
+  # Optional: RedisInsight for database management and visualization
+  redisinsight:
+    image: redislabs/redisinsight:latest
+    container_name: repotoire-redisinsight
+    ports:
+      - "8001:8001"
+    volumes:
+      - redisinsight_data:/db
+    depends_on:
+      - falkordb
+    networks:
+      - repotoire-net
+    profiles:
+      - tools  # Only start with: docker compose --profile tools up
+
+volumes:
+  falkordb_data:
+    driver: local
+  redisinsight_data:
+    driver: local
+
+networks:
+  repotoire-net:
+    driver: bridge

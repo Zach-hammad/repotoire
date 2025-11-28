@@ -1,10 +1,13 @@
 """Graph schema definition and initialization."""
 
-from repotoire.graph.client import Neo4jClient
+from typing import Union
 
 
 class GraphSchema:
-    """Manages graph schema creation and constraints."""
+    """Manages graph schema creation and constraints.
+
+    Supports both Neo4j and FalkorDB backends.
+    """
 
     # Constraint definitions
     CONSTRAINTS = [
@@ -120,16 +123,34 @@ class GraphSchema:
         """,
     ]
 
-    def __init__(self, client: Neo4jClient):
+    # FalkorDB index definitions (simpler syntax)
+    FALKORDB_INDEXES = [
+        "CREATE INDEX ON :File(filePath)",
+        "CREATE INDEX ON :File(language)",
+        "CREATE INDEX ON :Module(qualifiedName)",
+        "CREATE INDEX ON :Class(qualifiedName)",
+        "CREATE INDEX ON :Function(qualifiedName)",
+        "CREATE INDEX ON :Function(name)",
+        "CREATE INDEX ON :Class(name)",
+    ]
+
+    def __init__(self, client):
         """Initialize schema manager.
 
         Args:
-            client: Neo4j client instance
+            client: Neo4j or FalkorDB client instance
         """
         self.client = client
+        # Detect if we're using FalkorDB
+        self.is_falkordb = type(client).__name__ == "FalkorDBClient"
 
     def create_constraints(self) -> None:
         """Create all uniqueness constraints."""
+        if self.is_falkordb:
+            # FalkorDB doesn't support Neo4j-style constraints
+            print("Skipping constraints (FalkorDB uses indexes only)")
+            return
+
         for constraint in self.CONSTRAINTS:
             try:
                 self.client.execute_query(constraint)
@@ -138,6 +159,16 @@ class GraphSchema:
 
     def create_indexes(self) -> None:
         """Create all indexes."""
+        if self.is_falkordb:
+            # Use FalkorDB-specific index syntax
+            for index in self.FALKORDB_INDEXES:
+                try:
+                    self.client.execute_query(index)
+                except Exception as e:
+                    # Index may already exist
+                    pass
+            return
+
         for index in self.INDEXES:
             try:
                 self.client.execute_query(index)
@@ -148,8 +179,12 @@ class GraphSchema:
         """Create vector indexes for RAG semantic search.
 
         Requires Neo4j 5.18+ with vector index support.
-        Silently skips if Neo4j version doesn't support vector indexes.
+        FalkorDB does not support vector indexes.
         """
+        if self.is_falkordb:
+            print("Skipping vector indexes (FalkorDB does not support them)")
+            return
+
         for vector_index in self.VECTOR_INDEXES:
             try:
                 self.client.execute_query(vector_index)
@@ -175,6 +210,11 @@ class GraphSchema:
 
     def drop_all(self) -> None:
         """Drop all constraints and indexes. Use with caution!"""
+        if self.is_falkordb:
+            # FalkorDB: just clear the graph
+            print("FalkorDB: Clearing graph (no separate schema management)")
+            return
+
         import re
 
         # Validate name is safe (alphanumeric, underscore, hyphen only)

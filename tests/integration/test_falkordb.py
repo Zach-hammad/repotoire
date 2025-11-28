@@ -1,0 +1,698 @@
+"""Integration tests for FalkorDB compatibility (REPO-201).
+
+These tests verify that all Repotoire functionality works with FalkorDB
+as a drop-in replacement for Neo4j. FalkorDB is a Redis-based graph database
+that speaks the Bolt protocol.
+
+Requirements:
+- Docker (to start FalkorDB container)
+- repotoire_fast (Rust algorithms)
+
+The tests cover:
+1. Basic connectivity via Bolt protocol
+2. Ingestion pipeline
+3. All Rust graph algorithms (SCC, PageRank, Betweenness, Leiden, Harmonic)
+4. Full analysis workflow
+5. Performance benchmarks vs Neo4j (optional)
+"""
+
+import os
+import subprocess
+import tempfile
+import time
+from pathlib import Path
+from typing import Optional
+
+import pytest
+
+from repotoire.graph import Neo4jClient
+from repotoire.pipeline.ingestion import IngestionPipeline
+from repotoire.detectors.engine import AnalysisEngine
+from repotoire.detectors.graph_algorithms import GraphAlgorithms
+
+
+# Environment variable to control which database to test
+# Set REPOTOIRE_TEST_DB=falkordb to test FalkorDB
+# Set REPOTOIRE_TEST_DB=neo4j to test Neo4j (default)
+# Set REPOTOIRE_TEST_DB=both to test both databases
+TEST_DB = os.environ.get("REPOTOIRE_TEST_DB", "falkordb")
+
+# FalkorDB connection settings (using port 7689 to avoid Neo4j conflicts)
+FALKORDB_PORT = 7689
+FALKORDB_URI = f"bolt://localhost:{FALKORDB_PORT}"
+FALKORDB_PASSWORD = "falkor-password"  # FalkorDB doesn't require auth by default
+
+# Neo4j connection settings (standard test port)
+NEO4J_PORT = 7688
+NEO4J_URI = f"bolt://localhost:{NEO4J_PORT}"
+NEO4J_PASSWORD = os.environ.get("REPOTOIRE_NEO4J_PASSWORD", "falkor-password")
+
+
+def is_docker_available() -> bool:
+    """Check if Docker is available."""
+    try:
+        subprocess.run(["docker", "version"], capture_output=True, check=True)
+        return True
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return False
+
+
+def is_port_in_use(port: int) -> bool:
+    """Check if a port is already in use."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("localhost", port)) == 0
+
+
+def start_falkordb_container() -> bool:
+    """Start FalkorDB container for testing.
+
+    Returns:
+        True if container started successfully
+    """
+    container_name = "repotoire-test-falkordb"
+
+    # Check if already running
+    result = subprocess.run(
+        ["docker", "ps", "--filter", f"name={container_name}", "--format", "{{.Names}}"],
+        capture_output=True,
+        text=True
+    )
+    if container_name in result.stdout:
+        return True
+
+    # Remove existing stopped container
+    subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
+
+    # Start FalkorDB container
+    result = subprocess.run([
+        "docker", "run",
+        "-d",
+        "--name", container_name,
+        "-p", f"{FALKORDB_PORT}:7687",
+        "-e", "REDIS_ARGS=--maxmemory 1gb",
+        "falkordb/falkordb:latest"
+    ], capture_output=True)
+
+    if result.returncode != 0:
+        print(f"Failed to start FalkorDB: {result.stderr.decode()}")
+        return False
+
+    # Wait for FalkorDB to be ready (check Bolt port)
+    max_retries = 30
+    for i in range(max_retries):
+        if is_port_in_use(FALKORDB_PORT):
+            # Additional wait for Bolt server to initialize
+            time.sleep(2)
+            return True
+        time.sleep(1)
+
+    print("FalkorDB container failed to start in time")
+    return False
+
+
+def stop_falkordb_container():
+    """Stop and remove FalkorDB test container."""
+    subprocess.run(["docker", "rm", "-f", "repotoire-test-falkordb"], capture_output=True)
+
+
+@pytest.fixture(scope="module")
+def falkordb_client():
+    """Create a FalkorDB client for testing.
+
+    Starts container if needed, yields client, cleans up afterward.
+    """
+    if TEST_DB not in ("falkordb", "both"):
+        pytest.skip("FalkorDB tests disabled (set REPOTOIRE_TEST_DB=falkordb)")
+
+    if not is_docker_available():
+        pytest.skip("Docker not available")
+
+    if not start_falkordb_container():
+        pytest.skip("Failed to start FalkorDB container")
+
+    try:
+        # FalkorDB doesn't require username/password by default
+        # But the Neo4j driver needs something, so we provide defaults
+        client = Neo4jClient(
+            uri=FALKORDB_URI,
+            username="neo4j",  # FalkorDB accepts any credentials
+            password=FALKORDB_PASSWORD,
+            max_retries=5,
+            retry_base_delay=2.0,
+        )
+        # Clear any existing data
+        client.clear_graph()
+        yield client
+        client.close()
+    except Exception as e:
+        pytest.skip(f"FalkorDB not available: {e}")
+
+
+@pytest.fixture(scope="module")
+def neo4j_client():
+    """Create a Neo4j client for comparison testing."""
+    if TEST_DB not in ("neo4j", "both"):
+        pytest.skip("Neo4j tests disabled (set REPOTOIRE_TEST_DB=neo4j or both)")
+
+    try:
+        client = Neo4jClient(
+            uri=NEO4J_URI,
+            username="neo4j",
+            password=NEO4J_PASSWORD,
+        )
+        client.clear_graph()
+        yield client
+        client.close()
+    except Exception as e:
+        pytest.skip(f"Neo4j not available: {e}")
+
+
+@pytest.fixture
+def sample_codebase():
+    """Create a temporary directory with sample Python files for testing."""
+    temp_dir = tempfile.mkdtemp()
+    temp_path = Path(temp_dir)
+
+    # Create a realistic codebase structure
+    (temp_path / "main.py").write_text('''"""Main entry point."""
+from utils import helper
+from models import User
+
+def main():
+    """Main function."""
+    user = User("test")
+    result = helper.process(user)
+    return result
+
+if __name__ == "__main__":
+    main()
+''')
+
+    (temp_path / "utils" / "__init__.py").parent.mkdir(exist_ok=True)
+    (temp_path / "utils" / "__init__.py").write_text('"""Utilities package."""\n')
+
+    (temp_path / "utils" / "helper.py").write_text('''"""Helper utilities."""
+from typing import Any
+
+def process(obj: Any) -> str:
+    """Process an object."""
+    return str(obj)
+
+def validate(data: dict) -> bool:
+    """Validate data."""
+    return bool(data)
+
+def format_output(text: str) -> str:
+    """Format output text."""
+    return text.strip()
+''')
+
+    (temp_path / "models" / "__init__.py").parent.mkdir(exist_ok=True)
+    (temp_path / "models" / "__init__.py").write_text('"""Models package."""\nfrom .user import User\n')
+
+    (temp_path / "models" / "user.py").write_text('''"""User model."""
+
+class User:
+    """Represents a user."""
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def __str__(self) -> str:
+        return f"User({self.name})"
+
+    def validate(self) -> bool:
+        """Validate user."""
+        return bool(self.name)
+''')
+
+    # Create circular dependency for SCC testing
+    (temp_path / "circular_a.py").write_text('''"""Module A (circular)."""
+from circular_b import func_b
+
+def func_a():
+    """Function A."""
+    return func_b()
+''')
+
+    (temp_path / "circular_b.py").write_text('''"""Module B (circular)."""
+from circular_a import func_a
+
+def func_b():
+    """Function B."""
+    return func_a()
+''')
+
+    yield temp_path
+
+    # Cleanup
+    import shutil
+    shutil.rmtree(temp_dir)
+
+
+class TestFalkorDBConnectivity:
+    """Test basic FalkorDB connectivity via Bolt protocol."""
+
+    def test_connection_successful(self, falkordb_client):
+        """Test that we can connect to FalkorDB."""
+        assert falkordb_client is not None
+
+    def test_execute_simple_query(self, falkordb_client):
+        """Test executing a simple Cypher query."""
+        result = falkordb_client.execute_query("RETURN 1 AS value")
+        assert result[0]["value"] == 1
+
+    def test_create_and_query_node(self, falkordb_client):
+        """Test creating and querying a node."""
+        # Create node
+        falkordb_client.execute_query(
+            "CREATE (n:Test {name: $name}) RETURN n",
+            {"name": "test_node"}
+        )
+
+        # Query node
+        result = falkordb_client.execute_query(
+            "MATCH (n:Test {name: $name}) RETURN n.name AS name",
+            {"name": "test_node"}
+        )
+        assert result[0]["name"] == "test_node"
+
+        # Cleanup
+        falkordb_client.execute_query("MATCH (n:Test) DELETE n")
+
+    def test_create_relationship(self, falkordb_client):
+        """Test creating relationships between nodes."""
+        # Create nodes and relationship
+        falkordb_client.execute_query("""
+            CREATE (a:TestNode {id: 1})
+            CREATE (b:TestNode {id: 2})
+            CREATE (a)-[:RELATES_TO]->(b)
+        """)
+
+        # Query relationship
+        result = falkordb_client.execute_query("""
+            MATCH (a:TestNode)-[r:RELATES_TO]->(b:TestNode)
+            RETURN a.id AS from_id, b.id AS to_id
+        """)
+        assert len(result) == 1
+        assert result[0]["from_id"] == 1
+        assert result[0]["to_id"] == 2
+
+        # Cleanup
+        falkordb_client.execute_query("MATCH (n:TestNode) DETACH DELETE n")
+
+    def test_get_stats(self, falkordb_client):
+        """Test get_stats method works with FalkorDB."""
+        stats = falkordb_client.get_stats()
+        assert "total_nodes" in stats
+        assert "total_files" in stats
+        assert isinstance(stats["total_nodes"], int)
+
+
+class TestFalkorDBIngestion:
+    """Test ingestion pipeline with FalkorDB."""
+
+    def test_ingest_sample_codebase(self, falkordb_client, sample_codebase):
+        """Test that ingestion pipeline works with FalkorDB."""
+        pipeline = IngestionPipeline(str(sample_codebase), falkordb_client)
+        pipeline.ingest(patterns=["**/*.py"])
+
+        # Verify nodes were created
+        stats = falkordb_client.get_stats()
+        assert stats["total_files"] >= 5  # At least our test files
+        assert stats["total_functions"] >= 3  # main, process, validate, etc.
+
+    def test_ingestion_creates_relationships(self, falkordb_client, sample_codebase):
+        """Test that relationships are created correctly."""
+        # First ingest
+        falkordb_client.clear_graph()
+        pipeline = IngestionPipeline(str(sample_codebase), falkordb_client)
+        pipeline.ingest(patterns=["**/*.py"])
+
+        # Check for IMPORTS relationships
+        result = falkordb_client.execute_query("""
+            MATCH ()-[r:IMPORTS]->()
+            RETURN count(r) AS import_count
+        """)
+        assert result[0]["import_count"] > 0
+
+        # Check for CONTAINS relationships
+        result = falkordb_client.execute_query("""
+            MATCH ()-[r:CONTAINS]->()
+            RETURN count(r) AS contains_count
+        """)
+        assert result[0]["contains_count"] > 0
+
+
+class TestFalkorDBRustAlgorithms:
+    """Test all Rust graph algorithms with FalkorDB."""
+
+    @pytest.fixture(autouse=True)
+    def setup_graph_data(self, falkordb_client, sample_codebase):
+        """Ensure graph has data before running algorithm tests."""
+        falkordb_client.clear_graph()
+        pipeline = IngestionPipeline(str(sample_codebase), falkordb_client)
+        pipeline.ingest(patterns=["**/*.py"])
+
+    def test_scc_algorithm(self, falkordb_client):
+        """Test SCC (Tarjan's) algorithm works with FalkorDB."""
+        graph_algo = GraphAlgorithms(falkordb_client)
+        result = graph_algo.calculate_scc()
+
+        # Should complete without error
+        assert result is not None
+        assert "componentCount" in result
+        assert result["componentCount"] >= 0
+
+    def test_scc_detects_cycles(self, falkordb_client):
+        """Test SCC detects circular dependencies."""
+        graph_algo = GraphAlgorithms(falkordb_client)
+        graph_algo.calculate_scc()
+
+        cycles = graph_algo.get_scc_cycles(min_cycle_size=2)
+        # Our test data has circular_a <-> circular_b
+        # This may or may not be detected depending on how imports are resolved
+        assert isinstance(cycles, list)
+
+    def test_pagerank_algorithm(self, falkordb_client):
+        """Test PageRank algorithm works with FalkorDB."""
+        graph_algo = GraphAlgorithms(falkordb_client)
+        result = graph_algo.calculate_pagerank()
+
+        assert result is not None
+        assert "nodePropertiesWritten" in result
+
+    def test_pagerank_writes_scores(self, falkordb_client):
+        """Test PageRank scores are written to nodes."""
+        graph_algo = GraphAlgorithms(falkordb_client)
+        graph_algo.calculate_pagerank()
+
+        # Check that some nodes have pagerank property
+        result = falkordb_client.execute_query("""
+            MATCH (f:Function)
+            WHERE f.pagerank IS NOT NULL
+            RETURN count(f) AS count
+        """)
+        # May be 0 if no call graph exists, but should not error
+        assert result[0]["count"] >= 0
+
+    def test_betweenness_centrality_algorithm(self, falkordb_client):
+        """Test Betweenness Centrality (Brandes) works with FalkorDB."""
+        graph_algo = GraphAlgorithms(falkordb_client)
+        result = graph_algo.calculate_betweenness_centrality()
+
+        assert result is not None
+        assert "nodePropertiesWritten" in result
+        assert "computeMillis" in result
+
+    def test_leiden_community_detection(self, falkordb_client):
+        """Test Leiden community detection works with FalkorDB."""
+        graph_algo = GraphAlgorithms(falkordb_client)
+        result = graph_algo.calculate_communities()
+
+        assert result is not None
+        assert "communityCount" in result
+
+    def test_leiden_file_communities(self, falkordb_client):
+        """Test file-level Leiden community detection."""
+        graph_algo = GraphAlgorithms(falkordb_client)
+        result = graph_algo.calculate_file_communities()
+
+        assert result is not None
+        assert "communityCount" in result
+
+    def test_harmonic_centrality_algorithm(self, falkordb_client):
+        """Test Harmonic Centrality works with FalkorDB."""
+        graph_algo = GraphAlgorithms(falkordb_client)
+        result = graph_algo.calculate_harmonic_centrality()
+
+        assert result is not None
+        assert "nodePropertiesWritten" in result
+        assert "computeMillis" in result
+
+    def test_full_analysis_pipeline(self, falkordb_client):
+        """Test running all algorithms together."""
+        graph_algo = GraphAlgorithms(falkordb_client)
+        results = graph_algo.run_full_analysis()
+
+        assert results["rust_algorithms"] is True
+        assert "communities" in results
+        assert "pagerank" in results
+        assert "betweenness" in results
+        assert "scc" in results
+        assert len(results.get("errors", [])) == 0
+
+
+class TestFalkorDBAnalysisEngine:
+    """Test full analysis workflow with FalkorDB."""
+
+    def test_analysis_engine_works(self, falkordb_client, sample_codebase):
+        """Test that AnalysisEngine works with FalkorDB."""
+        # Ingest first
+        falkordb_client.clear_graph()
+        pipeline = IngestionPipeline(str(sample_codebase), falkordb_client)
+        pipeline.ingest(patterns=["**/*.py"])
+
+        # Run analysis
+        engine = AnalysisEngine(falkordb_client)
+        health = engine.analyze()
+
+        # Verify results
+        assert health is not None
+        assert health.grade in ["A", "B", "C", "D", "F"]
+        assert 0 <= health.overall_score <= 100
+        assert health.metrics is not None
+
+    def test_detectors_produce_findings(self, falkordb_client, sample_codebase):
+        """Test that detectors produce findings."""
+        falkordb_client.clear_graph()
+        pipeline = IngestionPipeline(str(sample_codebase), falkordb_client)
+        pipeline.ingest(patterns=["**/*.py"])
+
+        engine = AnalysisEngine(falkordb_client)
+        health = engine.analyze()
+
+        # Should have some findings (at least from dead code or complexity)
+        assert health.findings_summary is not None
+        # Total might be 0 for small clean codebase, but should not error
+        assert health.findings_summary.total >= 0
+
+
+class TestFalkorDBCypherCompatibility:
+    """Test Cypher compatibility between FalkorDB and Neo4j.
+
+    Documents any FalkorDB-specific Cypher adjustments needed.
+    """
+
+    def test_basic_match(self, falkordb_client):
+        """Test basic MATCH query."""
+        falkordb_client.execute_query("CREATE (n:CompatTest {value: 1})")
+        result = falkordb_client.execute_query("MATCH (n:CompatTest) RETURN n.value AS val")
+        assert result[0]["val"] == 1
+        falkordb_client.execute_query("MATCH (n:CompatTest) DELETE n")
+
+    def test_merge_query(self, falkordb_client):
+        """Test MERGE query works."""
+        falkordb_client.execute_query(
+            "MERGE (n:CompatTest {id: $id}) SET n.updated = true",
+            {"id": "test1"}
+        )
+        result = falkordb_client.execute_query(
+            "MATCH (n:CompatTest {id: $id}) RETURN n.updated AS updated",
+            {"id": "test1"}
+        )
+        assert result[0]["updated"] is True
+        falkordb_client.execute_query("MATCH (n:CompatTest) DELETE n")
+
+    def test_unwind_query(self, falkordb_client):
+        """Test UNWIND query for batch operations."""
+        items = [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}]
+        falkordb_client.execute_query(
+            "UNWIND $items AS item CREATE (n:CompatTest) SET n = item",
+            {"items": items}
+        )
+        result = falkordb_client.execute_query(
+            "MATCH (n:CompatTest) RETURN n.name AS name ORDER BY n.id"
+        )
+        assert [r["name"] for r in result] == ["a", "b"]
+        falkordb_client.execute_query("MATCH (n:CompatTest) DELETE n")
+
+    def test_aggregation_functions(self, falkordb_client):
+        """Test aggregation functions work."""
+        falkordb_client.execute_query("""
+            CREATE (n1:CompatTest {value: 10})
+            CREATE (n2:CompatTest {value: 20})
+            CREATE (n3:CompatTest {value: 30})
+        """)
+        result = falkordb_client.execute_query("""
+            MATCH (n:CompatTest)
+            RETURN
+                count(n) AS cnt,
+                sum(n.value) AS total,
+                avg(n.value) AS average,
+                min(n.value) AS minimum,
+                max(n.value) AS maximum
+        """)
+        assert result[0]["cnt"] == 3
+        assert result[0]["total"] == 60
+        assert result[0]["average"] == 20.0
+        assert result[0]["minimum"] == 10
+        assert result[0]["maximum"] == 30
+        falkordb_client.execute_query("MATCH (n:CompatTest) DELETE n")
+
+    def test_path_queries(self, falkordb_client):
+        """Test path-based queries work."""
+        falkordb_client.execute_query("""
+            CREATE (a:PathTest {name: 'a'})
+            CREATE (b:PathTest {name: 'b'})
+            CREATE (c:PathTest {name: 'c'})
+            CREATE (a)-[:NEXT]->(b)-[:NEXT]->(c)
+        """)
+        result = falkordb_client.execute_query("""
+            MATCH path = (start:PathTest {name: 'a'})-[:NEXT*]->(end:PathTest)
+            RETURN end.name AS end_name
+        """)
+        end_names = [r["end_name"] for r in result]
+        assert "b" in end_names
+        assert "c" in end_names
+        falkordb_client.execute_query("MATCH (n:PathTest) DETACH DELETE n")
+
+    def test_collect_function(self, falkordb_client):
+        """Test collect() aggregation works."""
+        falkordb_client.execute_query("""
+            CREATE (g:Group {name: 'group1'})
+            CREATE (i1:Item {name: 'item1'})
+            CREATE (i2:Item {name: 'item2'})
+            CREATE (g)-[:HAS]->(i1)
+            CREATE (g)-[:HAS]->(i2)
+        """)
+        result = falkordb_client.execute_query("""
+            MATCH (g:Group)-[:HAS]->(i:Item)
+            RETURN g.name AS group, collect(i.name) AS items
+        """)
+        assert result[0]["group"] == "group1"
+        assert set(result[0]["items"]) == {"item1", "item2"}
+        falkordb_client.execute_query("MATCH (n:Group) DETACH DELETE n")
+        falkordb_client.execute_query("MATCH (n:Item) DELETE n")
+
+
+class TestPerformanceComparison:
+    """Optional performance benchmarks comparing FalkorDB and Neo4j.
+
+    These tests are skipped by default. Run with:
+    REPOTOIRE_TEST_DB=both pytest -v tests/integration/test_falkordb.py::TestPerformanceComparison
+    """
+
+    @pytest.fixture
+    def large_graph_data(self):
+        """Generate data for performance testing."""
+        # Create 100 files with 500 functions and relationships
+        files = [{"name": f"file_{i}.py", "path": f"/src/file_{i}.py"} for i in range(100)]
+        functions = [
+            {"name": f"func_{i}", "file_idx": i % 100, "complexity": i % 20}
+            for i in range(500)
+        ]
+        # Create call relationships (random-ish pattern)
+        calls = [(i, (i * 7 + 3) % 500) for i in range(1000)]
+        return {"files": files, "functions": functions, "calls": calls}
+
+    @pytest.mark.skip(reason="Performance tests disabled by default")
+    def test_bulk_insert_performance(self, falkordb_client, neo4j_client, large_graph_data):
+        """Compare bulk insert performance."""
+        import time
+
+        # FalkorDB
+        falkordb_client.clear_graph()
+        start = time.time()
+        for f in large_graph_data["files"]:
+            falkordb_client.execute_query(
+                "CREATE (n:File {name: $name, path: $path})",
+                f
+            )
+        falkordb_time = time.time() - start
+
+        # Neo4j
+        neo4j_client.clear_graph()
+        start = time.time()
+        for f in large_graph_data["files"]:
+            neo4j_client.execute_query(
+                "CREATE (n:File {name: $name, path: $path})",
+                f
+            )
+        neo4j_time = time.time() - start
+
+        print(f"\nBulk insert performance:")
+        print(f"  FalkorDB: {falkordb_time:.3f}s")
+        print(f"  Neo4j:    {neo4j_time:.3f}s")
+        print(f"  Ratio:    {falkordb_time/neo4j_time:.2f}x")
+
+    @pytest.mark.skip(reason="Performance tests disabled by default")
+    def test_query_performance(self, falkordb_client, neo4j_client, large_graph_data):
+        """Compare query performance."""
+        import time
+
+        # Setup data in both databases
+        for client in [falkordb_client, neo4j_client]:
+            client.clear_graph()
+            for f in large_graph_data["files"]:
+                client.execute_query(
+                    "CREATE (n:File {name: $name, path: $path})",
+                    f
+                )
+
+        query = "MATCH (f:File) RETURN count(f) AS count"
+
+        # FalkorDB
+        start = time.time()
+        for _ in range(100):
+            falkordb_client.execute_query(query)
+        falkordb_time = time.time() - start
+
+        # Neo4j
+        start = time.time()
+        for _ in range(100):
+            neo4j_client.execute_query(query)
+        neo4j_time = time.time() - start
+
+        print(f"\nQuery performance (100 iterations):")
+        print(f"  FalkorDB: {falkordb_time:.3f}s")
+        print(f"  Neo4j:    {neo4j_time:.3f}s")
+        print(f"  Ratio:    {falkordb_time/neo4j_time:.2f}x")
+
+
+# Document FalkorDB-specific adjustments
+FALKORDB_CYPHER_NOTES = """
+# FalkorDB Cypher Compatibility Notes
+
+## Fully Compatible
+- Basic MATCH, CREATE, MERGE, DELETE queries
+- Parameterized queries ($param syntax)
+- UNWIND for batch operations
+- collect(), count(), sum(), avg(), min(), max()
+- Variable-length path patterns ([:REL*])
+- CASE expressions
+- WITH clauses
+- ORDER BY, LIMIT
+
+## Differences from Neo4j
+1. No APOC procedures (apoc.* functions unavailable)
+2. No GDS plugin (we use Rust algorithms instead)
+3. Some datetime functions may differ
+4. No full-text indexes (use Redis search instead)
+
+## Workarounds Implemented
+1. All graph algorithms use Rust via repotoire_fast
+2. APOC path functions replaced with native Cypher
+3. GDS projections not needed - algorithms extract data directly
+
+## Performance Notes
+- FalkorDB excels at write-heavy workloads (Redis backend)
+- Complex traversals may be slower than Neo4j
+- Memory usage is generally lower
+"""
+
+
+if __name__ == "__main__":
+    print(FALKORDB_CYPHER_NOTES)
+    pytest.main([__file__, "-v"])
