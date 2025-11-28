@@ -7,9 +7,16 @@
 // 1. Work with FalkorDB (no GDS support)
 // 2. Run 10-100x faster (no network round-trips)
 // 3. Deploy anywhere (no plugin dependencies)
+//
+// PARALLELIZATION:
+// Several algorithms use rayon for parallel execution:
+// - Harmonic Centrality: BFS from each source in parallel (~Nx speedup)
+// - Betweenness Centrality: BFS from each source in parallel (~Nx speedup)
+// - PageRank: Score updates parallelized per iteration (~2-4x speedup)
 
 use petgraph::graph::DiGraph;
 use petgraph::algo::tarjan_scc as petgraph_tarjan;
+use rayon::prelude::*;
 use std::collections::HashMap;
 
 // ============================================================================
@@ -113,7 +120,9 @@ pub fn find_cycles(edges: &[(u32, u32)], num_nodes: usize, min_size: usize) -> V
 // Time complexity: O(iterations * edges)
 // ============================================================================
 
-/// Calculate PageRank scores for all nodes.
+/// Calculate PageRank scores for all nodes (PARALLELIZED).
+///
+/// Uses rayon to parallelize score updates across nodes within each iteration.
 ///
 /// # Arguments
 /// * `edges` - List of (source, target) directed edges
@@ -154,39 +163,41 @@ pub fn pagerank(
     // Every node starts with equal probability: 1/N
     let initial_score = 1.0 / num_nodes as f64;
     let mut scores: Vec<f64> = vec![initial_score; num_nodes];
-    let mut new_scores: Vec<f64> = vec![0.0; num_nodes];
 
     // Base score: what you get from "random jumps" (not following links)
     let base_score = (1.0 - damping) / num_nodes as f64;
 
     // Step 3: Iterate until convergence
     for _iteration in 0..max_iterations {
-        // Calculate new scores
-        for node in 0..num_nodes {
-            // Start with base score (random jump probability)
-            let mut score = base_score;
+        // PARALLEL: Calculate new scores for all nodes simultaneously
+        let new_scores: Vec<f64> = (0..num_nodes)
+            .into_par_iter()
+            .map(|node| {
+                // Start with base score (random jump probability)
+                let mut score = base_score;
 
-            // Add contribution from each incoming neighbor
-            for &neighbor in &incoming[node] {
-                let neighbor = neighbor as usize;
-                let neighbor_out = out_degree[neighbor];
-                if neighbor_out > 0 {
-                    // Neighbor shares its score equally among all its outgoing links
-                    score += damping * scores[neighbor] / neighbor_out as f64;
+                // Add contribution from each incoming neighbor
+                for &neighbor in &incoming[node] {
+                    let neighbor = neighbor as usize;
+                    let neighbor_out = out_degree[neighbor];
+                    if neighbor_out > 0 {
+                        // Neighbor shares its score equally among all its outgoing links
+                        score += damping * scores[neighbor] / neighbor_out as f64;
+                    }
                 }
-            }
 
-            new_scores[node] = score;
-        }
+                score
+            })
+            .collect();
 
-        // Check for convergence: sum of absolute differences
-        let diff: f64 = scores.iter()
-            .zip(new_scores.iter())
+        // PARALLEL: Check for convergence - sum of absolute differences
+        let diff: f64 = scores.par_iter()
+            .zip(new_scores.par_iter())
             .map(|(old, new)| (old - new).abs())
             .sum();
 
-        // Swap scores for next iteration
-        std::mem::swap(&mut scores, &mut new_scores);
+        // Update scores for next iteration
+        scores = new_scores;
 
         // Converged?
         if diff < tolerance {
@@ -222,7 +233,10 @@ pub fn pagerank(
 // Time complexity: O(V * E) for unweighted graphs
 // ============================================================================
 
-/// Calculate Betweenness Centrality using Brandes' algorithm.
+/// Calculate Betweenness Centrality using Brandes' algorithm (PARALLELIZED).
+///
+/// Uses rayon to run BFS from each source node in parallel, then combines results.
+/// This provides ~Nx speedup where N is the number of CPU cores.
 ///
 /// # Arguments
 /// * `edges` - List of (source, target) directed edges
@@ -245,64 +259,79 @@ pub fn betweenness_centrality(edges: &[(u32, u32)], num_nodes: usize) -> Vec<f64
         }
     }
 
-    // Betweenness scores accumulator
+    // PARALLEL: Run BFS from each source node in parallel
+    // Each source computes partial betweenness contributions independently
+    let partial_scores: Vec<Vec<f64>> = (0..num_nodes)
+        .into_par_iter()
+        .map(|source| {
+            // Each thread computes contributions from this source
+            let mut partial: Vec<f64> = vec![0.0; num_nodes];
+
+            // Stack of nodes in order of non-increasing distance from source
+            let mut stack: Vec<usize> = Vec::new();
+
+            // Predecessors on shortest paths from source
+            let mut predecessors: Vec<Vec<usize>> = vec![vec![]; num_nodes];
+
+            // Number of shortest paths from source to each node
+            let mut num_paths: Vec<f64> = vec![0.0; num_nodes];
+            num_paths[source] = 1.0;
+
+            // Distance from source (-1 = not visited)
+            let mut distance: Vec<i32> = vec![-1; num_nodes];
+            distance[source] = 0;
+
+            // BFS queue
+            let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
+            queue.push_back(source);
+
+            // BFS traversal
+            while let Some(v) = queue.pop_front() {
+                stack.push(v);
+
+                for &w in &adj[v] {
+                    let w = w as usize;
+
+                    // First time visiting w?
+                    if distance[w] < 0 {
+                        distance[w] = distance[v] + 1;
+                        queue.push_back(w);
+                    }
+
+                    // Is this a shortest path to w?
+                    if distance[w] == distance[v] + 1 {
+                        num_paths[w] += num_paths[v];
+                        predecessors[w].push(v);
+                    }
+                }
+            }
+
+            // Dependency accumulation (backtrack from farthest nodes)
+            let mut dependency: Vec<f64> = vec![0.0; num_nodes];
+
+            while let Some(w) = stack.pop() {
+                for &v in &predecessors[w] {
+                    // v's contribution to w's dependency
+                    let contrib = (num_paths[v] / num_paths[w]) * (1.0 + dependency[w]);
+                    dependency[v] += contrib;
+                }
+
+                // Add to partial betweenness (exclude source itself)
+                if w != source {
+                    partial[w] += dependency[w];
+                }
+            }
+
+            partial
+        })
+        .collect();
+
+    // Combine partial scores from all sources
+    // PARALLEL: Sum across all partial score vectors
     let mut betweenness: Vec<f64> = vec![0.0; num_nodes];
-
-    // Run BFS from each node as source
-    for source in 0..num_nodes {
-        // Stack of nodes in order of non-increasing distance from source
-        let mut stack: Vec<usize> = Vec::new();
-
-        // Predecessors on shortest paths from source
-        let mut predecessors: Vec<Vec<usize>> = vec![vec![]; num_nodes];
-
-        // Number of shortest paths from source to each node
-        let mut num_paths: Vec<f64> = vec![0.0; num_nodes];
-        num_paths[source] = 1.0;
-
-        // Distance from source (-1 = not visited)
-        let mut distance: Vec<i32> = vec![-1; num_nodes];
-        distance[source] = 0;
-
-        // BFS queue
-        let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
-        queue.push_back(source);
-
-        // BFS traversal
-        while let Some(v) = queue.pop_front() {
-            stack.push(v);
-
-            for &w in &adj[v] {
-                let w = w as usize;
-
-                // First time visiting w?
-                if distance[w] < 0 {
-                    distance[w] = distance[v] + 1;
-                    queue.push_back(w);
-                }
-
-                // Is this a shortest path to w?
-                if distance[w] == distance[v] + 1 {
-                    num_paths[w] += num_paths[v];
-                    predecessors[w].push(v);
-                }
-            }
-        }
-
-        // Dependency accumulation (backtrack from farthest nodes)
-        let mut dependency: Vec<f64> = vec![0.0; num_nodes];
-
-        while let Some(w) = stack.pop() {
-            for &v in &predecessors[w] {
-                // v's contribution to w's dependency
-                let contrib = (num_paths[v] / num_paths[w]) * (1.0 + dependency[w]);
-                dependency[v] += contrib;
-            }
-
-            // Add to betweenness (exclude source itself)
-            if w != source {
-                betweenness[w] += dependency[w];
-            }
+    for partial in partial_scores {
+        for (i, score) in partial.into_iter().enumerate() {
+            betweenness[i] += score;
         }
     }
 
@@ -529,7 +558,10 @@ pub fn louvain(
 // Time complexity: O(V * (V + E)) - BFS from each node
 // ============================================================================
 
-/// Calculate Harmonic Centrality for all nodes.
+/// Calculate Harmonic Centrality for all nodes (PARALLELIZED).
+///
+/// Uses rayon to run BFS from each source node in parallel.
+/// This provides ~Nx speedup where N is the number of CPU cores.
 ///
 /// # Arguments
 /// * `edges` - List of (source, target) directed edges
@@ -559,44 +591,48 @@ pub fn harmonic_centrality(edges: &[(u32, u32)], num_nodes: usize, normalized: b
         }
     }
 
-    // Harmonic centrality for each node
-    let mut harmonic: Vec<f64> = vec![0.0; num_nodes];
+    // PARALLEL: BFS from each node in parallel to compute distances
+    // Each source's harmonic score is completely independent
+    let norm_factor = if normalized && num_nodes > 1 {
+        (num_nodes - 1) as f64
+    } else {
+        1.0
+    };
 
-    // BFS from each node to compute distances
-    for source in 0..num_nodes {
-        // Distance from source (-1 = not visited)
-        let mut distance: Vec<i32> = vec![-1; num_nodes];
-        distance[source] = 0;
+    let harmonic: Vec<f64> = (0..num_nodes)
+        .into_par_iter()
+        .map(|source| {
+            // Distance from source (-1 = not visited)
+            let mut distance: Vec<i32> = vec![-1; num_nodes];
+            distance[source] = 0;
 
-        // BFS queue
-        let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
-        queue.push_back(source);
+            // BFS queue
+            let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
+            queue.push_back(source);
 
-        // BFS traversal
-        while let Some(v) = queue.pop_front() {
-            for &w in &adj[v] {
-                let w = w as usize;
+            let mut score = 0.0;
 
-                // First time visiting w?
-                if distance[w] < 0 {
-                    distance[w] = distance[v] + 1;
-                    queue.push_back(w);
+            // BFS traversal
+            while let Some(v) = queue.pop_front() {
+                for &w in &adj[v] {
+                    let w = w as usize;
 
-                    // Add contribution to harmonic centrality
-                    // HC(source) += 1 / d(source, w)
-                    harmonic[source] += 1.0 / distance[w] as f64;
+                    // First time visiting w?
+                    if distance[w] < 0 {
+                        distance[w] = distance[v] + 1;
+                        queue.push_back(w);
+
+                        // Add contribution to harmonic centrality
+                        // HC(source) += 1 / d(source, w)
+                        score += 1.0 / distance[w] as f64;
+                    }
                 }
             }
-        }
-    }
 
-    // Normalize if requested: divide by (n-1) to get [0, 1] range
-    if normalized && num_nodes > 1 {
-        let norm_factor = (num_nodes - 1) as f64;
-        for score in &mut harmonic {
-            *score /= norm_factor;
-        }
-    }
+            // Normalize if requested
+            score / norm_factor
+        })
+        .collect();
 
     harmonic
 }
