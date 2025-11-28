@@ -32,3 +32,9 @@ numpy = "0.27"
 
 # line-numbers - Convert byte offsets to line numbers
 line-numbers = "0.3"
+
+# petgraph - Graph data structures and algorithms (SCC, traversals)
+petgraph = "0.6"
+
+# indexmap - Ordered hash maps (preserves insertion order)
+indexmap = "2.0"

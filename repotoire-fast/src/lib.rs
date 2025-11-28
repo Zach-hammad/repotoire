@@ -9,6 +9,7 @@ mod lcom;
 mod similarity;
 use numpy::{PyReadonlyArray1, PyReadonlyArray2};
 mod pylint_rules;
+mod graph_algo;
 
 #[pyfunction]
 fn scan_files(
@@ -343,17 +344,6 @@ fn check_disallowed_name(source: String, disallowed: Vec<String>) -> PyResult<Ve
         .collect())
 }
 
-/// Configuration for pylint checks
-#[derive(Default)]
-struct PylintConfig {
-    max_attributes: usize,
-    min_public_methods: usize,
-    max_lines: usize,
-    max_ancestors: usize,
-    module_path: String,
-    disallowed_names: Vec<String>,
-}
-
 /// Run all pylint checks on a single source file (parses once)
 /// Returns list of (code, message, line) tuples
 #[pyfunction]
@@ -501,6 +491,70 @@ fn check_all_pylint_rules_batch(
     Ok(results)
 }
 
+// ============================================================================
+// GRAPH ALGORITHMS (FalkorDB Migration)
+// These replace Neo4j GDS functions for database-agnostic graph analysis
+// ============================================================================
+
+/// Find strongly connected components (circular dependencies)
+/// Returns list of SCCs, each SCC is a list of node IDs
+#[pyfunction]
+#[pyo3(signature = (edges, num_nodes))]
+fn graph_find_sccs(edges: Vec<(u32, u32)>, num_nodes: usize) -> PyResult<Vec<Vec<u32>>> {
+    Ok(graph_algo::find_sccs(&edges, num_nodes))
+}
+
+/// Find cycles (SCCs with size >= min_size)
+/// This is what circular dependency detection needs!
+#[pyfunction]
+#[pyo3(signature = (edges, num_nodes, min_size=2))]
+fn graph_find_cycles(
+    edges: Vec<(u32, u32)>,
+    num_nodes: usize,
+    min_size: usize,
+) -> PyResult<Vec<Vec<u32>>> {
+    Ok(graph_algo::find_cycles(&edges, num_nodes, min_size))
+}
+
+/// Calculate PageRank scores for all nodes
+/// Returns list of scores (index = node ID)
+#[pyfunction]
+#[pyo3(signature = (edges, num_nodes, damping=0.85, max_iterations=20, tolerance=1e-4))]
+fn graph_pagerank(
+    edges: Vec<(u32, u32)>,
+    num_nodes: usize,
+    damping: f64,
+    max_iterations: usize,
+    tolerance: f64,
+) -> PyResult<Vec<f64>> {
+    Ok(graph_algo::pagerank(&edges, num_nodes, damping, max_iterations, tolerance))
+}
+
+/// Calculate Betweenness Centrality (Brandes algorithm)
+/// Returns list of scores (index = node ID)
+#[pyfunction]
+#[pyo3(signature = (edges, num_nodes))]
+fn graph_betweenness_centrality(
+    edges: Vec<(u32, u32)>,
+    num_nodes: usize,
+) -> PyResult<Vec<f64>> {
+    Ok(graph_algo::betweenness_centrality(&edges, num_nodes))
+}
+
+/// Leiden community detection (best algorithm for community detection)
+/// Guarantees well-connected communities
+/// Returns list where index = node ID, value = community ID
+#[pyfunction]
+#[pyo3(signature = (edges, num_nodes, resolution=1.0, max_iterations=10))]
+fn graph_leiden(
+    edges: Vec<(u32, u32)>,
+    num_nodes: usize,
+    resolution: f64,
+    max_iterations: usize,
+) -> PyResult<Vec<u32>> {
+    Ok(graph_algo::leiden(&edges, num_nodes, resolution, max_iterations))
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -528,6 +582,12 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     // Combined checks (parse once)
     n.add_function(wrap_pyfunction!(check_all_pylint_rules, n)?)?;
     n.add_function(wrap_pyfunction!(check_all_pylint_rules_batch, n)?)?;
+    // Graph algorithms (FalkorDB migration - replaces Neo4j GDS)
+    n.add_function(wrap_pyfunction!(graph_find_sccs, n)?)?;
+    n.add_function(wrap_pyfunction!(graph_find_cycles, n)?)?;
+    n.add_function(wrap_pyfunction!(graph_pagerank, n)?)?;
+    n.add_function(wrap_pyfunction!(graph_betweenness_centrality, n)?)?;
+    n.add_function(wrap_pyfunction!(graph_leiden, n)?)?;
     Ok(())
 }
 

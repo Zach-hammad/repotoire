@@ -1,6 +1,7 @@
-"""Unit tests for graph algorithms (REPO-152).
+"""Unit tests for graph algorithms (REPO-152, REPO-192).
 
-Tests for community detection (Louvain) and PageRank importance scoring.
+Tests for community detection (Leiden), PageRank, and other graph algorithms.
+REPO-192: Updated tests for Rust-based implementations (no GDS required).
 """
 
 from unittest.mock import Mock, patch
@@ -41,10 +42,10 @@ class TestGDSAvailability:
 
 
 class TestCommunityDetection:
-    """Test Louvain community detection (REPO-152)."""
+    """Test Leiden community detection (REPO-152, REPO-192)."""
 
     def test_create_community_projection_success(self, graph_algorithms, mock_client):
-        """Test successful community graph projection creation."""
+        """Test successful community graph projection creation (legacy GDS method)."""
         mock_client.execute_query.return_value = [{
             "graphName": "test-graph",
             "nodeCount": 100,
@@ -56,35 +57,53 @@ class TestCommunityDetection:
         assert result is True
 
     def test_create_community_projection_failure(self, graph_algorithms, mock_client):
-        """Test community projection failure."""
+        """Test community projection failure (legacy GDS method)."""
         mock_client.execute_query.side_effect = Exception("Projection failed")
 
         result = graph_algorithms.create_community_projection("test-graph")
 
         assert result is False
 
-    def test_calculate_communities_success(self, graph_algorithms, mock_client):
-        """Test successful Louvain community calculation."""
-        mock_client.execute_query.return_value = [{
-            "nodePropertiesWritten": 100,
-            "communityCount": 5,
-            "modularity": 0.65,
-            "computeMillis": 150
-        }]
+    @patch('repotoire.detectors.graph_algorithms.graph_leiden')
+    def test_calculate_communities_success(self, mock_leiden, graph_algorithms, mock_client):
+        """Test successful Leiden community calculation using Rust."""
+        # Mock the execute_query for _extract_edges (first call) and _write_property_to_nodes (second call)
+        mock_client.execute_query.side_effect = [
+            # First call: _extract_edges
+            [{
+                'node_list': [
+                    {'neo_id': 1, 'name': 'func1'},
+                    {'neo_id': 2, 'name': 'func2'},
+                    {'neo_id': 3, 'name': 'func3'},
+                ],
+                'edges': [
+                    {'src': 1, 'dst': 2},
+                    {'src': 2, 'dst': 3},
+                ]
+            }],
+            # Second call: _write_property_to_nodes
+            [{'updated': 3}],
+        ]
 
-        result = graph_algorithms.calculate_communities("test-graph")
+        # Mock Rust Leiden to return community assignments
+        mock_leiden.return_value = [0, 0, 1]  # 2 communities
+
+        result = graph_algorithms.calculate_communities()
 
         assert result is not None
-        assert result["communityCount"] == 5
-        assert result["modularity"] == 0.65
+        assert result["communityCount"] == 2
+        assert result["nodePropertiesWritten"] == 3
+        # Rust impl doesn't return modularity
+        assert "modularity" in result
 
-    def test_calculate_communities_gds_unavailable(self, graph_algorithms, mock_client):
-        """Test communities calculation when GDS is not available."""
-        mock_client.execute_query.side_effect = Exception("GDS not available")
+    def test_calculate_communities_no_edges(self, graph_algorithms, mock_client):
+        """Test communities calculation with no edges."""
+        mock_client.execute_query.return_value = [{'node_list': [], 'edges': []}]
 
-        result = graph_algorithms.calculate_communities("test-graph")
+        result = graph_algorithms.calculate_communities()
 
-        assert result is None
+        assert result is not None
+        assert result["communityCount"] == 0
 
     def test_get_class_community_span_with_data(self, graph_algorithms, mock_client):
         """Test getting community span when data is available."""
@@ -133,28 +152,46 @@ class TestCommunityDetection:
 
 
 class TestPageRank:
-    """Test PageRank importance scoring (REPO-152)."""
+    """Test PageRank importance scoring (REPO-152, REPO-192)."""
 
-    def test_calculate_pagerank_success(self, graph_algorithms, mock_client):
-        """Test successful PageRank calculation."""
-        mock_client.execute_query.return_value = [{
-            "nodePropertiesWritten": 100,
-            "ranIterations": 20,
-            "computeMillis": 50
-        }]
+    @patch('repotoire.detectors.graph_algorithms.graph_pagerank')
+    def test_calculate_pagerank_success(self, mock_pagerank, graph_algorithms, mock_client):
+        """Test successful PageRank calculation using Rust."""
+        # Mock the execute_query for _extract_edges (first call) and _write_property_to_nodes (second call)
+        mock_client.execute_query.side_effect = [
+            # First call: _extract_edges
+            [{
+                'node_list': [
+                    {'neo_id': 1, 'name': 'func1'},
+                    {'neo_id': 2, 'name': 'func2'},
+                    {'neo_id': 3, 'name': 'func3'},
+                ],
+                'edges': [
+                    {'src': 1, 'dst': 2},
+                    {'src': 2, 'dst': 3},
+                ]
+            }],
+            # Second call: _write_property_to_nodes
+            [{'updated': 3}],
+        ]
 
-        result = graph_algorithms.calculate_pagerank("test-graph")
+        # Mock Rust PageRank to return scores
+        mock_pagerank.return_value = [0.2, 0.5, 0.3]
+
+        result = graph_algorithms.calculate_pagerank()
 
         assert result is not None
-        assert result["nodePropertiesWritten"] == 100
+        assert result["nodePropertiesWritten"] == 3
+        assert "computeMillis" in result
 
-    def test_calculate_pagerank_gds_unavailable(self, graph_algorithms, mock_client):
-        """Test PageRank calculation when GDS is not available."""
-        mock_client.execute_query.side_effect = Exception("GDS not available")
+    def test_calculate_pagerank_no_edges(self, graph_algorithms, mock_client):
+        """Test PageRank calculation with no edges."""
+        mock_client.execute_query.return_value = [{'node_list': [], 'edges': []}]
 
-        result = graph_algorithms.calculate_pagerank("test-graph")
+        result = graph_algorithms.calculate_pagerank()
 
-        assert result is None
+        assert result is not None
+        assert result["nodePropertiesWritten"] == 0
 
     def test_get_class_importance_with_pagerank(self, graph_algorithms, mock_client):
         """Test getting class importance when PageRank data exists."""
@@ -204,37 +241,59 @@ class TestPageRank:
 
 
 class TestCombinedAnalysis:
-    """Test combined graph analysis (REPO-152)."""
+    """Test combined graph analysis (REPO-152, REPO-192)."""
 
-    def test_run_full_analysis_gds_unavailable(self, graph_algorithms, mock_client):
-        """Test full analysis when GDS is not available."""
-        mock_client.execute_query.side_effect = Exception("GDS not installed")
+    @patch('repotoire.detectors.graph_algorithms.graph_find_sccs')
+    @patch('repotoire.detectors.graph_algorithms.graph_betweenness_centrality')
+    @patch('repotoire.detectors.graph_algorithms.graph_pagerank')
+    @patch('repotoire.detectors.graph_algorithms.graph_leiden')
+    def test_run_full_analysis_success(
+        self, mock_leiden, mock_pagerank, mock_betweenness, mock_sccs,
+        graph_algorithms, mock_client
+    ):
+        """Test successful full analysis using Rust algorithms."""
+        # Helper: each algorithm calls _extract_edges then _write_property_to_nodes
+        edge_data = [{
+            'node_list': [
+                {'neo_id': 1, 'name': 'entity1'},
+                {'neo_id': 2, 'name': 'entity2'},
+            ],
+            'edges': [{'src': 1, 'dst': 2}]
+        }]
+        write_result = [{'updated': 2}]
 
-        results = graph_algorithms.run_full_analysis()
-
-        assert results["gds_available"] is False
-        assert len(results["errors"]) > 0
-
-    def test_run_full_analysis_success(self, graph_algorithms, mock_client):
-        """Test successful full analysis."""
-        # Mock GDS version check
+        # Mock execute_query for all algorithm calls (4 algos x 2 calls each)
         mock_client.execute_query.side_effect = [
-            [{"version": "2.5.0"}],  # GDS available
-            None,  # Drop existing projection
-            [{"graphName": "proj", "nodeCount": 100, "relationshipCount": 500}],  # Create community projection
-            [{"nodePropertiesWritten": 100, "communityCount": 5, "modularity": 0.65, "computeMillis": 100}],  # Louvain
-            None,  # Cleanup community projection
-            None,  # Drop existing projection
-            [{"graphName": "proj", "nodeCount": 100, "relationshipCount": 500}],  # Create calls projection
-            [{"nodePropertiesWritten": 100, "ranIterations": 20, "computeMillis": 50}],  # PageRank
-            None,  # Cleanup calls projection
+            edge_data, write_result,  # communities
+            edge_data, write_result,  # pagerank
+            edge_data, write_result,  # betweenness
+            edge_data, write_result,  # scc
         ]
 
+        # Mock Rust algorithms
+        mock_leiden.return_value = [0, 0]
+        mock_pagerank.return_value = [0.5, 0.5]
+        mock_betweenness.return_value = [1.0, 0.0]
+        mock_sccs.return_value = [[0, 1]]
+
         results = graph_algorithms.run_full_analysis()
 
-        assert results["gds_available"] is True
+        assert results["rust_algorithms"] is True
         assert results["communities"] is not None
         assert results["pagerank"] is not None
+        assert results["betweenness"] is not None
+        assert results["scc"] is not None
+
+    def test_run_full_analysis_handles_errors(self, graph_algorithms, mock_client):
+        """Test full analysis handles errors gracefully but still returns structure."""
+        # All algorithms will fail with empty results
+        mock_client.execute_query.return_value = [{'node_list': [], 'edges': []}]
+
+        results = graph_algorithms.run_full_analysis()
+
+        # Should return structure even when algos return None/empty results
+        assert results["rust_algorithms"] is True
+        # Note: algorithms return {communityCount: 0} etc for empty graphs, not errors
 
     def test_clear_caches(self, graph_algorithms):
         """Test cache clearing."""

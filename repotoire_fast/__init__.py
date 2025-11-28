@@ -25,6 +25,12 @@ from .repotoire_fast import (
     # Combined checks (parse once - faster)
     check_all_pylint_rules,           # All rules, single file
     check_all_pylint_rules_batch,     # All rules, multiple files in parallel
+    # Graph algorithms (FalkorDB migration - replaces Neo4j GDS)
+    graph_find_sccs,                  # Strongly connected components
+    graph_find_cycles,                # Circular dependencies
+    graph_pagerank,                   # PageRank importance scores
+    graph_betweenness_centrality,     # Betweenness centrality
+    graph_leiden,                     # Leiden community detection
 )
 
 __all__ = [
@@ -53,4 +59,10 @@ __all__ = [
     # Combined checks (parse once - faster)
     "check_all_pylint_rules",           # All rules, single file
     "check_all_pylint_rules_batch",     # All rules, multiple files in parallel
+    # Graph algorithms (FalkorDB migration - replaces Neo4j GDS)
+    "graph_find_sccs",                  # Strongly connected components
+    "graph_find_cycles",                # Circular dependencies
+    "graph_pagerank",                   # PageRank importance scores
+    "graph_betweenness_centrality",     # Betweenness centrality
+    "graph_leiden",                     # Leiden community detection
 ]
