@@ -482,31 +482,36 @@ class Neo4jClient:
         """Get graph context around an entity.
 
         Args:
-            entity_id: Node ID
-            depth: Traversal depth
+            entity_id: Node ID (elementId or qualifiedName)
+            depth: Traversal depth (1-3 recommended)
 
         Returns:
-            Context dictionary with connected nodes
+            Context dictionary with connected nodes and relationships
         """
-        query = """
+        # Use pure Cypher instead of APOC for FalkorDB compatibility
+        # Limit depth to prevent performance issues
+        safe_depth = min(depth, 3)
+
+        query = f"""
         MATCH (n)
-        WHERE elementId(n) = $entity_id
-        CALL apoc.path.subgraphAll(n, {
-            maxLevel: $depth,
-            relationshipFilter: 'CALLS>|USES>|IMPORTS>'
-        })
-        YIELD nodes, relationships
-        RETURN nodes, relationships
+        WHERE elementId(n) = $entity_id OR n.qualifiedName = $entity_id
+        OPTIONAL MATCH path = (n)-[r:CALLS|USES|IMPORTS*1..{safe_depth}]-(connected)
+        WITH n,
+             collect(DISTINCT connected) AS connected_nodes,
+             [rel IN collect(DISTINCT r) | head(rel)] AS flat_rels
+        RETURN connected_nodes AS nodes, flat_rels AS relationships
         """
 
-        result = self.execute_query(query, {"entity_id": entity_id, "depth": depth})
+        result = self.execute_query(query, {"entity_id": entity_id})
 
         if not result:
             return {}
 
         return {
-            "nodes": [dict(node) for node in result[0].get("nodes", [])],
-            "relationships": [dict(rel) for rel in result[0].get("relationships", [])],
+            "nodes": [dict(node) if hasattr(node, '__iter__') else node
+                      for node in result[0].get("nodes", []) if node],
+            "relationships": [dict(rel) if hasattr(rel, '__iter__') else rel
+                              for rel in result[0].get("relationships", []) if rel],
         }
 
     def get_stats(self) -> Dict[str, int]:
