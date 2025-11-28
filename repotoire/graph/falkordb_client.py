@@ -7,13 +7,14 @@ from typing import Any, Dict, List, Optional
 import logging
 import time
 
+from repotoire.graph.base import DatabaseClient
 from repotoire.models import Entity, Relationship, NodeType, RelationshipType
 from repotoire.validation import validate_identifier
 
 logger = logging.getLogger(__name__)
 
 
-class FalkorDBClient:
+class FalkorDBClient(DatabaseClient):
     """Client for interacting with FalkorDB graph database.
 
     FalkorDB is a Redis-based graph database that supports Cypher queries.
