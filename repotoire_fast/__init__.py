@@ -31,7 +31,13 @@ from .repotoire_fast import (
     graph_pagerank,                   # PageRank importance scores
     graph_betweenness_centrality,     # Betweenness centrality
     graph_leiden,                     # Leiden community detection
+    graph_leiden_parallel,            # Leiden with parallel option (REPO-215)
     graph_harmonic_centrality,        # Harmonic centrality (closeness)
+    # Duplicate code detection (REPO-166)
+    find_duplicates,                  # Rabin-Karp duplicate detection
+    find_duplicates_batch,            # Batch duplicate detection
+    tokenize_source,                  # Tokenize source code
+    PyDuplicateBlock,                 # Duplicate block result class
 )
 
 __all__ = [
@@ -66,5 +72,11 @@ __all__ = [
     "graph_pagerank",                   # PageRank importance scores
     "graph_betweenness_centrality",     # Betweenness centrality
     "graph_leiden",                     # Leiden community detection
+    "graph_leiden_parallel",            # Leiden with parallel option (REPO-215)
     "graph_harmonic_centrality",        # Harmonic centrality (closeness)
+    # Duplicate code detection (REPO-166)
+    "find_duplicates",                  # Rabin-Karp duplicate detection
+    "find_duplicates_batch",            # Batch duplicate detection
+    "tokenize_source",                  # Tokenize source code
+    "PyDuplicateBlock",                 # Duplicate block result class
 ]

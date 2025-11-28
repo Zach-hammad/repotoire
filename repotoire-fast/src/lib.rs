@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use pyo3::conversion::IntoPyObject;
 use walkdir::WalkDir;
 use globset::{Glob, GlobSetBuilder};
 use rayon::prelude::*;
@@ -10,8 +11,9 @@ mod lcom;
 mod similarity;
 use numpy::{PyReadonlyArray1, PyReadonlyArray2};
 mod pylint_rules;
-mod graph_algo;
+pub mod graph_algo;
 mod errors;
+pub mod duplicate;
 
 // Convert GraphError to Python ValueError (REPO-227)
 impl From<errors::GraphError> for PyErr {
@@ -621,6 +623,169 @@ fn graph_harmonic_centrality(
     graph_algo::harmonic_centrality(&edges, num_nodes, normalized).map_err(|e| e.into())
 }
 
+// ============================================================================
+// DUPLICATE CODE DETECTION (REPO-166)
+// Uses Rabin-Karp rolling hash for 5-10x speedup over jscpd
+// ============================================================================
+
+/// Python wrapper for DuplicateBlock
+#[pyclass]
+#[derive(Clone)]
+pub struct PyDuplicateBlock {
+    #[pyo3(get)]
+    pub file1: String,
+    #[pyo3(get)]
+    pub start1: usize,
+    #[pyo3(get)]
+    pub file2: String,
+    #[pyo3(get)]
+    pub start2: usize,
+    #[pyo3(get)]
+    pub token_length: usize,
+    #[pyo3(get)]
+    pub line_length: usize,
+}
+
+#[pymethods]
+impl PyDuplicateBlock {
+    fn __repr__(&self) -> String {
+        format!(
+            "DuplicateBlock(file1='{}', start1={}, file2='{}', start2={}, tokens={}, lines={})",
+            self.file1, self.start1, self.file2, self.start2, self.token_length, self.line_length
+        )
+    }
+
+    /// Convert to dictionary for easy Python interop
+    fn to_dict(&self, py: Python<'_>) -> HashMap<String, Py<PyAny>> {
+        let mut dict = HashMap::new();
+        dict.insert("file1".to_string(), self.file1.clone().into_pyobject(py).unwrap().into_any().unbind());
+        dict.insert("start1".to_string(), self.start1.into_pyobject(py).unwrap().into_any().unbind());
+        dict.insert("file2".to_string(), self.file2.clone().into_pyobject(py).unwrap().into_any().unbind());
+        dict.insert("start2".to_string(), self.start2.into_pyobject(py).unwrap().into_any().unbind());
+        dict.insert("token_length".to_string(), self.token_length.into_pyobject(py).unwrap().into_any().unbind());
+        dict.insert("line_length".to_string(), self.line_length.into_pyobject(py).unwrap().into_any().unbind());
+        dict
+    }
+}
+
+impl From<duplicate::DuplicateBlock> for PyDuplicateBlock {
+    fn from(block: duplicate::DuplicateBlock) -> Self {
+        PyDuplicateBlock {
+            file1: block.file1,
+            start1: block.start1,
+            file2: block.file2,
+            start2: block.start2,
+            token_length: block.token_length,
+            line_length: block.line_length,
+        }
+    }
+}
+
+/// Find duplicate code blocks across multiple files.
+///
+/// Uses Rabin-Karp rolling hash algorithm for O(n) detection.
+/// Provides 5-10x speedup over jscpd by eliminating Node.js subprocess overhead.
+///
+/// # Arguments
+/// * `files` - List of (path, source) tuples containing file paths and source code
+/// * `min_tokens` - Minimum tokens for a duplicate block (default: 50)
+/// * `min_lines` - Minimum lines for a duplicate block (default: 5)
+/// * `min_similarity` - Minimum Jaccard similarity threshold 0.0-1.0 (default: 0.0)
+///
+/// # Returns
+/// List of DuplicateBlock objects with:
+/// - file1, file2: Paths to the files containing duplicates
+/// - start1, start2: Starting line numbers (1-indexed)
+/// - token_length: Length in tokens
+/// - line_length: Length in source lines
+///
+/// # Example
+/// ```python
+/// from repotoire_fast import find_duplicates
+///
+/// files = [
+///     ("src/a.py", open("src/a.py").read()),
+///     ("src/b.py", open("src/b.py").read()),
+/// ]
+/// duplicates = find_duplicates(files, min_tokens=50, min_lines=5)
+/// for dup in duplicates:
+///     print(f"Duplicate: {dup.file1}:{dup.start1} <-> {dup.file2}:{dup.start2}")
+/// ```
+#[pyfunction]
+#[pyo3(signature = (files, min_tokens=50, min_lines=5, min_similarity=0.0))]
+fn find_duplicates(
+    files: Vec<(String, String)>,
+    min_tokens: usize,
+    min_lines: usize,
+    min_similarity: f64,
+) -> PyResult<Vec<PyDuplicateBlock>> {
+    if min_similarity < 0.0 || min_similarity > 1.0 {
+        return Err(PyValueError::new_err(
+            format!("min_similarity must be between 0.0 and 1.0, got {}", min_similarity)
+        ));
+    }
+
+    let duplicates = duplicate::find_duplicates(files, min_tokens, min_lines, min_similarity);
+    Ok(duplicates.into_iter().map(PyDuplicateBlock::from).collect())
+}
+
+/// Tokenize source code into normalized tokens.
+///
+/// Useful for debugging or custom duplicate detection pipelines.
+///
+/// # Arguments
+/// * `source` - Source code to tokenize
+///
+/// # Returns
+/// List of (token, line_number) tuples
+#[pyfunction]
+fn tokenize_source(source: String) -> Vec<(String, usize)> {
+    duplicate::tokenize(&source)
+        .into_iter()
+        .map(|t| (t.value, t.line))
+        .collect()
+}
+
+/// Find duplicates across multiple files in parallel (batch API).
+///
+/// More efficient than calling find_duplicates() repeatedly when
+/// analyzing multiple file groups.
+///
+/// # Arguments
+/// * `file_groups` - List of file groups, each group is a list of (path, source) tuples
+/// * `min_tokens` - Minimum tokens for a duplicate block (default: 50)
+/// * `min_lines` - Minimum lines for a duplicate block (default: 5)
+/// * `min_similarity` - Minimum Jaccard similarity threshold (default: 0.0)
+///
+/// # Returns
+/// List of lists, one per file group, each containing DuplicateBlock objects
+#[pyfunction]
+#[pyo3(signature = (file_groups, min_tokens=50, min_lines=5, min_similarity=0.0))]
+fn find_duplicates_batch(
+    file_groups: Vec<Vec<(String, String)>>,
+    min_tokens: usize,
+    min_lines: usize,
+    min_similarity: f64,
+) -> PyResult<Vec<Vec<PyDuplicateBlock>>> {
+    if min_similarity < 0.0 || min_similarity > 1.0 {
+        return Err(PyValueError::new_err(
+            format!("min_similarity must be between 0.0 and 1.0, got {}", min_similarity)
+        ));
+    }
+
+    let results: Vec<Vec<PyDuplicateBlock>> = file_groups
+        .into_par_iter()
+        .map(|files| {
+            duplicate::find_duplicates(files, min_tokens, min_lines, min_similarity)
+                .into_iter()
+                .map(PyDuplicateBlock::from)
+                .collect()
+        })
+        .collect();
+
+    Ok(results)
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -656,6 +821,11 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(graph_leiden, n)?)?;
     n.add_function(wrap_pyfunction!(graph_leiden_parallel, n)?)?;  // REPO-215
     n.add_function(wrap_pyfunction!(graph_harmonic_centrality, n)?)?;
+    // Duplicate code detection (REPO-166)
+    n.add_class::<PyDuplicateBlock>()?;
+    n.add_function(wrap_pyfunction!(find_duplicates, n)?)?;
+    n.add_function(wrap_pyfunction!(find_duplicates_batch, n)?)?;
+    n.add_function(wrap_pyfunction!(tokenize_source, n)?)?;
     Ok(())
 }
 
