@@ -9,6 +9,11 @@ Token savings with optimized mode:
 - Tool schemas: 95% reduction
 - Prompt: 84% reduction
 - Total upfront context: ~92% reduction
+
+Token-efficient utilities (REPO-210/211/212):
+- Data filtering: Reduce 5000 tokens → 200 tokens (96% reduction)
+- State persistence: Cache queries and store intermediate results
+- Skill persistence: Save and reuse analysis functions across sessions
 """
 
 from repotoire.mcp.pattern_detector import PatternDetector
@@ -32,6 +37,35 @@ from repotoire.mcp.execution_env import (
     get_environment_config,
     get_api_documentation,
     EXECUTE_CODE_TOOL,
+    # REPO-210: Data Filtering
+    summarize,
+    top_n,
+    count_by,
+    to_table,
+    filter_by,
+    field_stats,
+    group_by,
+    # REPO-211: State Persistence
+    store,
+    get,
+    delete,
+    list_stored,
+    clear_state,
+    cache_query,
+    invalidate_cache,
+    cache_info,
+    cached,
+    # REPO-212: Skill Persistence
+    save_skill,
+    load_skill,
+    list_skills,
+    skill_info,
+    delete_skill,
+    search_skills,
+    export_skills,
+    import_skills,
+    get_skills_directory,
+    SKILLS_DIR,
 )
 
 __all__ = [
@@ -56,4 +90,33 @@ __all__ = [
     "get_environment_config",
     "get_api_documentation",
     "EXECUTE_CODE_TOOL",
+    # REPO-210: Data Filtering
+    "summarize",
+    "top_n",
+    "count_by",
+    "to_table",
+    "filter_by",
+    "field_stats",
+    "group_by",
+    # REPO-211: State Persistence
+    "store",
+    "get",
+    "delete",
+    "list_stored",
+    "clear_state",
+    "cache_query",
+    "invalidate_cache",
+    "cache_info",
+    "cached",
+    # REPO-212: Skill Persistence
+    "save_skill",
+    "load_skill",
+    "list_skills",
+    "skill_info",
+    "delete_skill",
+    "search_skills",
+    "export_skills",
+    "import_skills",
+    "get_skills_directory",
+    "SKILLS_DIR",
 ]

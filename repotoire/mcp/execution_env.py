@@ -5,11 +5,893 @@ and execute Python code to interact with Repotoire, following Anthropic's
 code execution MCP pattern.
 
 Supports progressive discovery (REPO-208/209/213) with on-demand documentation.
+
+Token-efficient utilities (REPO-210/211/212):
+- Data filtering: Reduce 5000 tokens → 200 tokens (96% reduction)
+- State persistence: Cache queries and store intermediate results
+- Skill persistence: Save and reuse analysis functions across sessions
 """
 
+import json
+import os
+import statistics
 import sys
+import threading
+import time
+import zipfile
+from collections import Counter
+from datetime import datetime
+from functools import wraps
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
+
+# =============================================================================
+# REPO-210: Data Filtering Utilities
+# =============================================================================
+# Based on Anthropic's MCP best practices for preventing context bloat:
+# "Agents can filter and transform large datasets in code before returning them,
+#  preventing context bloat by only showing relevant information to the model."
+# =============================================================================
+
+T = TypeVar("T")
+
+
+def _get_value(obj: Any, field: str, default: Any = None) -> Any:
+    """Get a value from an object or dict by field name.
+
+    Args:
+        obj: Object or dict to get value from
+        field: Field/key name
+        default: Default value if not found
+
+    Returns:
+        Field value or default
+    """
+    if isinstance(obj, dict):
+        return obj.get(field, default)
+    return getattr(obj, field, default)
+
+
+def summarize(
+    results: List[T], fields: List[str], max_items: Optional[int] = None
+) -> List[Dict[str, Any]]:
+    """Return only specified fields from results, reducing token output.
+
+    Token savings: Extract just the fields you need instead of full objects.
+    Example: 100 entities × 50 fields → 100 entities × 3 fields = 94% reduction
+
+    Args:
+        results: List of objects or dicts to summarize
+        fields: List of field names to extract
+        max_items: Optional limit on number of items (None = all)
+
+    Returns:
+        List of dicts with only specified fields
+
+    Examples:
+        >>> results = search_code("auth", top_k=100)
+        >>> # Full results: ~5000 tokens
+        >>> # Summarized: ~200 tokens
+        >>> summarize(results, ['name', 'file', 'score'])
+        [{'name': 'login', 'file': 'auth.py', 'score': 0.95}, ...]
+
+        >>> # With limit
+        >>> summarize(results, ['name'], max_items=5)
+        [{'name': 'login'}, {'name': 'logout'}, ...]
+    """
+    items = results[:max_items] if max_items else results
+    return [{f: _get_value(r, f) for f in fields} for r in items]
+
+
+def top_n(
+    results: List[T],
+    n: int = 5,
+    sort_by: str = "score",
+    reverse: bool = True,
+) -> List[T]:
+    """Return top N results sorted by field.
+
+    Token savings: Get only the most relevant items.
+    Example: 100 results → 5 results = 95% reduction
+
+    Args:
+        results: List of objects or dicts
+        n: Number of results to return
+        sort_by: Field name to sort by
+        reverse: Sort descending if True (default: True for "top")
+
+    Returns:
+        Top N results sorted by field
+
+    Examples:
+        >>> top_n(functions, 5, 'complexity')
+        [{'name': 'process_data', 'complexity': 45}, ...]
+
+        >>> # Lowest complexity (ascending)
+        >>> top_n(functions, 5, 'complexity', reverse=False)
+        [{'name': 'simple_func', 'complexity': 1}, ...]
+    """
+    if not results:
+        return []
+
+    def key_func(x: T) -> Any:
+        val = _get_value(x, sort_by, 0)
+        # Handle None values
+        if val is None:
+            return float("-inf") if reverse else float("inf")
+        return val
+
+    return sorted(results, key=key_func, reverse=reverse)[:n]
+
+
+def count_by(results: List[T], field: str) -> Dict[str, int]:
+    """Group and count by field value.
+
+    Token savings: Aggregate to summary stats instead of listing all items.
+    Example: 100 findings → 3 severity counts = 97% reduction
+
+    Args:
+        results: List of objects or dicts
+        field: Field name to group by
+
+    Returns:
+        Dict of {value: count}
+
+    Examples:
+        >>> count_by(findings, 'severity')
+        {'HIGH': 12, 'MEDIUM': 34, 'LOW': 56}
+
+        >>> count_by(entities, 'type')
+        {'Function': 245, 'Class': 45, 'Module': 12}
+    """
+    values = [_get_value(r, field, "unknown") for r in results]
+    # Convert non-hashable values to strings
+    hashable_values = [str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v for v in values]
+    return dict(Counter(hashable_values))
+
+
+def to_table(
+    results: List[T],
+    fields: List[str],
+    max_width: int = 50,
+    max_rows: Optional[int] = None,
+) -> str:
+    """Format results as markdown table for minimal token output.
+
+    Token savings: Structured table format is more compact than JSON.
+
+    Args:
+        results: List of objects or dicts
+        fields: List of field names for columns
+        max_width: Maximum width per cell (truncates with ...)
+        max_rows: Optional limit on rows (None = all)
+
+    Returns:
+        Markdown table string
+
+    Examples:
+        >>> print(to_table(results, ['name', 'file', 'score']))
+        | name | file | score |
+        |------|------|-------|
+        | login | auth.py | 0.95 |
+        | logout | auth.py | 0.89 |
+    """
+
+    def truncate(val: Any, width: int) -> str:
+        s = str(val) if val is not None else ""
+        return s[: width - 3] + "..." if len(s) > width else s
+
+    items = results[:max_rows] if max_rows else results
+
+    header = "| " + " | ".join(fields) + " |"
+    separator = "|" + "|".join(["---" for _ in fields]) + "|"
+    rows = []
+    for r in items:
+        values = [truncate(_get_value(r, f, ""), max_width) for f in fields]
+        rows.append("| " + " | ".join(values) + " |")
+
+    return "\n".join([header, separator] + rows)
+
+
+def filter_by(results: List[T], **conditions: Union[Any, Callable[[Any], bool]]) -> List[T]:
+    """Filter results by field conditions.
+
+    Token savings: Pre-filter data before returning to LLM.
+
+    Args:
+        results: List of objects or dicts
+        **conditions: Field=value conditions (supports callable for complex filters)
+
+    Returns:
+        Filtered list
+
+    Examples:
+        >>> # Simple equality
+        >>> filter_by(results, severity='HIGH')
+        [{'severity': 'HIGH', ...}, ...]
+
+        >>> # With callable condition
+        >>> filter_by(results, complexity=lambda x: x > 10)
+        [{'complexity': 15, ...}, {'complexity': 22, ...}]
+
+        >>> # Multiple conditions (AND)
+        >>> filter_by(results, severity='HIGH', complexity=lambda x: x > 20)
+    """
+    filtered = []
+    for r in results:
+        match = True
+        for field, condition in conditions.items():
+            val = _get_value(r, field)
+            if callable(condition):
+                try:
+                    if not condition(val):
+                        match = False
+                        break
+                except (TypeError, ValueError):
+                    match = False
+                    break
+            elif val != condition:
+                match = False
+                break
+        if match:
+            filtered.append(r)
+    return filtered
+
+
+def field_stats(results: List[T], field: str) -> Dict[str, Any]:
+    """Calculate statistics for a numeric field.
+
+    Token savings: Single stats dict instead of raw data.
+    Example: 100 complexity values → 6 summary stats = 94% reduction
+
+    Args:
+        results: List of objects or dicts
+        field: Numeric field name
+
+    Returns:
+        Dict with min, max, mean, median, sum, count
+
+    Examples:
+        >>> field_stats(functions, 'complexity')
+        {'min': 1, 'max': 45, 'mean': 8.2, 'median': 5, 'sum': 820, 'count': 100}
+
+        >>> field_stats(functions, 'lines_of_code')
+        {'min': 5, 'max': 500, 'mean': 45.2, 'median': 30, 'sum': 4520, 'count': 100}
+    """
+    values = [_get_value(r, field, 0) for r in results]
+    values = [v for v in values if isinstance(v, (int, float)) and v is not None]
+
+    if not values:
+        return {"min": 0, "max": 0, "mean": 0, "median": 0, "sum": 0, "count": 0}
+
+    return {
+        "min": min(values),
+        "max": max(values),
+        "mean": round(statistics.mean(values), 2),
+        "median": statistics.median(values),
+        "sum": sum(values),
+        "count": len(values),
+    }
+
+
+def group_by(results: List[T], field: str) -> Dict[str, List[T]]:
+    """Group results by field value.
+
+    Args:
+        results: List of objects or dicts
+        field: Field name to group by
+
+    Returns:
+        Dict mapping field values to lists of matching items
+
+    Examples:
+        >>> grouped = group_by(findings, 'severity')
+        >>> len(grouped['HIGH'])  # Count high severity
+        12
+        >>> grouped['CRITICAL']  # Get all critical findings
+        [{'severity': 'CRITICAL', 'message': '...'}, ...]
+    """
+    groups: Dict[str, List[T]] = {}
+    for r in results:
+        key = str(_get_value(r, field, "unknown"))
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(r)
+    return groups
+
+
+# =============================================================================
+# REPO-211: State Persistence
+# =============================================================================
+# Based on Anthropic's MCP best practices:
+# "Intermediate results stay within the execution environment by default"
+# "LLMs lack state, requiring code to manage state within memory"
+# =============================================================================
+
+# Module-level state (persists across exec() calls within same kernel session)
+_state: Dict[str, Any] = {}
+_cache: Dict[str, Dict[str, Any]] = {}
+_state_lock = threading.Lock()
+_cache_lock = threading.Lock()
+
+
+def store(key: str, value: Any) -> None:
+    """Store a value that persists across code blocks in the same session.
+
+    Use this to save intermediate results that you'll need later, avoiding
+    re-computation and reducing token usage.
+
+    Args:
+        key: Unique identifier for the value
+        value: Any Python object to store
+
+    Examples:
+        >>> # First code block: run expensive query
+        >>> results = query("MATCH (f:Function) RETURN f LIMIT 100")
+        >>> store('all_functions', results)
+
+        >>> # Later code block: reuse without re-querying
+        >>> functions = get('all_functions')
+        >>> critical = [f for f in functions if f['complexity'] > 30]
+    """
+    with _state_lock:
+        _state[key] = value
+
+
+def get(key: str, default: Any = None) -> Any:
+    """Retrieve a stored value.
+
+    Args:
+        key: Identifier used in store()
+        default: Value to return if key not found
+
+    Returns:
+        Stored value or default
+
+    Examples:
+        >>> functions = get('all_functions')
+        >>> functions = get('missing_key', [])  # Returns empty list
+    """
+    with _state_lock:
+        return _state.get(key, default)
+
+
+def delete(key: str) -> bool:
+    """Delete a stored value.
+
+    Args:
+        key: Identifier to delete
+
+    Returns:
+        True if key existed and was deleted, False otherwise
+    """
+    with _state_lock:
+        if key in _state:
+            del _state[key]
+            return True
+        return False
+
+
+def list_stored() -> List[str]:
+    """List all stored keys.
+
+    Returns:
+        List of key names
+
+    Examples:
+        >>> store('functions', [...])
+        >>> store('findings', [...])
+        >>> list_stored()
+        ['functions', 'findings']
+    """
+    with _state_lock:
+        return list(_state.keys())
+
+
+def clear_state() -> int:
+    """Clear all stored state.
+
+    Returns:
+        Number of items cleared
+
+    Examples:
+        >>> clear_state()
+        5  # Cleared 5 stored items
+    """
+    with _state_lock:
+        count = len(_state)
+        _state.clear()
+        return count
+
+
+def cache_query(
+    key: str, cypher: str, params: Optional[Dict] = None, ttl: int = 300
+) -> Any:
+    """Execute query with caching. Reuse results within TTL.
+
+    Token savings: Avoid re-running expensive queries within the same session.
+
+    Args:
+        key: Cache key for this query
+        cypher: Cypher query string
+        params: Query parameters
+        ttl: Time-to-live in seconds (default: 5 minutes)
+
+    Returns:
+        Query results (from cache if available and fresh)
+
+    Examples:
+        >>> # First call executes query
+        >>> funcs = cache_query('complex_funcs', '''
+        ...     MATCH (f:Function) WHERE f.complexity > 20 RETURN f
+        ... ''')
+
+        >>> # Second call uses cache (no re-query!)
+        >>> funcs = cache_query('complex_funcs', '''
+        ...     MATCH (f:Function) WHERE f.complexity > 20 RETURN f
+        ... ''')
+    """
+    with _cache_lock:
+        cached = _cache.get(key)
+        if cached and time.time() - cached["time"] < ttl:
+            return cached["data"]
+
+    # Execute query (assumes global 'query' function from startup script)
+    # This will be available in the execution context
+    import builtins
+
+    query_func = getattr(builtins, "query", None)
+    if query_func is None:
+        raise RuntimeError("Query function not available. Ensure startup script has run.")
+
+    result = query_func(cypher, params or {})
+
+    with _cache_lock:
+        _cache[key] = {"data": result, "time": time.time()}
+
+    return result
+
+
+def invalidate_cache(key: Optional[str] = None) -> int:
+    """Invalidate cache entry or all cache.
+
+    Args:
+        key: Specific key to invalidate, or None for all
+
+    Returns:
+        Number of entries invalidated
+
+    Examples:
+        >>> invalidate_cache('complex_funcs')  # Invalidate one
+        1
+        >>> invalidate_cache()  # Invalidate all
+        5
+    """
+    with _cache_lock:
+        if key:
+            if key in _cache:
+                del _cache[key]
+                return 1
+            return 0
+        else:
+            count = len(_cache)
+            _cache.clear()
+            return count
+
+
+def cache_info() -> Dict[str, Any]:
+    """Get cache statistics.
+
+    Returns:
+        Dict with cache info: keys, sizes, ages
+
+    Examples:
+        >>> cache_info()
+        {
+            'keys': ['complex_funcs', 'all_classes'],
+            'count': 2,
+            'entries': {
+                'complex_funcs': {'age_seconds': 45.2, 'size': 1234},
+                'all_classes': {'age_seconds': 120.5, 'size': 5678}
+            }
+        }
+    """
+    with _cache_lock:
+        now = time.time()
+        return {
+            "keys": list(_cache.keys()),
+            "count": len(_cache),
+            "entries": {
+                k: {"age_seconds": round(now - v["time"], 1), "size": len(str(v["data"]))}
+                for k, v in _cache.items()
+            },
+        }
+
+
+def cached(key: Optional[str] = None, ttl: int = 300) -> Callable:
+    """Decorator to cache function results.
+
+    Args:
+        key: Cache key (defaults to function name)
+        ttl: Time-to-live in seconds
+
+    Returns:
+        Decorated function with caching
+
+    Examples:
+        >>> @cached('complex_functions', ttl=600)
+        ... def get_complex_functions():
+        ...     return query("MATCH (f:Function) WHERE f.complexity > 20 RETURN f")
+
+        >>> # First call computes
+        >>> result = get_complex_functions()
+        >>> # Second call uses cache
+        >>> result = get_complex_functions()
+    """
+
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            cache_key = key or func.__name__
+            with _cache_lock:
+                cached_entry = _cache.get(cache_key)
+                if cached_entry and time.time() - cached_entry["time"] < ttl:
+                    return cached_entry["data"]
+
+            result = func(*args, **kwargs)
+
+            with _cache_lock:
+                _cache[cache_key] = {"data": result, "time": time.time()}
+
+            return result
+
+        return wrapper
+
+    return decorator
+
+
+# =============================================================================
+# REPO-212: Skill Persistence
+# =============================================================================
+# Based on Anthropic's MCP best practices:
+# "Agents can persist their own code as reusable functions and skills,
+#  allowing them to save implementations for future use and build a toolbox
+#  of higher-level capabilities."
+# =============================================================================
+
+SKILLS_DIR = Path.home() / ".repotoire" / "skills"
+
+
+def save_skill(
+    name: str,
+    code: str,
+    description: str = "",
+    tags: Optional[List[str]] = None,
+    overwrite: bool = False,
+) -> str:
+    """Save code as a reusable skill that persists across sessions.
+
+    Skills are stored in ~/.repotoire/skills/ and can be loaded in future
+    sessions, building a personal library of analysis functions.
+
+    Args:
+        name: Unique skill name (alphanumeric + underscore only)
+        code: Python code to save
+        description: What the skill does
+        tags: Optional categorization tags for searching
+        overwrite: Allow overwriting existing skill
+
+    Returns:
+        Path to saved skill file
+
+    Raises:
+        ValueError: If name invalid or skill exists without overwrite
+
+    Examples:
+        >>> save_skill('find_god_classes', '''
+        ... def find_god_classes(threshold=10):
+        ...     \"\"\"Find classes with too many methods.\"\"\"
+        ...     return query(f\"\"\"
+        ...         MATCH (c:Class)-[:CONTAINS]->(m:Function)
+        ...         WITH c, count(m) as method_count
+        ...         WHERE method_count > {threshold}
+        ...         RETURN c.qualifiedName, method_count
+        ...         ORDER BY method_count DESC
+        ...     \"\"\")
+        ... ''', description='Find classes with excessive methods',
+        ...     tags=['code-smell', 'classes'])
+        '~/.repotoire/skills/find_god_classes.py'
+    """
+    # Validate name
+    if not name or not name.replace("_", "").isalnum():
+        raise ValueError(f"Invalid skill name: '{name}'. Use alphanumeric + underscore only.")
+
+    try:
+        SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    except PermissionError as e:
+        raise PermissionError(f"Cannot create skills directory: {e}") from e
+
+    skill_file = SKILLS_DIR / f"{name}.py"
+    meta_file = SKILLS_DIR / f"{name}.json"
+
+    if skill_file.exists() and not overwrite:
+        raise ValueError(f"Skill '{name}' already exists. Use overwrite=True to replace.")
+
+    # Write code
+    header = f'"""{description}"""\n\n' if description else ""
+    try:
+        skill_file.write_text(header + code, encoding="utf-8")
+    except PermissionError as e:
+        raise PermissionError(f"Cannot write skill file: {e}") from e
+
+    # Write metadata
+    now = datetime.now().isoformat()
+    metadata = {
+        "name": name,
+        "description": description,
+        "tags": tags or [],
+        "created": now if not meta_file.exists() else _load_skill_metadata(name).get("created", now),
+        "updated": now,
+    }
+    meta_file.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+    return str(skill_file)
+
+
+def _load_skill_metadata(name: str) -> Dict[str, Any]:
+    """Load skill metadata from JSON file."""
+    meta_file = SKILLS_DIR / f"{name}.json"
+    if meta_file.exists():
+        try:
+            return json.loads(meta_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+
+def load_skill(name: str, globals_dict: Optional[Dict] = None) -> None:
+    """Load and execute a saved skill, making its functions available.
+
+    The skill's functions are added to the global namespace and can be
+    called directly after loading.
+
+    Args:
+        name: Name of the skill to load
+        globals_dict: Optional globals dict to exec into (default: caller's globals)
+
+    Raises:
+        FileNotFoundError: If skill doesn't exist
+
+    Examples:
+        >>> load_skill('find_god_classes')
+        ✓ Loaded skill: find_god_classes
+        >>> god_classes = find_god_classes(threshold=15)
+    """
+    skill_file = SKILLS_DIR / f"{name}.py"
+    if not skill_file.exists():
+        available = list_skills()
+        available_str = ", ".join(available) if available else "none"
+        raise FileNotFoundError(f"Skill '{name}' not found. Available: {available_str}")
+
+    code = skill_file.read_text(encoding="utf-8")
+
+    # Use provided globals or get caller's globals
+    if globals_dict is None:
+        import inspect
+
+        frame = inspect.currentframe()
+        if frame and frame.f_back:
+            globals_dict = frame.f_back.f_globals
+        else:
+            globals_dict = globals()
+
+    exec(code, globals_dict)
+
+
+def list_skills(tag: Optional[str] = None) -> List[str]:
+    """List all saved skills, optionally filtered by tag.
+
+    Args:
+        tag: Optional tag to filter by
+
+    Returns:
+        List of skill names
+
+    Examples:
+        >>> list_skills()
+        ['find_god_classes', 'analyze_imports', 'check_naming']
+
+        >>> list_skills(tag='code-smell')
+        ['find_god_classes', 'find_long_methods']
+    """
+    if not SKILLS_DIR.exists():
+        return []
+
+    skills = []
+    for f in SKILLS_DIR.glob("*.py"):
+        name = f.stem
+        if tag:
+            meta = _load_skill_metadata(name)
+            if tag in meta.get("tags", []):
+                skills.append(name)
+        else:
+            skills.append(name)
+
+    return sorted(skills)
+
+
+def skill_info(name: str) -> Dict[str, Any]:
+    """Get detailed information about a skill.
+
+    Args:
+        name: Skill name
+
+    Returns:
+        Dict with skill metadata and code preview
+
+    Raises:
+        FileNotFoundError: If skill doesn't exist
+
+    Examples:
+        >>> skill_info('find_god_classes')
+        {
+            'name': 'find_god_classes',
+            'description': 'Find classes with excessive methods',
+            'tags': ['code-smell', 'classes'],
+            'created': '2024-01-15T10:30:00',
+            'updated': '2024-01-16T14:22:00',
+            'preview': 'def find_god_classes(threshold=10):...',
+            'lines': 15,
+            'size_bytes': 456
+        }
+    """
+    skill_file = SKILLS_DIR / f"{name}.py"
+
+    if not skill_file.exists():
+        raise FileNotFoundError(f"Skill '{name}' not found")
+
+    code = skill_file.read_text(encoding="utf-8")
+    lines = code.split("\n")
+
+    info: Dict[str, Any] = {
+        "name": name,
+        "preview": "\n".join(lines[:15]) + ("\n..." if len(lines) > 15 else ""),
+        "lines": len(lines),
+        "size_bytes": len(code.encode("utf-8")),
+    }
+
+    # Merge metadata
+    meta = _load_skill_metadata(name)
+    info.update(meta)
+
+    return info
+
+
+def delete_skill(name: str) -> bool:
+    """Delete a saved skill.
+
+    Args:
+        name: Skill name to delete
+
+    Returns:
+        True if deleted, False if not found
+
+    Examples:
+        >>> delete_skill('old_skill')
+        True
+        >>> delete_skill('nonexistent')
+        False
+    """
+    skill_file = SKILLS_DIR / f"{name}.py"
+    meta_file = SKILLS_DIR / f"{name}.json"
+
+    deleted = False
+    if skill_file.exists():
+        skill_file.unlink()
+        deleted = True
+    if meta_file.exists():
+        meta_file.unlink()
+
+    return deleted
+
+
+def search_skills(query_str: str) -> List[Dict[str, Any]]:
+    """Search skills by name, description, or tags.
+
+    Args:
+        query_str: Search term (case-insensitive)
+
+    Returns:
+        List of matching skill info dicts
+
+    Examples:
+        >>> search_skills('class')
+        [
+            {'name': 'find_god_classes', 'description': 'Find classes...', ...},
+            {'name': 'class_metrics', 'description': 'Calculate class...', ...}
+        ]
+    """
+    query_lower = query_str.lower()
+    results = []
+
+    for name in list_skills():
+        info = skill_info(name)
+        if (
+            query_lower in name.lower()
+            or query_lower in info.get("description", "").lower()
+            or any(query_lower in tag.lower() for tag in info.get("tags", []))
+        ):
+            results.append(info)
+
+    return results
+
+
+def export_skills(path: Optional[str] = None) -> str:
+    """Export all skills to a zip archive.
+
+    Args:
+        path: Output path (default: ~/.repotoire/skills_export.zip)
+
+    Returns:
+        Path to export file
+
+    Examples:
+        >>> export_skills()
+        '~/.repotoire/skills_export.zip'
+        >>> export_skills('/tmp/my_skills.zip')
+        '/tmp/my_skills.zip'
+    """
+    if path is None:
+        path = str(SKILLS_DIR.parent / "skills_export.zip")
+
+    if not SKILLS_DIR.exists():
+        raise FileNotFoundError("No skills directory found")
+
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in SKILLS_DIR.glob("*"):
+            if f.is_file():
+                zf.write(f, f.name)
+
+    return path
+
+
+def import_skills(path: str, overwrite: bool = False) -> int:
+    """Import skills from a zip archive.
+
+    Args:
+        path: Path to skills archive
+        overwrite: Allow overwriting existing skills
+
+    Returns:
+        Number of skill files imported
+
+    Examples:
+        >>> import_skills('/tmp/shared_skills.zip')
+        4
+        >>> import_skills('/tmp/shared_skills.zip', overwrite=True)
+        4
+    """
+    SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    count = 0
+
+    with zipfile.ZipFile(path, "r") as zf:
+        for name in zf.namelist():
+            dest = SKILLS_DIR / name
+            if dest.exists() and not overwrite:
+                continue
+            dest.write_bytes(zf.read(name))
+            count += 1
+
+    return count
+
+
+def get_skills_directory() -> Path:
+    """Get the skills directory path.
+
+    Returns:
+        Path to skills directory (~/.repotoire/skills/)
+    """
+    return SKILLS_DIR
 
 
 # API documentation - loaded on-demand via resources
@@ -39,7 +921,7 @@ Engine for managing and executing custom quality rules.
 - `rule_engine.execute_rule(rule)`: Execute a rule
 - `rule_engine.get_hot_rules(top_k=10)`: Get high-priority rules
 
-## Utility Functions
+## Core Utility Functions
 
 ### `query(cypher: str, params: Dict = None) -> List[Dict]`
 Execute a Cypher query and return results.
@@ -65,31 +947,183 @@ for result in results:
 ### `list_rules(enabled_only: bool = True) -> List[Rule]`
 List all custom quality rules.
 
-```python
-rules = list_rules()
-for rule in rules:
-    priority = rule.calculate_priority()
-    print(f"{rule.id}: {rule.name} (priority: {priority:.1f})")
-```
-
 ### `execute_rule(rule_id: str) -> List[Finding]`
 Execute a custom rule by ID.
 
-```python
-findings = execute_rule("no-god-classes")
-print(f"Found {len(findings)} violations")
-```
-
-### `stats()`
+### `codebase_stats()`
 Print quick statistics about the codebase.
 
+---
+
+## Data Filtering (REPO-210) - Reduce Token Usage by 96%
+
+These utilities filter/transform data BEFORE returning to LLM, preventing context bloat.
+
+### `summarize(results, fields, max_items=None) -> List[Dict]`
+Extract only specified fields from results.
+
 ```python
-stats()
-# Codebase Statistics:
-# --------------------
-# Function             1,234
-# Class                  567
+# Full results: ~5000 tokens → Summarized: ~200 tokens
+results = search_code("auth", top_k=100)
+summary = summarize(results, ['name', 'file', 'score'], max_items=10)
 ```
+
+### `top_n(results, n=5, sort_by='score', reverse=True) -> List`
+Get top N results sorted by field.
+
+```python
+# Get 5 most complex functions
+complex = top_n(functions, 5, 'complexity')
+```
+
+### `count_by(results, field) -> Dict[str, int]`
+Aggregate counts by field value.
+
+```python
+# 100 findings → 3 severity counts = 97% token reduction
+count_by(findings, 'severity')  # {'HIGH': 12, 'MEDIUM': 34, 'LOW': 56}
+```
+
+### `to_table(results, fields, max_width=50, max_rows=None) -> str`
+Format as markdown table (compact output).
+
+```python
+print(to_table(results, ['name', 'complexity', 'file']))
+# | name | complexity | file |
+# |------|------------|------|
+# | process | 45 | data.py |
+```
+
+### `filter_by(results, **conditions) -> List`
+Filter by field conditions (supports lambdas).
+
+```python
+filter_by(results, severity='HIGH')
+filter_by(results, complexity=lambda x: x > 20)
+```
+
+### `field_stats(results, field) -> Dict`
+Calculate statistics for numeric field.
+
+```python
+field_stats(functions, 'complexity')
+# {'min': 1, 'max': 45, 'mean': 8.2, 'median': 5, 'sum': 820, 'count': 100}
+```
+
+### `group_by(results, field) -> Dict[str, List]`
+Group results by field value.
+
+```python
+grouped = group_by(findings, 'severity')
+len(grouped['HIGH'])  # 12
+```
+
+---
+
+## State Persistence (REPO-211) - Cache Across Code Blocks
+
+Store intermediate results to avoid re-computation and re-querying.
+
+### `store(key, value)` / `get(key, default=None)`
+Persist values across code blocks in the same session.
+
+```python
+# Block 1: Run expensive query
+results = query("MATCH (f:Function) RETURN f LIMIT 1000")
+store('all_functions', results)
+
+# Block 2: Reuse without re-querying
+functions = get('all_functions')
+```
+
+### `list_stored()` / `delete(key)` / `clear_state()`
+Manage stored values.
+
+```python
+list_stored()  # ['all_functions', 'findings']
+delete('old_data')
+clear_state()  # Clear all
+```
+
+### `cache_query(key, cypher, params=None, ttl=300)`
+Execute query with automatic caching (TTL in seconds).
+
+```python
+# First call executes query
+funcs = cache_query('complex', 'MATCH (f) WHERE f.complexity > 20 RETURN f')
+# Second call uses cache (no re-query!)
+funcs = cache_query('complex', 'MATCH (f) WHERE f.complexity > 20 RETURN f')
+```
+
+### `@cached(key=None, ttl=300)`
+Decorator to cache function results.
+
+```python
+@cached('complex_funcs', ttl=600)
+def get_complex_functions():
+    return query("MATCH (f:Function) WHERE f.complexity > 20 RETURN f")
+```
+
+### `cache_info()` / `invalidate_cache(key=None)`
+Manage query cache.
+
+```python
+cache_info()  # {'keys': [...], 'count': 2, 'entries': {...}}
+invalidate_cache('complex')  # Invalidate one
+invalidate_cache()  # Invalidate all
+```
+
+---
+
+## Skill Persistence (REPO-212) - Reusable Analysis Functions
+
+Save analysis functions that persist across sessions in ~/.repotoire/skills/
+
+### `save_skill(name, code, description='', tags=None, overwrite=False)`
+Save code as a reusable skill.
+
+```python
+save_skill('find_god_classes', '''
+def find_god_classes(threshold=10):
+    return query(f\"\"\"
+        MATCH (c:Class)-[:CONTAINS]->(m:Function)
+        WITH c, count(m) as method_count
+        WHERE method_count > {threshold}
+        RETURN c.qualifiedName, method_count
+        ORDER BY method_count DESC
+    \"\"\")
+''', description='Find classes with too many methods',
+    tags=['code-smell', 'classes'])
+```
+
+### `load_skill(name)`
+Load a saved skill into the current session.
+
+```python
+load_skill('find_god_classes')
+god_classes = find_god_classes(threshold=15)  # Function now available!
+```
+
+### `list_skills(tag=None)` / `skill_info(name)` / `search_skills(query)`
+Discover and search saved skills.
+
+```python
+list_skills()  # ['find_god_classes', 'analyze_imports']
+list_skills(tag='code-smell')  # Filter by tag
+skill_info('find_god_classes')  # Full details
+search_skills('class')  # Search by name/description/tags
+```
+
+### `delete_skill(name)` / `export_skills(path)` / `import_skills(path)`
+Manage skill library.
+
+```python
+delete_skill('old_skill')
+export_skills('/tmp/my_skills.zip')  # Share with team
+import_skills('/tmp/shared_skills.zip')
+```
+
+---
 
 ## Available Models
 
@@ -118,6 +1152,7 @@ def get_api_documentation() -> str:
 REPOTOIRE_STARTUP_SCRIPT = """
 # Repotoire Code Execution Environment
 # This environment is pre-configured with Repotoire imports and utilities
+# Includes token-efficient utilities (REPO-210/211/212)
 
 import sys
 import os
@@ -135,6 +1170,18 @@ from repotoire.rules.engine import RuleEngine
 from repotoire.rules.validator import RuleValidator
 from repotoire.ai.retrieval import GraphRAGRetriever
 from repotoire.ai.embeddings import CodeEmbedder
+
+# Import token-efficient utilities (REPO-210/211/212)
+from repotoire.mcp.execution_env import (
+    # REPO-210: Data Filtering
+    summarize, top_n, count_by, to_table, filter_by, field_stats, group_by,
+    # REPO-211: State Persistence
+    store, get, delete, list_stored, clear_state,
+    cache_query, invalidate_cache, cache_info, cached,
+    # REPO-212: Skill Persistence
+    save_skill, load_skill, list_skills, skill_info, delete_skill,
+    search_skills, export_skills, import_skills, get_skills_directory, SKILLS_DIR,
+)
 
 # Connection helpers
 def connect_neo4j(
@@ -216,7 +1263,7 @@ def execute_rule(rule_id: str):
     return rule_engine.execute_rule(rule)
 
 # Quick stats
-def stats():
+def codebase_stats():
     \"\"\"Print quick stats about the codebase.\"\"\"
     if client is None:
         print("Not connected to Neo4j")
@@ -235,20 +1282,36 @@ def stats():
     for row in counts:
         print(f"{row['type']:20s} {row['count']:>10,}")
 
+# Alias for backwards compatibility
+stats = codebase_stats
+
 print("\\n" + "=" * 60)
 print("Repotoire Code Execution Environment")
 print("=" * 60)
 print("\\nPre-configured objects:")
 print("  • client       - Neo4jClient instance")
 print("  • rule_engine  - RuleEngine instance")
-print("\\nUtility functions:")
-print("  • query(cypher, params) - Execute Cypher query")
+print("\\nCore functions:")
+print("  • query(cypher)         - Execute Cypher query")
 print("  • search_code(text)     - Vector search")
 print("  • list_rules()          - List custom rules")
 print("  • execute_rule(id)      - Execute a rule")
-print("  • stats()               - Show codebase stats")
+print("  • codebase_stats()      - Show codebase stats")
+print("\\nData filtering (96% token reduction):")
+print("  • summarize(results, ['field1', 'field2'])")
+print("  • top_n(results, 5, 'complexity')")
+print("  • count_by(results, 'severity')")
+print("  • filter_by(results, severity='HIGH')")
+print("  • to_table(results, ['name', 'file'])")
+print("\\nState persistence:")
+print("  • store('key', value) / get('key')")
+print("  • cache_query('key', cypher)")
+print("\\nSkill management:")
+print("  • save_skill('name', code) / load_skill('name')")
+print("  • list_skills() / search_skills('query')")
 print("\\nExample:")
-print("  results = query('MATCH (f:Function) WHERE f.complexity > 20 RETURN f LIMIT 5')")
+print("  results = query('MATCH (f:Function) WHERE f.complexity > 20 RETURN f')")
+print("  print(to_table(top_n(results, 5, 'complexity'), ['qualifiedName', 'complexity']))")
 print("=" * 60 + "\\n")
 """
 
