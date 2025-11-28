@@ -41,6 +41,15 @@ class FeatureEnvyDetector(CodeSmellDetector):
 
         self.logger = get_logger(__name__)
 
+    @property
+    def needs_previous_findings(self) -> bool:
+        """FeatureEnvyDetector needs GodClassDetector findings for cross-correlation.
+
+        When feature envy is detected in a god class, severity is downgraded
+        because it's a symptom of the god class, not a root cause.
+        """
+        return True
+
     def detect(self, previous_findings: Optional[List[Finding]] = None) -> List[Finding]:
         """
         Detect methods with feature envy using graph analysis.

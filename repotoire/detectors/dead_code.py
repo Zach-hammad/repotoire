@@ -38,6 +38,15 @@ class DeadCodeDetector(CodeSmellDetector):
         # FalkorDB doesn't support EXISTS {} subqueries
         self.is_falkordb = type(neo4j_client).__name__ == "FalkorDBClient"
 
+    @property
+    def needs_previous_findings(self) -> bool:
+        """DeadCodeDetector needs VultureDetector findings for cross-validation.
+
+        When both graph-based and AST-based (Vulture) detection agree,
+        confidence exceeds 95%, enabling safe auto-removal recommendations.
+        """
+        return True
+
     # Common entry points that should not be flagged as dead code
     ENTRY_POINTS = {
         "main",

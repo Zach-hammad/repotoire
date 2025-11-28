@@ -2,6 +2,7 @@
 
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List
 
 from repotoire.graph import Neo4jClient
@@ -75,6 +76,8 @@ class AnalysisEngine:
         enable_voting: bool = True,
         voting_strategy: str = "weighted",
         confidence_threshold: float = 0.6,
+        parallel: bool = True,
+        max_workers: int = 4,
     ):
         """Initialize analysis engine.
 
@@ -86,11 +89,15 @@ class AnalysisEngine:
             enable_voting: Enable voting engine for multi-detector consensus (REPO-156)
             voting_strategy: Voting strategy ("majority", "weighted", "threshold", "unanimous")
             confidence_threshold: Minimum confidence to include finding (0.0-1.0)
+            parallel: Run independent detectors in parallel (REPO-217)
+            max_workers: Maximum thread pool workers for parallel execution (default: 4)
         """
         self.db = neo4j_client
         self.repository_path = repository_path
         self.keep_metadata = keep_metadata
         self.enable_voting = enable_voting
+        self.parallel = parallel
+        self.max_workers = max_workers
         # Check if using FalkorDB (no GDS support)
         self.is_falkordb = type(neo4j_client).__name__ == "FalkorDBClient"
         config = detector_config or {}
@@ -317,18 +324,115 @@ class AnalysisEngine:
                     logger.info("Keeping detector metadata in graph for hotspot queries (use 'repotoire hotspots' command)")
 
     def _run_detectors(self) -> List[Finding]:
-        """Run all registered detectors with cross-detector collaboration.
+        """Run all registered detectors with two-phase parallel execution.
 
-        Detectors are run sequentially, with findings from previous detectors
-        passed to later detectors that support the `previous_findings` parameter.
-        This enables cross-detector collaboration and reduces false positives.
+        REPO-217: Implements parallel execution for improved performance.
+
+        Phase 1: Run all independent detectors (needs_previous_findings=False)
+                 in parallel using ThreadPoolExecutor.
+        Phase 2: Run dependent detectors (needs_previous_findings=True)
+                 sequentially, passing accumulated findings.
 
         Returns:
             Combined list of all findings
         """
+        # Classify detectors based on whether they need previous findings
+        independent_detectors = [d for d in self.detectors if not d.needs_previous_findings]
+        dependent_detectors = [d for d in self.detectors if d.needs_previous_findings]
+
+        logger.info(
+            f"Detector classification: {len(independent_detectors)} independent, "
+            f"{len(dependent_detectors)} dependent (need previous findings)"
+        )
+
         all_findings: List[Finding] = []
 
-        for detector in self.detectors:
+        # Phase 1: Run independent detectors (optionally in parallel)
+        if self.parallel and len(independent_detectors) > 1:
+            logger.info(
+                f"Phase 1: Running {len(independent_detectors)} independent detectors "
+                f"in parallel (workers={self.max_workers})"
+            )
+            phase1_findings = self._run_detectors_parallel(independent_detectors)
+        else:
+            mode = "sequentially" if not self.parallel else "sequentially (single detector)"
+            logger.info(f"Phase 1: Running {len(independent_detectors)} independent detectors {mode}")
+            phase1_findings = self._run_detectors_sequential(independent_detectors)
+
+        all_findings.extend(phase1_findings)
+        logger.info(f"Phase 1 complete: {len(phase1_findings)} findings from independent detectors")
+
+        # Phase 2: Run dependent detectors sequentially with previous_findings
+        if dependent_detectors:
+            logger.info(f"Phase 2: Running {len(dependent_detectors)} dependent detectors sequentially")
+            phase2_findings = self._run_detectors_sequential(
+                dependent_detectors,
+                previous_findings=all_findings
+            )
+            all_findings.extend(phase2_findings)
+            logger.info(f"Phase 2 complete: {len(phase2_findings)} findings from dependent detectors")
+
+        logger.info("All detectors complete", extra={
+            "total_findings": len(all_findings),
+            "detectors_run": len(self.detectors),
+            "parallel_mode": self.parallel
+        })
+
+        return all_findings
+
+    def _run_detectors_parallel(self, detectors: list) -> List[Finding]:
+        """Run detectors in parallel using ThreadPoolExecutor.
+
+        Args:
+            detectors: List of detector instances to run
+
+        Returns:
+            Combined list of findings from all detectors
+        """
+        all_findings: List[Finding] = []
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # Submit all detectors
+            future_to_detector = {
+                executor.submit(self._run_single_detector, d): d
+                for d in detectors
+            }
+
+            # Collect results as they complete
+            for future in as_completed(future_to_detector):
+                detector = future_to_detector[future]
+                detector_name = detector.__class__.__name__
+
+                try:
+                    findings = future.result()
+                    all_findings.extend(findings)
+                except Exception as e:
+                    logger.error(
+                        f"Detector failed in parallel execution: {detector_name}",
+                        extra={"error": str(e)},
+                        exc_info=True
+                    )
+
+        return all_findings
+
+    def _run_detectors_sequential(
+        self,
+        detectors: list,
+        previous_findings: List[Finding] = None
+    ) -> List[Finding]:
+        """Run detectors sequentially with optional previous findings.
+
+        Args:
+            detectors: List of detector instances to run
+            previous_findings: Optional findings to pass to detectors that need them
+
+        Returns:
+            Combined list of findings from all detectors
+        """
+        all_findings: List[Finding] = []
+        accumulated_findings = list(previous_findings) if previous_findings else []
+
+        for detector in detectors:
             detector_name = detector.__class__.__name__
 
             with LogContext(detector=detector_name):
@@ -336,17 +440,13 @@ class AnalysisEngine:
                 logger.info(f"Running detector: {detector_name}")
 
                 try:
-                    # Try to pass previous findings for cross-detector collaboration
-                    # Detectors that don't support this parameter will ignore it (backward compatible)
-                    import inspect
-                    sig = inspect.signature(detector.detect)
-
-                    if "previous_findings" in sig.parameters:
-                        # Detector supports collaboration - pass accumulated findings
-                        findings = detector.detect(previous_findings=all_findings)
-                        logger.debug(f"{detector_name} received {len(all_findings)} previous findings for collaboration")
+                    # Pass previous findings if detector needs them
+                    if detector.needs_previous_findings:
+                        findings = detector.detect(previous_findings=accumulated_findings)
+                        logger.debug(
+                            f"{detector_name} received {len(accumulated_findings)} previous findings"
+                        )
                     else:
-                        # Detector doesn't support collaboration - run normally
                         findings = detector.detect()
 
                     duration = time.time() - start_time
@@ -357,6 +457,7 @@ class AnalysisEngine:
                     })
 
                     all_findings.extend(findings)
+                    accumulated_findings.extend(findings)
 
                 except Exception as e:
                     duration = time.time() - start_time
@@ -366,12 +467,42 @@ class AnalysisEngine:
                         exc_info=True
                     )
 
-        logger.info("All detectors complete", extra={
-            "total_findings": len(all_findings),
-            "detectors_run": len(self.detectors)
-        })
-
         return all_findings
+
+    def _run_single_detector(self, detector) -> List[Finding]:
+        """Run a single detector with timing and error handling.
+
+        Args:
+            detector: Detector instance to run
+
+        Returns:
+            List of findings (empty list on error)
+        """
+        detector_name = detector.__class__.__name__
+
+        with LogContext(detector=detector_name):
+            start_time = time.time()
+            logger.info(f"Running detector: {detector_name}")
+
+            try:
+                findings = detector.detect()
+                duration = time.time() - start_time
+
+                logger.info(f"Detector complete: {detector_name}", extra={
+                    "findings_count": len(findings),
+                    "duration_seconds": round(duration, 3)
+                })
+
+                return findings
+
+            except Exception as e:
+                duration = time.time() - start_time
+                logger.error(
+                    f"Detector failed: {detector_name}",
+                    extra={"error": str(e), "duration_seconds": round(duration, 3)},
+                    exc_info=True
+                )
+                return []
 
     def _calculate_metrics(self, findings: List[Finding]) -> MetricsBreakdown:
         """Calculate detailed code metrics.

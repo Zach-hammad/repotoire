@@ -18,6 +18,23 @@ class CodeSmellDetector(ABC):
         """
         self.db = neo4j_client
 
+    @property
+    def needs_previous_findings(self) -> bool:
+        """Whether this detector requires findings from other detectors.
+
+        Override to return True for detectors that depend on other detectors'
+        results (e.g., DeadCodeDetector needs VultureDetector findings for
+        cross-validation, ArchitecturalBottleneckDetector needs RadonDetector
+        findings for risk amplification).
+
+        Detectors that need previous findings will run in phase 2 (sequentially)
+        after all independent detectors complete in phase 1 (parallel).
+
+        Returns:
+            True if detector needs previous findings, False otherwise (default)
+        """
+        return False
+
     @abstractmethod
     def detect(self) -> List[Finding]:
         """Run detection algorithm on the graph.

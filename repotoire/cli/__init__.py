@@ -532,6 +532,17 @@ def ingest(
     default=False,
     help="Keep detector metadata in graph after analysis (enables 'repotoire hotspots' queries)",
 )
+@click.option(
+    "--parallel/--no-parallel",
+    default=True,
+    help="Run independent detectors in parallel (default: enabled, REPO-217)",
+)
+@click.option(
+    "--workers",
+    type=int,
+    default=4,
+    help="Number of parallel workers for detector execution (default: 4)",
+)
 @click.pass_context
 def analyze(
     ctx: click.Context,
@@ -544,6 +555,8 @@ def analyze(
     quiet: bool,
     track_metrics: bool,
     keep_metadata: bool,
+    parallel: bool,
+    workers: int,
 ) -> None:
     """Analyze codebase health and generate report."""
     # Get config from context
@@ -614,7 +627,9 @@ def analyze(
                     db,
                     detector_config=detector_config_dict,
                     repository_path=str(repo_path),
-                    keep_metadata=keep_metadata
+                    keep_metadata=keep_metadata,
+                    parallel=parallel,
+                    max_workers=workers,
                 )
 
                 # Run analysis with progress indication

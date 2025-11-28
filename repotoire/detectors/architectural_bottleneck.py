@@ -53,6 +53,15 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
         # REPO-154: Store risk assessments for reporting
         self._last_risk_assessments: List[RiskAssessment] = []
 
+    @property
+    def needs_previous_findings(self) -> bool:
+        """ArchitecturalBottleneckDetector needs RadonDetector and BanditDetector findings.
+
+        REPO-154: When bottlenecks combine with high complexity (Radon) and
+        security issues (Bandit), severity is escalated for compound risk factors.
+        """
+        return True
+
     def detect(
         self,
         previous_findings: Optional[List[Finding]] = None,
