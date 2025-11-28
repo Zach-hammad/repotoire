@@ -555,6 +555,19 @@ fn graph_leiden(
     Ok(graph_algo::leiden(&edges, num_nodes, resolution, max_iterations))
 }
 
+/// Calculate Harmonic Centrality for all nodes
+/// Measures how easily a node can reach all other nodes
+/// Returns list of scores (index = node ID)
+#[pyfunction]
+#[pyo3(signature = (edges, num_nodes, normalized=true))]
+fn graph_harmonic_centrality(
+    edges: Vec<(u32, u32)>,
+    num_nodes: usize,
+    normalized: bool,
+) -> PyResult<Vec<f64>> {
+    Ok(graph_algo::harmonic_centrality(&edges, num_nodes, normalized))
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -588,6 +601,7 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(graph_pagerank, n)?)?;
     n.add_function(wrap_pyfunction!(graph_betweenness_centrality, n)?)?;
     n.add_function(wrap_pyfunction!(graph_leiden, n)?)?;
+    n.add_function(wrap_pyfunction!(graph_harmonic_centrality, n)?)?;
     Ok(())
 }
 

@@ -504,6 +504,103 @@ pub fn louvain(
     communities
 }
 
+// ============================================================================
+// HARMONIC CENTRALITY
+// ============================================================================
+//
+// What is Harmonic Centrality?
+// Measures how "close" a node is to all other nodes, using the harmonic mean.
+// High harmonic centrality = can reach most nodes in few hops.
+//
+// In code: utility functions that are easily accessible from most of the codebase!
+//
+// Formula:
+//   HC(v) = Σ (1 / d(v, u)) for all u ≠ v where d(v,u) is the shortest path
+//
+// Why harmonic instead of closeness?
+// - Closeness uses 1/(sum of distances), breaks on disconnected graphs (division by ∞)
+// - Harmonic uses sum of (1/distance), handles disconnected nodes gracefully (1/∞ = 0)
+//
+// Algorithm:
+// 1. For each node v, run BFS to find shortest paths to all reachable nodes
+// 2. Sum up 1/distance for each reachable node
+// 3. Optionally normalize by (n-1) to get values in [0, 1]
+//
+// Time complexity: O(V * (V + E)) - BFS from each node
+// ============================================================================
+
+/// Calculate Harmonic Centrality for all nodes.
+///
+/// # Arguments
+/// * `edges` - List of (source, target) directed edges
+/// * `num_nodes` - Total number of nodes
+/// * `normalized` - If true, normalize by (n-1) to get values in [0, 1]
+///
+/// # Returns
+/// Vector of harmonic centrality scores, one per node (index = node ID)
+pub fn harmonic_centrality(edges: &[(u32, u32)], num_nodes: usize, normalized: bool) -> Vec<f64> {
+    if num_nodes == 0 {
+        return vec![];
+    }
+
+    if num_nodes == 1 {
+        return vec![0.0];  // Single node has no other nodes to reach
+    }
+
+    // Build adjacency list (directed graph)
+    // For centrality, we often want undirected - treat edges as bidirectional
+    let mut adj: Vec<Vec<u32>> = vec![vec![]; num_nodes];
+    for &(src, dst) in edges {
+        let src = src as usize;
+        let dst = dst as usize;
+        if src < num_nodes && dst < num_nodes && src != dst {
+            adj[src].push(dst as u32);
+            adj[dst].push(src as u32);  // Undirected for centrality
+        }
+    }
+
+    // Harmonic centrality for each node
+    let mut harmonic: Vec<f64> = vec![0.0; num_nodes];
+
+    // BFS from each node to compute distances
+    for source in 0..num_nodes {
+        // Distance from source (-1 = not visited)
+        let mut distance: Vec<i32> = vec![-1; num_nodes];
+        distance[source] = 0;
+
+        // BFS queue
+        let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
+        queue.push_back(source);
+
+        // BFS traversal
+        while let Some(v) = queue.pop_front() {
+            for &w in &adj[v] {
+                let w = w as usize;
+
+                // First time visiting w?
+                if distance[w] < 0 {
+                    distance[w] = distance[v] + 1;
+                    queue.push_back(w);
+
+                    // Add contribution to harmonic centrality
+                    // HC(source) += 1 / d(source, w)
+                    harmonic[source] += 1.0 / distance[w] as f64;
+                }
+            }
+        }
+    }
+
+    // Normalize if requested: divide by (n-1) to get [0, 1] range
+    if normalized && num_nodes > 1 {
+        let norm_factor = (num_nodes - 1) as f64;
+        for score in &mut harmonic {
+            *score /= norm_factor;
+        }
+    }
+
+    harmonic
+}
+
 /// Leiden community detection (improved Louvain with refinement).
 /// Guarantees well-connected communities.
 pub fn leiden(

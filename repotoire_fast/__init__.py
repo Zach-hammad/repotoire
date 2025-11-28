@@ -31,6 +31,7 @@ from .repotoire_fast import (
     graph_pagerank,                   # PageRank importance scores
     graph_betweenness_centrality,     # Betweenness centrality
     graph_leiden,                     # Leiden community detection
+    graph_harmonic_centrality,        # Harmonic centrality (closeness)
 )
 
 __all__ = [
@@ -65,4 +66,5 @@ __all__ = [
     "graph_pagerank",                   # PageRank importance scores
     "graph_betweenness_centrality",     # Betweenness centrality
     "graph_leiden",                     # Leiden community detection
+    "graph_harmonic_centrality",        # Harmonic centrality (closeness)
 ]

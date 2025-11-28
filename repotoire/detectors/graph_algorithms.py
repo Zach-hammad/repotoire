@@ -19,6 +19,7 @@ from repotoire_fast import (
     graph_pagerank,
     graph_betweenness_centrality,
     graph_leiden,
+    graph_harmonic_centrality,
 )
 
 logger = get_logger(__name__)
@@ -323,6 +324,123 @@ class GraphAlgorithms:
             max(f.betweenness_score) as max_betweenness,
             avg(f.betweenness_score) as avg_betweenness,
             stdev(f.betweenness_score) as stdev_betweenness,
+            count(f) as total_functions
+        """
+        result = self.client.execute_query(query)
+        return result[0] if result else None
+
+    # ========================================================================
+    # HARMONIC CENTRALITY (REPO-198)
+    # ========================================================================
+
+    def calculate_harmonic_centrality(
+        self,
+        projection_name: str = "calls-graph",
+        write_property: str = "harmonic_centrality"
+    ) -> Optional[Dict[str, Any]]:
+        """Calculate harmonic centrality using Rust implementation.
+
+        Harmonic centrality measures how easily a node can reach all other nodes,
+        using the harmonic mean of distances. Unlike closeness centrality, it
+        handles disconnected graphs gracefully (unreachable nodes contribute 0).
+
+        High harmonic centrality indicates utility code that is easily accessible
+        from most of the codebase.
+
+        Formula: HC(v) = Σ (1 / d(v, u)) for all reachable u ≠ v
+
+        Args:
+            projection_name: Ignored (kept for API compatibility)
+            write_property: Property name to store harmonic centrality scores
+
+        Returns:
+            Dictionary with computation results, or None if failed
+        """
+        import time
+        start_time = time.time()
+
+        try:
+            validated_property = validate_identifier(write_property, "property name")
+
+            # Extract Function->CALLS->Function edges from Neo4j
+            edges, node_names = self._extract_edges("Function", "CALLS")
+
+            if not edges:
+                logger.info("No call edges found for harmonic centrality analysis")
+                return {"nodePropertiesWritten": 0, "computeMillis": 0}
+
+            # Run Rust harmonic centrality algorithm (normalized to [0, 1])
+            scores = graph_harmonic_centrality(edges, len(node_names), normalized=True)
+
+            # Write back to Neo4j
+            updated = self._write_property_to_nodes(
+                "Function", node_names, scores, validated_property
+            )
+
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.info(
+                f"Calculated harmonic centrality (Rust): "
+                f"{updated} nodes updated in {elapsed_ms}ms"
+            )
+
+            return {
+                "nodePropertiesWritten": updated,
+                "computeMillis": elapsed_ms
+            }
+
+        except ValidationError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to calculate harmonic centrality: {e}")
+            return None
+
+    def get_high_harmonic_functions(
+        self,
+        threshold: float = 0.0,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """Get functions with high harmonic centrality scores.
+
+        Args:
+            threshold: Minimum harmonic centrality score (0.0 = all functions)
+            limit: Maximum number of results
+
+        Returns:
+            List of function data with harmonic centrality scores
+        """
+        query = """
+        MATCH (f:Function)
+        WHERE f.harmonic_centrality IS NOT NULL
+          AND f.harmonic_centrality > $threshold
+        RETURN
+            f.qualifiedName as qualified_name,
+            f.harmonic_centrality as harmonic_centrality,
+            f.complexity as complexity,
+            f.loc as loc,
+            f.filePath as file_path,
+            f.lineStart as line_number
+        ORDER BY f.harmonic_centrality DESC
+        LIMIT $limit
+        """
+        return self.client.execute_query(query, parameters={
+            "threshold": threshold,
+            "limit": limit
+        })
+
+    def get_harmonic_statistics(self) -> Optional[Dict[str, float]]:
+        """Get statistical summary of harmonic centrality scores.
+
+        Returns:
+            Dictionary with min, max, avg, stdev of harmonic centrality scores
+        """
+        query = """
+        MATCH (f:Function)
+        WHERE f.harmonic_centrality IS NOT NULL
+        RETURN
+            min(f.harmonic_centrality) as min_harmonic,
+            max(f.harmonic_centrality) as max_harmonic,
+            avg(f.harmonic_centrality) as avg_harmonic,
+            stdev(f.harmonic_centrality) as stdev_harmonic,
             count(f) as total_functions
         """
         result = self.client.execute_query(query)
@@ -848,164 +966,6 @@ class GraphAlgorithms:
         _community_cache.clear()
         _pagerank_cache.clear()
         logger.debug("Cleared graph algorithm caches")
-
-    # -------------------------------------------------------------------------
-    # Harmonic Centrality (REPO-173)
-    # -------------------------------------------------------------------------
-
-    def calculate_harmonic_centrality(
-        self,
-        projection_name: str = "calls-graph",
-        write_property: str = "harmonic_score"
-    ) -> Optional[Dict[str, Any]]:
-        """Calculate harmonic centrality for all functions in the call graph.
-
-        Harmonic centrality is a variant of closeness centrality that handles
-        disconnected graphs gracefully. It measures how close a node is to all
-        other nodes, with infinite distances contributing 0 instead of breaking.
-
-        High harmonic centrality = central coordinator (can reach most functions quickly)
-        Low harmonic centrality = isolated/peripheral code
-
-        Args:
-            projection_name: Name of the graph projection to use
-            write_property: Property name to store harmonic scores
-
-        Returns:
-            Dictionary with computation results, or None if failed
-        """
-        try:
-            validated_name = validate_identifier(projection_name, "projection name")
-            validated_property = validate_identifier(write_property, "property name")
-
-            query = f"""
-            CALL gds.closeness.harmonic.write('{validated_name}', {{
-                writeProperty: '{validated_property}'
-            }})
-            YIELD nodePropertiesWritten, computeMillis
-            RETURN nodePropertiesWritten, computeMillis
-            """
-            result = self.client.execute_query(query)
-
-            if result:
-                logger.info(
-                    f"Calculated harmonic centrality: "
-                    f"{result[0]['nodePropertiesWritten']} nodes updated in "
-                    f"{result[0]['computeMillis']}ms"
-                )
-                return result[0]
-            return None
-
-        except ValidationError:
-            raise
-        except Exception as e:
-            logger.error(f"Failed to calculate harmonic centrality: {e}")
-            return None
-
-    def get_harmonic_statistics(self) -> Optional[Dict[str, float]]:
-        """Get statistical summary of harmonic centrality scores.
-
-        Returns:
-            Dictionary with min, max, avg, percentiles of harmonic scores
-        """
-        query = """
-        MATCH (f:Function)
-        WHERE f.harmonic_score IS NOT NULL
-        RETURN
-            min(f.harmonic_score) AS min_harmonic,
-            max(f.harmonic_score) AS max_harmonic,
-            avg(f.harmonic_score) AS avg_harmonic,
-            stdev(f.harmonic_score) AS stdev_harmonic,
-            percentileCont(f.harmonic_score, 0.05) AS p5_harmonic,
-            percentileCont(f.harmonic_score, 0.10) AS p10_harmonic,
-            percentileCont(f.harmonic_score, 0.90) AS p90_harmonic,
-            percentileCont(f.harmonic_score, 0.95) AS p95_harmonic,
-            count(f) AS total_functions
-        """
-        result = self.client.execute_query(query)
-        return result[0] if result else None
-
-    def get_high_harmonic_functions(
-        self,
-        threshold: float = 0.0,
-        limit: int = 100
-    ) -> List[Dict[str, Any]]:
-        """Get functions with high harmonic centrality (central coordinators).
-
-        Args:
-            threshold: Minimum harmonic score
-            limit: Maximum number of results
-
-        Returns:
-            List of function data with harmonic scores
-        """
-        query = """
-        MATCH (f:Function)
-        WHERE f.harmonic_score IS NOT NULL
-          AND f.harmonic_score > $threshold
-        OPTIONAL MATCH (caller:Function)-[:CALLS]->(f)
-        OPTIONAL MATCH (f)-[:CALLS]->(callee:Function)
-        WITH f,
-             count(DISTINCT caller) AS caller_count,
-             count(DISTINCT callee) AS callee_count
-        RETURN
-            f.qualifiedName AS qualified_name,
-            f.name AS name,
-            f.harmonic_score AS harmonic_score,
-            f.complexity AS complexity,
-            f.loc AS loc,
-            f.filePath AS file_path,
-            f.lineStart AS line_number,
-            caller_count,
-            callee_count
-        ORDER BY f.harmonic_score DESC
-        LIMIT $limit
-        """
-        return self.client.execute_query(query, parameters={
-            "threshold": threshold,
-            "limit": limit
-        })
-
-    def get_low_harmonic_functions(
-        self,
-        threshold: float = 0.2,
-        limit: int = 100
-    ) -> List[Dict[str, Any]]:
-        """Get functions with low harmonic centrality (isolated code).
-
-        Args:
-            threshold: Maximum harmonic score to be considered isolated
-            limit: Maximum number of results
-
-        Returns:
-            List of function data with harmonic scores and connection info
-        """
-        query = """
-        MATCH (f:Function)
-        WHERE f.harmonic_score IS NOT NULL
-          AND f.harmonic_score < $threshold
-        OPTIONAL MATCH (caller:Function)-[:CALLS]->(f)
-        OPTIONAL MATCH (f)-[:CALLS]->(callee:Function)
-        WITH f,
-             count(DISTINCT caller) AS caller_count,
-             count(DISTINCT callee) AS callee_count
-        RETURN
-            f.qualifiedName AS qualified_name,
-            f.name AS name,
-            f.harmonic_score AS harmonic_score,
-            f.complexity AS complexity,
-            f.loc AS loc,
-            f.filePath AS file_path,
-            f.lineStart AS line_number,
-            caller_count,
-            callee_count
-        ORDER BY f.harmonic_score ASC
-        LIMIT $limit
-        """
-        return self.client.execute_query(query, parameters={
-            "threshold": threshold,
-            "limit": limit
-        })
 
     # -------------------------------------------------------------------------
     # Enhanced Louvain Analysis (REPO-172)

@@ -301,6 +301,50 @@ class TestCombinedAnalysis:
         graph_algorithms.clear_caches()
 
 
+class TestHarmonicCentrality:
+    """Test Harmonic Centrality calculation (REPO-198)."""
+
+    @patch('repotoire.detectors.graph_algorithms.graph_harmonic_centrality')
+    def test_calculate_harmonic_centrality_success(self, mock_harmonic, graph_algorithms, mock_client):
+        """Test successful harmonic centrality calculation using Rust."""
+        # Mock the execute_query for _extract_edges and _write_property_to_nodes
+        mock_client.execute_query.side_effect = [
+            # First call: _extract_edges
+            [{
+                'node_list': [
+                    {'neo_id': 1, 'name': 'func1'},
+                    {'neo_id': 2, 'name': 'func2'},
+                    {'neo_id': 3, 'name': 'func3'},
+                ],
+                'edges': [
+                    {'src': 1, 'dst': 2},
+                    {'src': 2, 'dst': 3},
+                ]
+            }],
+            # Second call: _write_property_to_nodes
+            [{'updated': 3}],
+        ]
+
+        # Mock Rust harmonic centrality to return scores
+        # In a line graph 0-1-2: middle node (1) has highest harmonic centrality
+        mock_harmonic.return_value = [0.5, 1.0, 0.5]
+
+        result = graph_algorithms.calculate_harmonic_centrality()
+
+        assert result is not None
+        assert result["nodePropertiesWritten"] == 3
+        assert "computeMillis" in result
+
+    def test_calculate_harmonic_centrality_no_edges(self, graph_algorithms, mock_client):
+        """Test harmonic centrality calculation with no edges."""
+        mock_client.execute_query.return_value = [{'node_list': [], 'edges': []}]
+
+        result = graph_algorithms.calculate_harmonic_centrality()
+
+        assert result is not None
+        assert result["nodePropertiesWritten"] == 0
+
+
 class TestValidation:
     """Test input validation for security."""
 
