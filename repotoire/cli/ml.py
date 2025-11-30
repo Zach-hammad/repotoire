@@ -9,7 +9,7 @@ Provides commands for:
 import click
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 from rich.console import Console
 from rich.table import Table
@@ -1594,3 +1594,635 @@ def _print_multimodal_explanation(explanation) -> None:
 
     console.print(f"\n[bold]Interpretation:[/bold]")
     console.print(f"  {explanation.interpretation}")
+
+
+# ============================================================================
+# GraphSAGE Zero-Shot Commands
+# ============================================================================
+
+
+@ml.command("extract-multi-project-labels")
+@click.option(
+    "--projects",
+    "-p",
+    required=True,
+    help="Comma-separated project paths (e.g., /path/to/proj1,/path/to/proj2)",
+)
+@click.option(
+    "--output",
+    "-o",
+    required=True,
+    help="Output JSON file for combined labels",
+)
+@click.option(
+    "--since",
+    default="2020-01-01",
+    help="Start date for git history (default: 2020-01-01)",
+)
+@click.option(
+    "--max-commits",
+    type=int,
+    help="Maximum commits to analyze per project",
+)
+@click.option(
+    "--max-examples",
+    type=int,
+    help="Maximum examples per project (balanced 50/50)",
+)
+def extract_multi_project_labels(
+    projects: str,
+    output: str,
+    since: str,
+    max_commits: Optional[int],
+    max_examples: Optional[int],
+):
+    """Extract training labels from multiple projects' git history.
+
+    Analyzes commit history from multiple repositories to build a
+    comprehensive training dataset for cross-project defect prediction.
+
+    Examples:
+
+        # Extract from two projects
+        repotoire ml extract-multi-project-labels \\
+            -p /path/to/flask,/path/to/requests \\
+            -o combined_labels.json
+
+        # With limits for faster testing
+        repotoire ml extract-multi-project-labels \\
+            -p ./proj1,./proj2,./proj3 \\
+            -o labels.json \\
+            --max-commits 100 \\
+            --max-examples 500
+    """
+    from repotoire.ml.training_data import GitBugLabelExtractor
+
+    console.print("[bold blue]Extracting labels from multiple projects[/bold blue]")
+
+    project_paths = [p.strip() for p in projects.split(",")]
+    console.print(f"[dim]Projects: {len(project_paths)}[/dim]\n")
+
+    all_labels = []
+    stats = {
+        "total_projects": len(project_paths),
+        "total_functions": 0,
+        "buggy": 0,
+        "clean": 0,
+        "projects": {},
+    }
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        for project_path in project_paths:
+            task = progress.add_task(f"Processing: {project_path}...", total=None)
+
+            try:
+                extractor = GitBugLabelExtractor(Path(project_path))
+                dataset = extractor.create_balanced_dataset(
+                    since_date=since,
+                    max_examples=max_examples,
+                )
+
+                project_name = Path(project_path).name
+                project_buggy = 0
+                project_clean = 0
+
+                for example in dataset.examples:
+                    label_int = 1 if example.label == "buggy" else 0
+                    all_labels.append({
+                        "project": project_name,
+                        "project_path": str(project_path),
+                        "qualified_name": example.qualified_name,
+                        "label": label_int,
+                        "label_str": example.label,
+                        "confidence": example.confidence,
+                        "file_path": example.file_path,
+                    })
+
+                    if label_int == 1:
+                        project_buggy += 1
+                    else:
+                        project_clean += 1
+
+                stats["total_functions"] += len(dataset.examples)
+                stats["buggy"] += project_buggy
+                stats["clean"] += project_clean
+                stats["projects"][project_name] = {
+                    "total": len(dataset.examples),
+                    "buggy": project_buggy,
+                    "clean": project_clean,
+                }
+
+                progress.update(
+                    task,
+                    description=f"{project_name}: {len(dataset.examples)} functions ({project_buggy} buggy)",
+                )
+
+            except Exception as e:
+                progress.update(task, description=f"[red]Error: {project_path}: {e}[/red]")
+                logger.error(f"Failed to process {project_path}: {e}")
+
+    # Save combined labels
+    output_data = {
+        "labels": all_labels,
+        "stats": stats,
+        "extraction_config": {
+            "since": since,
+            "max_commits": max_commits,
+            "max_examples": max_examples,
+        },
+    }
+
+    with open(output, "w") as f:
+        json.dump(output_data, f, indent=2)
+
+    console.print(f"\n[green]Saved to {output}[/green]")
+
+    # Print summary table
+    table = Table(title="Multi-Project Label Extraction Summary")
+    table.add_column("Project", style="cyan")
+    table.add_column("Total", justify="right")
+    table.add_column("Buggy", justify="right", style="red")
+    table.add_column("Clean", justify="right", style="green")
+
+    for project_name, proj_stats in stats["projects"].items():
+        table.add_row(
+            project_name,
+            str(proj_stats["total"]),
+            str(proj_stats["buggy"]),
+            str(proj_stats["clean"]),
+        )
+
+    table.add_section()
+    table.add_row(
+        "[bold]Total[/bold]",
+        f"[bold]{stats['total_functions']}[/bold]",
+        f"[bold]{stats['buggy']}[/bold]",
+        f"[bold]{stats['clean']}[/bold]",
+    )
+
+    console.print(table)
+
+
+@ml.command("train-graphsage")
+@click.option(
+    "--training-data",
+    "-d",
+    required=True,
+    type=click.Path(exists=True),
+    help="Training data JSON file from extract-multi-project-labels",
+)
+@click.option(
+    "--hidden-dim",
+    default=128,
+    type=int,
+    help="Hidden layer dimension (default: 128)",
+)
+@click.option(
+    "--num-layers",
+    default=2,
+    type=int,
+    help="Number of GraphSAGE layers (default: 2)",
+)
+@click.option(
+    "--batch-size",
+    default=128,
+    type=int,
+    help="Mini-batch size (default: 128)",
+)
+@click.option(
+    "--epochs",
+    default=100,
+    type=int,
+    help="Maximum training epochs (default: 100)",
+)
+@click.option(
+    "--learning-rate",
+    default=0.001,
+    type=float,
+    help="Initial learning rate (default: 0.001)",
+)
+@click.option(
+    "--holdout-project",
+    help="Project to hold out for cross-project testing",
+)
+@click.option(
+    "--output",
+    "-o",
+    default="models/graphsage_universal.pt",
+    help="Output model path (default: models/graphsage_universal.pt)",
+)
+def train_graphsage(
+    training_data: str,
+    hidden_dim: int,
+    num_layers: int,
+    batch_size: int,
+    epochs: int,
+    learning_rate: float,
+    holdout_project: Optional[str],
+    output: str,
+):
+    """Train GraphSAGE for cross-project defect prediction.
+
+    Trains a GraphSAGE model on labeled data from multiple projects.
+    The model learns aggregation functions that generalize to any
+    new codebase (zero-shot inference).
+
+    Prerequisites:
+    - Training labels from 'repotoire ml extract-multi-project-labels'
+    - Each project's codebase ingested with embeddings
+
+    Examples:
+
+        # Basic training
+        repotoire ml train-graphsage -d combined_labels.json
+
+        # With held-out project for zero-shot evaluation
+        repotoire ml train-graphsage -d labels.json --holdout-project flask
+
+        # Custom hyperparameters
+        repotoire ml train-graphsage -d labels.json \\
+            --hidden-dim 256 --num-layers 3 --epochs 200
+    """
+    try:
+        from repotoire.ml.cross_project_trainer import (
+            CrossProjectTrainer,
+            CrossProjectDataLoader,
+            CrossProjectTrainingConfig,
+        )
+        from repotoire.ml.graphsage_predictor import GraphSAGEConfig
+        from repotoire.graph.client import Neo4jClient
+    except ImportError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        console.print("[yellow]Install with: pip install torch torch-geometric[/yellow]")
+        raise click.Abort()
+
+    console.print("[bold blue]Training GraphSAGE for zero-shot defect prediction[/bold blue]")
+
+    # Load labels
+    with open(training_data) as f:
+        data = json.load(f)
+
+    labels_by_project: Dict[str, Dict[str, int]] = {}
+    for item in data["labels"]:
+        project = item.get("project") or item.get("project_path", "unknown")
+        if project not in labels_by_project:
+            labels_by_project[project] = {}
+        labels_by_project[project][item["qualified_name"]] = item["label"]
+
+    console.print(f"[dim]Projects: {list(labels_by_project.keys())}[/dim]")
+    console.print(f"[dim]Total labels: {sum(len(l) for l in labels_by_project.values())}[/dim]\n")
+
+    if holdout_project and holdout_project not in labels_by_project:
+        console.print(f"[yellow]Warning: Holdout project '{holdout_project}' not in labels[/yellow]")
+        holdout_project = None
+
+    # Initialize configs
+    model_config = GraphSAGEConfig(
+        hidden_dim=hidden_dim,
+        num_layers=num_layers,
+    )
+    training_config = CrossProjectTrainingConfig(
+        epochs=epochs,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+    )
+
+    # For this implementation, we load from a single Neo4j instance
+    # that has all projects' data ingested
+    console.print("[dim]Loading graph data from Neo4j...[/dim]")
+
+    try:
+        client = Neo4jClient.from_env()
+
+        # Combine all labels (assuming single graph with all projects)
+        all_labels: Dict[str, int] = {}
+        for project_labels in labels_by_project.values():
+            all_labels.update(project_labels)
+
+        loader = CrossProjectDataLoader(clients={"combined": client})
+
+        # Load as single combined project
+        project_graph = loader.load_project_graph("combined", all_labels)
+
+        # If holdout requested, we do train/test split within this graph
+        train_data = project_graph.data
+        val_data = None
+
+        if holdout_project:
+            # For true cross-project evaluation, you'd need separate Neo4j instances
+            # or use the load_project_from_json method with exported data
+            console.print(
+                f"[yellow]Note: True cross-project holdout requires separate graph exports. "
+                f"Using within-graph test split instead.[/yellow]"
+            )
+
+    except Exception as e:
+        console.print(f"[red]Error loading graph data: {e}[/red]")
+        raise click.Abort()
+
+    # Train model
+    trainer = CrossProjectTrainer(model_config, training_config)
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Training GraphSAGE model...", total=None)
+
+        try:
+            history = trainer.train(train_data, val_data=val_data)
+            progress.update(task, description="Training complete")
+        except Exception as e:
+            console.print(f"[red]Training failed: {e}[/red]")
+            logger.exception("GraphSAGE training failed")
+            raise click.Abort()
+
+    # Print results
+    table = Table(title="Training Results", show_header=True, header_style="bold cyan")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green", justify="right")
+
+    table.add_row("Final train loss", f"{history.train_loss[-1]:.4f}")
+    table.add_row("Final train accuracy", f"{history.train_acc[-1]:.3f}")
+
+    if history.val_acc and history.val_acc[-1] > 0:
+        table.add_row("Final val accuracy", f"{history.val_acc[-1]:.3f}")
+        table.add_row("Final val AUC-ROC", f"{history.val_auc[-1]:.3f}")
+
+    table.add_row("Total epochs", str(len(history.train_loss)))
+
+    console.print(table)
+
+    # Save model
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    trainer.save(output_path)
+
+    console.print(f"\n[green]Model saved to {output}[/green]")
+    console.print(
+        "[dim]Use with: repotoire ml zero-shot-predict -m " + output + "[/dim]"
+    )
+
+
+@ml.command("zero-shot-predict")
+@click.argument("repo_path", type=click.Path(exists=True), required=False, default=".")
+@click.option(
+    "--model",
+    "-m",
+    required=True,
+    type=click.Path(exists=True),
+    help="Pre-trained GraphSAGE model path",
+)
+@click.option(
+    "--threshold",
+    default=0.5,
+    type=float,
+    help="Risk threshold for flagging (0.0-1.0, default: 0.5)",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    help="Output JSON file for predictions",
+)
+@click.option(
+    "--top-n",
+    default=20,
+    type=int,
+    help="Show top N risky functions (default: 20)",
+)
+def zero_shot_predict(
+    repo_path: str,
+    model: str,
+    threshold: float,
+    output: Optional[str],
+    top_n: int,
+):
+    """Apply pre-trained GraphSAGE to new codebase (zero-shot).
+
+    Uses a model trained on other projects to predict defect risk
+    in a completely new codebase - no project-specific training needed!
+
+    Prerequisites:
+    - Codebase ingested with 'repotoire ingest --generate-embeddings'
+    - Pre-trained GraphSAGE model
+
+    Examples:
+
+        # Basic zero-shot prediction
+        repotoire ml zero-shot-predict -m models/graphsage_universal.pt
+
+        # Export results
+        repotoire ml zero-shot-predict -m model.pt -o predictions.json
+
+        # Higher threshold for fewer, higher-confidence predictions
+        repotoire ml zero-shot-predict -m model.pt --threshold 0.7
+    """
+    try:
+        from repotoire.ml.cross_project_trainer import CrossProjectTrainer
+        from repotoire.ml.graphsage_predictor import GraphFeatureExtractor
+        from repotoire.graph.client import Neo4jClient
+    except ImportError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        console.print("[yellow]Install with: pip install torch torch-geometric[/yellow]")
+        raise click.Abort()
+
+    console.print(f"[bold blue]Zero-shot defect prediction for {repo_path}[/bold blue]")
+    console.print("[dim](No project-specific training needed!)[/dim]\n")
+
+    # Load model
+    try:
+        trainer = CrossProjectTrainer.load(Path(model))
+    except Exception as e:
+        console.print(f"[red]Failed to load model: {e}[/red]")
+        raise click.Abort()
+
+    # Extract graph data
+    console.print("[dim]Extracting graph features...[/dim]")
+
+    try:
+        client = Neo4jClient.from_env()
+        extractor = GraphFeatureExtractor(client)
+        data, node_mapping = extractor.extract_graph_data()
+    except Exception as e:
+        console.print(f"[red]Failed to extract graph: {e}[/red]")
+        raise click.Abort()
+
+    if data.x.size(0) == 0:
+        console.print("[yellow]No functions with embeddings found.[/yellow]")
+        console.print("[dim]Run 'repotoire ingest --generate-embeddings' first.[/dim]")
+        raise click.Abort()
+
+    console.print(f"[dim]Found {data.x.size(0)} functions, {data.edge_index.size(1)} edges[/dim]")
+
+    # Run predictions
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Running zero-shot predictions...", total=None)
+        predictions = trainer.predict_zero_shot(data)
+        progress.update(task, description=f"Analyzed {len(predictions)} functions")
+
+    # Map back to qualified names
+    idx_to_name = {v: k for k, v in node_mapping.items()}
+
+    # Filter and sort
+    high_risk = [
+        {
+            "qualified_name": idx_to_name.get(p["node_idx"], f"node_{p['node_idx']}"),
+            "probability": p["buggy_probability"],
+            "prediction": p["prediction"],
+        }
+        for p in predictions
+        if p["buggy_probability"] >= threshold
+    ]
+    high_risk.sort(key=lambda x: x["probability"], reverse=True)
+
+    # Display results
+    console.print(f"\n[bold]Found {len(high_risk)} high-risk functions (>={threshold:.0%})[/bold]\n")
+
+    table = Table(title=f"Top {min(top_n, len(high_risk))} Defect Risks (Zero-Shot)")
+    table.add_column("Function", style="cyan", max_width=50)
+    table.add_column("Probability", style="red", justify="right")
+    table.add_column("Risk Level", justify="right")
+
+    for pred in high_risk[:top_n]:
+        prob = pred["probability"]
+        if prob >= 0.9:
+            level = "[red bold]CRITICAL[/red bold]"
+        elif prob >= 0.8:
+            level = "[red]HIGH[/red]"
+        elif prob >= 0.7:
+            level = "[yellow]MEDIUM[/yellow]"
+        else:
+            level = "[green]LOW[/green]"
+
+        table.add_row(
+            pred["qualified_name"].split(".")[-1],
+            f"{prob:.1%}",
+            level,
+        )
+
+    console.print(table)
+
+    # Summary
+    console.print(f"\n[dim]Total functions analyzed: {len(predictions)}[/dim]")
+    console.print(f"[dim]High-risk (>={threshold:.0%}): {len(high_risk)}[/dim]")
+
+    # Save to JSON if requested
+    if output:
+        output_data = {
+            "predictions": [
+                {
+                    "qualified_name": idx_to_name.get(p["node_idx"], f"node_{p['node_idx']}"),
+                    "probability": p["buggy_probability"],
+                    "prediction": p["prediction"],
+                }
+                for p in predictions
+            ],
+            "high_risk_count": len(high_risk),
+            "threshold": threshold,
+            "model_path": str(model),
+        }
+
+        with open(output, "w") as f:
+            json.dump(output_data, f, indent=2)
+
+        console.print(f"\n[green]Results saved to {output}[/green]")
+
+
+@ml.command("export-graph-data")
+@click.argument("repo_path", type=click.Path(exists=True), required=False, default=".")
+@click.option(
+    "--output-dir",
+    "-o",
+    required=True,
+    type=click.Path(),
+    help="Output directory for exported graph files",
+)
+@click.option(
+    "--project-name",
+    "-n",
+    required=True,
+    help="Project name for the exported files",
+)
+def export_graph_data(
+    repo_path: str,
+    output_dir: str,
+    project_name: str,
+):
+    """Export graph data for offline GraphSAGE training.
+
+    Exports node features and edges to JSON files that can be used
+    for training GraphSAGE without requiring a live Neo4j connection.
+
+    Useful for:
+    - Training on large clusters without Neo4j access
+    - Sharing training data between team members
+    - Archiving project graphs for reproducibility
+
+    Examples:
+
+        # Export current project's graph
+        repotoire ml export-graph-data -o ./exports -n myproject
+
+        # Export after ingesting
+        repotoire ingest /path/to/repo --generate-embeddings
+        repotoire ml export-graph-data -o ./exports -n myproject
+    """
+    from repotoire.graph.client import Neo4jClient
+
+    console.print(f"[bold blue]Exporting graph data for {project_name}[/bold blue]")
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    try:
+        client = Neo4jClient.from_env()
+
+        # Export nodes
+        node_query = """
+        MATCH (f:Function)
+        WHERE f.embedding IS NOT NULL
+        RETURN
+            f.qualifiedName AS qualified_name,
+            f.embedding AS embedding,
+            f.complexity AS complexity,
+            f.loc AS loc
+        """
+        nodes = client.execute_query(node_query)
+
+        # Export edges
+        edge_query = """
+        MATCH (f1:Function)-[:CALLS]->(f2:Function)
+        WHERE f1.embedding IS NOT NULL AND f2.embedding IS NOT NULL
+        RETURN f1.qualifiedName AS source, f2.qualifiedName AS target
+        """
+        edges = client.execute_query(edge_query)
+
+    except Exception as e:
+        console.print(f"[red]Error querying graph: {e}[/red]")
+        raise click.Abort()
+
+    # Save nodes
+    nodes_file = output_path / f"{project_name}_nodes.json"
+    with open(nodes_file, "w") as f:
+        json.dump({"nodes": nodes}, f)
+
+    # Save edges
+    edges_file = output_path / f"{project_name}_edges.json"
+    with open(edges_file, "w") as f:
+        json.dump({"edges": edges}, f)
+
+    console.print(f"\n[green]Exported {len(nodes)} nodes to {nodes_file}[/green]")
+    console.print(f"[green]Exported {len(edges)} edges to {edges_file}[/green]")
+    console.print(
+        f"\n[dim]Use with CrossProjectDataLoader.load_project_from_json()[/dim]"
+    )

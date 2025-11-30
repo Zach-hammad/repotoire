@@ -1,9 +1,10 @@
 """Machine learning module for Repotoire.
 
 This module provides ML capabilities including:
-- Graph embeddings (FastRP, Node2Vec)
+- Graph embeddings (FastRP, Node2Vec, GraphSAGE)
 - Structural similarity search
 - Bug prediction models
+- Cross-project zero-shot defect prediction (GraphSAGE)
 - Training data extraction from git history
 - Active learning for human-in-the-loop refinement
 - Fast Rust-based similarity functions
@@ -145,3 +146,34 @@ if _MULTIMODAL_AVAILABLE:
         "TrainingConfig",
         "PredictionExplanation",
     ])
+
+# GraphSAGE zero-shot defect prediction (requires torch + torch-geometric)
+try:
+    from repotoire.ml.graphsage_predictor import (
+        GraphSAGEDefectPredictor,
+        GraphSAGEWithAttention,
+        GraphSAGEConfig,
+        GraphFeatureExtractor,
+    )
+    from repotoire.ml.cross_project_trainer import (
+        CrossProjectTrainer,
+        CrossProjectDataLoader,
+        CrossProjectTrainingConfig,
+        ProjectGraphData,
+        TrainingHistory,
+    )
+    _GRAPHSAGE_AVAILABLE = True
+    __all__.extend([
+        # GraphSAGE zero-shot prediction
+        "GraphSAGEDefectPredictor",
+        "GraphSAGEWithAttention",
+        "GraphSAGEConfig",
+        "GraphFeatureExtractor",
+        "CrossProjectTrainer",
+        "CrossProjectDataLoader",
+        "CrossProjectTrainingConfig",
+        "ProjectGraphData",
+        "TrainingHistory",
+    ])
+except ImportError:
+    _GRAPHSAGE_AVAILABLE = False
