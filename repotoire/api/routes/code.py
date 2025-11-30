@@ -14,6 +14,7 @@ from repotoire.api.models import (
     CodeEntity,
     ErrorResponse
 )
+from repotoire.api.auth import ClerkUser, get_current_user
 from repotoire.ai.retrieval import GraphRAGRetriever, RetrievalResult
 from repotoire.ai.embeddings import CodeEmbedder
 from repotoire.graph.client import Neo4jClient
@@ -80,6 +81,7 @@ def _retrieval_result_to_code_entity(result: RetrievalResult) -> CodeEntity:
 )
 async def search_code(
     request: CodeSearchRequest,
+    user: ClerkUser = Depends(get_current_user),
     retriever: GraphRAGRetriever = Depends(get_retriever)
 ) -> CodeSearchResponse:
     """
@@ -142,6 +144,7 @@ async def search_code(
 )
 async def ask_code_question(
     request: CodeAskRequest,
+    user: ClerkUser = Depends(get_current_user),
     retriever: GraphRAGRetriever = Depends(get_retriever)
 ) -> CodeAskResponse:
     """
@@ -301,6 +304,7 @@ async def ask_code_question(
     }
 )
 async def get_embeddings_status(
+    user: ClerkUser = Depends(get_current_user),
     client: Neo4jClient = Depends(get_neo4j_client)
 ) -> EmbeddingsStatusResponse:
     """

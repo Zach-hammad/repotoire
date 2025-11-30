@@ -2,11 +2,12 @@
 
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from repotoire.autofix.models import FixStatus, FixConfidence, FixType
 from repotoire.api.routes.fixes import get_all_fixes
+from repotoire.api.auth import ClerkUser, get_current_user
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -42,7 +43,7 @@ class FileHotspot(BaseModel):
 
 
 @router.get("/summary")
-async def get_summary() -> AnalyticsSummary:
+async def get_summary(user: ClerkUser = Depends(get_current_user)) -> AnalyticsSummary:
     """Get dashboard summary statistics."""
     fixes = get_all_fixes()
 
@@ -87,6 +88,7 @@ async def get_summary() -> AnalyticsSummary:
 
 @router.get("/trends")
 async def get_trends(
+    user: ClerkUser = Depends(get_current_user),
     period: str = Query("week", regex="^(day|week|month)$"),
     limit: int = Query(30, ge=1, le=90),
 ) -> List[TrendDataPoint]:
@@ -126,7 +128,7 @@ async def get_trends(
 
 
 @router.get("/by-type")
-async def get_by_type() -> Dict[str, int]:
+async def get_by_type(user: ClerkUser = Depends(get_current_user)) -> Dict[str, int]:
     """Get fix counts by type."""
     fixes = get_all_fixes()
 
@@ -138,7 +140,7 @@ async def get_by_type() -> Dict[str, int]:
 
 
 @router.get("/by-file")
-async def get_by_file(limit: int = Query(10, ge=1, le=50)) -> List[FileHotspot]:
+async def get_by_file(user: ClerkUser = Depends(get_current_user), limit: int = Query(10, ge=1, le=50)) -> List[FileHotspot]:
     """Get file hotspot analysis."""
     fixes = get_all_fixes()
 

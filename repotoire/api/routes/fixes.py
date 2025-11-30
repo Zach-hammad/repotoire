@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from repotoire.autofix.models import (
@@ -11,6 +11,7 @@ from repotoire.autofix.models import (
     FixConfidence,
     FixType,
 )
+from repotoire.api.auth import ClerkUser, get_current_user
 
 router = APIRouter(prefix="/fixes", tags=["fixes"])
 
@@ -59,6 +60,7 @@ class BatchRejectRequest(BatchRequest):
 
 @router.get("")
 async def list_fixes(
+    user: ClerkUser = Depends(get_current_user),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[List[FixStatus]] = Query(None),
@@ -111,7 +113,7 @@ async def list_fixes(
 
 
 @router.get("/{fix_id}")
-async def get_fix(fix_id: str) -> dict:
+async def get_fix(fix_id: str, user: ClerkUser = Depends(get_current_user)) -> dict:
     """Get a specific fix by ID."""
     if fix_id not in _fixes_store:
         raise HTTPException(status_code=404, detail="Fix not found")
@@ -119,7 +121,7 @@ async def get_fix(fix_id: str) -> dict:
 
 
 @router.post("/{fix_id}/approve")
-async def approve_fix(fix_id: str) -> dict:
+async def approve_fix(fix_id: str, user: ClerkUser = Depends(get_current_user)) -> dict:
     """Approve a fix."""
     if fix_id not in _fixes_store:
         raise HTTPException(status_code=404, detail="Fix not found")
@@ -133,7 +135,7 @@ async def approve_fix(fix_id: str) -> dict:
 
 
 @router.post("/{fix_id}/reject")
-async def reject_fix(fix_id: str, request: RejectRequest) -> dict:
+async def reject_fix(fix_id: str, request: RejectRequest, user: ClerkUser = Depends(get_current_user)) -> dict:
     """Reject a fix with a reason."""
     if fix_id not in _fixes_store:
         raise HTTPException(status_code=404, detail="Fix not found")
@@ -159,7 +161,7 @@ async def reject_fix(fix_id: str, request: RejectRequest) -> dict:
 
 
 @router.post("/{fix_id}/apply")
-async def apply_fix(fix_id: str) -> dict:
+async def apply_fix(fix_id: str, user: ClerkUser = Depends(get_current_user)) -> dict:
     """Apply an approved fix to the codebase."""
     if fix_id not in _fixes_store:
         raise HTTPException(status_code=404, detail="Fix not found")
@@ -177,7 +179,7 @@ async def apply_fix(fix_id: str) -> dict:
 
 
 @router.post("/{fix_id}/comment")
-async def add_comment(fix_id: str, request: CommentCreate) -> dict:
+async def add_comment(fix_id: str, request: CommentCreate, user: ClerkUser = Depends(get_current_user)) -> dict:
     """Add a comment to a fix."""
     if fix_id not in _fixes_store:
         raise HTTPException(status_code=404, detail="Fix not found")
@@ -186,7 +188,7 @@ async def add_comment(fix_id: str, request: CommentCreate) -> dict:
     comment = {
         "id": comment_id,
         "fix_id": fix_id,
-        "author": "User",  # TODO: Get from auth
+        "author": user.user_id,
         "content": request.content,
         "created_at": datetime.utcnow().isoformat(),
     }
@@ -199,7 +201,7 @@ async def add_comment(fix_id: str, request: CommentCreate) -> dict:
 
 
 @router.get("/{fix_id}/comments")
-async def get_comments(fix_id: str, limit: int = Query(25, ge=1, le=100)) -> List[dict]:
+async def get_comments(fix_id: str, user: ClerkUser = Depends(get_current_user), limit: int = Query(25, ge=1, le=100)) -> List[dict]:
     """Get comments for a fix."""
     if fix_id not in _fixes_store:
         raise HTTPException(status_code=404, detail="Fix not found")
@@ -209,7 +211,7 @@ async def get_comments(fix_id: str, limit: int = Query(25, ge=1, le=100)) -> Lis
 
 
 @router.post("/batch/approve")
-async def batch_approve(request: BatchRequest) -> dict:
+async def batch_approve(request: BatchRequest, user: ClerkUser = Depends(get_current_user)) -> dict:
     """Batch approve multiple fixes."""
     approved = 0
     for fix_id in request.ids:
@@ -223,7 +225,7 @@ async def batch_approve(request: BatchRequest) -> dict:
 
 
 @router.post("/batch/reject")
-async def batch_reject(request: BatchRejectRequest) -> dict:
+async def batch_reject(request: BatchRejectRequest, user: ClerkUser = Depends(get_current_user)) -> dict:
     """Batch reject multiple fixes."""
     rejected = 0
     for fix_id in request.ids:

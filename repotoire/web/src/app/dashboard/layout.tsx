@@ -16,6 +16,7 @@ import { useState } from 'react';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { SWRConfig } from 'swr';
 import { ThemeToggle } from '@/components/dashboard/theme-toggle';
+import { UserNav } from '@/components/auth/user-nav';
 
 const sidebarLinks = [
   {
@@ -75,6 +76,10 @@ function Sidebar({ className }: { className?: string }) {
         })}
       </nav>
       <div className="border-t p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">Account</span>
+          <UserNav />
+        </div>
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Theme</span>
           <ThemeToggle />

@@ -1,5 +1,6 @@
 """FastAPI application for Repotoire RAG API."""
 
+import os
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +11,12 @@ from repotoire.api.models import ErrorResponse
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# CORS origins - configure for production
+CORS_ORIGINS = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:3000,http://localhost:3001"
+).split(",")
 
 
 @asynccontextmanager
@@ -39,7 +46,11 @@ app = FastAPI(
 
     ## Authentication
 
-    Currently no authentication required (development mode).
+    This API uses Clerk for authentication. Include a valid JWT token
+    in the Authorization header:
+    ```
+    Authorization: Bearer <your-clerk-token>
+    ```
 
     ## Rate Limits
 
@@ -55,7 +66,7 @@ app = FastAPI(
 # CORS middleware for web clients
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TODO: Configure for production
+    allow_origins=[origin.strip() for origin in CORS_ORIGINS],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

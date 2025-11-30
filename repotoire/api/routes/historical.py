@@ -2,9 +2,10 @@
 
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from repotoire.api.auth import ClerkUser, get_current_user
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -74,7 +75,7 @@ class TimelineResponse(BaseModel):
 
 
 @router.post("/ingest-git", response_model=IngestGitResponse)
-async def ingest_git_history(request: IngestGitRequest):
+async def ingest_git_history(request: IngestGitRequest, user: ClerkUser = Depends(get_current_user)):
     """Ingest git commit history into Graphiti temporal knowledge graph.
 
     Analyzes git repository and creates Graphiti episodes for each commit,
@@ -161,7 +162,7 @@ async def ingest_git_history(request: IngestGitRequest):
 
 
 @router.post("/query", response_model=QueryHistoryResponse)
-async def query_history(request: QueryHistoryRequest):
+async def query_history(request: QueryHistoryRequest, user: ClerkUser = Depends(get_current_user)):
     """Query git history using natural language.
 
     Ask questions about code evolution, when features were added, who made changes,
@@ -234,7 +235,7 @@ async def query_history(request: QueryHistoryRequest):
 
 
 @router.post("/timeline", response_model=TimelineResponse)
-async def get_entity_timeline(request: TimelineRequest):
+async def get_entity_timeline(request: TimelineRequest, user: ClerkUser = Depends(get_current_user)):
     """Get timeline of changes for a specific code entity.
 
     Shows all commits that modified a particular function, class, or module
