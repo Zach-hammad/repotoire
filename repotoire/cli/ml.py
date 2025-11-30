@@ -1117,3 +1117,480 @@ def _print_single_prediction(pred) -> None:
         console.print("\n[bold]Similar Past Buggy Functions:[/bold]")
         for similar in pred.similar_buggy_functions:
             console.print(f"  {similar}")
+
+
+# ============================================================================
+# Multimodal Fusion Commands
+# ============================================================================
+
+
+@ml.command("prepare-multimodal-data")
+@click.option(
+    "--bug-labels",
+    type=click.Path(exists=True),
+    help="Bug labels JSON file",
+)
+@click.option(
+    "--smell-labels",
+    type=click.Path(exists=True),
+    help="Code smell labels JSON file",
+)
+@click.option(
+    "--refactor-labels",
+    type=click.Path(exists=True),
+    help="Refactoring benefit labels JSON file",
+)
+@click.option(
+    "--output",
+    "-o",
+    required=True,
+    help="Output pickle file for prepared data",
+)
+@click.option(
+    "--test-split",
+    default=0.2,
+    type=float,
+    help="Fraction of data for validation (default: 0.2)",
+)
+def prepare_multimodal_data(
+    bug_labels: Optional[str],
+    smell_labels: Optional[str],
+    refactor_labels: Optional[str],
+    output: str,
+    test_split: float,
+):
+    """Prepare multi-task training data for multimodal fusion.
+
+    Fetches text and graph embeddings from Neo4j and combines them
+    with labels for multi-task learning.
+
+    Label JSON format:
+        [{"qualified_name": "module.Class.method", "label": "buggy"}, ...]
+
+    Label values:
+        - bug_prediction: "clean" or "buggy"
+        - smell_detection: "none", "long_method", "god_class", "feature_envy", "data_clump"
+        - refactoring_benefit: "low", "medium", "high"
+
+    Prerequisites:
+        - Run 'repotoire ingest --generate-embeddings' for text embeddings
+        - Run 'repotoire ml generate-embeddings' for graph embeddings
+
+    Examples:
+
+        # Prepare with bug labels only
+        repotoire ml prepare-multimodal-data --bug-labels bugs.json -o train_data.pkl
+
+        # Prepare with all label types
+        repotoire ml prepare-multimodal-data \\
+            --bug-labels bugs.json \\
+            --smell-labels smells.json \\
+            --refactor-labels refactor.json \\
+            -o train_data.pkl
+    """
+    import pickle
+
+    from repotoire.graph.client import Neo4jClient
+    from repotoire.ml.multimodal_analyzer import MultimodalAnalyzer
+
+    console.print("[bold blue]Preparing multimodal training data[/bold blue]\n")
+
+    if not any([bug_labels, smell_labels, refactor_labels]):
+        console.print("[red]Error: At least one label file must be provided[/red]")
+        raise click.Abort()
+
+    try:
+        client = Neo4jClient.from_env()
+        analyzer = MultimodalAnalyzer(client)
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Fetching embeddings and labels...", total=None)
+
+            train_dataset, val_dataset = analyzer.prepare_data(
+                bug_labels_path=Path(bug_labels) if bug_labels else None,
+                smell_labels_path=Path(smell_labels) if smell_labels else None,
+                refactor_labels_path=Path(refactor_labels) if refactor_labels else None,
+                test_split=test_split,
+            )
+
+            progress.update(task, description="Saving datasets...")
+
+        # Save datasets
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_path, "wb") as f:
+            pickle.dump(
+                {
+                    "train": train_dataset,
+                    "val": val_dataset,
+                },
+                f,
+            )
+
+        console.print(f"[green]Saved to {output}[/green]")
+        console.print(f"  Training samples: {len(train_dataset)}")
+        console.print(f"  Validation samples: {len(val_dataset)}")
+        console.print(f"  Tasks: {', '.join(train_dataset.labels.keys())}")
+
+    except ImportError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        console.print("[yellow]Install with: pip install torch[/yellow]")
+        raise click.Abort()
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise click.Abort()
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        logger.exception("Data preparation failed")
+        raise click.Abort()
+
+
+@ml.command("train-multimodal")
+@click.option(
+    "--training-data",
+    "-d",
+    required=True,
+    type=click.Path(exists=True),
+    help="Training data pickle file from prepare-multimodal-data",
+)
+@click.option(
+    "--tasks",
+    "-t",
+    multiple=True,
+    default=["bug_prediction", "smell_detection", "refactoring_benefit"],
+    help="Tasks to train (can specify multiple)",
+)
+@click.option(
+    "--epochs",
+    default=50,
+    type=int,
+    help="Maximum training epochs (default: 50)",
+)
+@click.option(
+    "--batch-size",
+    default=64,
+    type=int,
+    help="Training batch size (default: 64)",
+)
+@click.option(
+    "--learning-rate",
+    default=0.001,
+    type=float,
+    help="Initial learning rate (default: 0.001)",
+)
+@click.option(
+    "--output",
+    "-o",
+    default="models/multimodal.pt",
+    help="Output model path (default: models/multimodal.pt)",
+)
+def train_multimodal(
+    training_data: str,
+    tasks: tuple,
+    epochs: int,
+    batch_size: int,
+    learning_rate: float,
+    output: str,
+):
+    """Train multimodal fusion model for multi-task prediction.
+
+    Uses attention-based fusion to combine text (semantic) and graph
+    (structural) embeddings for bug prediction, smell detection, and
+    refactoring benefit estimation.
+
+    The model uses:
+    - Cross-modal attention between text and graph modalities
+    - Gated fusion with learned modality importance
+    - Multi-task learning with uncertainty weighting
+
+    Examples:
+
+        # Train on all tasks
+        repotoire ml train-multimodal -d train_data.pkl
+
+        # Train only bug prediction
+        repotoire ml train-multimodal -d train_data.pkl -t bug_prediction
+
+        # Custom hyperparameters
+        repotoire ml train-multimodal -d train_data.pkl \\
+            --epochs 100 --batch-size 128 --learning-rate 0.0005
+    """
+    import pickle
+
+    from repotoire.graph.client import Neo4jClient
+    from repotoire.ml.multimodal_analyzer import MultimodalAnalyzer, TrainingConfig
+
+    console.print("[bold blue]Training multimodal fusion model[/bold blue]\n")
+
+    try:
+        # Load data
+        with open(training_data, "rb") as f:
+            data = pickle.load(f)
+
+        train_dataset = data["train"]
+        val_dataset = data["val"]
+
+        console.print(f"[dim]Training samples: {len(train_dataset)}[/dim]")
+        console.print(f"[dim]Validation samples: {len(val_dataset)}[/dim]")
+        console.print(f"[dim]Tasks: {', '.join(tasks)}[/dim]\n")
+
+        # Initialize
+        client = Neo4jClient.from_env()
+        config = TrainingConfig(
+            epochs=epochs,
+            batch_size=batch_size,
+            learning_rate=learning_rate,
+        )
+        analyzer = MultimodalAnalyzer(client, training_config=config)
+
+        # Train
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Training model...", total=None)
+            history = analyzer.train(train_dataset, val_dataset, tasks=list(tasks))
+            progress.update(task, description="Training complete")
+
+        # Print final metrics
+        table = Table(title="Final Model Performance", show_header=True, header_style="bold cyan")
+        table.add_column("Task", style="cyan")
+        table.add_column("Accuracy", style="green", justify="right")
+
+        for task_name in tasks:
+            key = f"{task_name}_acc"
+            if key in history:
+                acc = history[key][-1]
+                table.add_row(task_name, f"{acc:.3f}")
+
+        console.print(table)
+
+        # Print training summary
+        console.print(f"\n[dim]Final train loss: {history['train_loss'][-1]:.4f}[/dim]")
+        console.print(f"[dim]Final val loss: {history['val_loss'][-1]:.4f}[/dim]")
+
+        # Save
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        analyzer.save(output_path)
+
+        console.print(f"\n[green]Model saved to {output}[/green]")
+
+    except ImportError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        console.print("[yellow]Install with: pip install torch[/yellow]")
+        raise click.Abort()
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        logger.exception("Training failed")
+        raise click.Abort()
+
+
+@ml.command("multimodal-predict")
+@click.argument("repo_path", type=click.Path(exists=True), required=False, default=".")
+@click.option(
+    "--model",
+    "-m",
+    required=True,
+    type=click.Path(exists=True),
+    help="Trained multimodal model path",
+)
+@click.option(
+    "--task",
+    "-t",
+    default="bug_prediction",
+    type=click.Choice(["bug_prediction", "smell_detection", "refactoring_benefit"]),
+    help="Prediction task (default: bug_prediction)",
+)
+@click.option(
+    "--threshold",
+    default=0.7,
+    type=float,
+    help="Confidence threshold for showing predictions (default: 0.7)",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    help="Output JSON file for predictions",
+)
+@click.option(
+    "--top-n",
+    default=20,
+    type=int,
+    help="Show top N predictions (default: 20)",
+)
+@click.option(
+    "--function",
+    "-f",
+    "single_function",
+    type=str,
+    help="Predict for a single function by qualified name",
+)
+def multimodal_predict(
+    repo_path: str,
+    model: str,
+    task: str,
+    threshold: float,
+    output: Optional[str],
+    top_n: int,
+    single_function: Optional[str],
+):
+    """Run multimodal predictions using trained fusion model.
+
+    Combines text (semantic) and graph (structural) embeddings for
+    enhanced prediction accuracy. Shows modality contribution for
+    each prediction.
+
+    Prerequisites:
+        - Codebase ingested with embeddings
+        - Trained multimodal model
+
+    Examples:
+
+        # Predict all functions
+        repotoire ml multimodal-predict -m models/multimodal.pt
+
+        # Predict code smells
+        repotoire ml multimodal-predict -m model.pt -t smell_detection
+
+        # Predict single function with explanation
+        repotoire ml multimodal-predict -m model.pt -f mymodule.MyClass.method
+
+        # Export results
+        repotoire ml multimodal-predict -m model.pt -o predictions.json --top-n 50
+    """
+    from repotoire.graph.client import Neo4jClient
+    from repotoire.ml.multimodal_analyzer import MultimodalAnalyzer
+
+    console.print(f"[bold blue]Running {task} predictions[/bold blue]\n")
+
+    try:
+        client = Neo4jClient.from_env()
+        analyzer = MultimodalAnalyzer.load(Path(model), client)
+
+        # Single function prediction
+        if single_function:
+            explanation = analyzer.explain_prediction(single_function, task)
+
+            if explanation is None:
+                console.print(f"[yellow]Function not found: {single_function}[/yellow]")
+                console.print("[dim]Ensure function has both text and graph embeddings.[/dim]")
+                raise click.Abort()
+
+            _print_multimodal_explanation(explanation)
+            return
+
+        # Batch prediction
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            prog_task = progress.add_task("Running predictions...", total=None)
+            predictions = analyzer.predict_all_functions(task, threshold)
+            progress.update(
+                prog_task,
+                description=f"Analyzed {len(predictions)} functions",
+            )
+
+        # Display results
+        console.print(f"[bold]Found {len(predictions)} predictions above {threshold:.0%} threshold[/bold]\n")
+
+        table = Table(title=f"Top {min(top_n, len(predictions))} Predictions ({task})")
+        table.add_column("Function", style="cyan", max_width=40)
+        table.add_column("Prediction", style="yellow")
+        table.add_column("Confidence", style="red", justify="right")
+        table.add_column("Text/Graph", style="green", justify="right")
+        table.add_column("Interpretation", style="dim", max_width=25)
+
+        for pred in predictions[:top_n]:
+            # Color confidence based on level
+            conf = pred["confidence"]
+            if conf >= 0.9:
+                conf_style = "red bold"
+            elif conf >= 0.8:
+                conf_style = "red"
+            else:
+                conf_style = "yellow"
+
+            table.add_row(
+                pred["qualified_name"].split(".")[-1],
+                pred["prediction"],
+                f"[{conf_style}]{conf:.1%}[/{conf_style}]",
+                f"{pred['text_weight']:.0%}/{pred['graph_weight']:.0%}",
+                pred["interpretation"],
+            )
+
+        console.print(table)
+
+        # Summary
+        console.print(f"\n[dim]Total predictions: {len(predictions)}[/dim]")
+
+        # Save to JSON if requested
+        if output:
+            with open(output, "w") as f:
+                json.dump(predictions, f, indent=2)
+            console.print(f"[green]Results saved to {output}[/green]")
+
+    except FileNotFoundError:
+        console.print(f"[red]Model file not found: {model}[/red]")
+        raise click.Abort()
+    except ImportError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        console.print("[yellow]Install with: pip install torch[/yellow]")
+        raise click.Abort()
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        logger.exception("Prediction failed")
+        raise click.Abort()
+
+
+def _print_multimodal_explanation(explanation) -> None:
+    """Print detailed explanation for a multimodal prediction."""
+    # Severity color based on confidence
+    conf = explanation.confidence
+    if conf >= 0.9:
+        conf_style = "red bold"
+        severity = "CRITICAL"
+    elif conf >= 0.8:
+        conf_style = "red"
+        severity = "HIGH"
+    elif conf >= 0.7:
+        conf_style = "yellow"
+        severity = "MEDIUM"
+    else:
+        conf_style = "green"
+        severity = "LOW"
+
+    # Modality emphasis
+    if explanation.graph_weight > 0.6:
+        modality_emphasis = "[cyan]Structural patterns dominate[/cyan]"
+    elif explanation.text_weight > 0.6:
+        modality_emphasis = "[magenta]Semantic patterns dominate[/magenta]"
+    else:
+        modality_emphasis = "[dim]Balanced modalities[/dim]"
+
+    console.print(
+        Panel(
+            f"[bold]{explanation.qualified_name}[/bold]\n"
+            f"Task: {explanation.task}\n\n"
+            f"Prediction: [bold]{explanation.prediction}[/bold]\n"
+            f"Confidence: [{conf_style}]{conf:.1%}[/{conf_style}] ({severity})\n\n"
+            f"[bold]Modality Importance:[/bold]\n"
+            f"  Text (semantic): {explanation.text_weight:.1%}\n"
+            f"  Graph (structural): {explanation.graph_weight:.1%}\n\n"
+            f"{modality_emphasis}",
+            title="Multimodal Prediction",
+            border_style="cyan",
+        )
+    )
+
+    console.print(f"\n[bold]Interpretation:[/bold]")
+    console.print(f"  {explanation.interpretation}")

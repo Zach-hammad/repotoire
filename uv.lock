@@ -3466,8 +3466,10 @@ local-embeddings = [
     { name = "sentence-transformers" },
 ]
 ml = [
+    { name = "joblib" },
     { name = "questionary" },
     { name = "scikit-learn" },
+    { name = "torch" },
 ]
 observability = [
     { name = "opentelemetry-api" },
@@ -3503,6 +3505,7 @@ requires-dist = [
     { name = "graphiti-core", marker = "extra == 'graphiti'", specifier = ">=0.24.1" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100.0" },
     { name = "jinja2", specifier = ">=3.1.0" },
+    { name = "joblib", marker = "extra == 'ml'", specifier = ">=1.3.0" },
     { name = "mcp", specifier = ">=1.22.0" },
     { name = "mypy", marker = "extra == 'detectors'", specifier = ">=1.7.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.7.0" },
@@ -3535,6 +3538,7 @@ requires-dist = [
     { name = "spacy", specifier = ">=3.7.0" },
     { name = "tomli", marker = "python_full_version < '3.11' and extra == 'config'", specifier = ">=2.0.0" },
     { name = "tomli", marker = "extra == 'dev'", specifier = ">=2.0.0" },
+    { name = "torch", marker = "extra == 'ml'", specifier = ">=2.0.0" },
     { name = "tree-sitter", marker = "extra == 'all-languages'", specifier = ">=0.20.0" },
     { name = "tree-sitter-javascript", marker = "extra == 'all-languages'", specifier = ">=0.20.0" },
     { name = "tree-sitter-python", marker = "extra == 'all-languages'", specifier = ">=0.20.0" },

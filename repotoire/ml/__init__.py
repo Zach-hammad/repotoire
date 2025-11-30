@@ -7,6 +7,7 @@ This module provides ML capabilities including:
 - Training data extraction from git history
 - Active learning for human-in-the-loop refinement
 - Fast Rust-based similarity functions
+- Multimodal fusion (text + graph embeddings)
 """
 
 from repotoire.ml.graph_embeddings import FastRPEmbedder, FastRPConfig, cosine_similarity
@@ -27,6 +28,25 @@ from repotoire.ml.bug_predictor import (
     PredictionResult,
     ModelMetrics,
 )
+
+# Multimodal fusion (requires torch)
+try:
+    from repotoire.ml.multimodal_fusion import (
+        MultimodalAttentionFusion,
+        FusionConfig,
+        CrossModalAttention,
+        GatedFusion,
+        MultiTaskLoss,
+    )
+    from repotoire.ml.multimodal_analyzer import (
+        MultimodalAnalyzer,
+        MultimodalDataset,
+        TrainingConfig,
+        PredictionExplanation,
+    )
+    _MULTIMODAL_AVAILABLE = True
+except ImportError:
+    _MULTIMODAL_AVAILABLE = False
 
 
 def batch_cosine_similarity(query, matrix):
@@ -110,3 +130,18 @@ __all__ = [
     "PredictionResult",
     "ModelMetrics",
 ]
+
+# Add multimodal exports if available
+if _MULTIMODAL_AVAILABLE:
+    __all__.extend([
+        # Multimodal fusion
+        "MultimodalAttentionFusion",
+        "FusionConfig",
+        "CrossModalAttention",
+        "GatedFusion",
+        "MultiTaskLoss",
+        "MultimodalAnalyzer",
+        "MultimodalDataset",
+        "TrainingConfig",
+        "PredictionExplanation",
+    ])
