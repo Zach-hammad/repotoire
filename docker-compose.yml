@@ -171,6 +171,122 @@ services:
     profiles:
       - tools
 
+  # =============================================================================
+  # Celery Worker - Background task processing
+  # =============================================================================
+  # Processes analysis tasks, webhook events, and notifications
+  celery-worker:
+    build:
+      context: .
+      dockerfile: docker/celery/Dockerfile
+    container_name: repotoire-celery-worker
+    command: >
+      celery -A repotoire.worker.celery_app worker
+      --loglevel=info
+      -Q default,analysis,analysis.high,webhooks,notifications,notifications.low
+      --concurrency=${CELERY_WORKER_CONCURRENCY:-4}
+    environment:
+      # Redis broker (internal port 6379, external 6380)
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      # Database connections
+      DATABASE_URL: postgresql://${POSTGRES_USER:-repotoire}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-repotoire}
+      # Graph database (FalkorDB by default, Neo4j if using --profile neo4j)
+      REPOTOIRE_NEO4J_URI: bolt://falkordb:7687
+      REPOTOIRE_NEO4J_PASSWORD: ""
+      # Worker settings
+      CELERY_WORKER_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-4}
+      CELERY_TASK_TIME_LIMIT: ${CELERY_TASK_TIME_LIMIT:-600}
+      CELERY_TASK_SOFT_TIME_LIMIT: ${CELERY_TASK_SOFT_TIME_LIMIT:-540}
+      # Clone directory
+      REPOTOIRE_CLONE_DIR: /tmp/repotoire-clones
+      # GitHub App (for repository cloning)
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+      # Email service
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-noreply@repotoire.dev}
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      falkordb:
+        condition: service_healthy
+    volumes:
+      # Mount code for development (hot reload)
+      - ./repotoire:/app/repotoire:ro
+      # Persistent clone storage
+      - celery_clones:/tmp/repotoire-clones
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "celery", "-A", "repotoire.worker.celery_app", "inspect", "ping", "-d", "celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - repotoire-net
+
+  # =============================================================================
+  # Celery Beat - Scheduled task runner
+  # =============================================================================
+  # Runs periodic tasks (cleanup, weekly digests, etc.)
+  celery-beat:
+    build:
+      context: .
+      dockerfile: docker/celery/Dockerfile
+    container_name: repotoire-celery-beat
+    command: >
+      celery -A repotoire.worker.celery_app beat
+      --loglevel=info
+      --schedule=/var/lib/celery/celerybeat-schedule
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      DATABASE_URL: postgresql://${POSTGRES_USER:-repotoire}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-repotoire}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./repotoire:/app/repotoire:ro
+      - celery_beat_schedule:/var/lib/celery
+    restart: unless-stopped
+    networks:
+      - repotoire-net
+
+  # =============================================================================
+  # Flower - Celery monitoring dashboard (optional)
+  # =============================================================================
+  # Use --profile tools to start: docker compose --profile tools up -d
+  flower:
+    image: mher/flower:2.0
+    container_name: repotoire-flower
+    command: >
+      celery
+      --broker=redis://redis:6379/0
+      flower
+      --port=5555
+      --broker_api=redis://redis:6379/0
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      FLOWER_BASIC_AUTH: ${FLOWER_USER:-admin}:${FLOWER_PASSWORD:-admin}
+      FLOWER_PURGE_OFFLINE_WORKERS: 60
+    ports:
+      - "${FLOWER_PORT:-5555}:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - repotoire-net
+    profiles:
+      - tools
+
 # =============================================================================
 # Named Volumes for Data Persistence
 # =============================================================================
@@ -190,6 +306,10 @@ volumes:
   pgadmin_data:
     driver: local
   redisinsight_data:
+    driver: local
+  celery_clones:
+    driver: local
+  celery_beat_schedule:
     driver: local
 
 # =============================================================================
