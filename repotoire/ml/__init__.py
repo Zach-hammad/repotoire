@@ -4,11 +4,21 @@ This module provides ML capabilities including:
 - Graph embeddings (FastRP, Node2Vec)
 - Structural similarity search
 - Bug prediction models
+- Training data extraction from git history
+- Active learning for human-in-the-loop refinement
 - Fast Rust-based similarity functions
 """
 
 from repotoire.ml.graph_embeddings import FastRPEmbedder, FastRPConfig, cosine_similarity
 from repotoire.ml.similarity import StructuralSimilarityAnalyzer, SimilarityResult
+from repotoire.ml.training_data import (
+    GitBugLabelExtractor,
+    ActiveLearningLabeler,
+    TrainingExample,
+    TrainingDataset,
+    FunctionInfo,
+    DEFAULT_BUG_KEYWORDS,
+)
 
 
 def batch_cosine_similarity(query, matrix):
@@ -67,6 +77,7 @@ def find_top_k_similar(query, matrix, k):
 
 
 __all__ = [
+    # Graph embeddings
     "FastRPEmbedder",
     "FastRPConfig",
     "StructuralSimilarityAnalyzer",
@@ -74,4 +85,11 @@ __all__ = [
     "cosine_similarity",
     "batch_cosine_similarity",
     "find_top_k_similar",
+    # Training data extraction
+    "GitBugLabelExtractor",
+    "ActiveLearningLabeler",
+    "TrainingExample",
+    "TrainingDataset",
+    "FunctionInfo",
+    "DEFAULT_BUG_KEYWORDS",
 ]

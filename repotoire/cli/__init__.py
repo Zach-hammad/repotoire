@@ -4589,6 +4589,10 @@ cli.add_command(security)
 from .monorepo import monorepo
 cli.add_command(monorepo)
 
+# Register ML commands
+from .ml import ml
+cli.add_command(ml)
+
 
 @cli.command()
 @click.option(

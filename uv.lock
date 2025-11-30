@@ -3465,6 +3465,10 @@ graphiti = [
 local-embeddings = [
     { name = "sentence-transformers" },
 ]
+ml = [
+    { name = "questionary" },
+    { name = "scikit-learn" },
+]
 observability = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp" },
@@ -3521,9 +3525,11 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "pyyaml", marker = "extra == 'config'", specifier = ">=6.0" },
     { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
+    { name = "questionary", marker = "extra == 'ml'", specifier = ">=2.0.0" },
     { name = "radon", marker = "extra == 'detectors'", specifier = ">=6.0.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+    { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.3.0" },
     { name = "semgrep", marker = "extra == 'detectors'", specifier = ">=1.0.0" },
     { name = "sentence-transformers", marker = "extra == 'local-embeddings'", specifier = ">=2.2.0" },
     { name = "spacy", specifier = ">=3.7.0" },
@@ -3536,7 +3542,7 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.38.0" },
     { name = "vulture", marker = "extra == 'detectors'", specifier = ">=2.0.0" },
 ]
-provides-extras = ["dev", "config", "gds", "all-languages", "timescale", "graphiti", "security", "local-embeddings", "observability", "detectors"]
+provides-extras = ["dev", "config", "gds", "all-languages", "timescale", "graphiti", "security", "local-embeddings", "observability", "detectors", "ml"]
 
 [package.metadata.requires-dev]
 dev = [
