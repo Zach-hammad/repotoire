@@ -1,0 +1,93 @@
+# Repotoire API Dockerfile for Fly.io
+# Production-ready multi-stage build with Rust extension
+
+# =============================================================================
+# Stage 1: Builder (Python + Rust)
+# =============================================================================
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+
+# Install build dependencies including Rust prerequisites
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    curl \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust via rustup
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:$PATH"
+
+# Install uv for fast dependency installation
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Copy dependency files first (for caching)
+COPY pyproject.toml uv.lock README.md ./
+
+# Copy Rust extension source
+COPY repotoire-fast/ ./repotoire-fast/
+
+# Copy Python package source (needed for maturin build)
+COPY repotoire/ ./repotoire/
+
+# Create virtual environment and install dependencies with Rust extension
+RUN uv venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+ENV VIRTUAL_ENV="/opt/venv"
+
+# Install maturin and build the package
+RUN uv pip install maturin --no-cache-dir
+RUN maturin build --release --out dist
+RUN uv pip install dist/*.whl --no-cache-dir
+
+# Install remaining dependencies (saas extras for production)
+RUN uv pip install ".[saas]" --no-cache-dir --no-build-isolation
+
+# =============================================================================
+# Stage 2: Runtime
+# =============================================================================
+FROM python:3.12-slim AS runtime
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create non-root user for security
+RUN groupadd -r repotoire && useradd -r -g repotoire repotoire
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONPATH="/app:$PYTHONPATH"
+
+# Copy application code and set correct ownership
+COPY --chown=repotoire:repotoire repotoire/ /app/repotoire/
+
+# Create directories for temporary files
+RUN mkdir -p /tmp/repotoire-clones && chown -R repotoire:repotoire /tmp/repotoire-clones
+
+# Environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV REPOTOIRE_CLONE_DIR=/tmp/repotoire-clones
+
+# Switch to non-root user
+USER repotoire
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Default command for API (overridden for workers)
+CMD ["uvicorn", "repotoire.api.app:app", "--host", "0.0.0.0", "--port", "8000"]

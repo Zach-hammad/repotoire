@@ -1,0 +1,74 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Rust build artifacts (will be built in container)
+repotoire-fast/target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Documentation
+docs/_build/
+
+# Lean theorem prover
+lean/
+
+# Local config
+.env
+.env.*
+*.local
+
+# Logs
+*.log
+
+# Large test fixtures
+tests/fixtures/large/
+tests/integration/
+
+# Node modules (if any frontend)
+node_modules/
+
+# Misc
+*.bak
+*.tmp
+.DS_Store
+Thumbs.db

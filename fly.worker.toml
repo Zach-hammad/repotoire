@@ -1,0 +1,22 @@
+# Fly.io configuration for Repotoire Celery Workers
+# Deploy with: fly deploy --config fly.worker.toml
+
+app = 'repotoire-worker'
+primary_region = 'iad'
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  ENVIRONMENT = "production"
+  LOG_LEVEL = "INFO"
+  REPOTOIRE_CLONE_DIR = "/tmp/repotoire-clones"
+
+# No HTTP service - this is a background worker
+[processes]
+  worker = "/opt/venv/bin/celery -A repotoire.worker.celery_app worker --loglevel=info -Q default,analysis,analysis.high,webhooks,notifications,notifications.low --concurrency=4"
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 2

@@ -86,6 +86,9 @@ saas = [
     "psycopg2-binary>=2.9.9",  # PostgreSQL adapter (sync)
     "asyncpg>=0.29.0",  # PostgreSQL adapter (async)
     "stripe>=7.0.0",  # Stripe payment processing for subscriptions
+    "celery>=5.3.0",  # Distributed task queue for background jobs
+    "redis>=5.0.0",  # Redis client for Celery broker
+    "structlog>=24.0.0",  # Structured logging for workers
 ]
 
 graphiti = [
