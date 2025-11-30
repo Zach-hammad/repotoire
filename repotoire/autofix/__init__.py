@@ -40,6 +40,13 @@ from repotoire.autofix.templates import (
     reset_registry,
     DEFAULT_TEMPLATE_DIRS,
 )
+from repotoire.autofix.style import (
+    StyleAnalyzer,
+    StyleEnforcer,
+    StyleProfile,
+    StyleRule,
+    classify_naming,
+)
 
 __all__ = [
     # Core auto-fix
@@ -74,4 +81,10 @@ __all__ = [
     "get_registry",
     "reset_registry",
     "DEFAULT_TEMPLATE_DIRS",
+    # Style analysis
+    "StyleAnalyzer",
+    "StyleEnforcer",
+    "StyleProfile",
+    "StyleRule",
+    "classify_naming",
 ]

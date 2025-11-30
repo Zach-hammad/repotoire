@@ -4458,6 +4458,129 @@ def auto_fix(
         ctx.exit(2)
 
 
+@cli.command()
+@click.argument("repository", type=click.Path(exists=True))
+@click.option("--max-files", type=int, default=500, help="Maximum Python files to analyze")
+@click.option("--confidence-threshold", type=float, default=0.6, help="Minimum confidence for including rules (0.0-1.0)")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON")
+@click.option("--instructions", is_flag=True, help="Show generated LLM instructions")
+def style(
+    repository: str,
+    max_files: int,
+    confidence_threshold: float,
+    output_json: bool,
+    instructions: bool,
+) -> None:
+    """Analyze codebase style conventions.
+
+    Detects naming conventions, docstring styles, line lengths, and other
+    code style patterns from your Python codebase. Results can be used to
+    guide AI-powered code generation to match your existing style.
+
+    Examples:
+        # Analyze style in current directory
+        repotoire style .
+
+        # Analyze with more files for better accuracy
+        repotoire style /path/to/repo --max-files 1000
+
+        # Show generated LLM instructions
+        repotoire style /path/to/repo --instructions
+
+        # Output as JSON for automation
+        repotoire style /path/to/repo --json
+    """
+    import json as json_module
+    from pathlib import Path
+    from rich.table import Table
+    from repotoire.autofix.style import StyleAnalyzer, StyleEnforcer
+
+    repo_path = Path(repository)
+
+    try:
+        # Analyze style
+        console.print(f"\n[bold]Analyzing style conventions in {repository}...[/bold]\n")
+
+        analyzer = StyleAnalyzer(repo_path)
+        profile = analyzer.analyze(max_files=max_files)
+
+        if output_json:
+            # JSON output
+            console.print(json_module.dumps(profile.to_dict(), indent=2, default=str))
+            return
+
+        if instructions:
+            # Show LLM instructions
+            enforcer = StyleEnforcer(profile, confidence_threshold=confidence_threshold)
+            console.print(Panel(
+                enforcer.get_style_instructions(),
+                title="Generated LLM Instructions",
+                border_style="cyan",
+            ))
+            return
+
+        # Table output (default)
+        table = Table(
+            title=f"Style Profile for {repository}",
+            show_header=True,
+            header_style="bold cyan",
+        )
+        table.add_column("Rule", style="cyan")
+        table.add_column("Value", style="green")
+        table.add_column("Confidence", justify="right")
+        table.add_column("Samples", justify="right", style="dim")
+
+        # Get rule summary
+        enforcer = StyleEnforcer(profile, confidence_threshold=confidence_threshold)
+        rules = enforcer.get_rule_summary()
+
+        for rule in rules:
+            # Format confidence
+            if rule["confidence"] is not None:
+                conf_pct = f"{rule['confidence']:.0%}"
+                if rule["included"]:
+                    conf_str = f"[green]{conf_pct}[/green]"
+                elif rule["confidence"] >= 0.4:
+                    conf_str = f"[yellow]{conf_pct}[/yellow]"
+                else:
+                    conf_str = f"[red]{conf_pct}[/red]"
+            else:
+                conf_str = "[dim]N/A[/dim]"
+
+            # Format sample count
+            sample_str = str(rule["sample_count"]) if rule["sample_count"] else "-"
+
+            table.add_row(
+                rule["name"],
+                rule["value"],
+                conf_str,
+                sample_str,
+            )
+
+        console.print(table)
+        console.print(f"\n[dim]Analyzed {profile.file_count} Python files[/dim]")
+
+        # Show high confidence summary
+        high_conf_rules = profile.get_high_confidence_rules(confidence_threshold)
+        if high_conf_rules:
+            console.print(
+                f"[green]✓[/green] {len(high_conf_rules)} rules meet "
+                f"{confidence_threshold:.0%} confidence threshold"
+            )
+        else:
+            console.print(
+                f"[yellow]⚠[/yellow] No rules meet {confidence_threshold:.0%} confidence threshold"
+            )
+
+    except ValueError as e:
+        console.print(f"[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+    except Exception as e:
+        logger.error(f"Style analysis failed: {e}", exc_info=True)
+        console.print(f"[red]❌ Error:[/red] {e}")
+        raise click.Abort()
+
+
 # Register security commands
 from .security import security
 cli.add_command(security)

@@ -28,8 +28,12 @@ from repotoire.autofix.templates import (
     TemplateRegistry,
     TemplateMatch,
 )
+from repotoire.autofix.style import StyleAnalyzer, StyleEnforcer, StyleProfile
 
 logger = get_logger(__name__)
+
+# Cache for style profiles (keyed by repository path)
+_style_profile_cache: Dict[str, StyleProfile] = {}
 
 
 class AutoFixEngine:
@@ -66,7 +70,58 @@ class AutoFixEngine:
         # Initialize template registry for fast, deterministic fixes
         self.template_registry = get_registry()
 
+        # Style enforcer (lazily initialized per repository)
+        self._style_enforcer: Optional[StyleEnforcer] = None
+        self._style_repo_path: Optional[Path] = None
+
         logger.info(f"AutoFixEngine initialized with model={model}")
+
+    def get_style_profile(
+        self, repository_path: Path, force_refresh: bool = False
+    ) -> StyleProfile:
+        """Get or analyze style profile for a repository.
+
+        Results are cached per repository path.
+
+        Args:
+            repository_path: Path to repository
+            force_refresh: Force re-analysis even if cached
+
+        Returns:
+            StyleProfile for the repository
+        """
+        repo_key = str(repository_path.resolve())
+
+        if not force_refresh and repo_key in _style_profile_cache:
+            logger.debug(f"Using cached style profile for {repository_path}")
+            return _style_profile_cache[repo_key]
+
+        logger.info(f"Analyzing style conventions for {repository_path}")
+        analyzer = StyleAnalyzer(repository_path)
+        profile = analyzer.analyze()
+        _style_profile_cache[repo_key] = profile
+
+        return profile
+
+    def _get_style_instructions(self, repository_path: Path) -> str:
+        """Get style instructions for a repository.
+
+        Args:
+            repository_path: Path to repository
+
+        Returns:
+            Markdown formatted style instructions
+        """
+        # Check if we need to update the enforcer
+        if (
+            self._style_enforcer is None
+            or self._style_repo_path != repository_path
+        ):
+            profile = self.get_style_profile(repository_path)
+            self._style_enforcer = StyleEnforcer(profile)
+            self._style_repo_path = repository_path
+
+        return self._style_enforcer.get_style_instructions()
 
     async def generate_fix(
         self,
@@ -100,7 +155,9 @@ class AutoFixEngine:
 
             # Step 3: Generate fix using GPT-4
             logger.info(f"Generating {fix_type.value} fix using {self.model}")
-            fix_proposal = await self._generate_fix_with_llm(finding, context, fix_type)
+            fix_proposal = await self._generate_fix_with_llm(
+                finding, context, fix_type, repository_path
+            )
 
             # Step 4: Validate the fix
             logger.info("Validating generated fix")
@@ -359,6 +416,7 @@ class AutoFixEngine:
         finding: Finding,
         context: FixContext,
         fix_type: FixType,
+        repository_path: Path,
     ) -> FixProposal:
         """Generate fix using LLM.
 
@@ -366,6 +424,7 @@ class AutoFixEngine:
             finding: The finding to fix
             context: Context for fix generation
             fix_type: Type of fix to generate
+            repository_path: Path to repository (for style instructions)
 
         Returns:
             FixProposal with generated changes
@@ -374,8 +433,10 @@ class AutoFixEngine:
         file_path = finding.affected_files[0] if finding.affected_files else "unknown.py"
         handler = get_handler(file_path)
 
-        # Build prompt with language-specific guidance
-        prompt = self._build_fix_prompt(finding, context, fix_type, handler)
+        # Build prompt with language-specific guidance and style instructions
+        prompt = self._build_fix_prompt(
+            finding, context, fix_type, handler, repository_path
+        )
 
         # Call GPT-4 with language-specific system prompt
         response = self.client.chat.completions.create(
@@ -430,6 +491,7 @@ class AutoFixEngine:
         context: FixContext,
         fix_type: FixType,
         handler: LanguageHandler,
+        repository_path: Path,
     ) -> str:
         """Build prompt for LLM fix generation.
 
@@ -438,6 +500,7 @@ class AutoFixEngine:
             context: Context for fix
             fix_type: Type of fix
             handler: Language-specific handler
+            repository_path: Path to repository (for style instructions)
 
         Returns:
             Formatted prompt string
@@ -455,6 +518,15 @@ class AutoFixEngine:
         code_marker = handler.get_code_block_marker()
         fix_guidance = handler.get_fix_template(fix_type.value)
 
+        # Get style instructions for the repository (only for Python)
+        style_section = ""
+        if language_name == "Python":
+            try:
+                style_instructions = self._get_style_instructions(repository_path)
+                style_section = f"\n{style_instructions}\n"
+            except Exception as e:
+                logger.debug(f"Could not get style instructions: {e}")
+
         prompt = f"""# Code Fix Task
 
 ## Issue Details
@@ -470,6 +542,7 @@ class AutoFixEngine:
 
 ## Fix Guidelines
 {fix_guidance}
+{style_section}
 
 ## Current Code
 ```{code_marker}
