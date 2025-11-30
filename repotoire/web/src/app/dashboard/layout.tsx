@@ -10,6 +10,7 @@ import {
   FileCode2,
   ChevronLeft,
   Menu,
+  CreditCard,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
@@ -17,6 +18,8 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { SWRConfig } from 'swr';
 import { ThemeToggle } from '@/components/dashboard/theme-toggle';
 import { UserNav } from '@/components/auth/user-nav';
+import { ApiAuthProvider } from '@/components/providers/api-auth-provider';
+import { OrganizationSwitcher } from '@clerk/nextjs';
 
 const sidebarLinks = [
   {
@@ -33,6 +36,11 @@ const sidebarLinks = [
     name: 'Files',
     href: '/dashboard/files',
     icon: FileCode2,
+  },
+  {
+    name: 'Billing',
+    href: '/dashboard/billing',
+    icon: CreditCard,
   },
   {
     name: 'Settings',
@@ -76,6 +84,21 @@ function Sidebar({ className }: { className?: string }) {
         })}
       </nav>
       <div className="border-t p-4 space-y-3">
+        <div className="space-y-1">
+          <span className="text-xs text-muted-foreground">Organization</span>
+          <OrganizationSwitcher
+            hidePersonal={false}
+            afterCreateOrganizationUrl="/dashboard"
+            afterSelectOrganizationUrl="/dashboard"
+            afterLeaveOrganizationUrl="/dashboard"
+            appearance={{
+              elements: {
+                rootBox: "w-full",
+                organizationSwitcherTrigger: "w-full justify-between px-2 py-1.5 border rounded-md hover:bg-accent",
+              },
+            }}
+          />
+        </div>
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Account</span>
           <UserNav />
@@ -101,41 +124,43 @@ export default function DashboardLayout({
   const [open, setOpen] = useState(false);
 
   return (
-    <SWRConfig
-      value={{
-        revalidateOnFocus: false,
-        revalidateIfStale: true,
-        dedupingInterval: 5000,
-      }}
-    >
-      <div className="flex min-h-screen">
-        {/* Desktop Sidebar */}
-        <aside className="hidden w-64 shrink-0 border-r bg-card md:block">
-          <Sidebar />
-        </aside>
-
-        {/* Mobile Sidebar */}
-        <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="fixed left-4 top-4 z-40 md:hidden"
-            >
-              <Menu className="h-5 w-5" />
-              <span className="sr-only">Toggle menu</span>
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="w-64 p-0">
+    <ApiAuthProvider>
+      <SWRConfig
+        value={{
+          revalidateOnFocus: false,
+          revalidateIfStale: true,
+          dedupingInterval: 5000,
+        }}
+      >
+        <div className="flex min-h-screen">
+          {/* Desktop Sidebar */}
+          <aside className="hidden w-64 shrink-0 border-r bg-card md:block">
             <Sidebar />
-          </SheetContent>
-        </Sheet>
+          </aside>
 
-        {/* Main Content */}
-        <main className="flex-1 overflow-auto">
-          <div className="container max-w-7xl p-6 md:p-8">{children}</div>
-        </main>
-      </div>
-    </SWRConfig>
+          {/* Mobile Sidebar */}
+          <Sheet open={open} onOpenChange={setOpen}>
+            <SheetTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="fixed left-4 top-4 z-40 md:hidden"
+              >
+                <Menu className="h-5 w-5" />
+                <span className="sr-only">Toggle menu</span>
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-64 p-0">
+              <Sidebar />
+            </SheetContent>
+          </Sheet>
+
+          {/* Main Content */}
+          <main className="flex-1 overflow-auto">
+            <div className="container max-w-7xl p-6 md:p-8">{children}</div>
+          </main>
+        </div>
+      </SWRConfig>
+    </ApiAuthProvider>
   );
 }

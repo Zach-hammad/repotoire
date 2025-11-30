@@ -85,6 +85,7 @@ saas = [
     "alembic>=1.13.0",  # Database migrations for SQLAlchemy models
     "psycopg2-binary>=2.9.9",  # PostgreSQL adapter (sync)
     "asyncpg>=0.29.0",  # PostgreSQL adapter (async)
+    "stripe>=7.0.0",  # Stripe payment processing for subscriptions
 ]
 
 graphiti = [

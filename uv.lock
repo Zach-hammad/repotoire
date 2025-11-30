@@ -4173,6 +4173,7 @@ saas = [
     { name = "asyncpg" },
     { name = "psycopg2-binary" },
     { name = "sqlalchemy" },
+    { name = "stripe" },
 ]
 security = [
     { name = "cyclonedx-bom" },
@@ -4241,6 +4242,7 @@ requires-dist = [
     { name = "sentence-transformers", marker = "extra == 'local-embeddings'", specifier = ">=2.2.0" },
     { name = "spacy", specifier = ">=3.7.0" },
     { name = "sqlalchemy", marker = "extra == 'saas'", specifier = ">=2.0.0" },
+    { name = "stripe", marker = "extra == 'saas'", specifier = ">=7.0.0" },
     { name = "tomli", marker = "python_full_version < '3.11' and extra == 'config'", specifier = ">=2.0.0" },
     { name = "tomli", marker = "extra == 'dev'", specifier = ">=2.0.0" },
     { name = "torch", marker = "extra == 'ml'", specifier = ">=2.5.0,<2.9.0" },
@@ -5074,6 +5076,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/96/5b/496f8abebd10c3301129abba7ddafd46c71d799a70c44ab080323987c4c9/stevedore-5.6.0.tar.gz", hash = "sha256:f22d15c6ead40c5bbfa9ca54aa7e7b4a07d59b36ae03ed12ced1a54cf0b51945", size = 516074, upload-time = "2025-11-20T10:06:07.264Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f4/40/8561ce06dc46fd17242c7724ab25b257a2ac1b35f4ebf551b40ce6105cfa/stevedore-5.6.0-py3-none-any.whl", hash = "sha256:4a36dccefd7aeea0c70135526cecb7766c4c84c473b1af68db23d541b6dc1820", size = 54428, upload-time = "2025-11-20T10:06:05.946Z" },
+]
+
+[[package]]
+name = "stripe"
+version = "14.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2b/49/08df0acc094587f4d76c2ab31ebbecb8a37312ab558cddaa6a4c2ff19579/stripe-14.0.1.tar.gz", hash = "sha256:f2d56345bf5d41c1f21f814b00174a3173a0b5eb4e8fc46a8f779e3d7a2efc6e", size = 1362960, upload-time = "2025-11-22T01:07:48.862Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d3/88/0db878a84d333a188714f4ade57c9ae765a14a0b81862eb133ad7864711c/stripe-14.0.1-py3-none-any.whl", hash = "sha256:ff25c5e5f085beaa98b6b9c2c729d22ad99068196cbd83fdf82669fd08311b76", size = 1970603, upload-time = "2025-11-22T01:07:47.309Z" },
 ]
 
 [[package]]

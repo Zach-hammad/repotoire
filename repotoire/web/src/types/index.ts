@@ -142,3 +142,91 @@ export interface SortOptions {
   field: 'created_at' | 'confidence' | 'status' | 'fix_type';
   direction: 'asc' | 'desc';
 }
+
+// Subscription plan tiers
+export type PlanTier = 'free' | 'pro' | 'enterprise';
+
+// Subscription status
+export type SubscriptionStatus =
+  | 'active'
+  | 'past_due'
+  | 'canceled'
+  | 'trialing'
+  | 'incomplete'
+  | 'incomplete_expired'
+  | 'unpaid'
+  | 'paused';
+
+// Usage information
+export interface UsageInfo {
+  repos: number;
+  analyses: number;
+  limits: {
+    repos: number;      // -1 for unlimited
+    analyses: number;   // -1 for unlimited
+  };
+}
+
+// Subscription response from API
+export interface Subscription {
+  tier: PlanTier;
+  status: SubscriptionStatus;
+  seats: number;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  usage: UsageInfo;
+  monthly_cost_cents: number;
+}
+
+// Plan information with per-seat pricing
+export interface PlanInfo {
+  tier: PlanTier;
+  name: string;
+  base_price_cents: number;      // Base platform fee
+  price_per_seat_cents: number;  // Price per seat
+  min_seats: number;
+  max_seats: number;             // -1 for unlimited
+  repos_per_seat: number;        // -1 for unlimited
+  analyses_per_seat: number;     // -1 for unlimited
+  features: string[];
+}
+
+// Available plans response
+export interface PlansResponse {
+  plans: PlanInfo[];
+  current_tier: PlanTier;
+  current_seats: number;
+}
+
+// Checkout request
+export interface CheckoutRequest {
+  tier: PlanTier;
+  seats: number;
+}
+
+// Checkout response
+export interface CheckoutResponse {
+  checkout_url: string;
+}
+
+// Portal response
+export interface PortalResponse {
+  portal_url: string;
+}
+
+// Price calculation request
+export interface PriceCalculationRequest {
+  tier: PlanTier;
+  seats: number;
+}
+
+// Price calculation response
+export interface PriceCalculationResponse {
+  tier: PlanTier;
+  seats: number;
+  base_price_cents: number;
+  seat_price_cents: number;
+  total_monthly_cents: number;
+  repos_limit: number;
+  analyses_limit: number;
+}

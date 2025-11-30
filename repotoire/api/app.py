@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from repotoire.api.routes import analytics, code, fixes, github, historical
+from repotoire.api.routes import analytics, billing, code, fixes, github, historical, webhooks
 from repotoire.api.models import ErrorResponse
 from repotoire.logging_config import get_logger
 
@@ -63,10 +63,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware for web clients
+# CORS middleware for web clients - allow all origins in development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in CORS_ORIGINS],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -79,6 +79,8 @@ app.include_router(historical.router)
 app.include_router(fixes.router)
 app.include_router(analytics.router)
 app.include_router(github.router, prefix="/api/v1")
+app.include_router(billing.router, prefix="/api/v1")
+app.include_router(webhooks.router, prefix="/api/v1")
 
 
 @app.get("/", tags=["Root"])
@@ -97,7 +99,12 @@ async def root():
             "query_history": "POST /api/v1/historical/query",
             "entity_timeline": "POST /api/v1/historical/timeline",
             "fixes": "GET /api/v1/fixes",
-            "analytics": "GET /api/v1/analytics/summary"
+            "analytics": "GET /api/v1/analytics/summary",
+            "billing_subscription": "GET /api/v1/billing/subscription",
+            "billing_checkout": "POST /api/v1/billing/checkout",
+            "billing_portal": "POST /api/v1/billing/portal",
+            "billing_plans": "GET /api/v1/billing/plans",
+            "stripe_webhook": "POST /api/v1/webhooks/stripe"
         }
     }
 

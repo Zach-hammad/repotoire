@@ -1,5 +1,5 @@
 """API route modules."""
 
-from repotoire.api.routes import analytics, code, fixes, github, historical
+from repotoire.api.routes import analytics, billing, code, fixes, github, historical, webhooks
 
-__all__ = ["analytics", "code", "fixes", "github", "historical"]
+__all__ = ["analytics", "billing", "code", "fixes", "github", "historical", "webhooks"]

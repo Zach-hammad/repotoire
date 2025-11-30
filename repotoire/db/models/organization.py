@@ -15,6 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin, generate_repr
 
 if TYPE_CHECKING:
+    from .billing import Subscription, UsageRecord
     from .github import GitHubInstallation
     from .repository import Repository
     from .user import User
@@ -76,7 +77,7 @@ class Organization(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         nullable=True,
     )
     plan_tier: Mapped[PlanTier] = mapped_column(
-        Enum(PlanTier, name="plan_tier"),
+        Enum(PlanTier, name="plan_tier", values_callable=lambda x: [e.value for e in x]),
         default=PlanTier.FREE,
         nullable=False,
     )
@@ -98,6 +99,17 @@ class Organization(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     github_installations: Mapped[List["GitHubInstallation"]] = relationship(
         "GitHubInstallation",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
+    subscription: Mapped["Subscription | None"] = relationship(
+        "Subscription",
+        back_populates="organization",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    usage_records: Mapped[List["UsageRecord"]] = relationship(
+        "UsageRecord",
         back_populates="organization",
         cascade="all, delete-orphan",
     )

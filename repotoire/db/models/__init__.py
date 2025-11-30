@@ -23,6 +23,7 @@ Usage:
 
 from .analysis import AnalysisRun, AnalysisStatus
 from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+from .billing import Subscription, SubscriptionStatus, UsageRecord
 from .github import GitHubInstallation, GitHubRepository
 from .organization import MemberRole, Organization, OrganizationMembership, PlanTier
 from .repository import Repository
@@ -41,8 +42,11 @@ __all__ = [
     "AnalysisRun",
     "GitHubInstallation",
     "GitHubRepository",
+    "Subscription",
+    "UsageRecord",
     # Enums
     "PlanTier",
     "MemberRole",
     "AnalysisStatus",
+    "SubscriptionStatus",
 ]

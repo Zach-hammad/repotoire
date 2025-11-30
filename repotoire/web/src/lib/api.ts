@@ -1,12 +1,20 @@
 import {
   AnalyticsSummary,
   ApiResponse,
+  CheckoutRequest,
+  CheckoutResponse,
   FileHotspot,
   FixComment,
   FixFilters,
   FixProposal,
   PaginatedResponse,
+  PlanTier,
+  PlansResponse,
+  PortalResponse,
+  PriceCalculationRequest,
+  PriceCalculationResponse,
   SortOptions,
+  Subscription,
   TrendDataPoint,
 } from '@/types';
 import {
@@ -32,6 +40,13 @@ class ApiError extends Error {
   }
 }
 
+// Token getter function - will be set by the auth provider
+let getAuthToken: (() => Promise<string | null>) | null = null;
+
+export function setAuthTokenGetter(getter: () => Promise<string | null>) {
+  getAuthToken = getter;
+}
+
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -41,6 +56,14 @@ async function request<T>(
   const defaultHeaders: HeadersInit = {
     'Content-Type': 'application/json',
   };
+
+  // Get auth token if available
+  if (getAuthToken) {
+    const token = await getAuthToken();
+    if (token) {
+      (defaultHeaders as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+    }
+  }
 
   const response = await fetch(url, {
     ...options,
@@ -256,6 +279,42 @@ export const analyticsApi = {
       return getMockFileHotspots(limit);
     }
     return request<FileHotspot[]>(`/analytics/by-file?limit=${limit}`);
+  },
+};
+
+// Billing API
+export const billingApi = {
+  // Get current subscription and usage
+  getSubscription: async (): Promise<Subscription> => {
+    return request<Subscription>('/billing/subscription');
+  },
+
+  // Get available plans
+  getPlans: async (): Promise<PlansResponse> => {
+    return request<PlansResponse>('/billing/plans');
+  },
+
+  // Create checkout session for upgrade with seats
+  createCheckout: async (tier: PlanTier, seats: number): Promise<CheckoutResponse> => {
+    return request<CheckoutResponse>('/billing/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ tier, seats } as CheckoutRequest),
+    });
+  },
+
+  // Create customer portal session
+  createPortal: async (): Promise<PortalResponse> => {
+    return request<PortalResponse>('/billing/portal', {
+      method: 'POST',
+    });
+  },
+
+  // Calculate price for a tier and seat count
+  calculatePrice: async (tier: PlanTier, seats: number): Promise<PriceCalculationResponse> => {
+    return request<PriceCalculationResponse>('/billing/calculate-price', {
+      method: 'POST',
+      body: JSON.stringify({ tier, seats } as PriceCalculationRequest),
+    });
   },
 };
 
