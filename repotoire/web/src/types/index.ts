@@ -1,0 +1,144 @@
+// Fix status lifecycle
+export type FixStatus = 'pending' | 'approved' | 'rejected' | 'applied' | 'failed';
+
+// Confidence levels for AI-generated fixes
+export type FixConfidence = 'high' | 'medium' | 'low';
+
+// Types of fixes the system can propose
+export type FixType =
+  | 'refactor'
+  | 'simplify'
+  | 'extract'
+  | 'rename'
+  | 'remove'
+  | 'security'
+  | 'type_hint'
+  | 'documentation';
+
+// Severity levels for findings
+export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+// A single code change within a fix
+export interface CodeChange {
+  file_path: string;
+  original_code: string;
+  fixed_code: string;
+  start_line: number;
+  end_line: number;
+  description: string;
+}
+
+// Evidence supporting the fix recommendation
+export interface Evidence {
+  similar_patterns: string[];
+  documentation_refs: string[];
+  best_practices: string[];
+  rag_context_count: number;
+}
+
+// A finding (code smell, issue) from analysis
+export interface Finding {
+  id: string;
+  detector: string;
+  category: string;
+  severity: Severity;
+  message: string;
+  file_path: string;
+  start_line: number;
+  end_line: number;
+  code_snippet?: string;
+  suggestion?: string;
+}
+
+// A complete fix proposal
+export interface FixProposal {
+  id: string;
+  finding?: Finding;
+  fix_type: FixType;
+  confidence: FixConfidence;
+  changes: CodeChange[];
+  title: string;
+  description: string;
+  rationale: string;
+  evidence: Evidence;
+  status: FixStatus;
+  created_at: string;
+  applied_at: string | null;
+  syntax_valid: boolean;
+  tests_generated: boolean;
+  test_code: string | null;
+  branch_name: string | null;
+  commit_message: string | null;
+}
+
+// Comment on a fix
+export interface FixComment {
+  id: string;
+  fix_id: string;
+  author: string;
+  content: string;
+  created_at: string;
+}
+
+// Dashboard analytics summary
+export interface AnalyticsSummary {
+  total_fixes: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  applied: number;
+  failed: number;
+  approval_rate: number;
+  avg_confidence: number;
+  by_type: Record<FixType, number>;
+  by_confidence: Record<FixConfidence, number>;
+}
+
+// Time-series data point for trends
+export interface TrendDataPoint {
+  date: string;
+  pending: number;
+  approved: number;
+  rejected: number;
+  applied: number;
+}
+
+// File hotspot analysis
+export interface FileHotspot {
+  file_path: string;
+  fix_count: number;
+  severity_breakdown: Record<Severity, number>;
+}
+
+// API response wrapper
+export interface ApiResponse<T> {
+  data: T;
+  success: boolean;
+  error?: string;
+}
+
+// Paginated response
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+}
+
+// Filter options for fix list
+export interface FixFilters {
+  status?: FixStatus[];
+  confidence?: FixConfidence[];
+  fix_type?: FixType[];
+  date_from?: string;
+  date_to?: string;
+  file_path?: string;
+  search?: string;
+}
+
+// Sort options
+export interface SortOptions {
+  field: 'created_at' | 'confidence' | 'status' | 'fix_type';
+  direction: 'asc' | 'desc';
+}

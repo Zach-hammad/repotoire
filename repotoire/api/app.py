@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from repotoire.api.routes import code, historical
+from repotoire.api.routes import code, historical, fixes, analytics
 from repotoire.api.models import ErrorResponse
 from repotoire.logging_config import get_logger
 
@@ -65,6 +65,8 @@ app.add_middleware(
 # Include routers
 app.include_router(code.router)
 app.include_router(historical.router)
+app.include_router(fixes.router)
+app.include_router(analytics.router)
 
 
 @app.get("/", tags=["Root"])
@@ -81,7 +83,9 @@ async def root():
             "embeddings_status": "GET /api/v1/code/embeddings/status",
             "ingest_git": "POST /api/v1/historical/ingest-git",
             "query_history": "POST /api/v1/historical/query",
-            "entity_timeline": "POST /api/v1/historical/timeline"
+            "entity_timeline": "POST /api/v1/historical/timeline",
+            "fixes": "GET /api/v1/fixes",
+            "analytics": "GET /api/v1/analytics/summary"
         }
     }
 
