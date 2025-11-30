@@ -76,6 +76,12 @@ timescale = [
     "psycopg2-binary>=2.9.9",  # PostgreSQL adapter for TimescaleDB metrics storage
 ]
 
+saas = [
+    "sqlalchemy>=2.0.0",  # SQLAlchemy ORM for PostgreSQL SaaS database
+    "alembic>=1.13.0",  # Database migrations for SQLAlchemy models
+    "psycopg2-binary>=2.9.9",  # PostgreSQL adapter
+]
+
 graphiti = [
     "graphiti-core>=0.24.1",  # Temporal knowledge graph for git history tracking
 ]

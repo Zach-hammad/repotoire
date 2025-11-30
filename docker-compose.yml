@@ -1,0 +1,200 @@
+# Repotoire Local Development Environment
+#
+# This Docker Compose file provides all services needed for local development
+# of the Repotoire SaaS platform.
+#
+# Usage:
+#   docker compose up -d                    # Start core services
+#   docker compose --profile neo4j up -d    # Include Neo4j backend
+#   docker compose --profile tools up -d    # Include admin tools (pgAdmin, RedisInsight)
+#   docker compose down -v                  # Stop and remove volumes
+#
+# Environment variables are loaded from .env file (see .env.example)
+
+services:
+  # =============================================================================
+  # PostgreSQL - Primary relational database for SaaS data
+  # =============================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: repotoire-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-repotoire}
+      POSTGRES_USER: ${POSTGRES_USER:-repotoire}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # Persist data between restarts
+      - postgres_data:/var/lib/postgresql/data
+      # Initialize database with extensions on first run
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-repotoire} -d ${POSTGRES_DB:-repotoire}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - repotoire-net
+
+  # =============================================================================
+  # FalkorDB - Redis-compatible graph database (default graph backend)
+  # =============================================================================
+  # FalkorDB is a lightweight alternative to Neo4j for development.
+  # Uses Redis protocol on port 6379 and Bolt protocol on port 7687.
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: repotoire-falkordb
+    environment:
+      # Redis configuration for optimal graph operations
+      REDIS_ARGS: "--maxmemory 2gb --maxmemory-policy noeviction --appendonly yes"
+    ports:
+      # Redis protocol (for redis-cli and some clients)
+      - "${FALKORDB_REDIS_PORT:-6379}:6379"
+      # Bolt protocol (Neo4j-compatible, used by Neo4j Python driver)
+      - "${FALKORDB_BOLT_PORT:-7687}:7687"
+    volumes:
+      - falkordb_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - repotoire-net
+
+  # =============================================================================
+  # Redis - Message broker for Celery task queue
+  # =============================================================================
+  # Separate Redis instance for Celery to avoid conflicts with FalkorDB.
+  redis:
+    image: redis:7-alpine
+    container_name: repotoire-redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      # Use port 6380 to avoid conflict with FalkorDB on 6379
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - repotoire-net
+
+  # =============================================================================
+  # Neo4j - Enterprise graph database (optional, for Neo4j backend)
+  # =============================================================================
+  # Use --profile neo4j to start: docker compose --profile neo4j up -d
+  neo4j:
+    image: neo4j:5-community
+    container_name: repotoire-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-repotoire-dev-password}
+      # Enable APOC and GDS plugins
+      NEO4J_PLUGINS: '["apoc", "graph-data-science"]'
+      # Performance tuning for development
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 256m
+      # Enable procedures
+      NEO4J_dbms_security_procedures_unrestricted: "apoc.*,gds.*"
+      NEO4J_dbms_security_procedures_allowlist: "apoc.*,gds.*"
+    ports:
+      # HTTP browser interface
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      # Bolt protocol for driver connections
+      - "${NEO4J_BOLT_PORT:-7688}:7687"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_plugins:/plugins
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - repotoire-net
+    profiles:
+      - neo4j
+
+  # =============================================================================
+  # pgAdmin - PostgreSQL administration tool (optional)
+  # =============================================================================
+  # Use --profile tools to start: docker compose --profile tools up -d
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: repotoire-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@repotoire.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "${PGADMIN_PORT:-8080}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - repotoire-net
+    profiles:
+      - tools
+
+  # =============================================================================
+  # RedisInsight - Redis/FalkorDB visualization tool (optional)
+  # =============================================================================
+  # Use --profile tools to start: docker compose --profile tools up -d
+  redisinsight:
+    image: redislabs/redisinsight:latest
+    container_name: repotoire-redisinsight
+    ports:
+      - "${REDISINSIGHT_PORT:-8001}:8001"
+    volumes:
+      - redisinsight_data:/db
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    networks:
+      - repotoire-net
+    profiles:
+      - tools
+
+# =============================================================================
+# Named Volumes for Data Persistence
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  falkordb_data:
+    driver: local
+  redis_data:
+    driver: local
+  neo4j_data:
+    driver: local
+  neo4j_logs:
+    driver: local
+  neo4j_plugins:
+    driver: local
+  pgadmin_data:
+    driver: local
+  redisinsight_data:
+    driver: local
+
+# =============================================================================
+# Network Configuration
+# =============================================================================
+networks:
+  repotoire-net:
+    driver: bridge
