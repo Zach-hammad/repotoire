@@ -2,6 +2,7 @@
 
 This module provides AI-powered automatic code fixes with human-in-the-loop approval.
 Supports multiple programming languages including Python, TypeScript, Java, and Go.
+Also includes template-based fixes for deterministic, fast code transformations.
 """
 
 from repotoire.autofix.engine import AutoFixEngine
@@ -27,6 +28,18 @@ from repotoire.autofix.languages import (
     get_handler_for_language,
     supported_extensions,
 )
+from repotoire.autofix.templates import (
+    FixTemplate,
+    PatternType,
+    TemplateEvidence,
+    TemplateFile,
+    TemplateMatch,
+    TemplateRegistry,
+    TemplateLoadError,
+    get_registry,
+    reset_registry,
+    DEFAULT_TEMPLATE_DIRS,
+)
 
 __all__ = [
     # Core auto-fix
@@ -50,4 +63,15 @@ __all__ = [
     "get_handler",
     "get_handler_for_language",
     "supported_extensions",
+    # Templates
+    "FixTemplate",
+    "PatternType",
+    "TemplateEvidence",
+    "TemplateFile",
+    "TemplateMatch",
+    "TemplateRegistry",
+    "TemplateLoadError",
+    "get_registry",
+    "reset_registry",
+    "DEFAULT_TEMPLATE_DIRS",
 ]

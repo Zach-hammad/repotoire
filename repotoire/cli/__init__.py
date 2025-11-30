@@ -5052,6 +5052,132 @@ def embeddings_clones(
         neo4j_client.close()
 
 
+# ============================================================================
+# FIX TEMPLATES COMMANDS
+# ============================================================================
+
+
+@cli.group()
+def templates() -> None:
+    """Manage fix templates for automatic code fixes.
+
+    Templates provide fast, deterministic code fixes that don't require LLM calls.
+    They are loaded from YAML files in .repotoire/fix-templates/ or ~/.config/repotoire/fix-templates/.
+
+    Examples:
+        repotoire templates list           # List all loaded templates
+        repotoire templates list --verbose # Show detailed template info
+    """
+    pass
+
+
+@templates.command("list")
+@click.option(
+    "--verbose", "-v",
+    is_flag=True,
+    help="Show detailed template information"
+)
+@click.option(
+    "--language",
+    "-l",
+    default=None,
+    help="Filter by language (e.g., python, typescript)"
+)
+@click.option(
+    "--template-dir",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Additional template directory to load from"
+)
+def templates_list(verbose: bool, language: str | None, template_dir: Path | None) -> None:
+    """List all loaded fix templates.
+
+    Shows templates loaded from default directories and any additional directories.
+    Templates are sorted by priority (highest first).
+    """
+    from repotoire.autofix.templates import (
+        get_registry,
+        reset_registry,
+        DEFAULT_TEMPLATE_DIRS,
+    )
+
+    # Reset and reload registry if custom dir provided
+    if template_dir:
+        reset_registry()
+        dirs = list(DEFAULT_TEMPLATE_DIRS) + [template_dir]
+        registry = get_registry(template_dirs=dirs, force_reload=True)
+    else:
+        registry = get_registry()
+
+    # Filter by language if specified
+    templates = registry.templates
+    if language:
+        templates = [
+            t for t in templates
+            if language.lower() in [lang.lower() for lang in t.languages]
+        ]
+
+    if not templates:
+        console.print("[yellow]No templates loaded.[/yellow]")
+        console.print("\n[dim]Template directories searched:[/dim]")
+        for d in DEFAULT_TEMPLATE_DIRS:
+            status = "✓ exists" if d.exists() else "✗ not found"
+            console.print(f"  [dim]{d}[/dim] ({status})")
+        if template_dir:
+            status = "✓ exists" if template_dir.exists() else "✗ not found"
+            console.print(f"  [dim]{template_dir}[/dim] ({status})")
+        return
+
+    # Create table
+    table = Table(
+        title=f"Fix Templates ({len(templates)} loaded)",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+    )
+
+    table.add_column("Name", style="green")
+    table.add_column("Priority", justify="center")
+    table.add_column("Type", style="cyan")
+    table.add_column("Confidence", justify="center")
+    table.add_column("Languages")
+
+    if verbose:
+        table.add_column("Pattern Type")
+        table.add_column("Description", max_width=40)
+
+    for template in templates:
+        confidence_color = {
+            "HIGH": "green",
+            "MEDIUM": "yellow",
+            "LOW": "red",
+        }.get(template.confidence, "white")
+
+        row = [
+            template.name,
+            str(template.priority),
+            template.fix_type,
+            f"[{confidence_color}]{template.confidence}[/{confidence_color}]",
+            ", ".join(template.languages),
+        ]
+
+        if verbose:
+            row.extend([
+                template.pattern_type.value,
+                (template.description or "")[:40] + ("..." if template.description and len(template.description) > 40 else ""),
+            ])
+
+        table.add_row(*row)
+
+    console.print(table)
+
+    # Show loaded files
+    if registry.loaded_files:
+        console.print("\n[dim]Loaded from:[/dim]")
+        for f in registry.loaded_files:
+            console.print(f"  [dim]{f}[/dim]")
+
+
 def main() -> None:
     """Entry point for CLI."""
     cli()

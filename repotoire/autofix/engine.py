@@ -23,6 +23,11 @@ from repotoire.autofix.models import (
     FixConfidence,
     FixStatus,
 )
+from repotoire.autofix.templates import (
+    get_registry,
+    TemplateRegistry,
+    TemplateMatch,
+)
 
 logger = get_logger(__name__)
 
@@ -58,6 +63,9 @@ class AutoFixEngine:
         embedder = CodeEmbedder(api_key=api_key)
         self.rag_retriever = GraphRAGRetriever(neo4j_client, embedder)
 
+        # Initialize template registry for fast, deterministic fixes
+        self.template_registry = get_registry()
+
         logger.info(f"AutoFixEngine initialized with model={model}")
 
     async def generate_fix(
@@ -77,6 +85,12 @@ class AutoFixEngine:
             FixProposal if fix can be generated, None otherwise
         """
         try:
+            # Step 0: Try template-based fix first (fast, deterministic)
+            template_fix = await self._try_template_fix(finding, repository_path)
+            if template_fix is not None:
+                logger.info(f"Applied template fix: {template_fix.title}")
+                return template_fix
+
             # Step 1: Gather context using RAG
             logger.info(f"Gathering context for finding: {finding.title}")
             context = await self._gather_context(finding, repository_path, context_size)
@@ -162,6 +176,144 @@ class AutoFixEngine:
             logger.warning(f"Failed to gather full context: {e}")
 
         return context
+
+    async def _try_template_fix(
+        self,
+        finding: Finding,
+        repository_path: Path,
+    ) -> Optional[FixProposal]:
+        """Try to apply a template-based fix.
+
+        Args:
+            finding: The finding to fix
+            repository_path: Path to repository
+
+        Returns:
+            FixProposal if a template matches, None otherwise
+        """
+        if not finding.affected_files:
+            return None
+
+        file_path = finding.affected_files[0]
+        full_path = repository_path / file_path
+
+        if not full_path.exists():
+            return None
+
+        try:
+            # Read the file content
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            # Determine language from file extension
+            handler = get_handler(file_path)
+            language = handler.language_name.lower()
+
+            # Try to match a template
+            match = self.template_registry.match(
+                code=content,
+                file_path=file_path,
+                language=language,
+            )
+
+            if match is None:
+                logger.debug(f"No template match for finding: {finding.title}")
+                return None
+
+            # Create fix proposal from template match
+            return self._create_fix_from_template(
+                finding=finding,
+                match=match,
+                file_path=file_path,
+                repository_path=repository_path,
+            )
+
+        except Exception as e:
+            logger.warning(f"Template fix attempt failed: {e}")
+            return None
+
+    def _create_fix_from_template(
+        self,
+        finding: Finding,
+        match: TemplateMatch,
+        file_path: str,
+        repository_path: Path,
+    ) -> FixProposal:
+        """Create a FixProposal from a template match.
+
+        Args:
+            finding: The original finding
+            match: The template match result
+            file_path: Path to the affected file
+            repository_path: Path to repository
+
+        Returns:
+            FixProposal with the template-based fix
+        """
+        template = match.template
+
+        # Map template fix_type to FixType enum
+        fix_type_map = {
+            "refactor": FixType.REFACTOR,
+            "simplify": FixType.SIMPLIFY,
+            "extract": FixType.EXTRACT,
+            "rename": FixType.RENAME,
+            "remove": FixType.REMOVE,
+            "security": FixType.SECURITY,
+            "type_hint": FixType.TYPE_HINT,
+            "documentation": FixType.DOCUMENTATION,
+        }
+        fix_type = fix_type_map.get(template.fix_type.lower(), FixType.REFACTOR)
+
+        # Map confidence string to enum
+        confidence_map = {
+            "HIGH": FixConfidence.HIGH,
+            "MEDIUM": FixConfidence.MEDIUM,
+            "LOW": FixConfidence.LOW,
+        }
+        confidence = confidence_map.get(template.confidence, FixConfidence.MEDIUM)
+
+        # Generate fix ID
+        fix_id = hashlib.md5(
+            f"{file_path}:{match.match_start}:{template.name}".encode()
+        ).hexdigest()[:12]
+
+        # Create code change
+        change = CodeChange(
+            file_path=Path(file_path),
+            original_code=match.original_code,
+            fixed_code=match.fixed_code,
+            start_line=0,  # Will be calculated if needed
+            end_line=0,
+            description=template.description or f"Apply {template.name}",
+        )
+
+        # Create evidence from template
+        evidence = Evidence(
+            documentation_refs=template.evidence.documentation_refs,
+            best_practices=template.evidence.best_practices,
+            similar_patterns=[f"Template: {template.name}"],
+        )
+
+        # Create the fix proposal
+        fix_proposal = FixProposal(
+            id=fix_id,
+            finding=finding,
+            fix_type=fix_type,
+            confidence=confidence,
+            changes=[change],
+            title=f"Template fix: {template.name}",
+            description=template.description or f"Applied template '{template.name}'",
+            rationale="; ".join(template.evidence.best_practices)
+            if template.evidence.best_practices
+            else "Template-based fix",
+            evidence=evidence,
+            branch_name=f"autofix/template/{fix_id}",
+            commit_message=f"fix: {template.name}\n\n{template.description or 'Template-based fix'}",
+            syntax_valid=True,  # Templates produce deterministic, valid code
+        )
+
+        return fix_proposal
 
     def _determine_fix_type(self, finding: Finding) -> FixType:
         """Determine the type of fix needed based on finding.
