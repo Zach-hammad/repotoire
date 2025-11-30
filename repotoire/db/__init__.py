@@ -5,6 +5,7 @@ multi-tenant SaaS application.
 
 Subpackages:
     models: SQLAlchemy ORM models
+    session: Async database session management
 """
 
 from .models import (
@@ -12,6 +13,7 @@ from .models import (
     AnalysisStatus,
     Base,
     GitHubInstallation,
+    GitHubRepository,
     MemberRole,
     Organization,
     OrganizationMembership,
@@ -21,6 +23,7 @@ from .models import (
     User,
     UUIDPrimaryKeyMixin,
 )
+from .session import close_db, get_db, init_db
 
 __all__ = [
     # Base classes
@@ -34,8 +37,13 @@ __all__ = [
     "Repository",
     "AnalysisRun",
     "GitHubInstallation",
+    "GitHubRepository",
     # Enums
     "PlanTier",
     "MemberRole",
     "AnalysisStatus",
+    # Session management
+    "get_db",
+    "init_db",
+    "close_db",
 ]

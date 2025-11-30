@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from repotoire.api.routes import code, historical, fixes, analytics
+from repotoire.api.routes import analytics, code, fixes, github, historical
 from repotoire.api.models import ErrorResponse
 from repotoire.logging_config import get_logger
 
@@ -78,6 +78,7 @@ app.include_router(code.router)
 app.include_router(historical.router)
 app.include_router(fixes.router)
 app.include_router(analytics.router)
+app.include_router(github.router, prefix="/api/v1")
 
 
 @app.get("/", tags=["Root"])

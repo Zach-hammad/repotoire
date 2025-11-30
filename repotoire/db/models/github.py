@@ -1,14 +1,14 @@
-"""GitHubInstallation model for GitHub App integrations.
+"""GitHub App models for repository integrations.
 
-This module defines the GitHubInstallation model that tracks GitHub App
-installations for organizations, managing access tokens for API access.
+This module defines models for GitHub App installations and repositories,
+tracking access tokens, repository selection, and analysis configuration.
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin, generate_repr
@@ -21,18 +21,21 @@ class GitHubInstallation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """GitHubInstallation model representing a GitHub App installation.
 
     Stores installation-level access tokens for API access to repositories.
-    Tokens are encrypted at rest for security.
+    Tokens are encrypted at rest for security using Fernet symmetric encryption.
 
     Attributes:
         id: UUID primary key
         organization_id: Foreign key to the organization
         installation_id: GitHub App installation ID (unique)
+        account_login: GitHub account/organization login name
+        account_type: Account type ("Organization" or "User")
         access_token_encrypted: Encrypted installation access token
         token_expires_at: When the current token expires
         suspended_at: When the installation was suspended (if applicable)
         created_at: When the installation was created
         updated_at: When the installation was last updated
         organization: The organization that owns this installation
+        repositories: List of repositories for this installation
     """
 
     __tablename__ = "github_installations"
@@ -45,6 +48,15 @@ class GitHubInstallation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Integer,
         unique=True,
         nullable=False,
+    )
+    account_login: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    account_type: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="Organization",
     )
     access_token_encrypted: Mapped[str] = mapped_column(
         Text,
@@ -64,11 +76,82 @@ class GitHubInstallation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         "Organization",
         back_populates="github_installations",
     )
+    repositories: Mapped[List["GitHubRepository"]] = relationship(
+        "GitHubRepository",
+        back_populates="installation",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         Index("ix_github_installations_organization_id", "organization_id"),
         Index("ix_github_installations_installation_id", "installation_id"),
+        Index("ix_github_installations_account_login", "account_login"),
     )
 
     def __repr__(self) -> str:
-        return generate_repr(self, "id", "installation_id")
+        return generate_repr(self, "id", "installation_id", "account_login")
+
+
+class GitHubRepository(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """GitHubRepository model representing a repository available for analysis.
+
+    Tracks repositories accessible through a GitHub App installation,
+    including whether they're enabled for analysis and when they were last analyzed.
+
+    Attributes:
+        id: UUID primary key
+        installation_id: Foreign key to the GitHubInstallation
+        repo_id: GitHub's repository ID
+        full_name: Full repository name (e.g., "owner/repo")
+        default_branch: Default branch name (e.g., "main")
+        enabled: Whether this repository is enabled for analysis
+        last_analyzed_at: When the repository was last analyzed
+        created_at: When the repository was added
+        updated_at: When the repository was last updated
+        installation: The installation this repository belongs to
+    """
+
+    __tablename__ = "github_repositories"
+
+    installation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("github_installations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    repo_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    full_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    default_branch: Mapped[str] = mapped_column(
+        String(255),
+        default="main",
+        nullable=False,
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+    last_analyzed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    # Relationships
+    installation: Mapped["GitHubInstallation"] = relationship(
+        "GitHubInstallation",
+        back_populates="repositories",
+    )
+
+    __table_args__ = (
+        Index("ix_github_repositories_installation_id", "installation_id"),
+        Index("ix_github_repositories_repo_id", "repo_id"),
+        Index("ix_github_repositories_full_name", "full_name"),
+        Index("ix_github_repositories_enabled", "enabled"),
+    )
+
+    def __repr__(self) -> str:
+        return generate_repr(self, "id", "full_name", "enabled")
