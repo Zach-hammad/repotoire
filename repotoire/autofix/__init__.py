@@ -47,6 +47,16 @@ from repotoire.autofix.style import (
     StyleRule,
     classify_naming,
 )
+from repotoire.autofix.learning import (
+    UserDecision,
+    RejectionReason,
+    FixDecision,
+    LearningStats,
+    RejectionPattern,
+    DecisionStore,
+    AdaptiveConfidence,
+    create_decision_id,
+)
 
 __all__ = [
     # Core auto-fix
@@ -87,4 +97,13 @@ __all__ = [
     "StyleProfile",
     "StyleRule",
     "classify_naming",
+    # Learning feedback
+    "UserDecision",
+    "RejectionReason",
+    "FixDecision",
+    "LearningStats",
+    "RejectionPattern",
+    "DecisionStore",
+    "AdaptiveConfidence",
+    "create_decision_id",
 ]

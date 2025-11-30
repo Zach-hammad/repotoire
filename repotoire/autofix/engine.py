@@ -29,6 +29,7 @@ from repotoire.autofix.templates import (
     TemplateMatch,
 )
 from repotoire.autofix.style import StyleAnalyzer, StyleEnforcer, StyleProfile
+from repotoire.autofix.learning import DecisionStore, AdaptiveConfidence
 
 logger = get_logger(__name__)
 
@@ -44,6 +45,7 @@ class AutoFixEngine:
         neo4j_client: Neo4jClient,
         openai_api_key: Optional[str] = None,
         model: str = "gpt-4o",
+        decision_store: Optional[DecisionStore] = None,
     ):
         """Initialize auto-fix engine.
 
@@ -51,6 +53,7 @@ class AutoFixEngine:
             neo4j_client: Neo4j client for RAG context
             openai_api_key: OpenAI API key (or use OPENAI_API_KEY env var)
             model: OpenAI model to use for fix generation
+            decision_store: Store for learning from user decisions
         """
         self.neo4j_client = neo4j_client
         self.model = model
@@ -73,6 +76,10 @@ class AutoFixEngine:
         # Style enforcer (lazily initialized per repository)
         self._style_enforcer: Optional[StyleEnforcer] = None
         self._style_repo_path: Optional[Path] = None
+
+        # Learning feedback system
+        self.decision_store = decision_store or DecisionStore()
+        self.adaptive_confidence = AdaptiveConfidence(self.decision_store)
 
         logger.info(f"AutoFixEngine initialized with model={model}")
 
@@ -164,7 +171,21 @@ class AutoFixEngine:
             is_valid = self._validate_fix(fix_proposal, repository_path)
             fix_proposal.syntax_valid = is_valid
 
-            # Step 5: Optionally generate tests
+            # Step 5: Apply adaptive confidence based on historical feedback
+            original_confidence = fix_proposal.confidence
+            adjusted_confidence = self.adaptive_confidence.adjust_confidence(
+                base=original_confidence,
+                fix_type=fix_type.value,
+                repository=str(repository_path),
+            )
+            if adjusted_confidence != original_confidence:
+                logger.info(
+                    f"Adjusted confidence {original_confidence.value} → {adjusted_confidence.value} "
+                    f"based on historical feedback"
+                )
+                fix_proposal.confidence = adjusted_confidence
+
+            # Step 6: Optionally generate tests
             if is_valid and fix_type in [FixType.REFACTOR, FixType.EXTRACT]:
                 logger.info("Generating tests for fix")
                 test_code = await self._generate_tests(fix_proposal, context)
@@ -527,6 +548,17 @@ class AutoFixEngine:
             except Exception as e:
                 logger.debug(f"Could not get style instructions: {e}")
 
+        # Get historical feedback adjustments
+        historical_section = ""
+        try:
+            prompt_adjustments = self.adaptive_confidence.get_prompt_adjustments(
+                repository=str(repository_path)
+            )
+            if prompt_adjustments:
+                historical_section = f"\n{prompt_adjustments}\n"
+        except Exception as e:
+            logger.debug(f"Could not get prompt adjustments: {e}")
+
         prompt = f"""# Code Fix Task
 
 ## Issue Details
@@ -542,7 +574,7 @@ class AutoFixEngine:
 
 ## Fix Guidelines
 {fix_guidance}
-{style_section}
+{style_section}{historical_section}
 
 ## Current Code
 ```{code_marker}

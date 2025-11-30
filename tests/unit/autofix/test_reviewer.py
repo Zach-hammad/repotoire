@@ -5,10 +5,11 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 from io import StringIO
 from datetime import datetime
+import tempfile
 
 from rich.console import Console
 
-from repotoire.autofix.reviewer import InteractiveReviewer
+from repotoire.autofix.reviewer import InteractiveReviewer, REJECTION_REASONS
 from repotoire.autofix.models import (
     FixProposal,
     FixStatus,
@@ -16,6 +17,10 @@ from repotoire.autofix.models import (
     FixType,
     CodeChange,
     Evidence,
+)
+from repotoire.autofix.learning import (
+    DecisionStore,
+    RejectionReason,
 )
 from repotoire.models import Finding, Severity
 
@@ -245,21 +250,25 @@ class TestInteractiveReviewer:
         console, output = mock_console
         reviewer = InteractiveReviewer(console)
 
-        approved = reviewer._prompt_approval(sample_fix_proposal)
+        approved, reason, comment = reviewer._prompt_approval(sample_fix_proposal)
 
         assert approved is True
+        assert reason is None
+        assert comment is None
         mock_confirm.assert_called_once()
 
-    @patch("repotoire.autofix.reviewer.Confirm.ask", return_value=False)
-    def test_prompt_approval_rejected(self, mock_confirm, mock_console, sample_fix_proposal):
+    @patch("repotoire.autofix.reviewer.Prompt.ask", return_value="1")  # style_mismatch
+    @patch("repotoire.autofix.reviewer.Confirm.ask", side_effect=[False, False])  # reject, no comment
+    def test_prompt_approval_rejected(self, mock_confirm, mock_prompt, mock_console, sample_fix_proposal):
         """Test rejection in approval prompt."""
         console, output = mock_console
         reviewer = InteractiveReviewer(console)
 
-        approved = reviewer._prompt_approval(sample_fix_proposal)
+        approved, reason, comment = reviewer._prompt_approval(sample_fix_proposal)
 
         assert approved is False
-        mock_confirm.assert_called_once()
+        assert reason == RejectionReason.STYLE_MISMATCH
+        assert comment is None
 
     @patch("repotoire.autofix.reviewer.Confirm.ask", return_value=True)
     def test_prompt_approval_low_confidence_warning(self, mock_confirm, mock_console, low_confidence_fix):
@@ -290,23 +299,26 @@ class TestInteractiveReviewer:
         reviewer = InteractiveReviewer(console)
 
         with patch.object(console, "clear"):
-            approved = reviewer.review_fix(sample_fix_proposal)
+            approved, reason, comment = reviewer.review_fix(sample_fix_proposal)
 
         assert approved is True
+        assert reason is None
         # Should show all sections
         output_text = output.getvalue()
         assert "fix-123" in output_text
 
-    @patch("repotoire.autofix.reviewer.Confirm.ask", return_value=False)
-    def test_review_fix_rejected(self, mock_confirm, mock_console, sample_fix_proposal):
+    @patch("repotoire.autofix.reviewer.Prompt.ask", return_value="2")  # too_risky
+    @patch("repotoire.autofix.reviewer.Confirm.ask", side_effect=[False, False])  # reject, no comment
+    def test_review_fix_rejected(self, mock_confirm, mock_prompt, mock_console, sample_fix_proposal):
         """Test reviewing and rejecting a fix."""
         console, output = mock_console
         reviewer = InteractiveReviewer(console)
 
         with patch.object(console, "clear"):
-            approved = reviewer.review_fix(sample_fix_proposal)
+            approved, reason, comment = reviewer.review_fix(sample_fix_proposal)
 
         assert approved is False
+        assert reason == RejectionReason.TOO_RISKY
 
     def test_review_batch_empty(self, mock_console):
         """Test batch review with no fixes."""
@@ -320,10 +332,11 @@ class TestInteractiveReviewer:
         assert "No fixes to review" in output_text
 
     @patch("repotoire.autofix.reviewer.Confirm.ask", side_effect=[True, True])
-    def test_review_batch_manual_approval(self, mock_confirm, mock_console, sample_fix_proposal):
+    def test_review_batch_manual_approval(self, mock_confirm, mock_console, sample_fix_proposal, tmp_path):
         """Test batch review with manual approval."""
         console, output = mock_console
-        reviewer = InteractiveReviewer(console)
+        store = DecisionStore(storage_path=tmp_path / "decisions.jsonl")
+        reviewer = InteractiveReviewer(console, decision_store=store)
 
         with patch.object(console, "clear"):
             approved = reviewer.review_batch([sample_fix_proposal], auto_approve_high=False)
@@ -331,10 +344,11 @@ class TestInteractiveReviewer:
         assert len(approved) == 1
         assert approved[0].status == FixStatus.APPROVED
 
-    def test_review_batch_auto_approve_high(self, mock_console, sample_fix_proposal):
+    def test_review_batch_auto_approve_high(self, mock_console, sample_fix_proposal, tmp_path):
         """Test batch review with auto-approve for high confidence."""
         console, output = mock_console
-        reviewer = InteractiveReviewer(console)
+        store = DecisionStore(storage_path=tmp_path / "decisions.jsonl")
+        reviewer = InteractiveReviewer(console, decision_store=store)
 
         approved = reviewer.review_batch([sample_fix_proposal], auto_approve_high=True)
 
@@ -344,10 +358,11 @@ class TestInteractiveReviewer:
         assert "Auto-approved" in output_text or "high confidence" in output_text
 
     @patch("repotoire.autofix.reviewer.Confirm.ask", side_effect=[True, False])  # First approved, then stop
-    def test_review_batch_multiple_fixes(self, mock_confirm, mock_console, sample_fix_proposal, sample_finding):
+    def test_review_batch_multiple_fixes(self, mock_confirm, mock_console, sample_fix_proposal, sample_finding, tmp_path):
         """Test batch review with multiple fixes."""
         console, output = mock_console
-        reviewer = InteractiveReviewer(console)
+        store = DecisionStore(storage_path=tmp_path / "decisions.jsonl")
+        reviewer = InteractiveReviewer(console, decision_store=store)
 
         fix2 = FixProposal(
             id="fix-789",
@@ -370,11 +385,14 @@ class TestInteractiveReviewer:
         output_text = output.getvalue()
         assert "Summary" in output_text
 
-    @patch("repotoire.autofix.reviewer.Confirm.ask", side_effect=[False, True, True])  # Reject first, continue, approve second
-    def test_review_batch_with_rejection(self, mock_confirm, mock_console, sample_fix_proposal, sample_finding):
+    @patch("repotoire.autofix.reviewer.Prompt.ask", return_value="3")  # incorrect_logic
+    @patch("repotoire.autofix.reviewer.Confirm.ask", side_effect=[False, False, True, True, True])  # Reject first (no comment), continue, approve second
+    def test_review_batch_with_rejection(self, mock_confirm, mock_prompt, mock_console, sample_fix_proposal, sample_finding, tmp_path):
         """Test batch review with some rejections."""
         console, output = mock_console
-        reviewer = InteractiveReviewer(console)
+        # Use temp store to avoid writing to ~/.repotoire
+        store = DecisionStore(storage_path=tmp_path / "decisions.jsonl")
+        reviewer = InteractiveReviewer(console, decision_store=store)
 
         fix2 = FixProposal(
             id="fix-789",
