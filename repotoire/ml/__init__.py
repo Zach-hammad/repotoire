@@ -19,6 +19,14 @@ from repotoire.ml.training_data import (
     FunctionInfo,
     DEFAULT_BUG_KEYWORDS,
 )
+from repotoire.ml.node2vec_embeddings import Node2VecEmbedder, Node2VecConfig
+from repotoire.ml.bug_predictor import (
+    BugPredictor,
+    BugPredictorConfig,
+    FeatureExtractor,
+    PredictionResult,
+    ModelMetrics,
+)
 
 
 def batch_cosine_similarity(query, matrix):
@@ -92,4 +100,13 @@ __all__ = [
     "TrainingDataset",
     "FunctionInfo",
     "DEFAULT_BUG_KEYWORDS",
+    # Node2Vec embeddings
+    "Node2VecEmbedder",
+    "Node2VecConfig",
+    # Bug prediction
+    "BugPredictor",
+    "BugPredictorConfig",
+    "FeatureExtractor",
+    "PredictionResult",
+    "ModelMetrics",
 ]

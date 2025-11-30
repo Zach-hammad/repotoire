@@ -74,7 +74,7 @@ class TrainingDataset(BaseModel):
     repository: str = Field(description="Path to the repository")
     extracted_at: str = Field(description="ISO format extraction timestamp")
     date_range: Tuple[str, str] = Field(description="(start_date, end_date) for commit range")
-    statistics: Dict[str, Union[float, int, str]] = Field(default_factory=dict, description="Dataset statistics")
+    statistics: Dict[str, Union[int, float, str]] = Field(default_factory=dict, description="Dataset statistics")
     version: str = Field(default="1.0.0", description="Dataset format version")
 
 

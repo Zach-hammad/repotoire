@@ -590,3 +590,530 @@ def _print_detailed_stats(dataset) -> None:
         console.print(f"  Min: {min(complexities)}")
         console.print(f"  Max: {max(complexities)}")
         console.print(f"  Median: {sorted(complexities)[len(complexities)//2]}")
+
+
+# ============================================================================
+# Node2Vec Embedding Commands
+# ============================================================================
+
+
+@ml.command("generate-embeddings")
+@click.argument("repo_path", type=click.Path(exists=True), required=False, default=".")
+@click.option(
+    "--type",
+    "embedding_type",
+    default="node2vec",
+    type=click.Choice(["node2vec"]),
+    help="Embedding algorithm (default: node2vec)",
+)
+@click.option(
+    "--dimension",
+    default=128,
+    type=int,
+    help="Embedding dimension (default: 128)",
+)
+@click.option(
+    "--walk-length",
+    default=80,
+    type=int,
+    help="Random walk length (default: 80)",
+)
+@click.option(
+    "--walks-per-node",
+    default=10,
+    type=int,
+    help="Number of walks per node (default: 10)",
+)
+@click.option(
+    "--return-factor",
+    "return_factor",
+    default=1.0,
+    type=float,
+    help="Return factor p - controls BFS vs DFS behavior (default: 1.0)",
+)
+@click.option(
+    "--in-out-factor",
+    "in_out_factor",
+    default=1.0,
+    type=float,
+    help="In-out factor q - controls explore vs exploit (default: 1.0)",
+)
+@click.option(
+    "--node-types",
+    default="Function,Class,Module",
+    help="Comma-separated node types to include (default: Function,Class,Module)",
+)
+@click.option(
+    "--relationship-types",
+    default="CALLS,IMPORTS,USES",
+    help="Comma-separated relationship types (default: CALLS,IMPORTS,USES)",
+)
+def generate_embeddings(
+    repo_path: str,
+    embedding_type: str,
+    dimension: int,
+    walk_length: int,
+    walks_per_node: int,
+    return_factor: float,
+    in_out_factor: float,
+    node_types: str,
+    relationship_types: str,
+):
+    """Generate Node2Vec embeddings for code graph nodes.
+
+    Creates graph embeddings using random walks that capture both local
+    (BFS-like) and global (DFS-like) structural patterns in the call graph.
+
+    Prerequisites:
+    - Codebase must be ingested first (repotoire ingest)
+    - Neo4j with GDS plugin must be running
+
+    Examples:
+
+        # Basic embedding generation
+        repotoire ml generate-embeddings
+
+        # Custom parameters
+        repotoire ml generate-embeddings --dimension 256 --walks-per-node 20
+
+        # BFS-biased walks (tight communities)
+        repotoire ml generate-embeddings --return-factor 0.5 --in-out-factor 2.0
+
+        # DFS-biased walks (structural roles)
+        repotoire ml generate-embeddings --return-factor 2.0 --in-out-factor 0.5
+    """
+    from repotoire.ml.node2vec_embeddings import Node2VecEmbedder, Node2VecConfig
+    from repotoire.graph.client import Neo4jClient
+
+    console.print(f"[bold blue]Generating {embedding_type} embeddings[/bold blue]")
+    console.print(f"[dim]Dimension: {dimension}, Walk length: {walk_length}[/dim]\n")
+
+    try:
+        client = Neo4jClient.from_env()
+        config = Node2VecConfig(
+            embedding_dimension=dimension,
+            walk_length=walk_length,
+            walks_per_node=walks_per_node,
+            return_factor=return_factor,
+            in_out_factor=in_out_factor,
+        )
+
+        embedder = Node2VecEmbedder(client, config)
+
+        # Parse node/relationship types
+        node_label_list = [n.strip() for n in node_types.split(",")]
+        rel_type_list = [r.strip() for r in relationship_types.split(",")]
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            # Step 1: Create projection
+            task = progress.add_task("Creating graph projection...", total=None)
+            try:
+                proj_stats = embedder.create_projection(
+                    node_labels=node_label_list,
+                    relationship_types=rel_type_list,
+                )
+                progress.update(
+                    task,
+                    description=f"Projected {proj_stats.get('nodeCount', 0)} nodes, "
+                    f"{proj_stats.get('relationshipCount', 0)} relationships",
+                )
+            except RuntimeError as e:
+                console.print(f"[red]Error: {e}[/red]")
+                console.print(
+                    "[yellow]Make sure Neo4j GDS plugin is installed, or use FalkorDB.[/yellow]"
+                )
+                raise click.Abort()
+
+            # Step 2: Generate embeddings
+            progress.update(task, description="Running Node2Vec algorithm...")
+            embed_stats = embedder.generate_embeddings()
+
+            progress.update(
+                task,
+                description=f"Generated {embed_stats.get('nodePropertiesWritten', 0)} embeddings "
+                f"in {embed_stats.get('computeMillis', 0)}ms",
+            )
+
+            # Step 3: Cleanup
+            progress.update(task, description="Cleaning up projection...")
+            embedder.cleanup()
+
+        # Print statistics
+        stats = embedder.compute_embedding_statistics(node_type="Function")
+
+        table = Table(title="Embedding Statistics", show_header=True, header_style="bold cyan")
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="green", justify="right")
+
+        table.add_row("Nodes with embeddings", str(stats.get("count", 0)))
+        table.add_row("Embedding dimension", str(stats.get("dimension", dimension)))
+        table.add_row("Mean L2 norm", f"{stats.get('mean_norm', 0):.4f}")
+        table.add_row("Std L2 norm", f"{stats.get('std_norm', 0):.4f}")
+        table.add_row("Compute time (ms)", str(embed_stats.get("computeMillis", 0)))
+
+        console.print(table)
+        console.print("\n[green]Embeddings generated successfully![/green]")
+        console.print("[dim]Embeddings stored as 'node2vec_embedding' property on nodes[/dim]")
+
+    except click.Abort:
+        raise
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        logger.exception("Embedding generation failed")
+        raise click.Abort()
+
+
+# ============================================================================
+# Bug Prediction Commands
+# ============================================================================
+
+
+@ml.command("train-bug-predictor")
+@click.option(
+    "--training-data",
+    "-d",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to training data JSON file",
+)
+@click.option(
+    "--output",
+    "-o",
+    default="models/bug_predictor.pkl",
+    help="Output path for trained model (default: models/bug_predictor.pkl)",
+)
+@click.option(
+    "--test-split",
+    default=0.2,
+    type=float,
+    help="Fraction of data for testing (default: 0.2)",
+)
+@click.option(
+    "--cv-folds",
+    default=5,
+    type=int,
+    help="Number of cross-validation folds (default: 5)",
+)
+@click.option(
+    "--grid-search/--no-grid-search",
+    default=False,
+    help="Run hyperparameter tuning with GridSearchCV",
+)
+@click.option(
+    "--n-estimators",
+    default=100,
+    type=int,
+    help="Number of trees in RandomForest (default: 100)",
+)
+@click.option(
+    "--max-depth",
+    default=10,
+    type=int,
+    help="Maximum tree depth (default: 10)",
+)
+def train_bug_predictor(
+    training_data: str,
+    output: str,
+    test_split: float,
+    cv_folds: int,
+    grid_search: bool,
+    n_estimators: int,
+    max_depth: int,
+):
+    """Train bug prediction model on labeled training data.
+
+    Trains a RandomForest classifier using Node2Vec embeddings combined
+    with code metrics (complexity, LOC, coupling) to predict bug probability.
+
+    Prerequisites:
+    - Training data extracted with 'repotoire ml extract-training-data'
+    - Node2Vec embeddings generated with 'repotoire ml generate-embeddings'
+
+    Examples:
+
+        # Basic training
+        repotoire ml train-bug-predictor -d training_data.json
+
+        # With hyperparameter search
+        repotoire ml train-bug-predictor -d data.json --grid-search -o models/tuned.pkl
+
+        # Custom parameters
+        repotoire ml train-bug-predictor -d data.json --n-estimators 200 --max-depth 15
+    """
+    from repotoire.ml.bug_predictor import BugPredictor, BugPredictorConfig
+    from repotoire.ml.training_data import TrainingDataset
+    from repotoire.graph.client import Neo4jClient
+
+    console.print("[bold blue]Training bug prediction model[/bold blue]\n")
+
+    try:
+        # Load training data
+        with open(training_data) as f:
+            data = json.load(f)
+        dataset = TrainingDataset(**data)
+
+        console.print(f"[dim]Training examples: {len(dataset.examples)}[/dim]")
+        buggy_count = sum(1 for ex in dataset.examples if ex.label == "buggy")
+        console.print(f"[dim]Buggy: {buggy_count}, Clean: {len(dataset.examples) - buggy_count}[/dim]\n")
+
+        # Initialize predictor
+        client = Neo4jClient.from_env()
+        config = BugPredictorConfig(
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            test_split=test_split,
+            cv_folds=cv_folds,
+        )
+        predictor = BugPredictor(client, config)
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Training model...", total=None)
+
+            if grid_search:
+                progress.update(task, description="Running hyperparameter grid search...")
+
+            metrics = predictor.train(dataset, hyperparameter_search=grid_search)
+
+            progress.update(task, description="Model trained successfully")
+
+        # Print metrics
+        table = Table(title="Model Evaluation Metrics", show_header=True, header_style="bold cyan")
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="green", justify="right")
+
+        metrics_dict = metrics.to_dict()
+        for key, value in metrics_dict.items():
+            if key in ("accuracy", "precision", "recall", "f1_score", "auc_roc"):
+                table.add_row(key.replace("_", " ").title(), f"{value:.4f}")
+            elif key == "cv_mean":
+                table.add_row("CV Mean (AUC-ROC)", f"{value:.4f}")
+            elif key == "cv_std":
+                table.add_row("CV Std Dev", f"{value:.4f}")
+
+        console.print(table)
+
+        # Print feature importance
+        importance = predictor.get_feature_importance_report()
+        if importance:
+            console.print("\n[bold]Feature Importance:[/bold]")
+            console.print(f"  Embeddings total: {importance.get('embedding_total', 0):.2%}")
+            for name in ["complexity", "loc", "fan_in", "fan_out", "churn"]:
+                if name in importance:
+                    console.print(f"  {name}: {importance[name]:.2%}")
+
+        # Save model
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        predictor.save(output_path)
+
+        console.print(f"\n[green]Model saved to {output}[/green]")
+
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        console.print(
+            "[yellow]Ensure Node2Vec embeddings are generated first: "
+            "repotoire ml generate-embeddings[/yellow]"
+        )
+        raise click.Abort()
+    except ImportError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        console.print("[yellow]Install ML dependencies: pip install scikit-learn joblib[/yellow]")
+        raise click.Abort()
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        logger.exception("Training failed")
+        raise click.Abort()
+
+
+@ml.command("predict-bugs")
+@click.argument("repo_path", type=click.Path(exists=True), required=False, default=".")
+@click.option(
+    "--model",
+    "-m",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to trained model file",
+)
+@click.option(
+    "--threshold",
+    default=0.7,
+    type=float,
+    help="Risk threshold for flagging (0.0-1.0, default: 0.7)",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    help="Output JSON file for predictions",
+)
+@click.option(
+    "--top-n",
+    default=20,
+    type=int,
+    help="Show top N risky functions (default: 20)",
+)
+@click.option(
+    "--function",
+    "-f",
+    "single_function",
+    type=str,
+    help="Predict for a single function by qualified name",
+)
+def predict_bugs(
+    repo_path: str,
+    model: str,
+    threshold: float,
+    output: Optional[str],
+    top_n: int,
+    single_function: Optional[str],
+):
+    """Predict bug-prone functions using trained model.
+
+    Uses a trained bug prediction model to identify functions with high
+    probability of containing bugs based on structural patterns and metrics.
+
+    Examples:
+
+        # Predict all functions
+        repotoire ml predict-bugs -m models/bug_predictor.pkl
+
+        # Export results to JSON
+        repotoire ml predict-bugs -m model.pkl -o predictions.json
+
+        # Show more results
+        repotoire ml predict-bugs -m model.pkl --top-n 50
+
+        # Predict single function
+        repotoire ml predict-bugs -m model.pkl -f mymodule.MyClass.risky_method
+    """
+    from repotoire.ml.bug_predictor import BugPredictor
+    from repotoire.graph.client import Neo4jClient
+
+    console.print("[bold blue]Predicting bug-prone functions[/bold blue]\n")
+
+    try:
+        client = Neo4jClient.from_env()
+        predictor = BugPredictor.load(Path(model), client)
+
+        # Show model info
+        if predictor.metrics:
+            console.print(
+                f"[dim]Model AUC-ROC: {predictor.metrics.auc_roc:.3f}, "
+                f"Threshold: {threshold:.0%}[/dim]\n"
+            )
+
+        # Single function prediction
+        if single_function:
+            result = predictor.predict(single_function, risk_threshold=threshold)
+            if result is None:
+                console.print(f"[yellow]Function not found: {single_function}[/yellow]")
+                console.print("[dim]Make sure Node2Vec embeddings are generated.[/dim]")
+                raise click.Abort()
+
+            _print_single_prediction(result)
+            return
+
+        # Batch prediction
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Running predictions...", total=None)
+            predictions = predictor.predict_all_functions(risk_threshold=threshold)
+            progress.update(
+                task,
+                description=f"Analyzed {len(predictions)} functions",
+            )
+
+        # Sort by probability
+        predictions.sort(key=lambda p: p.bug_probability, reverse=True)
+
+        # Filter high-risk only
+        high_risk = [p for p in predictions if p.is_high_risk]
+
+        # Display results
+        console.print(f"[bold]Found {len(high_risk)} high-risk functions[/bold]\n")
+
+        table = Table(title=f"Top {min(top_n, len(high_risk))} Bug-Prone Functions")
+        table.add_column("Function", style="cyan", max_width=50)
+        table.add_column("File", style="dim", max_width=30)
+        table.add_column("Probability", style="red", justify="right")
+        table.add_column("Top Factor", style="yellow", max_width=25)
+
+        for pred in high_risk[:top_n]:
+            factor = pred.contributing_factors[0].split(" (")[0] if pred.contributing_factors else "-"
+            # Color probability based on severity
+            prob_style = "red" if pred.bug_probability >= 0.9 else "yellow"
+            table.add_row(
+                pred.qualified_name.split(".")[-1],
+                pred.file_path.split("/")[-1] if "/" in pred.file_path else pred.file_path,
+                f"[{prob_style}]{pred.bug_probability:.1%}[/{prob_style}]",
+                factor,
+            )
+
+        console.print(table)
+
+        # Summary
+        console.print(f"\n[dim]Total functions analyzed: {len(predictions)}[/dim]")
+        console.print(f"[dim]High-risk (>={threshold:.0%}): {len(high_risk)}[/dim]")
+
+        # Save to JSON if requested
+        if output:
+            predictor.export_predictions(predictions, Path(output))
+            console.print(f"\n[green]Predictions saved to {output}[/green]")
+
+    except FileNotFoundError:
+        console.print(f"[red]Model file not found: {model}[/red]")
+        raise click.Abort()
+    except ImportError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise click.Abort()
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        logger.exception("Prediction failed")
+        raise click.Abort()
+
+
+def _print_single_prediction(pred) -> None:
+    """Print detailed prediction for a single function."""
+    # Severity color
+    if pred.bug_probability >= 0.9:
+        prob_style = "red bold"
+        severity = "CRITICAL"
+    elif pred.bug_probability >= 0.8:
+        prob_style = "red"
+        severity = "HIGH"
+    elif pred.bug_probability >= 0.7:
+        prob_style = "yellow"
+        severity = "MEDIUM"
+    else:
+        prob_style = "green"
+        severity = "LOW"
+
+    console.print(Panel(
+        f"[bold]{pred.qualified_name}[/bold]\n"
+        f"File: {pred.file_path}\n\n"
+        f"Bug Probability: [{prob_style}]{pred.bug_probability:.1%}[/{prob_style}] ({severity})\n"
+        f"High Risk: {'Yes' if pred.is_high_risk else 'No'}",
+        title="Bug Prediction Result",
+        border_style="cyan",
+    ))
+
+    if pred.contributing_factors:
+        console.print("\n[bold]Contributing Factors:[/bold]")
+        for factor in pred.contributing_factors:
+            console.print(f"  {factor}")
+
+    if pred.similar_buggy_functions:
+        console.print("\n[bold]Similar Past Buggy Functions:[/bold]")
+        for similar in pred.similar_buggy_functions:
+            console.print(f"  {similar}")

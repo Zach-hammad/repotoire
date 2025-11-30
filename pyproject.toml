@@ -107,7 +107,8 @@ detectors = [
 
 ml = [
     "questionary>=2.0.0",  # Interactive CLI prompts for active learning
-    "scikit-learn>=1.3.0",  # ML models for uncertainty sampling
+    "scikit-learn>=1.3.0",  # ML models for bug prediction and uncertainty sampling
+    "joblib>=1.3.0",  # Model serialization for bug predictor
 ]
 
 [project.scripts]
