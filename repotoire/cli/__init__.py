@@ -16,6 +16,7 @@ from rich.markup import escape
 
 from repotoire.pipeline import IngestionPipeline
 from repotoire.graph import Neo4jClient
+from repotoire.graph.factory import create_client
 from repotoire.detectors import AnalysisEngine
 from repotoire.migrations import MigrationManager, MigrationError
 from repotoire.logging_config import configure_logging, get_logger, LogContext
@@ -233,13 +234,21 @@ def cli(ctx: click.Context, config: str | None, log_level: str | None, log_forma
 @cli.command()
 @click.argument("repo_path", type=click.Path(exists=True))
 @click.option(
+    "--db-type",
+    type=click.Choice(["neo4j", "falkordb"], case_sensitive=False),
+    default=None,
+    envvar="REPOTOIRE_DB_TYPE",
+    help="Database type: neo4j or falkordb (default: neo4j, or REPOTOIRE_DB_TYPE env)",
+)
+@click.option(
     "--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)"
 )
 @click.option("--neo4j-user", default=None, help="Neo4j username (overrides config)")
 @click.option(
     "--neo4j-password",
     default=None,
-    help="Neo4j password (overrides config, prompts if not provided)",
+    envvar="REPOTOIRE_NEO4J_PASSWORD",
+    help="Neo4j password (overrides config, prompts if not provided for neo4j)",
 )
 @click.option(
     "--pattern",
@@ -317,6 +326,7 @@ def cli(ctx: click.Context, config: str | None, log_level: str | None, log_forma
 def ingest(
     ctx: click.Context,
     repo_path: str,
+    db_type: str | None,
     neo4j_uri: str | None,
     neo4j_user: str | None,
     neo4j_password: str | None,
@@ -340,9 +350,22 @@ def ingest(
     - Symlink protection (disabled by default)
     - File size limits (10MB default)
     - Relative path storage (prevents system path exposure)
+
+    Database backends:
+    - neo4j: Full-featured Neo4j database (default)
+    - falkordb: Lightweight Redis-based graph database
     """
     # Get config from context
     config: FalkorConfig = ctx.obj['config']
+
+    # Determine database type
+    if db_type:
+        final_db_type = db_type
+    elif hasattr(config.neo4j, 'db_type') and config.neo4j.db_type:
+        final_db_type = config.neo4j.db_type
+    else:
+        final_db_type = "neo4j"
+    use_falkordb = final_db_type.lower() == "falkordb"
 
     # Validate inputs before execution
     try:
@@ -366,22 +389,29 @@ def ingest(
         # Convert secrets policy string to enum
         final_secrets_policy = SecretsPolicy(final_secrets_policy_str)
 
-        # Validate Neo4j URI
-        final_neo4j_uri = validate_neo4j_uri(final_neo4j_uri)
+        if use_falkordb:
+            # FalkorDB validation - simpler, no auth required
+            console.print("[dim]Checking FalkorDB connectivity...[/dim]")
+            # FalkorDB uses Redis protocol, not bolt
+            # Password is optional for FalkorDB
+        else:
+            # Neo4j validation
+            # Validate Neo4j URI
+            final_neo4j_uri = validate_neo4j_uri(final_neo4j_uri)
 
-        # Prompt for password if not provided
-        if not final_neo4j_password:
-            final_neo4j_password = click.prompt("Neo4j password", hide_input=True)
+            # Prompt for password if not provided
+            if not final_neo4j_password:
+                final_neo4j_password = click.prompt("Neo4j password", hide_input=True)
 
-        # Validate credentials
-        final_neo4j_user, final_neo4j_password = validate_neo4j_credentials(
-            final_neo4j_user, final_neo4j_password
-        )
+            # Validate credentials
+            final_neo4j_user, final_neo4j_password = validate_neo4j_credentials(
+                final_neo4j_user, final_neo4j_password
+            )
 
-        # Test Neo4j connection is reachable
-        console.print("[dim]Checking Neo4j connectivity...[/dim]")
-        validate_neo4j_connection(final_neo4j_uri, final_neo4j_user, final_neo4j_password)
-        console.print("[green]✓[/green] Neo4j connection validated\n")
+            # Test Neo4j connection is reachable
+            console.print("[dim]Checking Neo4j connectivity...[/dim]")
+            validate_neo4j_connection(final_neo4j_uri, final_neo4j_user, final_neo4j_password)
+            console.print("[green]✓[/green] Neo4j connection validated\n")
 
         # Validate file size limit
         final_max_file_size = validate_file_size_limit(final_max_file_size)
@@ -404,6 +434,7 @@ def ingest(
 
     console.print(f"\n[bold cyan]🎼 Repotoire Ingestion[/bold cyan]\n")
     console.print(f"Repository: {repo_path}")
+    console.print(f"Database: {final_db_type}")
     console.print(f"Patterns: {', '.join(final_patterns)}")
     console.print(f"Follow symlinks: {final_follow_symlinks}")
     console.print(f"Max file size: {final_max_file_size}MB")
@@ -418,14 +449,21 @@ def ingest(
         with LogContext(operation="ingest", repo_path=repo_path):
             logger.info("Starting ingestion")
 
-            with Neo4jClient(
-                final_neo4j_uri,
-                final_neo4j_user,
-                final_neo4j_password,
-                max_retries=validated_retries[0],
-                retry_backoff_factor=validated_retries[1],
-                retry_base_delay=validated_retries[2],
-            ) as db:
+            # Create database client using factory
+            if use_falkordb:
+                db = create_client(db_type="falkordb")
+            else:
+                db = create_client(
+                    uri=final_neo4j_uri,
+                    db_type="neo4j",
+                    username=final_neo4j_user,
+                    password=final_neo4j_password,
+                    max_retries=validated_retries[0],
+                    retry_backoff_factor=validated_retries[1],
+                    retry_base_delay=validated_retries[2],
+                )
+
+            try:
                 # Clear database if force-full is requested
                 if force_full:
                     console.print("[yellow]⚠️  Force-full mode: Clearing existing graph...[/yellow]")
@@ -502,6 +540,8 @@ def ingest(
                         f"\n[yellow]⚠️  {len(pipeline.skipped_files)} files were skipped "
                         f"(see logs for details)[/yellow]"
                     )
+            finally:
+                db.close()
 
     except ValueError as e:
         logger.error(f"Validation error: {e}")
