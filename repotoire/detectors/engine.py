@@ -46,6 +46,10 @@ from repotoire.detectors.message_chain import MessageChainDetector
 from repotoire.detectors.test_smell import TestSmellDetector
 from repotoire.detectors.generator_misuse import GeneratorMisuseDetector
 
+# Design smell detectors (REPO-222, REPO-230)
+from repotoire.detectors.lazy_class import LazyClassDetector
+from repotoire.detectors.refused_bequest import RefusedBequestDetector
+
 # Hybrid detectors (external tool + graph)
 from repotoire.detectors.ruff_import_detector import RuffImportDetector
 from repotoire.detectors.ruff_lint_detector import RuffLintDetector
@@ -178,6 +182,9 @@ class AnalysisEngine:
             MessageChainDetector(neo4j_client, detector_config=config.get("message_chain"), enricher=self.enricher),
             TestSmellDetector(neo4j_client, detector_config=config.get("test_smell"), enricher=self.enricher),
             GeneratorMisuseDetector(neo4j_client, detector_config=config.get("generator_misuse"), enricher=self.enricher),
+            # Design smell detectors (REPO-222, REPO-230)
+            LazyClassDetector(neo4j_client, detector_config=config.get("lazy_class"), enricher=self.enricher),
+            RefusedBequestDetector(neo4j_client, detector_config=config.get("refused_bequest"), enricher=self.enricher),
             # TrulyUnusedImportsDetector has high false positive rate - replaced by RuffImportDetector
             # TrulyUnusedImportsDetector(neo4j_client, detector_config=config.get("truly_unused_imports")),
             # Hybrid detectors (external tool + graph)

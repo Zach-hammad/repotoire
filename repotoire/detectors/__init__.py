@@ -22,6 +22,10 @@ from repotoire.detectors.middle_man import MiddleManDetector
 from repotoire.detectors.inappropriate_intimacy import InappropriateIntimacyDetector
 from repotoire.detectors.truly_unused_imports import TrulyUnusedImportsDetector
 
+# Design smell detectors (REPO-222, REPO-230)
+from repotoire.detectors.lazy_class import LazyClassDetector
+from repotoire.detectors.refused_bequest import RefusedBequestDetector
+
 # Hybrid detectors (external tool + graph)
 from repotoire.detectors.ruff_import_detector import RuffImportDetector
 from repotoire.detectors.ruff_lint_detector import RuffLintDetector
@@ -52,6 +56,9 @@ __all__ = [
     "MiddleManDetector",
     "InappropriateIntimacyDetector",
     "TrulyUnusedImportsDetector",
+    # Design smell detectors
+    "LazyClassDetector",
+    "RefusedBequestDetector",
     # Hybrid detectors
     "RuffImportDetector",
     "RuffLintDetector",

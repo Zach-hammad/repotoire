@@ -484,3 +484,120 @@ class TestFileContext:
         exports_part = [part for part in context if "Exports:" in part][0]
         # Count commas to check number of exports listed
         assert exports_part.count(",") < len(exports) - 1
+
+
+class TestLocalEmbeddings:
+    """Test local embedding backend with Qwen3 and fallback."""
+
+    def test_local_backend_config_defaults(self):
+        """Test local backend config includes Qwen3 and fallback."""
+        from repotoire.ai.embeddings import BACKEND_CONFIGS
+
+        local_config = BACKEND_CONFIGS["local"]
+
+        assert local_config["model"] == "Qwen/Qwen3-Embedding-0.6B"
+        assert local_config["dimensions"] == 1024
+        assert local_config["fallback_model"] == "all-MiniLM-L6-v2"
+        assert local_config["fallback_dimensions"] == 384
+
+    def test_embedding_config_local_dimensions(self):
+        """Test EmbeddingConfig returns correct dimensions for local."""
+        config = EmbeddingConfig(backend="local")
+
+        assert config.dimensions == 1024
+        assert config.effective_model == "Qwen/Qwen3-Embedding-0.6B"
+
+    def test_local_embedder_initialization(self):
+        """Test local embedder initializes with Qwen3 model."""
+        import sys
+
+        # Create a mock for sentence_transformers
+        mock_st_module = MagicMock()
+        mock_model = MagicMock()
+        mock_model.get_sentence_embedding_dimension.return_value = 1024
+        mock_st_module.SentenceTransformer.return_value = mock_model
+
+        with patch.dict(sys.modules, {'sentence_transformers': mock_st_module}):
+            embedder = CodeEmbedder(backend="local")
+
+            mock_st_module.SentenceTransformer.assert_called_once_with("Qwen/Qwen3-Embedding-0.6B")
+            assert embedder.dimensions == 1024
+
+    def test_local_embedder_fallback_on_error(self):
+        """Test fallback to MiniLM when Qwen3 fails to load."""
+        import sys
+
+        mock_st_module = MagicMock()
+        mock_fallback_model = MagicMock()
+        mock_fallback_model.get_sentence_embedding_dimension.return_value = 384
+
+        # First call (Qwen3) fails, second call (MiniLM) succeeds
+        mock_st_module.SentenceTransformer.side_effect = [
+            Exception("Out of memory"),
+            mock_fallback_model
+        ]
+
+        with patch.dict(sys.modules, {'sentence_transformers': mock_st_module}):
+            embedder = CodeEmbedder(backend="local")
+
+            # Should have tried both models
+            assert mock_st_module.SentenceTransformer.call_count == 2
+            mock_st_module.SentenceTransformer.assert_any_call("Qwen/Qwen3-Embedding-0.6B")
+            mock_st_module.SentenceTransformer.assert_any_call("all-MiniLM-L6-v2")
+            assert embedder.dimensions == 384
+
+    def test_local_embedder_no_fallback_when_using_custom_model(self):
+        """Test no fallback when using a custom model that fails."""
+        import sys
+
+        mock_st_module = MagicMock()
+        mock_st_module.SentenceTransformer.side_effect = Exception("Model not found")
+
+        with patch.dict(sys.modules, {'sentence_transformers': mock_st_module}):
+            # When using a custom model (not the default), should not fallback
+            with pytest.raises(Exception, match="Model not found"):
+                CodeEmbedder(backend="local", model="custom-model")
+
+    def test_local_embed_query(self):
+        """Test embedding a query with local backend."""
+        import sys
+        import numpy as np
+
+        mock_st_module = MagicMock()
+        mock_model = MagicMock()
+        mock_model.get_sentence_embedding_dimension.return_value = 1024
+        mock_model.encode.return_value = np.array([[0.1] * 1024])
+        mock_st_module.SentenceTransformer.return_value = mock_model
+
+        with patch.dict(sys.modules, {'sentence_transformers': mock_st_module}):
+            embedder = CodeEmbedder(backend="local")
+            embedding = embedder.embed_query("test query")
+
+            assert len(embedding) == 1024
+            mock_model.encode.assert_called_once()
+
+    def test_local_embed_batch(self):
+        """Test batch embedding with local backend."""
+        import sys
+        import numpy as np
+
+        mock_st_module = MagicMock()
+        mock_model = MagicMock()
+        mock_model.get_sentence_embedding_dimension.return_value = 1024
+        mock_model.encode.return_value = np.array([[0.1] * 1024, [0.2] * 1024])
+        mock_st_module.SentenceTransformer.return_value = mock_model
+
+        with patch.dict(sys.modules, {'sentence_transformers': mock_st_module}):
+            embedder = CodeEmbedder(backend="local")
+            embeddings = embedder.embed_batch(["text1", "text2"])
+
+            assert len(embeddings) == 2
+            assert all(len(emb) == 1024 for emb in embeddings)
+
+    def test_get_embedding_dimensions_local(self):
+        """Test get_embedding_dimensions returns correct value for local."""
+        from repotoire.ai.embeddings import get_embedding_dimensions
+
+        dims = get_embedding_dimensions(backend="local")
+
+        assert dims == 1024

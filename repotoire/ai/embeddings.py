@@ -15,7 +15,12 @@ logger = get_logger(__name__)
 # Backend configurations with defaults
 BACKEND_CONFIGS = {
     "openai": {"dimensions": 1536, "model": "text-embedding-3-small"},
-    "local": {"dimensions": 384, "model": "all-MiniLM-L6-v2"},
+    "local": {
+        "dimensions": 1024,
+        "model": "Qwen/Qwen3-Embedding-0.6B",
+        "fallback_model": "all-MiniLM-L6-v2",
+        "fallback_dimensions": 384,
+    },
 }
 
 
@@ -45,7 +50,7 @@ class CodeEmbedder:
 
     Supports two backends:
     - OpenAI (default): High quality embeddings via API ($0.13/1M tokens)
-    - Local: Free, fast embeddings via sentence-transformers (~85-90% quality)
+    - Local: Free, high-quality embeddings via Qwen3-Embedding-0.6B (MTEB-Code #1)
 
     Example:
         >>> # OpenAI backend (default)
@@ -58,7 +63,7 @@ class CodeEmbedder:
         >>> embedder = CodeEmbedder(backend="local")
         >>> embedding = embedder.embed_entity(function_entity)
         >>> len(embedding)
-        384
+        1024
     """
 
     def __init__(
@@ -96,7 +101,7 @@ class CodeEmbedder:
         )
 
     def _init_local(self) -> None:
-        """Initialize local sentence-transformers model."""
+        """Initialize local sentence-transformers model with fallback support."""
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError:
@@ -106,8 +111,25 @@ class CodeEmbedder:
             )
 
         model_name = self.config.effective_model
+        config = BACKEND_CONFIGS["local"]
+        fallback_model = config.get("fallback_model")
+        fallback_dimensions = config.get("fallback_dimensions")
+
         logger.info(f"Loading local model: {model_name}")
-        self._model = SentenceTransformer(model_name)
+
+        try:
+            self._model = SentenceTransformer(model_name)
+        except Exception as e:
+            # Fallback to MiniLM for low-memory systems or download issues
+            if fallback_model and model_name != fallback_model:
+                logger.warning(
+                    f"Failed to load {model_name}, falling back to {fallback_model}: {e}"
+                )
+                self._model = SentenceTransformer(fallback_model)
+                if fallback_dimensions:
+                    self.dimensions = fallback_dimensions
+            else:
+                raise
 
         # Update dimensions from actual model (may differ from config default)
         actual_dims = self._model.get_sentence_embedding_dimension()
@@ -392,6 +414,6 @@ def get_embedding_dimensions(backend: Literal["openai", "local"] = "openai") -> 
         backend: Backend to get dimensions for
 
     Returns:
-        Embedding dimensions (1536 for OpenAI, 384 for local)
+        Embedding dimensions (1536 for OpenAI, 1024 for local Qwen3)
     """
     return BACKEND_CONFIGS[backend]["dimensions"]
