@@ -208,44 +208,60 @@ class TestDetermineFixType:
 
 
 class TestExtractImports:
-    """Test import extraction from Python code."""
+    """Test import extraction from Python code.
 
-    def test_extract_simple_imports(self, auto_fix_engine):
+    Note: Import extraction is now handled by language handlers.
+    These tests verify the PythonHandler is correctly integrated.
+    """
+
+    def test_extract_simple_imports(self):
         """Test extraction of simple import statements."""
+        from repotoire.autofix.languages import PythonHandler
+
+        handler = PythonHandler()
         code = """
 import os
 import sys
 from pathlib import Path
 """
-        imports = auto_fix_engine._extract_imports(code)
+        imports = handler.extract_imports(code)
         assert "import os" in imports
         assert "import sys" in imports
         assert "from pathlib import Path" in imports
 
-    def test_extract_multiple_from_imports(self, auto_fix_engine):
+    def test_extract_multiple_from_imports(self):
         """Test extraction of from imports with multiple names."""
+        from repotoire.autofix.languages import PythonHandler
+
+        handler = PythonHandler()
         code = """
 from typing import Optional, List, Dict
 """
-        imports = auto_fix_engine._extract_imports(code)
+        imports = handler.extract_imports(code)
         assert "from typing import Optional" in imports
         assert "from typing import List" in imports
         assert "from typing import Dict" in imports
 
-    def test_extract_imports_with_aliases(self, auto_fix_engine):
+    def test_extract_imports_with_aliases(self):
         """Test extraction of imports with aliases."""
+        from repotoire.autofix.languages import PythonHandler
+
+        handler = PythonHandler()
         code = """
 import numpy as np
 from datetime import datetime as dt
 """
-        imports = auto_fix_engine._extract_imports(code)
+        imports = handler.extract_imports(code)
         assert "import numpy" in imports
         assert "from datetime import datetime" in imports
 
-    def test_extract_imports_handles_syntax_errors(self, auto_fix_engine):
+    def test_extract_imports_handles_syntax_errors(self):
         """Test that syntax errors don't crash import extraction."""
+        from repotoire.autofix.languages import PythonHandler
+
+        handler = PythonHandler()
         code = "this is not valid python code {"
-        imports = auto_fix_engine._extract_imports(code)
+        imports = handler.extract_imports(code)
         assert imports == []
 
 

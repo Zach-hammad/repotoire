@@ -1,6 +1,5 @@
 """Core auto-fix engine for generating code fixes."""
 
-import ast
 import hashlib
 import os
 from datetime import datetime
@@ -14,6 +13,7 @@ from repotoire.models import Finding, Severity
 from repotoire.ai.retrieval import GraphRAGRetriever
 from repotoire.ai.embeddings import CodeEmbedder
 from repotoire.graph import Neo4jClient
+from repotoire.autofix.languages import get_handler, LanguageHandler
 from repotoire.autofix.models import (
     FixProposal,
     FixContext,
@@ -153,9 +153,10 @@ class AutoFixEngine:
                     with open(file_path, "r", encoding="utf-8") as f:
                         context.file_content = f.read()
 
-            # Extract imports from file
-            if context.file_content:
-                context.imports = self._extract_imports(context.file_content)
+            # Extract imports from file using language-specific handler
+            if context.file_content and finding.affected_files:
+                handler = get_handler(finding.affected_files[0])
+                context.imports = handler.extract_imports(context.file_content)
 
         except Exception as e:
             logger.warning(f"Failed to gather full context: {e}")
@@ -217,16 +218,20 @@ class AutoFixEngine:
         Returns:
             FixProposal with generated changes
         """
-        # Build prompt
-        prompt = self._build_fix_prompt(finding, context, fix_type)
+        # Get language-specific handler
+        file_path = finding.affected_files[0] if finding.affected_files else "unknown.py"
+        handler = get_handler(file_path)
 
-        # Call GPT-4
+        # Build prompt with language-specific guidance
+        prompt = self._build_fix_prompt(finding, context, fix_type, handler)
+
+        # Call GPT-4 with language-specific system prompt
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an expert Python developer specializing in code refactoring and quality improvements.",
+                    "content": handler.get_system_prompt(),
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -272,6 +277,7 @@ class AutoFixEngine:
         finding: Finding,
         context: FixContext,
         fix_type: FixType,
+        handler: LanguageHandler,
     ) -> str:
         """Build prompt for LLM fix generation.
 
@@ -279,6 +285,7 @@ class AutoFixEngine:
             finding: The finding to fix
             context: Context for fix
             fix_type: Type of fix
+            handler: Language-specific handler
 
         Returns:
             Formatted prompt string
@@ -292,6 +299,9 @@ class AutoFixEngine:
             code_section = "\n".join(lines[start:end])
 
         file_path = finding.affected_files[0] if finding.affected_files else "unknown"
+        language_name = handler.language_name
+        code_marker = handler.get_code_block_marker()
+        fix_guidance = handler.get_fix_template(fix_type.value)
 
         prompt = f"""# Code Fix Task
 
@@ -300,18 +310,22 @@ class AutoFixEngine:
 - **Severity**: {finding.severity.value}
 - **Description**: {finding.description or 'No description'}
 - **File**: {file_path}
+- **Language**: {language_name}
 - **Line**: {finding.line_start or 'unknown'}
 
 ## Fix Type Required
 {fix_type.value}
 
+## Fix Guidelines
+{fix_guidance}
+
 ## Current Code
-```python
+```{code_marker}
 {code_section}
 ```
 
 ## Related Code Context
-{chr(10).join(f"```python{chr(10)}{code}{chr(10)}```" for code in context.related_code[:3])}
+{chr(10).join(f"```{code_marker}{chr(10)}{code}{chr(10)}```" for code in context.related_code[:3])}
 
 ## Task
 Generate a fix for this issue. Provide your response in the following JSON format:
@@ -322,7 +336,7 @@ Generate a fix for this issue. Provide your response in the following JSON forma
     "rationale": "Why this fix addresses the issue",
     "evidence": {{
         "similar_patterns": ["Example 1 from codebase showing this pattern works", "Example 2..."],
-        "documentation_refs": ["PEP 8: ...", "Python docs: ...", "Best practice: ..."],
+        "documentation_refs": ["Relevant style guide or documentation reference", "..."],
         "best_practices": ["Why this approach is recommended", "Industry standard for..."]
     }},
     "changes": [
@@ -340,7 +354,7 @@ Generate a fix for this issue. Provide your response in the following JSON forma
 **Important**:
 - Only fix the specific issue mentioned
 - Preserve existing functionality
-- Follow Python best practices
+- Follow {language_name} best practices
 - Keep changes minimal and focused
 - Ensure the fixed code is syntactically valid
 - **Provide evidence**: Include similar patterns, documentation references, and best practices to justify the fix"""
@@ -459,17 +473,16 @@ Generate a fix for this issue. Provide your response in the following JSON forma
         Returns:
             True if fix is valid, False otherwise
         """
-        import textwrap
-
         try:
             for change in fix_proposal.changes:
+                # Get language-specific handler for syntax validation
+                handler = get_handler(str(change.file_path))
+
                 # Check syntax of fixed code
-                try:
-                    # Dedent to handle indented code snippets
-                    dedented_code = textwrap.dedent(change.fixed_code)
-                    ast.parse(dedented_code)
-                except SyntaxError as e:
-                    logger.warning(f"Syntax error in fix: {e}")
+                if not handler.validate_syntax(change.fixed_code):
+                    logger.warning(
+                        f"Syntax error in fix for {change.file_path}"
+                    )
                     return False
 
                 # Verify original code exists in file
@@ -543,39 +556,14 @@ Provide only the test code, no explanations."""
             if code_match:
                 test_code = code_match.group(1)
 
-            # Validate test syntax
-            try:
-                ast.parse(test_code)
+            # Validate test syntax using Python handler (tests are always Python)
+            handler = get_handler("test.py")
+            if handler.validate_syntax(test_code):
                 return test_code
-            except SyntaxError:
+            else:
                 logger.warning("Generated test code has syntax errors")
                 return None
 
         except Exception as e:
             logger.error(f"Failed to generate tests: {e}")
             return None
-
-    def _extract_imports(self, file_content: str) -> List[str]:
-        """Extract import statements from Python code.
-
-        Args:
-            file_content: Python source code
-
-        Returns:
-            List of import statements
-        """
-        imports = []
-        try:
-            tree = ast.parse(file_content)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        imports.append(f"import {alias.name}")
-                elif isinstance(node, ast.ImportFrom):
-                    module = node.module or ""
-                    for alias in node.names:
-                        imports.append(f"from {module} import {alias.name}")
-        except:
-            pass
-
-        return imports
