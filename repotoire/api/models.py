@@ -250,3 +250,71 @@ class ErrorResponse(BaseModel):
             }
         }
     )
+
+
+class PreviewCheck(BaseModel):
+    """Individual check result from fix preview execution."""
+
+    name: str = Field(..., description="Check name: 'syntax', 'import', 'type', 'tests'")
+    passed: bool = Field(..., description="Whether the check passed")
+    message: str = Field(..., description="Human-readable result message")
+    duration_ms: int = Field(..., description="Check execution time in milliseconds", ge=0)
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "name": "import",
+                "passed": False,
+                "message": "ImportError: No module named 'utilz'. Did you mean 'utils'?",
+                "duration_ms": 150
+            }
+        }
+    )
+
+
+class PreviewResult(BaseModel):
+    """Result of running fix preview in sandbox."""
+
+    success: bool = Field(..., description="Overall preview success (all checks passed)")
+    stdout: str = Field(default="", description="Standard output from execution")
+    stderr: str = Field(default="", description="Standard error from execution")
+    duration_ms: int = Field(..., description="Total execution time in milliseconds", ge=0)
+    checks: List[PreviewCheck] = Field(
+        default_factory=list,
+        description="Individual check results"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Error message if preview failed to run"
+    )
+    cached_at: Optional[str] = Field(
+        default=None,
+        description="ISO timestamp if result is from cache"
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": False,
+                "stdout": "",
+                "stderr": "ImportError: No module named 'utilz'",
+                "duration_ms": 850,
+                "checks": [
+                    {
+                        "name": "syntax",
+                        "passed": True,
+                        "message": "Syntax valid",
+                        "duration_ms": 5
+                    },
+                    {
+                        "name": "import",
+                        "passed": False,
+                        "message": "ImportError: No module named 'utilz'. Did you mean 'utils'?",
+                        "duration_ms": 150
+                    }
+                ],
+                "error": None,
+                "cached_at": None
+            }
+        }
+    )
