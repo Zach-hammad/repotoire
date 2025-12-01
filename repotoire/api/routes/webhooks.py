@@ -526,6 +526,89 @@ async def get_user_by_clerk_id(
     return result.scalar_one_or_none()
 
 
+def get_clerk_client():
+    """Get Clerk SDK client for API calls."""
+    from clerk_backend_api import Clerk
+    secret_key = os.environ.get("CLERK_SECRET_KEY")
+    if not secret_key:
+        return None
+    return Clerk(bearer_auth=secret_key)
+
+
+async def fetch_and_sync_user(
+    db: AsyncSession,
+    clerk_user_id: str,
+) -> None:
+    """Fetch user data from Clerk API and sync to database."""
+    clerk = get_clerk_client()
+    if not clerk:
+        logger.error("CLERK_SECRET_KEY not configured")
+        return
+
+    try:
+        user_data = clerk.users.get(user_id=clerk_user_id)
+        if not user_data:
+            logger.error(f"Could not fetch user {clerk_user_id} from Clerk")
+            return
+
+        # Extract email
+        email_addresses = user_data.email_addresses or []
+        primary_email = None
+        for email in email_addresses:
+            if email.id == user_data.primary_email_address_id:
+                primary_email = email.email_address
+                break
+        if not primary_email and email_addresses:
+            primary_email = email_addresses[0].email_address
+
+        if not primary_email:
+            logger.error(f"No email found for Clerk user {clerk_user_id}")
+            return
+
+        # Build name
+        first_name = user_data.first_name or ""
+        last_name = user_data.last_name or ""
+        name = f"{first_name} {last_name}".strip() or None
+
+        # Check if user exists
+        existing = await get_user_by_clerk_id(db, clerk_user_id)
+        if existing:
+            existing.email = primary_email
+            existing.name = name
+            existing.avatar_url = user_data.image_url
+            await db.commit()
+            logger.info(f"Updated user {existing.id} from Clerk API")
+        else:
+            user = User(
+                clerk_user_id=clerk_user_id,
+                email=primary_email,
+                name=name,
+                avatar_url=user_data.image_url,
+            )
+            db.add(user)
+            await db.commit()
+            logger.info(f"Created user {user.id} from Clerk API")
+
+    except Exception as e:
+        logger.error(f"Error fetching user from Clerk: {e}")
+
+
+async def handle_session_created(
+    db: AsyncSession,
+    data: dict[str, Any],
+) -> None:
+    """Handle session.created event from Clerk.
+
+    Syncs user data when a session is created (user logs in).
+    """
+    clerk_user_id = data.get("user_id")
+    if not clerk_user_id:
+        logger.warning("No user_id in session.created event")
+        return
+
+    await fetch_and_sync_user(db, clerk_user_id)
+
+
 async def handle_user_created(
     db: AsyncSession,
     data: dict[str, Any],
@@ -535,38 +618,7 @@ async def handle_user_created(
     Creates a new user record when a user signs up via Clerk.
     """
     clerk_user_id = data.get("id")
-    email_addresses = data.get("email_addresses", [])
-    primary_email = next(
-        (e["email_address"] for e in email_addresses if e.get("id") == data.get("primary_email_address_id")),
-        email_addresses[0]["email_address"] if email_addresses else None
-    )
-
-    if not primary_email:
-        logger.error(f"No email found for Clerk user {clerk_user_id}")
-        return
-
-    # Check if user already exists
-    existing = await get_user_by_clerk_id(db, clerk_user_id)
-    if existing:
-        logger.info(f"User {clerk_user_id} already exists")
-        return
-
-    # Build name from Clerk data
-    first_name = data.get("first_name") or ""
-    last_name = data.get("last_name") or ""
-    name = f"{first_name} {last_name}".strip() or None
-
-    # Create user
-    user = User(
-        clerk_user_id=clerk_user_id,
-        email=primary_email,
-        name=name,
-        avatar_url=data.get("image_url"),
-    )
-    db.add(user)
-    await db.commit()
-
-    logger.info(f"Created user {user.id} for Clerk user {clerk_user_id}")
+    await fetch_and_sync_user(db, clerk_user_id)
 
 
 async def handle_user_updated(
@@ -578,36 +630,7 @@ async def handle_user_updated(
     Updates user profile when changed in Clerk.
     """
     clerk_user_id = data.get("id")
-    user = await get_user_by_clerk_id(db, clerk_user_id)
-
-    if not user:
-        logger.warning(f"User {clerk_user_id} not found for update, creating")
-        await handle_user_created(db, data)
-        return
-
-    # Update email if changed
-    email_addresses = data.get("email_addresses", [])
-    primary_email = next(
-        (e["email_address"] for e in email_addresses if e.get("id") == data.get("primary_email_address_id")),
-        email_addresses[0]["email_address"] if email_addresses else None
-    )
-    if primary_email and primary_email != user.email:
-        user.email = primary_email
-
-    # Update name
-    first_name = data.get("first_name") or ""
-    last_name = data.get("last_name") or ""
-    name = f"{first_name} {last_name}".strip() or None
-    if name != user.name:
-        user.name = name
-
-    # Update avatar
-    image_url = data.get("image_url")
-    if image_url != user.avatar_url:
-        user.avatar_url = image_url
-
-    await db.commit()
-    logger.info(f"Updated user {user.id}")
+    await fetch_and_sync_user(db, clerk_user_id)
 
 
 async def handle_user_deleted(
@@ -670,6 +693,9 @@ async def clerk_webhook(
     data = event.get("data", {})
 
     logger.info(f"Received Clerk webhook: {event_type}")
+    logger.info(f"Clerk webhook data keys: {list(data.keys())}")
+    if "email_addresses" in data:
+        logger.info(f"Email addresses: {data.get('email_addresses')}")
 
     # Route to appropriate handler
     if event_type == "user.created":
@@ -680,6 +706,9 @@ async def clerk_webhook(
 
     elif event_type == "user.deleted":
         await handle_user_deleted(db, data)
+
+    elif event_type == "session.created":
+        await handle_session_created(db, data)
 
     else:
         logger.debug(f"Unhandled Clerk event type: {event_type}")
