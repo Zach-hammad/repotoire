@@ -1154,6 +1154,49 @@ wheels = [
 ]
 
 [[package]]
+name = "dockerfile-parse"
+version = "2.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/92/df/929ee0b5d2c8bd8d713c45e71b94ab57c7e11e322130724d54f469b2cd48/dockerfile-parse-2.0.1.tar.gz", hash = "sha256:3184ccdc513221983e503ac00e1aa504a2aa8f84e5de673c46b0b6eee99ec7bc", size = 24556, upload-time = "2023-07-18T13:36:07.897Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7a/6c/79cd5bc1b880d8c1a9a5550aa8dacd57353fa3bb2457227e1fb47383eb49/dockerfile_parse-2.0.1-py2.py3-none-any.whl", hash = "sha256:bdffd126d2eb26acf1066acb54cb2e336682e1d72b974a40894fac76a4df17f6", size = 14845, upload-time = "2023-07-18T13:36:06.052Z" },
+]
+
+[[package]]
+name = "e2b"
+version = "2.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "dockerfile-parse" },
+    { name = "httpcore" },
+    { name = "httpx" },
+    { name = "packaging" },
+    { name = "protobuf" },
+    { name = "python-dateutil" },
+    { name = "rich" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/31/96/5593add8d64f1f21fd9b21714f89f8580b574ff701603b838339782fcc42/e2b-2.6.1.tar.gz", hash = "sha256:39575e2d1bc8f1cfebcd8cc4dbe6d11c9877df0277b18235b2c42b1109666bd0", size = 110712, upload-time = "2025-11-03T11:34:25.307Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/34/5d/2f578ef52d3411a02c26d4cb08e54028df69289cc9d55633c7c406624f85/e2b-2.6.1-py3-none-any.whl", hash = "sha256:958072d2f49388e26e2d10d595e3d95e7ae0b76c4e990b3ba918e98e203dcbc2", size = 193945, upload-time = "2025-11-03T11:34:23.212Z" },
+]
+
+[[package]]
+name = "e2b-code-interpreter"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "e2b" },
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a1/97/2f9c461c38e6a251ad4ec24e2cf91493b7cef63215d61e1bd3125a39281b/e2b_code_interpreter-2.3.0.tar.gz", hash = "sha256:e23e3ca47d7dc8c4b35d8a55fe373db57947375a1c3093e7b27daedc192d509f", size = 10286, upload-time = "2025-10-31T15:03:12.819Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/65/19/952224ded0689593aeb584504e455037d938fddb5135d61397b7f6c6b1b3/e2b_code_interpreter-2.3.0-py3-none-any.whl", hash = "sha256:dddca0a13c140ab5074f4003690cbfd9535224ed9e4a492f18c8a1a65894f2bf", size = 13142, upload-time = "2025-10-31T15:03:11.719Z" },
+]
+
+[[package]]
 name = "exceptiongroup"
 version = "1.2.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4295,6 +4338,9 @@ saas = [
     { name = "stripe" },
     { name = "structlog" },
 ]
+sandbox = [
+    { name = "e2b-code-interpreter" },
+]
 security = [
     { name = "cyclonedx-bom" },
     { name = "pip-audit" },
@@ -4322,6 +4368,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=41.0.0" },
     { name = "cyclonedx-bom", marker = "extra == 'security'", specifier = ">=4.0.0" },
     { name = "detect-secrets", specifier = ">=1.4.0" },
+    { name = "e2b-code-interpreter", marker = "extra == 'sandbox'", specifier = ">=1.0.0" },
     { name = "fastapi", specifier = ">=0.121.3" },
     { name = "gitpython", specifier = ">=3.1.40" },
     { name = "graphdatascience", marker = "extra == 'gds'", specifier = ">=1.9.0" },
@@ -4378,7 +4425,7 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.38.0" },
     { name = "vulture", marker = "extra == 'detectors'", specifier = ">=2.0.0" },
 ]
-provides-extras = ["dev", "config", "gds", "all-languages", "timescale", "saas", "graphiti", "security", "local-embeddings", "observability", "detectors", "ml"]
+provides-extras = ["dev", "config", "gds", "all-languages", "timescale", "saas", "graphiti", "security", "local-embeddings", "observability", "detectors", "ml", "sandbox"]
 
 [package.metadata.requires-dev]
 dev = [

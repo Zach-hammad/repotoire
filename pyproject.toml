@@ -131,6 +131,10 @@ ml = [
     # from https://data.pyg.org/whl/ with matching torch+cuda versions
 ]
 
+sandbox = [
+    "e2b-code-interpreter>=1.0.0",  # E2B cloud sandbox for secure code execution
+]
+
 [project.scripts]
 repotoire = "repotoire.cli:main"
 repotoire-pre-commit = "repotoire.hooks.pre_commit:main"

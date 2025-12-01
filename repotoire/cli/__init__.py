@@ -4230,6 +4230,8 @@ def timeline(
 @click.option("--create-branch/--no-branch", default=True, help="Create git branch for fixes")
 @click.option("--run-tests", is_flag=True, help="Run tests after applying fixes")
 @click.option("--test-command", default="pytest", help="Test command to run")
+@click.option("--local-tests", is_flag=True, help="Run tests locally (SECURITY WARNING: full host access)")
+@click.option("--test-timeout", type=int, default=300, help="Test execution timeout in seconds (default: 300)")
 @click.option("--neo4j-uri", envvar="REPOTOIRE_NEO4J_URI", default="bolt://localhost:7687", help="Neo4j connection URI")
 @click.option("--neo4j-password", envvar="REPOTOIRE_NEO4J_PASSWORD", help="Neo4j password")
 @click.pass_context
@@ -4246,6 +4248,8 @@ def auto_fix(
     create_branch: bool,
     run_tests: bool,
     test_command: str,
+    local_tests: bool,
+    test_timeout: int,
     neo4j_uri: str,
     neo4j_password: Optional[str],
 ) -> None:
@@ -4254,6 +4258,11 @@ def auto_fix(
     Analyzes your codebase, generates AI-powered fixes, and presents them
     for interactive review. Approved fixes are automatically applied with
     git integration.
+
+    Test Execution Security:
+        By default, tests run in isolated E2B sandboxes to prevent malicious
+        auto-fix code from accessing host resources. Use --local-tests only
+        for trusted code in development environments.
 
     Examples:
         # Generate and review up to 10 fixes
@@ -4265,8 +4274,14 @@ def auto_fix(
         # Only fix critical issues
         repotoire auto-fix /path/to/repo --severity critical
 
-        # Apply fixes and run tests
+        # Apply fixes and run tests (sandbox by default)
         repotoire auto-fix /path/to/repo --run-tests
+
+        # Run tests locally (WARNING: full host access)
+        repotoire auto-fix /path/to/repo --run-tests --local-tests
+
+        # Custom test timeout (30 minutes for slow test suites)
+        repotoire auto-fix /path/to/repo --run-tests --test-timeout 1800
 
         # CI mode: auto-apply all fixes with JSON output
         repotoire auto-fix /path/to/repo --ci-mode --auto-apply --output fixes.json
@@ -4419,7 +4434,12 @@ def auto_fix(
             if not quiet_mode:
                 console.print(f"\n[bold]Step 4: Applying {len(approved_fixes)} fix(es)...[/bold]")
 
-            applicator = FixApplicator(repo_path, create_branch=create_branch)
+            applicator = FixApplicator(
+                repo_path,
+                create_branch=create_branch,
+                use_sandbox=not local_tests,
+                test_timeout=test_timeout,
+            )
 
             if not quiet_mode:
                 with console.status("[bold]Applying fixes..."):
@@ -4439,21 +4459,34 @@ def auto_fix(
 
         # Step 5: Run tests if requested (skip in dry-run mode)
         tests_passed = True
+        test_result = None
         if run_tests and successful and not dry_run:
             if not quiet_mode:
-                console.print(f"\n[bold]Step 5: Running tests...[/bold]")
+                sandbox_mode = "locally" if local_tests else "in sandbox"
+                console.print(f"\n[bold]Step 5: Running tests {sandbox_mode}...[/bold]")
+                if not local_tests:
+                    console.print("[dim]Tests run in isolated E2B sandbox for security[/dim]")
 
             if not quiet_mode:
                 with console.status(f"[bold]Running {test_command}..."):
-                    tests_passed, test_output = applicator.run_tests(test_command)
+                    test_result = applicator.run_tests(test_command)
             else:
-                tests_passed, test_output = applicator.run_tests(test_command)
+                test_result = applicator.run_tests(test_command)
+
+            tests_passed = test_result.success
 
             if not quiet_mode:
                 if tests_passed:
                     console.print("[green]✓[/green] All tests passed")
+                    if test_result.sandbox_id:
+                        console.print(f"[dim]Sandbox ID: {test_result.sandbox_id}[/dim]")
                 else:
-                    console.print("[red]✗[/red] Tests failed")
+                    if test_result.timed_out:
+                        console.print(f"[red]✗[/red] Tests timed out after {test_timeout}s")
+                    else:
+                        console.print("[red]✗[/red] Tests failed")
+
+                    test_output = test_result.stdout + test_result.stderr
                     console.print("\n[dim]Test output:[/dim]")
                     console.print(test_output[:1000])  # Show first 1000 chars
 
