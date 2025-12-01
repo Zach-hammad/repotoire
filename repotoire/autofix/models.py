@@ -115,8 +115,20 @@ class FixProposal(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     applied_at: Optional[datetime] = None
 
-    # Validation
-    syntax_valid: bool = Field(default=False)
+    # Validation (multi-level)
+    syntax_valid: bool = Field(default=False, description="Level 1: AST syntax check")
+    import_valid: Optional[bool] = Field(default=None, description="Level 2: Import check")
+    type_valid: Optional[bool] = Field(default=None, description="Level 3: Type check")
+    validation_errors: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Validation errors from all levels"
+    )
+    validation_warnings: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Non-blocking validation warnings"
+    )
+
+    # Tests
     tests_generated: bool = Field(default=False)
     test_code: Optional[str] = None
 
@@ -159,6 +171,10 @@ class FixProposal(BaseModel):
             "created_at": self.created_at.isoformat(),
             "applied_at": self.applied_at.isoformat() if self.applied_at else None,
             "syntax_valid": self.syntax_valid,
+            "import_valid": self.import_valid,
+            "type_valid": self.type_valid,
+            "validation_errors": self.validation_errors,
+            "validation_warnings": self.validation_warnings,
             "tests_generated": self.tests_generated,
             "test_code": self.test_code,
             "branch_name": self.branch_name,

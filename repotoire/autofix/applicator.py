@@ -1,9 +1,20 @@
-"""Fix application with git integration."""
+"""Fix application with git integration.
 
+This module provides the FixApplicator class for applying auto-fix proposals
+to codebases with git integration and secure test execution.
+
+Security:
+    By default, tests are run in isolated E2B sandboxes to prevent malicious
+    auto-fix code from accessing host resources. Use --local-tests flag only
+    for trusted code in development environments.
+"""
+
+import asyncio
 import os
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 
 import git
@@ -14,18 +25,58 @@ from repotoire.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-class FixApplicator:
-    """Apply approved fixes to codebase with git integration."""
+# =============================================================================
+# Test Result Model (for backward compatibility)
+# =============================================================================
 
-    def __init__(self, repository_path: Path, create_branch: bool = True):
+
+@dataclass
+class TestResult:
+    """Result of test execution (legacy compatibility wrapper).
+
+    For full functionality, use repotoire.sandbox.test_executor.TestResult.
+    """
+
+    success: bool
+    stdout: str
+    stderr: str
+    exit_code: int
+    duration_ms: int = 0
+    sandbox_id: Optional[str] = None
+    timed_out: bool = False
+
+
+class FixApplicator:
+    """Apply approved fixes to codebase with git integration.
+
+    Security:
+        Test execution defaults to isolated E2B sandboxes. Set use_sandbox=False
+        only for trusted code in development environments. Local execution will
+        log a security warning.
+    """
+
+    def __init__(
+        self,
+        repository_path: Path,
+        create_branch: bool = True,
+        use_sandbox: bool = True,
+        test_timeout: int = 300,
+        test_env_vars: Optional[Dict[str, str]] = None,
+    ):
         """Initialize fix applicator.
 
         Args:
             repository_path: Path to git repository
             create_branch: Whether to create git branch for fixes
+            use_sandbox: Run tests in E2B sandbox (default: True for security)
+            test_timeout: Test execution timeout in seconds (default: 300)
+            test_env_vars: Environment variables to inject into sandbox tests
         """
         self.repository_path = Path(repository_path)
         self.create_branch = create_branch
+        self.use_sandbox = use_sandbox
+        self.test_timeout = test_timeout
+        self.test_env_vars = test_env_vars or {}
 
         # Initialize git repo
         try:
@@ -269,16 +320,144 @@ class FixApplicator:
 
         return msg
 
-    def run_tests(self, test_command: Optional[str] = None) -> Tuple[bool, str]:
+    def run_tests(
+        self,
+        test_command: Optional[str] = None,
+        use_sandbox: Optional[bool] = None,
+    ) -> TestResult:
         """Run tests after applying fixes.
+
+        By default, tests run in an isolated E2B sandbox to prevent malicious
+        auto-fix code from accessing host resources.
 
         Args:
             test_command: Test command to run (default: pytest)
+            use_sandbox: Override instance sandbox setting (None = use instance default)
 
         Returns:
-            Tuple of (success, output)
+            TestResult with execution details
+
+        Security:
+            ALWAYS prefer sandbox execution. Local execution should only be used
+            for trusted code in development environments. Local execution logs
+            a security warning.
         """
         command = test_command or "pytest"
+        should_use_sandbox = use_sandbox if use_sandbox is not None else self.use_sandbox
+
+        if should_use_sandbox:
+            return self._run_tests_sandbox(command)
+        else:
+            return self._run_tests_local(command)
+
+    def _run_tests_sandbox(self, command: str) -> TestResult:
+        """Run tests in isolated E2B sandbox.
+
+        Args:
+            command: Test command to execute
+
+        Returns:
+            TestResult from sandbox execution
+        """
+        try:
+            from repotoire.sandbox.test_executor import (
+                TestExecutor,
+                TestExecutorConfig,
+                TestResult as SandboxTestResult,
+            )
+        except ImportError:
+            logger.error(
+                "Sandbox test execution requires E2B: pip install e2b-code-interpreter"
+            )
+            return TestResult(
+                success=False,
+                stdout="",
+                stderr="Sandbox test execution requires E2B package. "
+                "Install with: pip install e2b-code-interpreter\n"
+                "Or use --local-tests flag (security warning: runs with host access)",
+                exit_code=-1,
+                duration_ms=0,
+            )
+
+        logger.info(f"Running tests in sandbox: {command}")
+
+        try:
+            # Create config with instance settings
+            config = TestExecutorConfig.from_env()
+            config.test_timeout_seconds = self.test_timeout
+
+            executor = TestExecutor(config)
+
+            # Run tests asynchronously
+            sandbox_result: SandboxTestResult = asyncio.run(
+                executor.run_tests(
+                    repo_path=self.repository_path,
+                    command=command,
+                    env_vars=self.test_env_vars,
+                    timeout=self.test_timeout,
+                )
+            )
+
+            if sandbox_result.success:
+                logger.info(f"Sandbox tests passed: {sandbox_result.summary}")
+            else:
+                logger.warning(f"Sandbox tests failed: {sandbox_result.summary}")
+
+            # Convert to local TestResult for backward compatibility
+            return TestResult(
+                success=sandbox_result.success,
+                stdout=sandbox_result.stdout,
+                stderr=sandbox_result.stderr,
+                exit_code=sandbox_result.exit_code,
+                duration_ms=sandbox_result.duration_ms,
+                sandbox_id=sandbox_result.sandbox_id,
+                timed_out=sandbox_result.timed_out,
+            )
+
+        except Exception as e:
+            error_type = type(e).__name__
+            logger.error(f"Sandbox test execution failed ({error_type}): {e}")
+
+            # Check if this is a configuration error
+            if "E2B_API_KEY" in str(e) or "not configured" in str(e).lower():
+                return TestResult(
+                    success=False,
+                    stdout="",
+                    stderr=f"Sandbox not configured: {e}\n\n"
+                    "Set E2B_API_KEY environment variable, or use --local-tests flag "
+                    "(warning: runs with full host access)",
+                    exit_code=-1,
+                    duration_ms=0,
+                )
+
+            return TestResult(
+                success=False,
+                stdout="",
+                stderr=f"Sandbox test execution failed: {e}",
+                exit_code=-1,
+                duration_ms=0,
+            )
+
+    def _run_tests_local(self, command: str) -> TestResult:
+        """Run tests locally with full host access.
+
+        SECURITY WARNING: This method runs tests with full host access.
+        Only use for trusted code in development environments.
+
+        Args:
+            command: Test command to execute
+
+        Returns:
+            TestResult from local execution
+        """
+        # Log security warning
+        logger.warning(
+            "SECURITY: Running tests locally with full host access. "
+            "Use sandbox execution (default) for untrusted code."
+        )
+
+        import time
+        start_time = time.time()
 
         try:
             result = subprocess.run(
@@ -286,25 +465,66 @@ class FixApplicator:
                 cwd=self.repository_path,
                 capture_output=True,
                 text=True,
-                timeout=300,  # 5 minute timeout
+                timeout=self.test_timeout,
             )
 
+            duration_ms = int((time.time() - start_time) * 1000)
             success = result.returncode == 0
             output = result.stdout + result.stderr
 
             if success:
-                logger.info("Tests passed after applying fixes")
+                logger.info("Local tests passed after applying fixes")
             else:
-                logger.warning("Tests failed after applying fixes")
+                logger.warning("Local tests failed after applying fixes")
 
-            return success, output
+            return TestResult(
+                success=success,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                exit_code=result.returncode,
+                duration_ms=duration_ms,
+            )
 
         except subprocess.TimeoutExpired:
-            return False, "Test execution timed out after 5 minutes"
+            duration_ms = int((time.time() - start_time) * 1000)
+            return TestResult(
+                success=False,
+                stdout="",
+                stderr=f"Test execution timed out after {self.test_timeout} seconds",
+                exit_code=-1,
+                duration_ms=duration_ms,
+                timed_out=True,
+            )
         except FileNotFoundError:
-            return False, f"Test command not found: {command}"
+            return TestResult(
+                success=False,
+                stdout="",
+                stderr=f"Test command not found: {command}",
+                exit_code=-1,
+                duration_ms=0,
+            )
         except Exception as e:
-            return False, f"Error running tests: {str(e)}"
+            return TestResult(
+                success=False,
+                stdout="",
+                stderr=f"Error running tests: {str(e)}",
+                exit_code=-1,
+                duration_ms=0,
+            )
+
+    def run_tests_legacy(self, test_command: Optional[str] = None) -> Tuple[bool, str]:
+        """Legacy interface for backward compatibility.
+
+        DEPRECATED: Use run_tests() which returns TestResult.
+
+        Args:
+            test_command: Test command to run
+
+        Returns:
+            Tuple of (success, output)
+        """
+        result = self.run_tests(test_command)
+        return result.success, result.stdout + result.stderr
 
     def rollback(self) -> bool:
         """Rollback all changes (reset to HEAD).

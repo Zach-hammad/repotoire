@@ -30,6 +30,11 @@ from repotoire.autofix.templates import (
 )
 from repotoire.autofix.style import StyleAnalyzer, StyleEnforcer, StyleProfile
 from repotoire.autofix.learning import DecisionStore, AdaptiveConfidence
+from repotoire.sandbox.code_validator import (
+    CodeValidator,
+    ValidationConfig,
+    ValidationResult,
+)
 
 logger = get_logger(__name__)
 
@@ -46,6 +51,8 @@ class AutoFixEngine:
         openai_api_key: Optional[str] = None,
         model: str = "gpt-4o",
         decision_store: Optional[DecisionStore] = None,
+        validation_config: Optional[ValidationConfig] = None,
+        skip_runtime_validation: bool = False,
     ):
         """Initialize auto-fix engine.
 
@@ -54,9 +61,12 @@ class AutoFixEngine:
             openai_api_key: OpenAI API key (or use OPENAI_API_KEY env var)
             model: OpenAI model to use for fix generation
             decision_store: Store for learning from user decisions
+            validation_config: Configuration for runtime validation
+            skip_runtime_validation: Skip sandbox-based validation (faster)
         """
         self.neo4j_client = neo4j_client
         self.model = model
+        self.skip_runtime_validation = skip_runtime_validation
 
         # Initialize OpenAI client
         api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
@@ -81,7 +91,20 @@ class AutoFixEngine:
         self.decision_store = decision_store or DecisionStore()
         self.adaptive_confidence = AdaptiveConfidence(self.decision_store)
 
-        logger.info(f"AutoFixEngine initialized with model={model}")
+        # Validation configuration (default: import check only)
+        self.validation_config = validation_config or ValidationConfig(
+            run_import_check=True,
+            run_type_check=False,
+            run_smoke_test=False,
+        )
+
+        # Code validator (lazily initialized)
+        self._code_validator: Optional[CodeValidator] = None
+
+        logger.info(
+            f"AutoFixEngine initialized with model={model}, "
+            f"skip_runtime_validation={skip_runtime_validation}"
+        )
 
     def get_style_profile(
         self, repository_path: Path, force_refresh: bool = False
@@ -135,6 +158,7 @@ class AutoFixEngine:
         finding: Finding,
         repository_path: Path,
         context_size: int = 5,
+        skip_runtime_validation: Optional[bool] = None,
     ) -> Optional[FixProposal]:
         """Generate a fix proposal for a finding.
 
@@ -142,10 +166,17 @@ class AutoFixEngine:
             finding: The code smell or issue to fix
             repository_path: Path to the repository
             context_size: Number of related code snippets to gather
+            skip_runtime_validation: Override instance setting for this call
 
         Returns:
             FixProposal if fix can be generated, None otherwise
         """
+        skip_validation = (
+            skip_runtime_validation
+            if skip_runtime_validation is not None
+            else self.skip_runtime_validation
+        )
+
         try:
             # Step 0: Try template-based fix first (fast, deterministic)
             template_fix = await self._try_template_fix(finding, repository_path)
@@ -166,10 +197,24 @@ class AutoFixEngine:
                 finding, context, fix_type, repository_path
             )
 
-            # Step 4: Validate the fix
+            # Step 4: Validate the fix (multi-level)
             logger.info("Validating generated fix")
-            is_valid = self._validate_fix(fix_proposal, repository_path)
-            fix_proposal.syntax_valid = is_valid
+            validation_result = await self._validate_fix_multilevel(
+                fix_proposal, repository_path, skip_validation
+            )
+
+            # Populate validation fields
+            fix_proposal.syntax_valid = validation_result.syntax_valid
+            fix_proposal.import_valid = validation_result.import_valid
+            fix_proposal.type_valid = validation_result.type_valid
+            fix_proposal.validation_errors = [
+                e.to_dict() for e in validation_result.errors
+            ]
+            fix_proposal.validation_warnings = [
+                w.to_dict() for w in validation_result.warnings
+            ]
+
+            is_valid = validation_result.is_valid
 
             # Step 5: Apply adaptive confidence based on historical feedback
             original_confidence = fix_proposal.confidence
@@ -178,10 +223,18 @@ class AutoFixEngine:
                 fix_type=fix_type.value,
                 repository=str(repository_path),
             )
+
+            # Further reduce confidence if validation failed
+            if not is_valid and adjusted_confidence != FixConfidence.LOW:
+                logger.info(
+                    f"Reducing confidence to LOW due to validation errors"
+                )
+                adjusted_confidence = FixConfidence.LOW
+
             if adjusted_confidence != original_confidence:
                 logger.info(
                     f"Adjusted confidence {original_confidence.value} → {adjusted_confidence.value} "
-                    f"based on historical feedback"
+                    f"based on validation and historical feedback"
                 )
                 fix_proposal.confidence = adjusted_confidence
 
@@ -194,7 +247,9 @@ class AutoFixEngine:
                     fix_proposal.tests_generated = True
 
             logger.info(
-                f"Fix generated with confidence={fix_proposal.confidence.value}"
+                f"Fix generated: valid={is_valid}, confidence={fix_proposal.confidence.value}, "
+                f"errors={len(fix_proposal.validation_errors)}, "
+                f"warnings={len(fix_proposal.validation_warnings)}"
             )
             return fix_proposal
 
@@ -723,6 +778,8 @@ Generate a fix for this issue. Provide your response in the following JSON forma
     ) -> bool:
         """Validate that generated fix is syntactically correct.
 
+        DEPRECATED: Use _validate_fix_multilevel for multi-level validation.
+
         Args:
             fix_proposal: The fix to validate
             repository_path: Path to repository
@@ -759,6 +816,204 @@ Generate a fix for this issue. Provide your response in the following JSON forma
         except Exception as e:
             logger.error(f"Validation error: {e}")
             return False
+
+    async def _validate_fix_multilevel(
+        self,
+        fix_proposal: FixProposal,
+        repository_path: Path,
+        skip_runtime: bool = False,
+    ) -> ValidationResult:
+        """Validate fix using multi-level validation.
+
+        Validation levels:
+        - Level 1 (Syntax): Local ast.parse() - always run
+        - Level 2 (Import): Sandbox import test - unless skip_runtime=True
+        - Level 3 (Type): Mypy in sandbox - if validation_config.run_type_check
+        - Level 4 (Smoke): Function calls - if validation_config.run_smoke_test
+
+        Args:
+            fix_proposal: The fix to validate
+            repository_path: Path to repository
+            skip_runtime: Skip sandbox-based validation levels
+
+        Returns:
+            ValidationResult with details about all validation levels
+        """
+        from repotoire.sandbox.code_validator import (
+            ValidationError as ValError,
+            ValidationLevel,
+            validate_syntax_only,
+        )
+
+        # If no changes, return valid
+        if not fix_proposal.changes:
+            return ValidationResult(
+                is_valid=True,
+                syntax_valid=True,
+            )
+
+        # For skip_runtime mode, just do syntax validation locally
+        if skip_runtime:
+            all_valid = True
+            all_errors: List[ValError] = []
+
+            for change in fix_proposal.changes:
+                result = validate_syntax_only(change.fixed_code)
+                if not result.syntax_valid:
+                    all_valid = False
+                    all_errors.extend(result.errors)
+
+                # Also verify original code exists
+                file_path = repository_path / change.file_path
+                if file_path.exists():
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+
+                    if change.original_code.strip() not in content:
+                        all_errors.append(
+                            ValError(
+                                level=ValidationLevel.SYNTAX.value,
+                                error_type="MatchError",
+                                message=f"Original code not found in {change.file_path}",
+                                suggestion="The file may have been modified since analysis",
+                            )
+                        )
+                        all_valid = False
+
+            return ValidationResult(
+                is_valid=all_valid,
+                syntax_valid=all_valid,
+                errors=all_errors,
+            )
+
+        # Full validation with sandbox
+        try:
+            # Get or create validator
+            if self._code_validator is None:
+                self._code_validator = CodeValidator(self.validation_config)
+                await self._code_validator.__aenter__()
+
+            # Validate each change
+            combined_result = ValidationResult(
+                is_valid=True,
+                syntax_valid=True,
+            )
+
+            for change in fix_proposal.changes:
+                # Collect related project files for import context
+                project_files = self._get_related_files(
+                    change.file_path, repository_path
+                )
+
+                result = await self._code_validator.validate(
+                    fixed_code=change.fixed_code,
+                    file_path=str(change.file_path),
+                    original_code=change.original_code,
+                    project_files=project_files,
+                    project_root=repository_path,
+                )
+
+                # Merge results
+                combined_result.is_valid = combined_result.is_valid and result.is_valid
+                combined_result.syntax_valid = (
+                    combined_result.syntax_valid and result.syntax_valid
+                )
+
+                if result.import_valid is not None:
+                    if combined_result.import_valid is None:
+                        combined_result.import_valid = result.import_valid
+                    else:
+                        combined_result.import_valid = (
+                            combined_result.import_valid and result.import_valid
+                        )
+
+                if result.type_valid is not None:
+                    if combined_result.type_valid is None:
+                        combined_result.type_valid = result.type_valid
+                    else:
+                        combined_result.type_valid = (
+                            combined_result.type_valid and result.type_valid
+                        )
+
+                combined_result.errors.extend(result.errors)
+                combined_result.warnings.extend(result.warnings)
+                combined_result.duration_ms += result.duration_ms
+
+                # Also verify original code exists in file
+                file_path = repository_path / change.file_path
+                if file_path.exists():
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+
+                    if change.original_code.strip() not in content:
+                        combined_result.errors.append(
+                            ValError(
+                                level=ValidationLevel.SYNTAX.value,
+                                error_type="MatchError",
+                                message=f"Original code not found in {change.file_path}",
+                                suggestion="The file may have been modified since analysis",
+                            )
+                        )
+                        combined_result.is_valid = False
+
+            return combined_result
+
+        except Exception as e:
+            logger.warning(f"Multi-level validation failed, falling back: {e}")
+            # Fall back to syntax-only validation
+            return await self._validate_fix_multilevel(
+                fix_proposal, repository_path, skip_runtime=True
+            )
+
+    def _get_related_files(
+        self, file_path: Path, repository_path: Path
+    ) -> List[Path]:
+        """Get files that the target file depends on.
+
+        Args:
+            file_path: Path to the target file
+            repository_path: Root of the repository
+
+        Returns:
+            List of paths to related files (up to 10)
+        """
+        related: List[Path] = []
+
+        # Read the file and extract imports
+        full_path = repository_path / file_path
+        if not full_path.exists():
+            return related
+
+        try:
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            handler = get_handler(str(file_path))
+            imports = handler.extract_imports(content)
+
+            # Try to find local imports in the repository
+            for imp in imports[:10]:  # Limit to 10 imports
+                # Parse import statement to get module path
+                # e.g., "from src.utils import helper" -> "src/utils.py"
+                if imp.startswith("from "):
+                    parts = imp.split()
+                    if len(parts) >= 2:
+                        module = parts[1].replace(".", "/") + ".py"
+                        candidate = repository_path / module
+                        if candidate.exists() and candidate not in related:
+                            related.append(candidate)
+                elif imp.startswith("import "):
+                    parts = imp.split()
+                    if len(parts) >= 2:
+                        module = parts[1].replace(".", "/") + ".py"
+                        candidate = repository_path / module
+                        if candidate.exists() and candidate not in related:
+                            related.append(candidate)
+
+        except Exception as e:
+            logger.debug(f"Error finding related files: {e}")
+
+        return related[:10]  # Limit total files
 
     async def _generate_tests(
         self,
