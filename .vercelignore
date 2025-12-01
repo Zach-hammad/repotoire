@@ -1,0 +1,63 @@
+# Python package (exclude all except web)
+repotoire/api/
+repotoire/autofix/
+repotoire/cli.py
+repotoire/config.py
+repotoire/detectors/
+repotoire/graph/
+repotoire/hooks/
+repotoire/models.py
+repotoire/parsers/
+repotoire/pipeline/
+repotoire/rag/
+repotoire/reporters/
+repotoire/validation.py
+repotoire/db/
+repotoire/logging_config.py
+repotoire/__init__.py
+
+# Rust extension
+repotoire-fast/
+
+# Tests
+tests/
+
+# Documentation
+docs/
+
+# Docker
+docker/
+Dockerfile
+fly.toml
+
+# Lean proofs
+lean/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+pyproject.toml
+uv.lock
+
+# Virtual environments
+.venv/
+venv/
+
+# Dev tools
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+
+# Misc
+*.log

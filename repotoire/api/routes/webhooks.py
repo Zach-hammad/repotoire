@@ -1,7 +1,7 @@
 """Webhook handlers for external services.
 
 This module provides webhook endpoints for processing events from
-external services like Stripe.
+external services like Stripe and Clerk.
 """
 
 import logging
@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from svix.webhooks import Webhook, WebhookVerificationError
 
 from repotoire.api.services.stripe_service import StripeService, price_id_to_tier
 from repotoire.db.models import (
@@ -19,6 +20,7 @@ from repotoire.db.models import (
     PlanTier,
     Subscription,
     SubscriptionStatus,
+    User,
 )
 from repotoire.db.session import get_db
 
@@ -27,6 +29,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+CLERK_WEBHOOK_SECRET = os.environ.get("CLERK_WEBHOOK_SECRET", "")
 
 
 # ============================================================================
@@ -503,5 +506,182 @@ async def stripe_webhook(
 
     else:
         logger.debug(f"Unhandled Stripe event type: {event_type}")
+
+    return {"status": "ok"}
+
+
+# ============================================================================
+# Clerk Webhook Handlers
+# ============================================================================
+
+
+async def get_user_by_clerk_id(
+    db: AsyncSession,
+    clerk_user_id: str,
+) -> User | None:
+    """Get user by Clerk user ID."""
+    result = await db.execute(
+        select(User).where(User.clerk_user_id == clerk_user_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def handle_user_created(
+    db: AsyncSession,
+    data: dict[str, Any],
+) -> None:
+    """Handle user.created event from Clerk.
+
+    Creates a new user record when a user signs up via Clerk.
+    """
+    clerk_user_id = data.get("id")
+    email_addresses = data.get("email_addresses", [])
+    primary_email = next(
+        (e["email_address"] for e in email_addresses if e.get("id") == data.get("primary_email_address_id")),
+        email_addresses[0]["email_address"] if email_addresses else None
+    )
+
+    if not primary_email:
+        logger.error(f"No email found for Clerk user {clerk_user_id}")
+        return
+
+    # Check if user already exists
+    existing = await get_user_by_clerk_id(db, clerk_user_id)
+    if existing:
+        logger.info(f"User {clerk_user_id} already exists")
+        return
+
+    # Build name from Clerk data
+    first_name = data.get("first_name") or ""
+    last_name = data.get("last_name") or ""
+    name = f"{first_name} {last_name}".strip() or None
+
+    # Create user
+    user = User(
+        clerk_user_id=clerk_user_id,
+        email=primary_email,
+        name=name,
+        avatar_url=data.get("image_url"),
+    )
+    db.add(user)
+    await db.commit()
+
+    logger.info(f"Created user {user.id} for Clerk user {clerk_user_id}")
+
+
+async def handle_user_updated(
+    db: AsyncSession,
+    data: dict[str, Any],
+) -> None:
+    """Handle user.updated event from Clerk.
+
+    Updates user profile when changed in Clerk.
+    """
+    clerk_user_id = data.get("id")
+    user = await get_user_by_clerk_id(db, clerk_user_id)
+
+    if not user:
+        logger.warning(f"User {clerk_user_id} not found for update, creating")
+        await handle_user_created(db, data)
+        return
+
+    # Update email if changed
+    email_addresses = data.get("email_addresses", [])
+    primary_email = next(
+        (e["email_address"] for e in email_addresses if e.get("id") == data.get("primary_email_address_id")),
+        email_addresses[0]["email_address"] if email_addresses else None
+    )
+    if primary_email and primary_email != user.email:
+        user.email = primary_email
+
+    # Update name
+    first_name = data.get("first_name") or ""
+    last_name = data.get("last_name") or ""
+    name = f"{first_name} {last_name}".strip() or None
+    if name != user.name:
+        user.name = name
+
+    # Update avatar
+    image_url = data.get("image_url")
+    if image_url != user.avatar_url:
+        user.avatar_url = image_url
+
+    await db.commit()
+    logger.info(f"Updated user {user.id}")
+
+
+async def handle_user_deleted(
+    db: AsyncSession,
+    data: dict[str, Any],
+) -> None:
+    """Handle user.deleted event from Clerk.
+
+    Removes the user record when deleted from Clerk.
+    """
+    clerk_user_id = data.get("id")
+    user = await get_user_by_clerk_id(db, clerk_user_id)
+
+    if not user:
+        logger.warning(f"User {clerk_user_id} not found for deletion")
+        return
+
+    await db.delete(user)
+    await db.commit()
+    logger.info(f"Deleted user {clerk_user_id}")
+
+
+# ============================================================================
+# Clerk Webhook Endpoint
+# ============================================================================
+
+
+@router.post("/clerk")
+async def clerk_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Handle Clerk webhook events.
+
+    Processes user lifecycle events from Clerk including
+    user creation, updates, and deletion.
+    """
+    payload = await request.body()
+    headers = {
+        "svix-id": request.headers.get("svix-id", ""),
+        "svix-timestamp": request.headers.get("svix-timestamp", ""),
+        "svix-signature": request.headers.get("svix-signature", ""),
+    }
+
+    # Verify webhook signature
+    if not CLERK_WEBHOOK_SECRET:
+        raise HTTPException(
+            status_code=500,
+            detail="Clerk webhook secret not configured",
+        )
+
+    try:
+        wh = Webhook(CLERK_WEBHOOK_SECRET)
+        event = wh.verify(payload, headers)
+    except WebhookVerificationError as e:
+        logger.error(f"Clerk webhook verification failed: {e}")
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    event_type = event.get("type")
+    data = event.get("data", {})
+
+    logger.info(f"Received Clerk webhook: {event_type}")
+
+    # Route to appropriate handler
+    if event_type == "user.created":
+        await handle_user_created(db, data)
+
+    elif event_type == "user.updated":
+        await handle_user_updated(db, data)
+
+    elif event_type == "user.deleted":
+        await handle_user_deleted(db, data)
+
+    else:
+        logger.debug(f"Unhandled Clerk event type: {event_type}")
 
     return {"status": "ok"}

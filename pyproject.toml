@@ -44,6 +44,7 @@ dependencies = [
     "httpx>=0.27.0",
     "pyjwt[crypto]>=2.8.0",  # JWT generation for GitHub App auth
     "cryptography>=41.0.0",  # Token encryption at rest
+    "svix>=1.0.0",  # Clerk webhook signature verification
 ]
 
 [project.optional-dependencies]

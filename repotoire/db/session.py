@@ -6,7 +6,9 @@ dependency injection system.
 """
 
 import os
+import ssl
 from typing import AsyncGenerator
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -25,13 +27,58 @@ DATABASE_URL = os.getenv(
 if DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
+
+def _parse_database_url(url: str) -> tuple[str, dict]:
+    """Parse DATABASE_URL and extract asyncpg-incompatible params.
+
+    asyncpg doesn't support sslmode in the URL, so we need to extract it
+    and convert to SSL context for connect_args.
+
+    Returns:
+        Tuple of (cleaned_url, connect_args)
+    """
+    parsed = urlparse(url)
+    query_params = parse_qs(parsed.query)
+
+    # Extract sslmode if present
+    sslmode = query_params.pop("sslmode", [None])[0]
+
+    # Rebuild URL without sslmode
+    new_query = urlencode({k: v[0] for k, v in query_params.items()}, doseq=False)
+    cleaned_url = urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path,
+        parsed.params,
+        new_query,
+        parsed.fragment,
+    ))
+
+    # Build connect_args based on sslmode
+    connect_args: dict = {}
+    if sslmode in ("require", "verify-ca", "verify-full"):
+        # Create SSL context for asyncpg
+        ssl_context = ssl.create_default_context()
+        if sslmode == "require":
+            # Don't verify certificate, just encrypt
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+        connect_args["ssl"] = ssl_context
+
+    return cleaned_url, connect_args
+
+
+# Parse URL and get connect_args for SSL
+_cleaned_url, _connect_args = _parse_database_url(DATABASE_URL)
+
 # Create async engine
 engine = create_async_engine(
-    DATABASE_URL,
+    _cleaned_url,
     echo=os.getenv("DATABASE_ECHO", "false").lower() == "true",
     pool_size=int(os.getenv("DATABASE_POOL_SIZE", "5")),
     max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "10")),
     pool_pre_ping=True,  # Enable connection health checks
+    connect_args=_connect_args,
 )
 
 # Create async session factory

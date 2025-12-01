@@ -74,10 +74,10 @@ app.add_middleware(
 
 
 # Include routers
-app.include_router(code.router)
-app.include_router(historical.router)
-app.include_router(fixes.router)
-app.include_router(analytics.router)
+app.include_router(code.router, prefix="/api/v1")
+app.include_router(historical.router, prefix="/api/v1")
+app.include_router(fixes.router, prefix="/api/v1")
+app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(github.router, prefix="/api/v1")
 app.include_router(billing.router, prefix="/api/v1")
 app.include_router(webhooks.router, prefix="/api/v1")
@@ -104,7 +104,8 @@ async def root():
             "billing_checkout": "POST /api/v1/billing/checkout",
             "billing_portal": "POST /api/v1/billing/portal",
             "billing_plans": "GET /api/v1/billing/plans",
-            "stripe_webhook": "POST /api/v1/webhooks/stripe"
+            "stripe_webhook": "POST /api/v1/webhooks/stripe",
+            "clerk_webhook": "POST /api/v1/webhooks/clerk"
         }
     }
 
