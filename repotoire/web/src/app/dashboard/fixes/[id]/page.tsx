@@ -3,8 +3,9 @@
 import { use, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useFix, useFixComments, useApproveFix, useRejectFix, useApplyFix, useAddComment } from '@/lib/hooks';
+import { useFix, useFixComments, useApproveFix, useRejectFix, useApplyFix, useAddComment, usePreviewFix } from '@/lib/hooks';
 import { DiffViewer, SplitDiffViewer } from '@/components/dashboard/diff-viewer';
+import { PreviewResultPanel, PreviewLoadingPanel } from '@/components/dashboard/preview-result-panel';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -35,9 +36,10 @@ import {
   Send,
   SplitSquareHorizontal,
   Rows3,
+  Eye,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { FixConfidence, FixStatus, FixType } from '@/types';
+import { FixConfidence, FixStatus, FixType, PreviewResult } from '@/types';
 import { mutate } from 'swr';
 
 // Badge color mappings
@@ -83,11 +85,13 @@ export default function FixReviewPage({
   const { trigger: reject, isMutating: isRejecting } = useRejectFix(id);
   const { trigger: apply, isMutating: isApplying } = useApplyFix(id);
   const { trigger: addComment } = useAddComment(id);
+  const { trigger: preview, isMutating: isPreviewing, data: previewResult } = usePreviewFix(id);
 
   const [rejectReason, setRejectReason] = useState('');
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [diffMode, setDiffMode] = useState<'unified' | 'split'>('unified');
+  const [localPreviewResult, setLocalPreviewResult] = useState<PreviewResult | null>(null);
 
   const handleApprove = async () => {
     await approve();
@@ -112,6 +116,16 @@ export default function FixReviewPage({
     setNewComment('');
     mutate(['fix-comments', id]);
   };
+
+  const handlePreview = async () => {
+    const result = await preview();
+    if (result) {
+      setLocalPreviewResult(result);
+    }
+  };
+
+  // Use local state or SWR data for preview result
+  const currentPreviewResult = localPreviewResult || previewResult;
 
   if (isLoading) {
     return (
@@ -176,6 +190,18 @@ export default function FixReviewPage({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Preview button - always available for pending fixes */}
+          {canApprove && (
+            <Button
+              variant="outline"
+              onClick={handlePreview}
+              disabled={isPreviewing}
+            >
+              <Eye className="mr-2 h-4 w-4" />
+              {isPreviewing ? 'Running Preview...' : 'Run Preview'}
+            </Button>
+          )}
+
           {canApprove && (
             <Button
               onClick={handleApprove}
@@ -246,6 +272,16 @@ export default function FixReviewPage({
               <p className="text-muted-foreground">{fix.description}</p>
             </CardContent>
           </Card>
+
+          {/* Preview Results */}
+          {isPreviewing && <PreviewLoadingPanel />}
+          {currentPreviewResult && !isPreviewing && (
+            <PreviewResultPanel
+              result={currentPreviewResult}
+              onRerun={handlePreview}
+              isRerunning={isPreviewing}
+            />
+          )}
 
           {/* Code Changes */}
           <Card>

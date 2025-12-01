@@ -230,3 +230,22 @@ export interface PriceCalculationResponse {
   repos_limit: number;
   analyses_limit: number;
 }
+
+// Preview check result
+export interface PreviewCheck {
+  name: string;  // 'syntax', 'import', 'type', 'tests'
+  passed: boolean;
+  message: string;
+  duration_ms: number;
+}
+
+// Preview execution result
+export interface PreviewResult {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  duration_ms: number;
+  checks: PreviewCheck[];
+  error: string | null;
+  cached_at: string | null;  // ISO timestamp if cached
+}

@@ -11,6 +11,7 @@ import {
   PlanTier,
   PlansResponse,
   PortalResponse,
+  PreviewResult,
   PriceCalculationResponse,
   SortOptions,
   Subscription,
@@ -61,6 +62,13 @@ export function useRejectFix(id: string) {
 
 export function useApplyFix(id: string) {
   return useSWRMutation(['fix', id], () => fixesApi.apply(id));
+}
+
+export function usePreviewFix(id: string) {
+  return useSWRMutation<PreviewResult>(
+    ['fix-preview', id],
+    () => fixesApi.preview(id)
+  );
 }
 
 export function useAddComment(fixId: string) {

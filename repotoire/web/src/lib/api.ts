@@ -11,6 +11,7 @@ import {
   PlanTier,
   PlansResponse,
   PortalResponse,
+  PreviewResult,
   PriceCalculationRequest,
   PriceCalculationResponse,
   SortOptions,
@@ -234,6 +235,39 @@ export const fixesApi = {
     return request<ApiResponse<{ rejected: number }>>('/fixes/batch/reject', {
       method: 'POST',
       body: JSON.stringify({ ids, reason }),
+    });
+  },
+
+  // Preview a fix in sandbox before approving
+  preview: async (id: string): Promise<PreviewResult> => {
+    if (USE_MOCK) {
+      // Simulate preview execution with mock data
+      await new Promise((r) => setTimeout(r, 1500));
+      return {
+        success: true,
+        stdout: '',
+        stderr: '',
+        duration_ms: 850,
+        checks: [
+          {
+            name: 'syntax',
+            passed: true,
+            message: 'Syntax valid',
+            duration_ms: 5,
+          },
+          {
+            name: 'import',
+            passed: true,
+            message: 'Imports valid',
+            duration_ms: 150,
+          },
+        ],
+        error: null,
+        cached_at: null,
+      };
+    }
+    return request<PreviewResult>(`/fixes/${id}/preview`, {
+      method: 'POST',
     });
   },
 };
