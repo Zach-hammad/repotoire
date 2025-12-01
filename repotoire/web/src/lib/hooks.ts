@@ -84,10 +84,12 @@ export function useBatchReject() {
   );
 }
 
-// Analytics hooks
+// Analytics hooks - wait for auth to be ready before making API calls
 export function useAnalyticsSummary() {
-  return useSWR<AnalyticsSummary>('analytics-summary', () =>
-    analyticsApi.summary()
+  const { isAuthReady } = useApiAuth();
+  return useSWR<AnalyticsSummary>(
+    isAuthReady ? 'analytics-summary' : null,
+    () => analyticsApi.summary()
   );
 }
 
@@ -95,18 +97,26 @@ export function useTrends(
   period: 'day' | 'week' | 'month' = 'week',
   limit: number = 30
 ) {
-  return useSWR<TrendDataPoint[]>(['trends', period, limit], () =>
-    analyticsApi.trends(period, limit)
+  const { isAuthReady } = useApiAuth();
+  return useSWR<TrendDataPoint[]>(
+    isAuthReady ? ['trends', period, limit] : null,
+    () => analyticsApi.trends(period, limit)
   );
 }
 
 export function useByType() {
-  return useSWR<Record<string, number>>('by-type', () => analyticsApi.byType());
+  const { isAuthReady } = useApiAuth();
+  return useSWR<Record<string, number>>(
+    isAuthReady ? 'by-type' : null,
+    () => analyticsApi.byType()
+  );
 }
 
 export function useFileHotspots(limit: number = 10) {
-  return useSWR<FileHotspot[]>(['file-hotspots', limit], () =>
-    analyticsApi.fileHotspots(limit)
+  const { isAuthReady } = useApiAuth();
+  return useSWR<FileHotspot[]>(
+    isAuthReady ? ['file-hotspots', limit] : null,
+    () => analyticsApi.fileHotspots(limit)
   );
 }
 
