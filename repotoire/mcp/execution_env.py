@@ -12,18 +12,35 @@ Token-efficient utilities (REPO-210/211/212):
 - Skill persistence: Save and reuse analysis functions across sessions
 """
 
+import asyncio
+import hashlib
 import json
 import os
 import statistics
 import sys
 import threading
 import time
+import warnings
 import zipfile
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
+
+from repotoire.logging_config import get_logger
+
+# Sandbox imports for secure skill execution (REPO-289)
+from repotoire.sandbox import (
+    SkillExecutor,
+    SkillExecutorConfig,
+    SkillResult,
+    SkillSecurityError,
+    SkillExecutionError,
+    SkillTimeoutError,
+)
+
+logger = get_logger(__name__)
 
 # =============================================================================
 # REPO-210: Data Filtering Utilities
@@ -650,22 +667,35 @@ def _load_skill_metadata(name: str) -> Dict[str, Any]:
 
 
 def load_skill(name: str, globals_dict: Optional[Dict] = None) -> None:
-    """Load and execute a saved skill, making its functions available.
+    """Load a saved skill definition for later secure execution.
 
-    The skill's functions are added to the global namespace and can be
-    called directly after loading.
+    SECURITY NOTE (REPO-289): This function NO LONGER executes skill code on the host.
+    Instead, it loads the skill definition and registers it for sandboxed execution
+    via execute_skill_secure().
+
+    For backward compatibility, skill functions are added as wrappers that
+    execute securely in the E2B sandbox.
 
     Args:
         name: Name of the skill to load
-        globals_dict: Optional globals dict to exec into (default: caller's globals)
+        globals_dict: Optional globals dict to add skill wrapper to (default: caller's globals)
 
     Raises:
         FileNotFoundError: If skill doesn't exist
+        SkillSecurityError: If sandbox is not configured (E2B_API_KEY required)
 
     Examples:
         >>> load_skill('find_god_classes')
-        ✓ Loaded skill: find_god_classes
-        >>> god_classes = find_god_classes(threshold=15)
+        ✓ Loaded skill: find_god_classes (secure sandbox mode)
+
+        >>> # The skill function is now a secure wrapper
+        >>> result = await find_god_classes(threshold=15)
+
+    Note:
+        Skills now execute asynchronously in a sandbox. If you need synchronous
+        execution, use asyncio.run():
+
+        >>> result = asyncio.run(find_god_classes(threshold=15))
     """
     skill_file = SKILLS_DIR / f"{name}.py"
     if not skill_file.exists():
@@ -685,7 +715,101 @@ def load_skill(name: str, globals_dict: Optional[Dict] = None) -> None:
         else:
             globals_dict = globals()
 
-    exec(code, globals_dict)
+    # SECURITY (REPO-289): Instead of exec(), register skill for sandboxed execution
+    # Parse the skill code to find function definitions
+    import ast
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        raise SkillExecutionError(
+            f"Skill '{name}' has syntax errors: {e}",
+            skill_name=name,
+            error_type="SyntaxError",
+        )
+
+    # Find all function definitions in the skill
+    functions_found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            func_name = node.name
+            functions_found.append(func_name)
+
+            # Create a secure wrapper for each function
+            secure_wrapper = _create_secure_skill_wrapper(code, func_name, name)
+            globals_dict[func_name] = secure_wrapper
+
+    if not functions_found:
+        warnings.warn(
+            f"Skill '{name}' defines no functions. Nothing was loaded.",
+            UserWarning,
+        )
+        return
+
+    logger.info(
+        f"Loaded skill '{name}' with functions: {functions_found} (secure sandbox mode)",
+        extra={"skill_name": name, "functions": functions_found},
+    )
+
+
+def _create_secure_skill_wrapper(
+    skill_code: str,
+    func_name: str,
+    skill_name: str,
+) -> Callable:
+    """Create a wrapper function that executes a skill securely in sandbox.
+
+    Args:
+        skill_code: Full Python code of the skill
+        func_name: Name of the function to wrap
+        skill_name: Human-readable skill name for logging
+
+    Returns:
+        Async callable that executes the skill in sandbox
+    """
+    async def secure_skill_wrapper(**kwargs: Any) -> Any:
+        """Execute skill function securely in E2B sandbox.
+
+        This wrapper ensures all skill execution happens in an isolated
+        sandbox environment, preventing arbitrary code execution on the host.
+        """
+        config = SkillExecutorConfig(
+            timeout_seconds=300,  # 5 minute default
+            memory_mb=1024,  # 1GB default
+            enable_audit_log=True,
+        )
+
+        try:
+            async with SkillExecutor(config) as executor:
+                result = await executor.execute_skill(
+                    skill_code=skill_code,
+                    skill_name=func_name,
+                    context=kwargs,
+                )
+
+                if not result.success:
+                    raise SkillExecutionError(
+                        result.error or "Skill execution failed",
+                        skill_name=func_name,
+                        error_type=result.error_type,
+                        traceback=result.traceback,
+                    )
+
+                return result.result
+
+        except SkillSecurityError:
+            # Re-raise security errors with helpful message
+            raise SkillSecurityError(
+                f"Cannot execute skill '{func_name}': sandbox not configured",
+                skill_name=func_name,
+                suggestion="Set E2B_API_KEY environment variable for secure skill execution. "
+                "Local exec() is disabled for security.",
+            )
+
+    # Preserve function metadata
+    secure_skill_wrapper.__name__ = func_name
+    secure_skill_wrapper.__doc__ = f"Secure sandboxed skill: {skill_name}.{func_name}"
+
+    return secure_skill_wrapper
 
 
 def list_skills(tag: Optional[str] = None) -> List[str]:
@@ -1402,3 +1526,345 @@ Example:
         "required": ["code"]
     }
 }
+
+
+# =============================================================================
+# REPO-289: Secure MCP Skill Execution
+# =============================================================================
+# Replaces vulnerable exec() calls with sandboxed E2B execution.
+# SECURITY: Never falls back to local exec() - fails secure if sandbox unavailable.
+# =============================================================================
+
+
+class MCPSkillRunner:
+    """Secure MCP skill runner using E2B sandboxed execution.
+
+    This class provides a complete API for executing MCP skills securely
+    in isolated E2B sandboxes. It replaces the vulnerable pattern of using
+    exec() to run skill code on the host.
+
+    SECURITY REQUIREMENTS:
+    - NEVER falls back to local exec() - fails secure if sandbox unavailable
+    - All skill executions are logged for audit trail
+    - Timeout and memory limits are enforced
+    - Skill errors don't crash the host process
+    - Input/output is JSON-serializable
+
+    Usage:
+        ```python
+        runner = MCPSkillRunner()
+
+        # Execute skill from code string
+        result = await runner.execute_skill(
+            skill_code='''
+            def analyze(code: str) -> dict:
+                return {"lines": len(code.split())}
+            ''',
+            skill_name="analyze",
+            context={"code": "def foo(): pass"}
+        )
+        print(result.result)  # {"lines": 3}
+
+        # Execute saved skill
+        result = await runner.execute_saved_skill(
+            "find_god_classes",
+            threshold=15
+        )
+
+        # Get audit log
+        for entry in runner.get_audit_log():
+            print(f"{entry.timestamp}: {entry.skill_name} - {entry.success}")
+        ```
+
+    Configuration:
+        Environment variables:
+        - E2B_API_KEY: Required for sandbox execution
+        - E2B_TIMEOUT_SECONDS: Skill timeout (default: 300 = 5 min)
+        - E2B_MEMORY_MB: Memory limit (default: 1024 = 1GB)
+    """
+
+    def __init__(
+        self,
+        timeout_seconds: int = 300,
+        memory_mb: int = 1024,
+        enable_audit_log: bool = True,
+    ):
+        """Initialize the secure skill runner.
+
+        Args:
+            timeout_seconds: Maximum skill execution time (default: 5 min)
+            memory_mb: Memory limit for sandbox (default: 1GB)
+            enable_audit_log: Whether to log all executions for audit trail
+        """
+        self.config = SkillExecutorConfig(
+            timeout_seconds=timeout_seconds,
+            memory_mb=memory_mb,
+            enable_audit_log=enable_audit_log,
+        )
+        self._audit_log: List[Dict[str, Any]] = []
+
+    async def execute_skill(
+        self,
+        skill_code: str,
+        skill_name: str,
+        context: Optional[Dict[str, Any]] = None,
+        timeout: Optional[int] = None,
+    ) -> SkillResult:
+        """Execute skill code securely in E2B sandbox.
+
+        This is the primary method for secure skill execution. It:
+        1. Creates an isolated E2B sandbox
+        2. Serializes the context to JSON
+        3. Generates a wrapper script
+        4. Executes in the sandbox
+        5. Deserializes and returns the result
+        6. Logs the execution for audit trail
+
+        Args:
+            skill_code: Python code containing the skill function
+            skill_name: Name of the function to call
+            context: Input arguments as a dictionary (must be JSON-serializable)
+            timeout: Override timeout in seconds (default: use config)
+
+        Returns:
+            SkillResult with execution result or error
+
+        Raises:
+            SkillSecurityError: If sandbox is not configured
+            SkillTimeoutError: If execution exceeds timeout
+            SkillExecutionError: If execution fails in sandbox
+
+        Example:
+            ```python
+            result = await runner.execute_skill(
+                skill_code='''
+                def count_functions(code: str) -> int:
+                    import ast
+                    tree = ast.parse(code)
+                    return len([n for n in ast.walk(tree)
+                                if isinstance(n, ast.FunctionDef)])
+                ''',
+                skill_name="count_functions",
+                context={"code": "def foo(): pass\\ndef bar(): pass"}
+            )
+            print(result.result)  # 2
+            ```
+        """
+        start_time = time.time()
+        skill_hash = hashlib.sha256(skill_code.encode()).hexdigest()[:16]
+
+        logger.info(
+            f"Executing skill '{skill_name}' in sandbox",
+            extra={
+                "skill_name": skill_name,
+                "skill_hash": skill_hash,
+                "context_keys": list((context or {}).keys()),
+            },
+        )
+
+        try:
+            async with SkillExecutor(self.config) as executor:
+                result = await executor.execute_skill(
+                    skill_code=skill_code,
+                    skill_name=skill_name,
+                    context=context,
+                    timeout=timeout,
+                )
+
+                # Log to internal audit log
+                duration_ms = int((time.time() - start_time) * 1000)
+                self._audit_log.append({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "skill_name": skill_name,
+                    "skill_hash": skill_hash,
+                    "success": result.success,
+                    "duration_ms": duration_ms,
+                    "error": result.error if not result.success else None,
+                })
+
+                return result
+
+        except SkillSecurityError:
+            # Log security failures
+            self._audit_log.append({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "skill_name": skill_name,
+                "skill_hash": skill_hash,
+                "success": False,
+                "duration_ms": int((time.time() - start_time) * 1000),
+                "error": "Sandbox not configured",
+            })
+            raise
+
+    async def execute_saved_skill(
+        self,
+        skill_name: str,
+        function_name: Optional[str] = None,
+        timeout: Optional[int] = None,
+        **kwargs: Any,
+    ) -> SkillResult:
+        """Execute a saved skill from ~/.repotoire/skills/.
+
+        Args:
+            skill_name: Name of the saved skill file (without .py extension)
+            function_name: Specific function to call (default: same as skill_name)
+            timeout: Override timeout in seconds
+            **kwargs: Arguments to pass to the skill function
+
+        Returns:
+            SkillResult with execution result or error
+
+        Raises:
+            FileNotFoundError: If skill doesn't exist
+            SkillSecurityError: If sandbox is not configured
+            SkillExecutionError: If execution fails
+
+        Example:
+            ```python
+            result = await runner.execute_saved_skill(
+                "find_god_classes",
+                threshold=15
+            )
+            print(result.result)
+            ```
+        """
+        skill_file = SKILLS_DIR / f"{skill_name}.py"
+
+        if not skill_file.exists():
+            available = list_skills()
+            available_str = ", ".join(available) if available else "none"
+            raise FileNotFoundError(
+                f"Skill '{skill_name}' not found. Available: {available_str}"
+            )
+
+        code = skill_file.read_text(encoding="utf-8")
+        func_name = function_name or skill_name
+
+        return await self.execute_skill(
+            skill_code=code,
+            skill_name=func_name,
+            context=kwargs,
+            timeout=timeout,
+        )
+
+    def execute_skill_sync(
+        self,
+        skill_code: str,
+        skill_name: str,
+        context: Optional[Dict[str, Any]] = None,
+        timeout: Optional[int] = None,
+    ) -> SkillResult:
+        """Synchronous wrapper for execute_skill.
+
+        Use this when you need to execute skills from synchronous code.
+
+        Args:
+            skill_code: Python code containing the skill function
+            skill_name: Name of the function to call
+            context: Input arguments as a dictionary
+            timeout: Override timeout in seconds
+
+        Returns:
+            SkillResult with execution result or error
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            # Already in async context - need to use nest_asyncio or thread
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    asyncio.run,
+                    self.execute_skill(skill_code, skill_name, context, timeout)
+                )
+                return future.result()
+        except RuntimeError:
+            # No running loop, create one
+            return asyncio.run(
+                self.execute_skill(skill_code, skill_name, context, timeout)
+            )
+
+    def get_audit_log(self) -> List[Dict[str, Any]]:
+        """Get the audit log of skill executions.
+
+        Returns:
+            List of audit log entries with timestamp, skill_name, success, etc.
+        """
+        return list(self._audit_log)
+
+    def clear_audit_log(self) -> int:
+        """Clear the audit log.
+
+        Returns:
+            Number of entries cleared
+        """
+        count = len(self._audit_log)
+        self._audit_log.clear()
+        return count
+
+    def export_audit_log(self, path: Optional[Path] = None) -> str:
+        """Export audit log to JSON file.
+
+        Args:
+            path: Output path (default: ~/.repotoire/skill_audit.json)
+
+        Returns:
+            Path to exported file
+        """
+        if path is None:
+            path = SKILLS_DIR.parent / "skill_audit.json"
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self._audit_log, indent=2), encoding="utf-8")
+
+        return str(path)
+
+
+# Global runner instance for convenience
+_global_skill_runner: Optional[MCPSkillRunner] = None
+
+
+def get_skill_runner() -> MCPSkillRunner:
+    """Get the global MCPSkillRunner instance.
+
+    Creates a new instance if one doesn't exist.
+
+    Returns:
+        Global MCPSkillRunner instance
+    """
+    global _global_skill_runner
+    if _global_skill_runner is None:
+        _global_skill_runner = MCPSkillRunner()
+    return _global_skill_runner
+
+
+async def execute_skill_secure(
+    skill_code: str,
+    skill_name: str,
+    context: Optional[Dict[str, Any]] = None,
+    timeout: Optional[int] = None,
+) -> SkillResult:
+    """Execute skill code securely in E2B sandbox.
+
+    This is a convenience function that uses the global MCPSkillRunner.
+
+    Args:
+        skill_code: Python code containing the skill function
+        skill_name: Name of the function to call
+        context: Input arguments as a dictionary
+        timeout: Override timeout in seconds
+
+    Returns:
+        SkillResult with execution result or error
+
+    Example:
+        ```python
+        result = await execute_skill_secure(
+            skill_code="def analyze(x): return x * 2",
+            skill_name="analyze",
+            context={"x": 21}
+        )
+        print(result.result)  # 42
+        ```
+    """
+    runner = get_skill_runner()
+    return await runner.execute_skill(skill_code, skill_name, context, timeout)

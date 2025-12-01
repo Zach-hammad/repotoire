@@ -506,7 +506,12 @@ class TestSkillManagement:
     """Tests for skill persistence functions."""
 
     def test_save_and_load_skill(self, temp_skills_dir):
-        """Save and load a skill."""
+        """Save and load a skill.
+
+        NOTE: After REPO-289 security fix, load_skill creates async wrappers
+        that execute in E2B sandbox. The function is callable but requires
+        sandbox to actually execute.
+        """
         code = """
 def my_function():
     return "hello"
@@ -518,7 +523,13 @@ def my_function():
         namespace = {}
         load_skill("test_skill", namespace)
         assert "my_function" in namespace
-        assert namespace["my_function"]() == "hello"
+
+        # Verify it's now a secure async wrapper (REPO-289)
+        func = namespace["my_function"]
+        assert callable(func)
+        assert func.__name__ == "my_function"
+        # The function is now an async wrapper for sandbox execution
+        assert "sandboxed skill" in func.__doc__.lower()
 
     def test_save_skill_with_tags(self, temp_skills_dir):
         """Save skill with tags."""
