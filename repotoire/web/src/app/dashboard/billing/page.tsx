@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,7 +12,7 @@ import { Check, Zap, CreditCard, AlertCircle, CheckCircle2, Loader2, Users, Minu
 import { useSubscription, usePlans, useCreateCheckout, useCreatePortal, useCalculatePrice } from '@/lib/hooks';
 import { PlanTier, PlanInfo } from '@/types';
 
-export default function BillingPage() {
+function BillingContent() {
   const searchParams = useSearchParams();
   const success = searchParams.get('success');
   const canceled = searchParams.get('canceled');
@@ -460,4 +460,20 @@ function formatFeature(feature: string): string {
     audit_logs: 'Audit logs',
   };
   return featureMap[feature] || feature.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+}
+
+function BillingLoading() {
+  return (
+    <div className="flex items-center justify-center min-h-[400px]">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
+export default function BillingPage() {
+  return (
+    <Suspense fallback={<BillingLoading />}>
+      <BillingContent />
+    </Suspense>
+  );
 }

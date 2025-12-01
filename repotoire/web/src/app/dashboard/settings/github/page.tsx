@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Github, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
+import { Github, CheckCircle2, XCircle, AlertCircle, Loader2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { GitHubInstallButton, GitHubInstallButtonSecondary } from "@/components/github/install-button";
@@ -20,7 +20,7 @@ interface GitHubInstallation {
   repo_count: number;
 }
 
-export default function GitHubSettingsPage() {
+function GitHubSettingsContent() {
   const api = useApiClient();
   const searchParams = useSearchParams();
   const [installations, setInstallations] = useState<GitHubInstallation[]>([]);
@@ -141,5 +141,21 @@ export default function GitHubSettingsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function GitHubSettingsLoading() {
+  return (
+    <div className="flex items-center justify-center min-h-[400px]">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
+export default function GitHubSettingsPage() {
+  return (
+    <Suspense fallback={<GitHubSettingsLoading />}>
+      <GitHubSettingsContent />
+    </Suspense>
   );
 }
