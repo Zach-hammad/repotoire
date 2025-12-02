@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -57,7 +57,7 @@ interface DeletionScheduledResponse {
   message: string;
 }
 
-export default function PrivacySettingsPage() {
+function PrivacySettingsContent() {
   const searchParams = useSearchParams();
   const api = useApiClient();
 
@@ -526,5 +526,19 @@ export default function PrivacySettingsPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function PrivacySettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <PrivacySettingsContent />
+    </Suspense>
   );
 }
