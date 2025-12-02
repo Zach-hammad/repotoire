@@ -67,6 +67,12 @@ class Organization(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         nullable=False,
         index=True,
     )
+    clerk_org_id: Mapped[str | None] = mapped_column(
+        String(255),
+        unique=True,
+        nullable=True,
+        index=True,
+    )
     stripe_customer_id: Mapped[str | None] = mapped_column(
         String(255),
         unique=True,

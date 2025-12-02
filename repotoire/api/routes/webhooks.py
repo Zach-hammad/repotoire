@@ -78,6 +78,102 @@ async def get_subscription_by_stripe_id(
 
 
 # ============================================================================
+# Email Notification Helpers
+# ============================================================================
+
+
+async def _send_welcome_email(
+    db: AsyncSession,
+    clerk_user_id: str,
+) -> None:
+    """Send welcome email to newly created user."""
+    from repotoire.services.email import get_email_service
+
+    try:
+        user = await get_user_by_clerk_id(db, clerk_user_id)
+        if not user or not user.email:
+            logger.warning(f"User {clerk_user_id} not found or has no email")
+            return
+
+        email_service = get_email_service()
+        await email_service.send_welcome(
+            to=user.email,
+            name=user.name,
+        )
+        logger.info(f"Sent welcome email to {user.email}")
+
+    except Exception as e:
+        logger.error(f"Failed to send welcome email: {e}")
+
+
+async def _send_payment_failed_email(
+    db: AsyncSession,
+    subscription: Subscription,
+    invoice: dict[str, Any],
+) -> None:
+    """Send payment failed notification email to billing contacts."""
+    from repotoire.services.email import get_email_service
+
+    try:
+        # Get organization
+        org = await db.get(Organization, subscription.organization_id)
+        if not org:
+            logger.warning(f"Organization not found for subscription {subscription.id}")
+            return
+
+        # Get billing contact email - check for billing_email first, then org owner
+        billing_email = org.billing_email if hasattr(org, "billing_email") and org.billing_email else None
+
+        if not billing_email:
+            # Fall back to org owner's email
+            from repotoire.db.models import OrganizationMembership, MemberRole
+
+            result = await db.execute(
+                select(User)
+                .join(OrganizationMembership)
+                .where(
+                    OrganizationMembership.organization_id == org.id,
+                    OrganizationMembership.role == MemberRole.OWNER,
+                )
+            )
+            owner = result.scalar_one_or_none()
+            if owner:
+                billing_email = owner.email
+
+        if not billing_email:
+            logger.warning(f"No billing email found for org {org.id}")
+            return
+
+        # Extract invoice details
+        amount_due = invoice.get("amount_due", 0) / 100  # Stripe uses cents
+        currency = invoice.get("currency", "usd").upper()
+        next_attempt = invoice.get("next_payment_attempt")
+
+        next_attempt_date = None
+        if next_attempt:
+            next_attempt_date = datetime.fromtimestamp(
+                next_attempt, tz=timezone.utc
+            ).strftime("%B %d, %Y")
+
+        # Get portal URL for updating payment method
+        billing_portal_url = os.environ.get(
+            "APP_BASE_URL", "https://app.repotoire.io"
+        ) + "/settings/billing"
+
+        email_service = get_email_service()
+        await email_service.send_payment_failed(
+            to=billing_email,
+            amount=f"{currency} {amount_due:.2f}",
+            next_attempt_date=next_attempt_date or "soon",
+            update_payment_url=billing_portal_url,
+        )
+        logger.info(f"Sent payment failed email to {billing_email}")
+
+    except Exception as e:
+        logger.error(f"Failed to send payment failed email: {e}")
+
+
+# ============================================================================
 # Webhook Handlers
 # ============================================================================
 
@@ -400,7 +496,7 @@ async def handle_payment_failed(
 ) -> None:
     """Handle failed invoice payment.
 
-    Marks subscription as past due.
+    Marks subscription as past due and sends notification email.
     """
     logger.info(f"Handling invoice.payment_failed: {invoice.get('id')}")
 
@@ -419,7 +515,8 @@ async def handle_payment_failed(
     await db.commit()
     logger.info(f"Marked subscription {subscription_id} as past due")
 
-    # TODO: Send email notification via Celery task
+    # Send payment failed email notification
+    await _send_payment_failed_email(db, subscription, invoice)
 
 
 async def handle_invoice_paid(
@@ -616,9 +713,13 @@ async def handle_user_created(
     """Handle user.created event from Clerk.
 
     Creates a new user record when a user signs up via Clerk.
+    Sends a welcome email to the new user.
     """
     clerk_user_id = data.get("id")
     await fetch_and_sync_user(db, clerk_user_id)
+
+    # Send welcome email
+    await _send_welcome_email(db, clerk_user_id)
 
 
 async def handle_user_updated(
@@ -651,6 +752,150 @@ async def handle_user_deleted(
     await db.delete(user)
     await db.commit()
     logger.info(f"Deleted user {clerk_user_id}")
+
+
+# ============================================================================
+# Clerk Organization Webhook Handlers
+# ============================================================================
+
+
+async def get_org_by_clerk_org_id(
+    db: AsyncSession,
+    clerk_org_id: str,
+) -> Organization | None:
+    """Get organization by Clerk organization ID."""
+    result = await db.execute(
+        select(Organization).where(Organization.clerk_org_id == clerk_org_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def handle_organization_created(
+    db: AsyncSession,
+    data: dict[str, Any],
+) -> None:
+    """Handle organization.created event from Clerk.
+
+    Creates a new organization record when an org is created in Clerk.
+    """
+    clerk_org_id = data.get("id")
+    name = data.get("name", "")
+    slug = data.get("slug", "")
+
+    if not clerk_org_id or not slug:
+        logger.warning(f"Missing org ID or slug in organization.created event")
+        return
+
+    # Check if org already exists
+    existing = await get_org_by_clerk_org_id(db, clerk_org_id)
+    if existing:
+        logger.info(f"Organization {clerk_org_id} already exists")
+        return
+
+    # Also check by slug (might have been created manually)
+    existing_by_slug = await db.execute(
+        select(Organization).where(Organization.slug == slug)
+    )
+    if existing_by_slug.scalar_one_or_none():
+        # Update existing org with clerk_org_id
+        await db.execute(
+            select(Organization)
+            .where(Organization.slug == slug)
+        )
+        org = existing_by_slug.scalar_one_or_none()
+        if org:
+            org.clerk_org_id = clerk_org_id
+            org.name = name
+            await db.commit()
+            logger.info(f"Linked existing org {slug} to Clerk org {clerk_org_id}")
+            return
+
+    # Create new organization
+    org = Organization(
+        name=name,
+        slug=slug,
+        clerk_org_id=clerk_org_id,
+    )
+    db.add(org)
+    await db.commit()
+    logger.info(f"Created organization {slug} from Clerk org {clerk_org_id}")
+
+
+async def handle_organization_updated(
+    db: AsyncSession,
+    data: dict[str, Any],
+) -> None:
+    """Handle organization.updated event from Clerk.
+
+    Updates organization name/slug when changed in Clerk.
+    """
+    clerk_org_id = data.get("id")
+    name = data.get("name", "")
+    slug = data.get("slug", "")
+
+    if not clerk_org_id:
+        logger.warning("Missing org ID in organization.updated event")
+        return
+
+    org = await get_org_by_clerk_org_id(db, clerk_org_id)
+    if not org:
+        # Try to find by slug and link
+        result = await db.execute(
+            select(Organization).where(Organization.slug == slug)
+        )
+        org = result.scalar_one_or_none()
+        if org:
+            org.clerk_org_id = clerk_org_id
+
+    if not org:
+        logger.warning(f"Organization {clerk_org_id} not found for update")
+        return
+
+    # Update fields
+    if name:
+        org.name = name
+    if slug and slug != org.slug:
+        # Check if new slug is available
+        existing = await db.execute(
+            select(Organization).where(
+                Organization.slug == slug,
+                Organization.id != org.id,
+            )
+        )
+        if not existing.scalar_one_or_none():
+            org.slug = slug
+
+    await db.commit()
+    logger.info(f"Updated organization {clerk_org_id}")
+
+
+async def handle_organization_deleted(
+    db: AsyncSession,
+    data: dict[str, Any],
+) -> None:
+    """Handle organization.deleted event from Clerk.
+
+    Marks the organization as deleted (soft delete) or removes it.
+    Note: This preserves billing/audit data by not hard-deleting.
+    """
+    clerk_org_id = data.get("id")
+
+    if not clerk_org_id:
+        logger.warning("Missing org ID in organization.deleted event")
+        return
+
+    org = await get_org_by_clerk_org_id(db, clerk_org_id)
+    if not org:
+        logger.warning(f"Organization {clerk_org_id} not found for deletion")
+        return
+
+    # Soft delete: just unlink from Clerk and mark inactive
+    # We keep the org for billing history and audit purposes
+    org.clerk_org_id = None
+    # If org has no active subscriptions, we could delete it
+    # For now, just unlink and log
+    await db.commit()
+    logger.info(f"Unlinked organization {org.slug} from Clerk org {clerk_org_id}")
 
 
 # ============================================================================
@@ -709,6 +954,15 @@ async def clerk_webhook(
 
     elif event_type == "session.created":
         await handle_session_created(db, data)
+
+    elif event_type == "organization.created":
+        await handle_organization_created(db, data)
+
+    elif event_type == "organization.updated":
+        await handle_organization_updated(db, data)
+
+    elif event_type == "organization.deleted":
+        await handle_organization_deleted(db, data)
 
     else:
         logger.debug(f"Unhandled Clerk event type: {event_type}")
