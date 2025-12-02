@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import { ThemeProvider } from "next-themes"
 import { ClerkProvider } from "@/components/providers/clerk-provider"
+import { CookieConsent } from "@/components/cookie-consent"
 import "./globals.css"
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
@@ -62,6 +63,7 @@ export default function RootLayout({
         >
           <ClerkProvider>
             {children}
+            <CookieConsent />
           </ClerkProvider>
         </ThemeProvider>
       </body>
