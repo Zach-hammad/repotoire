@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from repotoire.models import Entity, Relationship
 
@@ -11,7 +12,41 @@ class DatabaseClient(ABC):
 
     Defines the interface that both Neo4jClient and FalkorDBClient implement.
     This allows the codebase to be database-agnostic.
+
+    Multi-Tenancy Support:
+        For SaaS deployments, clients can be configured with an org_id to
+        isolate data per organization. Use GraphClientFactory for tenant-aware
+        client creation.
+
+    Examples:
+        # Single-tenant mode (CLI usage)
+        client = create_client()
+
+        # Multi-tenant mode (SaaS)
+        from repotoire.graph.tenant_factory import get_client_for_org
+        client = get_client_for_org(org_id=org.id, org_slug=org.slug)
     """
+
+    # Tenant context for multi-tenant isolation
+    _org_id: Optional[UUID] = None
+
+    @property
+    def org_id(self) -> Optional[UUID]:
+        """Organization ID for tenant isolation.
+
+        Returns None for single-tenant mode (CLI usage).
+        Returns UUID for multi-tenant mode (SaaS).
+        """
+        return self._org_id
+
+    @property
+    def is_multi_tenant(self) -> bool:
+        """Whether this client enforces tenant isolation.
+
+        When True, all operations are scoped to a specific organization's
+        graph/database. When False, operates on a shared graph.
+        """
+        return self._org_id is not None
 
     @property
     def is_falkordb(self) -> bool:

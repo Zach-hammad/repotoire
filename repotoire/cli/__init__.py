@@ -5463,6 +5463,10 @@ def templates_list(verbose: bool, language: str | None, template_dir: Path | Non
 from .sandbox import sandbox_stats
 cli.add_command(sandbox_stats)
 
+# Register graph management commands (REPO-263)
+from .graph import graph
+cli.add_command(graph)
+
 
 @cli.command()
 @click.argument("query")
