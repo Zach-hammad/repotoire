@@ -57,19 +57,20 @@ RUN mkdir -p /var/log/celery && chown -R celery:celery /var/log/celery
 # Environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV CELERY_BROKER_URL=redis://redis:6379/0
-ENV CELERY_RESULT_BACKEND=redis://redis:6379/1
+# Redis URL used by celery_app.py and progress tracking
+ENV REDIS_URL=redis://redis:6379/0
 ENV REPOTOIRE_CLONE_DIR=/tmp/repotoire-clones
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD celery -A repotoire.worker.celery_app inspect ping -d celery@$HOSTNAME || exit 1
+    CMD celery -A repotoire.workers.celery_app inspect ping -d celery@$HOSTNAME || exit 1
 
 # Switch to non-root user
 USER celery
 
 # Default command (can be overridden)
-CMD ["celery", "-A", "repotoire.worker.celery_app", "worker", \
+# Queues: default (hooks), analysis (full repo), analysis.priority (enterprise)
+CMD ["celery", "-A", "repotoire.workers.celery_app", "worker", \
      "--loglevel=info", \
-     "-Q", "default,analysis,analysis.high,webhooks,notifications,notifications.low", \
-     "--concurrency=4"]
+     "-Q", "default,analysis,analysis.priority", \
+     "--concurrency=2"]

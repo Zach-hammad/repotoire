@@ -16,6 +16,7 @@ from .base import Base, UUIDPrimaryKeyMixin, generate_repr
 
 if TYPE_CHECKING:
     from .repository import Repository
+    from .user import User
 
 
 class AnalysisStatus(str, enum.Enum):
@@ -36,13 +37,23 @@ class AnalysisRun(Base, UUIDPrimaryKeyMixin):
         commit_sha: Git commit SHA being analyzed
         branch: Git branch name
         status: Current status (queued, running, completed, failed)
-        health_score: Calculated health score (0-100)
+        health_score: Calculated overall health score (0-100)
+        structure_score: Structure category score (0-100)
+        quality_score: Quality category score (0-100)
+        architecture_score: Architecture category score (0-100)
+        score_delta: Change in score from previous analysis (for PR analyses)
         findings_count: Number of issues found
+        files_analyzed: Number of files analyzed
+        progress_percent: Current progress percentage (0-100)
+        current_step: Description of current analysis step
+        triggered_by_id: User who triggered the analysis (optional)
         started_at: When the analysis started
         completed_at: When the analysis finished
         error_message: Error message if the analysis failed
         created_at: When the analysis was queued
+        updated_at: When the record was last updated
         repository: The repository being analyzed
+        triggered_by: The user who triggered the analysis
     """
 
     __tablename__ = "analysis_runs"
@@ -64,7 +75,24 @@ class AnalysisRun(Base, UUIDPrimaryKeyMixin):
         default=AnalysisStatus.QUEUED,
         nullable=False,
     )
+    # Score fields
     health_score: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    structure_score: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    quality_score: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    architecture_score: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    score_delta: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
     )
@@ -73,6 +101,27 @@ class AnalysisRun(Base, UUIDPrimaryKeyMixin):
         default=0,
         nullable=False,
     )
+    files_analyzed: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    # Progress tracking fields
+    progress_percent: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    current_step: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    # Trigger tracking
+    triggered_by_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Timestamps
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
@@ -90,11 +139,21 @@ class AnalysisRun(Base, UUIDPrimaryKeyMixin):
         server_default=func.now(),
         nullable=False,
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
     # Relationships
     repository: Mapped["Repository"] = relationship(
         "Repository",
         back_populates="analysis_runs",
+    )
+    triggered_by: Mapped["User | None"] = relationship(
+        "User",
+        foreign_keys=[triggered_by_id],
     )
 
     __table_args__ = (
@@ -102,6 +161,7 @@ class AnalysisRun(Base, UUIDPrimaryKeyMixin):
         Index("ix_analysis_runs_commit_sha", "commit_sha"),
         Index("ix_analysis_runs_status", "status"),
         Index("ix_analysis_runs_created_at", "created_at"),
+        Index("ix_analysis_runs_triggered_by_id", "triggered_by_id"),
     )
 
     def __repr__(self) -> str:

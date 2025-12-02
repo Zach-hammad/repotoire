@@ -1,17 +1,20 @@
-"""Database session management for async SQLAlchemy.
+"""Database session management for async and sync SQLAlchemy.
 
-This module provides async database session management using SQLAlchemy's
-async engine and session factories. It's designed for use with FastAPI's
-dependency injection system.
+This module provides database session management using SQLAlchemy's
+async and sync engines and session factories. It's designed for use with:
+- FastAPI's dependency injection system (async)
+- Celery workers (sync)
 """
 
 import os
 import ssl
-from typing import AsyncGenerator
+from contextlib import contextmanager
+from typing import AsyncGenerator, Generator
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session, sessionmaker
 
 from repotoire.logging_config import get_logger
 
@@ -89,6 +92,75 @@ async_session_factory = async_sessionmaker(
     autoflush=False,
 )
 
+# Sync database URL - convert asyncpg back to psycopg2
+SYNC_DATABASE_URL = _cleaned_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+
+
+def _parse_sync_database_url(url: str) -> tuple[str, dict]:
+    """Parse sync DATABASE_URL and extract connect_args.
+
+    psycopg2 supports sslmode in URL, so we don't need to extract it.
+    Returns:
+        Tuple of (url, connect_args)
+    """
+    parsed = urlparse(url)
+    query_params = parse_qs(parsed.query)
+    sslmode = query_params.get("sslmode", [None])[0]
+
+    connect_args: dict = {}
+    if sslmode in ("require", "verify-ca", "verify-full"):
+        # psycopg2 handles sslmode in URL, but we can add extra args if needed
+        pass
+
+    return url, connect_args
+
+
+_sync_url, _sync_connect_args = _parse_sync_database_url(SYNC_DATABASE_URL)
+
+# Create sync engine for Celery workers
+sync_engine = create_engine(
+    _sync_url,
+    echo=os.getenv("DATABASE_ECHO", "false").lower() == "true",
+    pool_size=int(os.getenv("DATABASE_POOL_SIZE", "5")),
+    max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "10")),
+    pool_pre_ping=True,
+    connect_args=_sync_connect_args,
+)
+
+# Create sync session factory for Celery workers
+sync_session_factory = sessionmaker(
+    sync_engine,
+    class_=Session,
+    expire_on_commit=False,
+    autoflush=False,
+)
+
+
+@contextmanager
+def get_sync_session() -> Generator[Session, None, None]:
+    """Context manager for sync database sessions.
+
+    Designed for use in Celery workers where async is not available.
+
+    Usage:
+        with get_sync_session() as session:
+            repo = session.get(Repository, repo_id)
+            session.commit()
+
+    Yields:
+        Session: A sync database session that is automatically closed
+            after the context exits.
+    """
+    session = sync_session_factory()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency that provides a database session.
@@ -136,4 +208,14 @@ async def close_db() -> None:
     This should be called during application shutdown.
     """
     await engine.dispose()
+    sync_engine.dispose()
     logger.info("Database connections closed")
+
+
+def close_sync_db() -> None:
+    """Close sync database connections.
+
+    This should be called when Celery workers shut down.
+    """
+    sync_engine.dispose()
+    logger.info("Sync database connections closed")

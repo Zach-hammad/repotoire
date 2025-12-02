@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from repotoire.api.routes import account, analytics, billing, code, fixes, github, historical, notifications, sandbox, webhooks
+from repotoire.api.routes import account, analysis, analytics, billing, code, fixes, github, historical, notifications, sandbox, webhooks
 from repotoire.api.models import ErrorResponse
 from repotoire.logging_config import get_logger
 
@@ -75,6 +75,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(account.router, prefix="/api/v1")
+app.include_router(analysis.router, prefix="/api/v1")
 app.include_router(code.router, prefix="/api/v1")
 app.include_router(historical.router, prefix="/api/v1")
 app.include_router(fixes.router, prefix="/api/v1")
@@ -98,6 +99,11 @@ async def root():
             "search": "POST /api/v1/code/search",
             "ask": "POST /api/v1/code/ask",
             "embeddings_status": "GET /api/v1/code/embeddings/status",
+            "analysis_trigger": "POST /api/v1/analysis/trigger",
+            "analysis_status": "GET /api/v1/analysis/{id}/status",
+            "analysis_progress": "GET /api/v1/analysis/{id}/progress",
+            "analysis_history": "GET /api/v1/analysis/history",
+            "analysis_concurrency": "GET /api/v1/analysis/concurrency",
             "ingest_git": "POST /api/v1/historical/ingest-git",
             "query_history": "POST /api/v1/historical/query",
             "entity_timeline": "POST /api/v1/historical/timeline",
