@@ -32,6 +32,7 @@ from repotoire.api.services.gdpr import (
 from repotoire.db.models import ConsentType, ExportStatus, User
 from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
+from repotoire.services.email import get_email_service
 
 logger = get_logger(__name__)
 
@@ -366,8 +367,12 @@ async def delete_account(
     # Schedule deletion
     result = await schedule_deletion(db, db_user.id)
 
-    # TODO: Queue email notification
-    # background_tasks.add_task(send_deletion_confirmation_email, db_user.email)
+    # Send deletion confirmation email
+    background_tasks.add_task(
+        _send_deletion_confirmation_email,
+        user_email=db_user.email,
+        deletion_date=result.deletion_date.strftime("%B %d, %Y"),
+    )
 
     return DeletionScheduledResponse(
         deletion_scheduled_for=result.deletion_date,
@@ -396,6 +401,7 @@ async def get_deletion_status(
 
 @router.post("/cancel-deletion", response_model=CancelDeletionResponse)
 async def cancel_account_deletion(
+    background_tasks: BackgroundTasks,
     user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CancelDeletionResponse:
@@ -409,6 +415,12 @@ async def cancel_account_deletion(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No pending deletion found to cancel",
         )
+
+    # Send deletion cancelled confirmation email
+    background_tasks.add_task(
+        _send_deletion_cancelled_email,
+        user_email=db_user.email,
+    )
 
     return CancelDeletionResponse(
         status="cancelled",
@@ -531,3 +543,41 @@ async def _generate_export_background(export_id: UUID, user_id: UUID) -> None:
                 error_message=str(e),
             )
             await db.commit()
+
+
+async def _send_deletion_confirmation_email(user_email: str, deletion_date: str) -> None:
+    """Send deletion confirmation email.
+
+    Args:
+        user_email: User's email address.
+        deletion_date: Formatted deletion date string.
+    """
+    import os
+
+    try:
+        email_service = get_email_service()
+        base_url = os.environ.get("APP_BASE_URL", "https://app.repotoire.io")
+        cancel_url = f"{base_url}/settings/privacy?cancel_deletion=true"
+
+        await email_service.send_deletion_confirmation(
+            user_email=user_email,
+            deletion_date=deletion_date,
+            cancel_url=cancel_url,
+        )
+        logger.info(f"Deletion confirmation email sent to {user_email}")
+    except Exception as e:
+        logger.error(f"Failed to send deletion confirmation email to {user_email}: {e}")
+
+
+async def _send_deletion_cancelled_email(user_email: str) -> None:
+    """Send deletion cancelled confirmation email.
+
+    Args:
+        user_email: User's email address.
+    """
+    try:
+        email_service = get_email_service()
+        await email_service.send_deletion_cancelled(user_email=user_email)
+        logger.info(f"Deletion cancelled email sent to {user_email}")
+    except Exception as e:
+        logger.error(f"Failed to send deletion cancelled email to {user_email}: {e}")
