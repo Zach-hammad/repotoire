@@ -1,22 +1,110 @@
 """FastAPI application for Repotoire RAG API."""
 
 import os
-from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
+import uuid
 from contextlib import asynccontextmanager
+from typing import Any
 
-from repotoire.api.routes import account, analysis, analytics, billing, cli_auth, code, fixes, github, historical, notifications, sandbox, team, usage, webhooks
+import sentry_sdk
+from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.redis import RedisIntegration
+from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+from starlette.middleware.base import BaseHTTPMiddleware
+
 from repotoire.api.models import ErrorResponse
-from repotoire.logging_config import get_logger
+from repotoire.api.routes import (
+    account,
+    analysis,
+    analytics,
+    billing,
+    cli_auth,
+    code,
+    fixes,
+    github,
+    historical,
+    notifications,
+    sandbox,
+    team,
+    usage,
+    webhooks,
+)
+from repotoire.logging_config import clear_context, get_logger, set_context
 
 logger = get_logger(__name__)
+
+
+# Initialize Sentry if DSN is configured
+def _init_sentry() -> None:
+    """Initialize Sentry SDK with FastAPI integrations."""
+    sentry_dsn = os.getenv("SENTRY_DSN")
+    if not sentry_dsn:
+        logger.info("SENTRY_DSN not configured, Sentry error tracking disabled")
+        return
+
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        environment=os.getenv("ENVIRONMENT", "development"),
+        release=os.getenv("RELEASE_VERSION"),
+        integrations=[
+            FastApiIntegration(transaction_style="endpoint"),
+            SqlalchemyIntegration(),
+            RedisIntegration(),
+        ],
+        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+        profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.1")),
+        send_default_pii=False,  # GDPR compliance - no PII sent to Sentry
+        # Filter out health check transactions to reduce noise
+        traces_sampler=_traces_sampler,
+    )
+    logger.info("Sentry SDK initialized", extra={"environment": os.getenv("ENVIRONMENT", "development")})
+
+
+def _traces_sampler(sampling_context: dict[str, Any]) -> float:
+    """Custom traces sampler to filter out health checks."""
+    # Don't trace health check endpoints
+    transaction_name = sampling_context.get("transaction_context", {}).get("name", "")
+    if transaction_name in ("/health", "/health/ready", "GET /health", "GET /health/ready"):
+        return 0.0
+
+    # Use default sample rate for everything else
+    return float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1"))
+
+
+# Initialize Sentry early
+_init_sentry()
+
 
 # CORS origins - configure for production
 CORS_ORIGINS = os.getenv(
     "CORS_ORIGINS",
     "http://localhost:3000,http://localhost:3001"
 ).split(",")
+
+
+class CorrelationIdMiddleware(BaseHTTPMiddleware):
+    """Middleware to add correlation IDs to all requests for distributed tracing."""
+
+    async def dispatch(self, request: Request, call_next):
+        # Get correlation ID from header or generate new one
+        correlation_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
+
+        # Set in logging context
+        set_context(correlation_id=correlation_id)
+
+        # Set in Sentry scope for error tracking
+        with sentry_sdk.configure_scope() as scope:
+            scope.set_tag("correlation_id", correlation_id)
+
+        try:
+            response = await call_next(request)
+            # Add correlation ID to response headers
+            response.headers["X-Correlation-ID"] = correlation_id
+            return response
+        finally:
+            clear_context()
 
 
 @asynccontextmanager
@@ -62,6 +150,9 @@ app = FastAPI(
     openapi_url="/openapi.json",
     lifespan=lifespan
 )
+
+# Add correlation ID middleware first (before CORS)
+app.add_middleware(CorrelationIdMiddleware)
 
 # CORS middleware for web clients - allow all origins in development
 app.add_middleware(
@@ -138,16 +229,96 @@ async def health_check():
     return {"status": "healthy"}
 
 
+@app.get("/health/ready", tags=["Health"])
+async def readiness_check():
+    """Readiness check verifying all backend dependencies.
+
+    Returns 200 if all dependencies are healthy, 503 if any are down.
+    Used by load balancers and orchestrators to determine if the
+    instance should receive traffic.
+    """
+    checks: dict[str, Any] = {}
+    all_healthy = True
+
+    # Check PostgreSQL via SQLAlchemy
+    try:
+        from sqlalchemy import text
+
+        from repotoire.db.session import engine
+
+        async with engine.begin() as conn:
+            await conn.execute(text("SELECT 1"))
+        checks["postgres"] = True
+    except ImportError:
+        # SQLAlchemy not available, skip check
+        checks["postgres"] = "skipped"
+    except Exception as e:
+        checks["postgres"] = False
+        checks["postgres_error"] = str(e)
+        all_healthy = False
+        logger.warning(f"PostgreSQL health check failed: {e}")
+
+    # Check Redis (using sync client with timeout for simplicity)
+    try:
+        import redis
+
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        redis_client = redis.from_url(redis_url, socket_timeout=5.0, socket_connect_timeout=5.0)
+        redis_client.ping()
+        redis_client.close()
+        checks["redis"] = True
+    except ImportError:
+        checks["redis"] = "skipped"
+    except Exception as e:
+        checks["redis"] = False
+        checks["redis_error"] = str(e)
+        all_healthy = False
+        logger.warning(f"Redis health check failed: {e}")
+
+    # Check Neo4j
+    try:
+        from repotoire.graph.factory import create_client
+
+        client = create_client()
+        client.verify_connectivity()
+        checks["neo4j"] = True
+        client.close()
+    except ImportError:
+        checks["neo4j"] = "skipped"
+    except Exception as e:
+        checks["neo4j"] = False
+        checks["neo4j_error"] = str(e)
+        all_healthy = False
+        logger.warning(f"Neo4j health check failed: {e}")
+
+    status_code = 200 if all_healthy else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "ready" if all_healthy else "not_ready",
+            "checks": checks,
+        }
+    )
+
+
 # Global exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Handle unexpected exceptions."""
+    # Capture exception in Sentry with request context
+    sentry_sdk.capture_exception(exc)
+
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
+
+    # Don't expose internal error details in production
+    is_production = os.getenv("ENVIRONMENT", "development") == "production"
+    detail = "An unexpected error occurred. Please try again later." if is_production else str(exc)
+
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=ErrorResponse(
             error="Internal server error",
-            detail=str(exc),
+            detail=detail,
             error_code="INTERNAL_ERROR"
         ).model_dump()
     )

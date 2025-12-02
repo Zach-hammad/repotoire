@@ -20,8 +20,37 @@ Usage:
 
 import os
 
+import sentry_sdk
 from celery import Celery
 from kombu import Queue
+from sentry_sdk.integrations.celery import CeleryIntegration
+from sentry_sdk.integrations.redis import RedisIntegration
+
+
+def _init_sentry() -> None:
+    """Initialize Sentry SDK for Celery workers."""
+    sentry_dsn = os.getenv("SENTRY_DSN")
+    if not sentry_dsn:
+        return
+
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        environment=os.getenv("ENVIRONMENT", "development"),
+        release=os.getenv("RELEASE_VERSION"),
+        integrations=[
+            CeleryIntegration(
+                monitor_beat_tasks=True,  # Track beat task execution
+                propagate_traces=True,  # Propagate traces to child tasks
+            ),
+            RedisIntegration(),
+        ],
+        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+        send_default_pii=False,  # GDPR compliance
+    )
+
+
+# Initialize Sentry before creating Celery app
+_init_sentry()
 
 # Redis connection - supports both local and production Redis
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")

@@ -112,6 +112,7 @@ observability = [
     "opentelemetry-api>=1.20.0",  # OpenTelemetry tracing API
     "opentelemetry-sdk>=1.20.0",  # OpenTelemetry SDK
     "opentelemetry-exporter-otlp>=1.20.0",  # OTLP exporter for distributed tracing
+    "sentry-sdk[fastapi,celery,sqlalchemy]>=2.0.0",  # Error tracking and performance monitoring (REPO-271)
 ]
 
 detectors = [

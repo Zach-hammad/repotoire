@@ -8,10 +8,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 import httpx
+import sentry_sdk
+from clerk_backend_api import AuthenticateRequestOptions, Clerk
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
-from clerk_backend_api import Clerk, AuthenticateRequestOptions
 
 from repotoire.logging_config import get_logger
 
@@ -99,7 +99,7 @@ async def get_current_user(
         # Extract user info from the payload
         payload = request_state.payload or {}
 
-        return ClerkUser(
+        user = ClerkUser(
             user_id=payload.get("sub", ""),
             session_id=payload.get("sid"),
             org_id=payload.get("org_id"),
@@ -107,6 +107,15 @@ async def get_current_user(
             org_slug=payload.get("org_slug"),
             claims=payload,
         )
+
+        # Set Sentry user context for error tracking (no PII - just IDs)
+        sentry_sdk.set_user({"id": user.user_id})
+        if user.org_id:
+            sentry_sdk.set_tag("org_id", user.org_id)
+        if user.session_id:
+            sentry_sdk.set_tag("session_id", user.session_id)
+
+        return user
 
     except HTTPException:
         raise
