@@ -66,11 +66,12 @@ function updateAnalytics(analytics: boolean): void {
   if (typeof window === "undefined") return;
 
   // PostHog integration
-  if ((window as { posthog?: { opt_in_capturing: () => void; opt_out_capturing: () => void } }).posthog) {
+  const windowWithPosthog = window as unknown as { posthog?: { opt_in_capturing: () => void; opt_out_capturing: () => void } };
+  if (windowWithPosthog.posthog) {
     if (analytics) {
-      (window as { posthog: { opt_in_capturing: () => void } }).posthog.opt_in_capturing();
+      windowWithPosthog.posthog.opt_in_capturing();
     } else {
-      (window as { posthog: { opt_out_capturing: () => void } }).posthog.opt_out_capturing();
+      windowWithPosthog.posthog.opt_out_capturing();
     }
   }
 
