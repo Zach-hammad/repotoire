@@ -3,13 +3,19 @@
 This module provides a high-level interface for executing code and commands
 in E2B cloud sandboxes. It supports async context manager usage for proper
 resource cleanup and graceful degradation when E2B is not configured.
+
+Quota enforcement (REPO-299):
+    When customer_id and tier are provided, the executor will:
+    - Check quotas before creating a sandbox
+    - Track concurrent sandboxes
+    - Record usage after completion
 """
 
 import asyncio
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from repotoire.logging_config import get_logger
 from repotoire.sandbox.config import SandboxConfig
@@ -19,6 +25,11 @@ from repotoire.sandbox.exceptions import (
     SandboxTimeoutError,
     SandboxResourceError,
 )
+
+if TYPE_CHECKING:
+    from repotoire.db.models import PlanTier
+    from repotoire.sandbox.enforcement import QuotaEnforcer
+    from repotoire.sandbox.usage import SandboxUsageTracker
 
 logger = get_logger(__name__)
 
@@ -77,6 +88,7 @@ class SandboxExecutor:
     - Running shell commands
     - Uploading and downloading files
     - Proper resource cleanup via async context manager
+    - Quota enforcement (REPO-299)
 
     Usage:
         ```python
@@ -87,19 +99,60 @@ class SandboxExecutor:
             print(result.stdout)
         ```
 
+    With quota enforcement:
+        ```python
+        from repotoire.sandbox.enforcement import QuotaEnforcer
+        from repotoire.sandbox.usage import SandboxUsageTracker
+        from repotoire.db.models import PlanTier
+
+        config = SandboxConfig.from_env()
+        enforcer = QuotaEnforcer()
+        tracker = SandboxUsageTracker()
+
+        async with SandboxExecutor(
+            config,
+            customer_id="cust_123",
+            tier=PlanTier.PRO,
+            quota_enforcer=enforcer,
+            usage_tracker=tracker,
+        ) as sandbox:
+            result = await sandbox.execute_code("print('Hello!')")
+        # Usage automatically recorded on exit
+        ```
+
     When E2B_API_KEY is not configured, operations will raise
     SandboxConfigurationError with helpful guidance.
     """
 
-    def __init__(self, config: SandboxConfig):
+    def __init__(
+        self,
+        config: SandboxConfig,
+        customer_id: Optional[str] = None,
+        tier: Optional["PlanTier"] = None,
+        quota_enforcer: Optional["QuotaEnforcer"] = None,
+        usage_tracker: Optional["SandboxUsageTracker"] = None,
+        operation_type: str = "code_execution",
+    ):
         """Initialize sandbox executor.
 
         Args:
             config: Sandbox configuration (use SandboxConfig.from_env())
+            customer_id: Customer identifier for quota enforcement
+            tier: Customer's subscription tier for quota limits
+            quota_enforcer: QuotaEnforcer instance for checking limits
+            usage_tracker: SandboxUsageTracker for recording usage
+            operation_type: Type of operation for metrics/tracking
         """
         self.config = config
+        self.customer_id = customer_id
+        self.tier = tier
+        self.quota_enforcer = quota_enforcer
+        self.usage_tracker = usage_tracker
+        self.operation_type = operation_type
         self._sandbox = None
         self._sandbox_id: Optional[str] = None
+        self._start_time: Optional[float] = None
+        self._quota_checked = False
 
     async def __aenter__(self) -> "SandboxExecutor":
         """Enter async context and create sandbox.
@@ -109,6 +162,7 @@ class SandboxExecutor:
 
         Raises:
             SandboxConfigurationError: If E2B is not configured
+            QuotaExceededError: If customer quota is exceeded
         """
         if not self.config.is_configured:
             logger.warning(
@@ -117,12 +171,37 @@ class SandboxExecutor:
             # Don't create sandbox - operations will fail with clear error
             return self
 
+        # Check quota before creating sandbox (REPO-299)
+        if self.customer_id and self.tier and self.quota_enforcer:
+            try:
+                await self.quota_enforcer.enforce_or_raise(self.customer_id, self.tier)
+                self._quota_checked = True
+                logger.debug(
+                    f"Quota check passed for {self.customer_id}",
+                    extra={"tier": self.tier.value if self.tier else None},
+                )
+            except Exception as e:
+                # Re-raise QuotaExceededError, but let other errors through
+                # with a warning (fail open for non-quota errors)
+                from repotoire.sandbox.enforcement import QuotaExceededError
+                if isinstance(e, QuotaExceededError):
+                    raise
+                logger.warning(f"Quota check failed (non-blocking): {e}")
+
+        # Track concurrent sandboxes (REPO-299)
+        if self.customer_id and self.usage_tracker:
+            await self.usage_tracker.increment_concurrent(
+                self.customer_id,
+                "pending",  # Will be updated with real sandbox_id
+                self.operation_type,
+            )
+
         try:
             # Import e2b only when actually needed
             from e2b_code_interpreter import Sandbox
 
             logger.info("Creating E2B sandbox...")
-            start_time = time.time()
+            self._start_time = time.time()
 
             # Create sandbox with configured options
             # Note: E2B uses sync API, we run it in executor to be async-friendly
@@ -140,21 +219,39 @@ class SandboxExecutor:
             # Store sandbox ID for logging/debugging
             self._sandbox_id = getattr(self._sandbox, "sandbox_id", "unknown")
 
-            duration_ms = int((time.time() - start_time) * 1000)
+            # Update concurrent tracking with real sandbox ID
+            if self.customer_id and self.usage_tracker:
+                # Remove the "pending" entry and add with real ID
+                await self.usage_tracker.decrement_concurrent(self.customer_id, "pending")
+                await self.usage_tracker.increment_concurrent(
+                    self.customer_id,
+                    self._sandbox_id,
+                    self.operation_type,
+                )
+
+            duration_ms = int((time.time() - self._start_time) * 1000)
             logger.info(
                 f"E2B sandbox created",
                 extra={
                     "sandbox_id": self._sandbox_id,
                     "duration_ms": duration_ms,
+                    "customer_id": self.customer_id,
                 },
             )
 
         except ImportError:
+            # Clean up concurrent tracking on failure
+            if self.customer_id and self.usage_tracker:
+                await self.usage_tracker.decrement_concurrent(self.customer_id, "pending")
             raise SandboxConfigurationError(
                 "e2b-code-interpreter package not installed",
                 suggestion="Install with: pip install e2b-code-interpreter",
             )
         except Exception as e:
+            # Clean up concurrent tracking on failure
+            if self.customer_id and self.usage_tracker:
+                await self.usage_tracker.decrement_concurrent(self.customer_id, "pending")
+
             error_msg = str(e)
             if "API key" in error_msg or "authentication" in error_msg.lower():
                 raise SandboxConfigurationError(
@@ -169,7 +266,15 @@ class SandboxExecutor:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Exit async context and cleanup sandbox."""
+        """Exit async context and cleanup sandbox.
+
+        Records usage and decrements concurrent count (REPO-299).
+        """
+        # Calculate duration for usage tracking
+        duration_seconds = 0.0
+        if self._start_time is not None:
+            duration_seconds = time.time() - self._start_time
+
         if self._sandbox is not None:
             try:
                 logger.debug(f"Killing sandbox {self._sandbox_id}")
@@ -183,6 +288,41 @@ class SandboxExecutor:
                 )
             finally:
                 self._sandbox = None
+
+        # Record usage after sandbox completes (REPO-299)
+        if self.customer_id and self.usage_tracker:
+            # Decrement concurrent count
+            if self._sandbox_id:
+                await self.usage_tracker.decrement_concurrent(
+                    self.customer_id,
+                    self._sandbox_id,
+                )
+
+            # Record usage (minutes and cost)
+            if duration_seconds > 0:
+                # Calculate cost based on config
+                from repotoire.sandbox.metrics import calculate_cost
+                cost_usd = calculate_cost(
+                    duration_seconds,
+                    cpu_count=self.config.cpu_count,
+                    memory_gb=self.config.memory_mb / 1024.0,
+                )
+
+                try:
+                    await self.usage_tracker.record_usage(
+                        self.customer_id,
+                        duration_seconds,
+                        cost_usd,
+                    )
+                    logger.debug(
+                        f"Recorded usage for {self.customer_id}",
+                        extra={
+                            "duration_seconds": duration_seconds,
+                            "cost_usd": cost_usd,
+                        },
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to record usage: {e}")
 
     def _ensure_sandbox(self, operation: str) -> None:
         """Ensure sandbox is available for operation.

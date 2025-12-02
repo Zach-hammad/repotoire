@@ -438,3 +438,304 @@ COMMENT ON COLUMN customer_usage.subscription_tier IS 'Tier: trial (50 one-time)
 COMMENT ON FUNCTION check_trial_limit IS 'Check if customer can execute based on tier limits';
 COMMENT ON FUNCTION increment_customer_usage IS 'Increment execution count after successful operation';
 COMMENT ON FUNCTION upgrade_customer_tier IS 'Upgrade customer to new subscription tier';
+
+-- =============================================================================
+-- Per-Customer Sandbox Quotas (REPO-299)
+-- =============================================================================
+
+-- Daily sandbox usage tracking table
+CREATE TABLE IF NOT EXISTS sandbox_usage (
+    id SERIAL PRIMARY KEY,
+    customer_id TEXT NOT NULL,
+    date DATE NOT NULL,
+    sandbox_minutes_used FLOAT DEFAULT 0,
+    sandbox_count INT DEFAULT 0,
+    cost_usd FLOAT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(customer_id, date)
+);
+
+-- Index for efficient customer+date lookups
+CREATE INDEX IF NOT EXISTS idx_sandbox_usage_customer_date
+    ON sandbox_usage (customer_id, date DESC);
+
+-- Index for monthly aggregation queries
+CREATE INDEX IF NOT EXISTS idx_sandbox_usage_date
+    ON sandbox_usage (date);
+
+-- Admin quota overrides table
+-- Allows support team to increase limits for specific customers
+CREATE TABLE IF NOT EXISTS sandbox_quota_overrides (
+    customer_id TEXT PRIMARY KEY,
+    max_concurrent_sandboxes INT,
+    max_daily_sandbox_minutes INT,
+    max_monthly_sandbox_minutes INT,
+    max_sandboxes_per_day INT,
+    override_reason TEXT,
+    created_by TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Function: Get daily usage for a customer
+CREATE OR REPLACE FUNCTION get_daily_sandbox_usage(
+    p_customer_id TEXT,
+    p_date DATE DEFAULT CURRENT_DATE
+)
+RETURNS TABLE (
+    minutes_used FLOAT,
+    sandbox_count INT,
+    cost_usd FLOAT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        COALESCE(su.sandbox_minutes_used, 0)::FLOAT,
+        COALESCE(su.sandbox_count, 0)::INT,
+        COALESCE(su.cost_usd, 0)::FLOAT
+    FROM sandbox_usage su
+    WHERE su.customer_id = p_customer_id
+      AND su.date = p_date;
+
+    -- Return zeros if no record exists
+    IF NOT FOUND THEN
+        RETURN QUERY SELECT 0::FLOAT, 0::INT, 0::FLOAT;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function: Get monthly usage for a customer
+CREATE OR REPLACE FUNCTION get_monthly_sandbox_usage(
+    p_customer_id TEXT,
+    p_month DATE DEFAULT DATE_TRUNC('month', CURRENT_DATE)::DATE
+)
+RETURNS TABLE (
+    minutes_used FLOAT,
+    sandbox_count INT,
+    cost_usd FLOAT,
+    days_active INT
+) AS $$
+DECLARE
+    v_month_start DATE;
+    v_month_end DATE;
+BEGIN
+    v_month_start := DATE_TRUNC('month', p_month)::DATE;
+    v_month_end := (DATE_TRUNC('month', p_month) + INTERVAL '1 month')::DATE;
+
+    RETURN QUERY
+    SELECT
+        COALESCE(SUM(su.sandbox_minutes_used), 0)::FLOAT,
+        COALESCE(SUM(su.sandbox_count), 0)::INT,
+        COALESCE(SUM(su.cost_usd), 0)::FLOAT,
+        COUNT(DISTINCT su.date)::INT
+    FROM sandbox_usage su
+    WHERE su.customer_id = p_customer_id
+      AND su.date >= v_month_start
+      AND su.date < v_month_end;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function: Record sandbox usage (upsert)
+CREATE OR REPLACE FUNCTION record_sandbox_usage(
+    p_customer_id TEXT,
+    p_minutes FLOAT,
+    p_cost_usd FLOAT,
+    p_date DATE DEFAULT CURRENT_DATE
+)
+RETURNS VOID AS $$
+BEGIN
+    INSERT INTO sandbox_usage (customer_id, date, sandbox_minutes_used, sandbox_count, cost_usd)
+    VALUES (p_customer_id, p_date, p_minutes, 1, p_cost_usd)
+    ON CONFLICT (customer_id, date) DO UPDATE SET
+        sandbox_minutes_used = sandbox_usage.sandbox_minutes_used + EXCLUDED.sandbox_minutes_used,
+        sandbox_count = sandbox_usage.sandbox_count + 1,
+        cost_usd = sandbox_usage.cost_usd + EXCLUDED.cost_usd,
+        updated_at = NOW();
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function: Check quota limits for a customer
+-- Returns whether the customer is within their quota limits
+CREATE OR REPLACE FUNCTION check_sandbox_quota(
+    p_customer_id TEXT,
+    p_tier TEXT DEFAULT 'free',
+    p_concurrent_count INT DEFAULT 0
+)
+RETURNS TABLE (
+    allowed BOOLEAN,
+    quota_type TEXT,
+    current_value FLOAT,
+    limit_value FLOAT,
+    usage_percent FLOAT,
+    message TEXT
+) AS $$
+DECLARE
+    v_max_concurrent INT;
+    v_max_daily_minutes INT;
+    v_max_monthly_minutes INT;
+    v_max_daily_sessions INT;
+    v_daily_minutes FLOAT;
+    v_daily_sessions INT;
+    v_monthly_minutes FLOAT;
+    v_override RECORD;
+BEGIN
+    -- Get tier limits (defaults)
+    CASE p_tier
+        WHEN 'enterprise' THEN
+            v_max_concurrent := 50;
+            v_max_daily_minutes := 1440;
+            v_max_monthly_minutes := 43200;
+            v_max_daily_sessions := 500;
+        WHEN 'pro' THEN
+            v_max_concurrent := 10;
+            v_max_daily_minutes := 300;
+            v_max_monthly_minutes := 6000;
+            v_max_daily_sessions := 100;
+        ELSE  -- 'free' or unknown
+            v_max_concurrent := 2;
+            v_max_daily_minutes := 30;
+            v_max_monthly_minutes := 300;
+            v_max_daily_sessions := 10;
+    END CASE;
+
+    -- Check for admin override
+    SELECT * INTO v_override
+    FROM sandbox_quota_overrides
+    WHERE customer_id = p_customer_id;
+
+    IF FOUND THEN
+        v_max_concurrent := COALESCE(v_override.max_concurrent_sandboxes, v_max_concurrent);
+        v_max_daily_minutes := COALESCE(v_override.max_daily_sandbox_minutes, v_max_daily_minutes);
+        v_max_monthly_minutes := COALESCE(v_override.max_monthly_sandbox_minutes, v_max_monthly_minutes);
+        v_max_daily_sessions := COALESCE(v_override.max_sandboxes_per_day, v_max_daily_sessions);
+    END IF;
+
+    -- Get current usage
+    SELECT COALESCE(sandbox_minutes_used, 0), COALESCE(sandbox_count, 0)
+    INTO v_daily_minutes, v_daily_sessions
+    FROM sandbox_usage
+    WHERE customer_id = p_customer_id AND date = CURRENT_DATE;
+
+    v_daily_minutes := COALESCE(v_daily_minutes, 0);
+    v_daily_sessions := COALESCE(v_daily_sessions, 0);
+
+    SELECT COALESCE(SUM(sandbox_minutes_used), 0)
+    INTO v_monthly_minutes
+    FROM sandbox_usage
+    WHERE customer_id = p_customer_id
+      AND date >= DATE_TRUNC('month', CURRENT_DATE)
+      AND date < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month';
+
+    -- Check concurrent limit
+    IF p_concurrent_count >= v_max_concurrent THEN
+        RETURN QUERY SELECT
+            FALSE,
+            'concurrent_sandboxes'::TEXT,
+            p_concurrent_count::FLOAT,
+            v_max_concurrent::FLOAT,
+            (p_concurrent_count::FLOAT / v_max_concurrent * 100),
+            format('Maximum concurrent sandboxes (%s) reached', v_max_concurrent);
+        RETURN;
+    END IF;
+
+    -- Check daily minutes
+    IF v_daily_minutes >= v_max_daily_minutes THEN
+        RETURN QUERY SELECT
+            FALSE,
+            'daily_minutes'::TEXT,
+            v_daily_minutes,
+            v_max_daily_minutes::FLOAT,
+            (v_daily_minutes / v_max_daily_minutes * 100),
+            format('Daily sandbox minutes (%s) exceeded', v_max_daily_minutes);
+        RETURN;
+    END IF;
+
+    -- Check daily sessions
+    IF v_daily_sessions >= v_max_daily_sessions THEN
+        RETURN QUERY SELECT
+            FALSE,
+            'daily_sessions'::TEXT,
+            v_daily_sessions::FLOAT,
+            v_max_daily_sessions::FLOAT,
+            (v_daily_sessions::FLOAT / v_max_daily_sessions * 100),
+            format('Daily sandbox sessions (%s) exceeded', v_max_daily_sessions);
+        RETURN;
+    END IF;
+
+    -- Check monthly minutes
+    IF v_monthly_minutes >= v_max_monthly_minutes THEN
+        RETURN QUERY SELECT
+            FALSE,
+            'monthly_minutes'::TEXT,
+            v_monthly_minutes,
+            v_max_monthly_minutes::FLOAT,
+            (v_monthly_minutes / v_max_monthly_minutes * 100),
+            format('Monthly sandbox minutes (%s) exceeded', v_max_monthly_minutes);
+        RETURN;
+    END IF;
+
+    -- All checks passed
+    RETURN QUERY SELECT
+        TRUE,
+        'ok'::TEXT,
+        v_daily_minutes,
+        v_max_daily_minutes::FLOAT,
+        (v_daily_minutes / v_max_daily_minutes * 100),
+        'OK'::TEXT;
+END;
+$$ LANGUAGE plpgsql;
+
+-- View: Current quota status for all customers with usage
+CREATE OR REPLACE VIEW customer_quota_status AS
+SELECT
+    su.customer_id,
+    cu.subscription_tier AS tier,
+    -- Daily usage
+    COALESCE(daily.sandbox_minutes_used, 0) AS daily_minutes_used,
+    CASE cu.subscription_tier
+        WHEN 'enterprise' THEN 1440
+        WHEN 'pro' THEN 300
+        ELSE 30
+    END AS daily_minutes_limit,
+    COALESCE(daily.sandbox_count, 0) AS daily_sessions_used,
+    CASE cu.subscription_tier
+        WHEN 'enterprise' THEN 500
+        WHEN 'pro' THEN 100
+        ELSE 10
+    END AS daily_sessions_limit,
+    -- Monthly usage
+    COALESCE(monthly.total_minutes, 0) AS monthly_minutes_used,
+    CASE cu.subscription_tier
+        WHEN 'enterprise' THEN 43200
+        WHEN 'pro' THEN 6000
+        ELSE 300
+    END AS monthly_minutes_limit,
+    -- Has override
+    qo.customer_id IS NOT NULL AS has_override
+FROM (
+    SELECT DISTINCT customer_id FROM sandbox_usage
+    UNION
+    SELECT customer_id FROM customer_usage
+) su
+LEFT JOIN customer_usage cu ON su.customer_id = cu.customer_id
+LEFT JOIN sandbox_usage daily ON su.customer_id = daily.customer_id AND daily.date = CURRENT_DATE
+LEFT JOIN (
+    SELECT
+        customer_id,
+        SUM(sandbox_minutes_used) AS total_minutes
+    FROM sandbox_usage
+    WHERE date >= DATE_TRUNC('month', CURRENT_DATE)
+    GROUP BY customer_id
+) monthly ON su.customer_id = monthly.customer_id
+LEFT JOIN sandbox_quota_overrides qo ON su.customer_id = qo.customer_id;
+
+-- Comments for documentation
+COMMENT ON TABLE sandbox_usage IS 'Daily sandbox usage tracking per customer for quota enforcement (REPO-299)';
+COMMENT ON COLUMN sandbox_usage.sandbox_minutes_used IS 'Total sandbox execution minutes for this day';
+COMMENT ON COLUMN sandbox_usage.sandbox_count IS 'Number of sandbox sessions started on this day';
+COMMENT ON TABLE sandbox_quota_overrides IS 'Admin overrides for customer sandbox quotas';
+COMMENT ON FUNCTION get_daily_sandbox_usage IS 'Get daily usage summary for a customer';
+COMMENT ON FUNCTION get_monthly_sandbox_usage IS 'Get monthly usage summary for a customer';
+COMMENT ON FUNCTION record_sandbox_usage IS 'Record/update sandbox usage (upsert)';
+COMMENT ON FUNCTION check_sandbox_quota IS 'Check if customer is within quota limits';

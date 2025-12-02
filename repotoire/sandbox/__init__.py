@@ -131,6 +131,29 @@ from repotoire.sandbox.trial import (
     get_trial_manager,
     check_trial_limit,
 )
+from repotoire.sandbox.quotas import (
+    SandboxQuota,
+    QuotaOverride,
+    TIER_QUOTAS,
+    get_quota_for_tier,
+    get_default_quota,
+    apply_override,
+)
+from repotoire.sandbox.usage import (
+    SandboxUsageTracker,
+    UsageSummary,
+    ConcurrentSession,
+    get_usage_tracker,
+)
+from repotoire.sandbox.enforcement import (
+    QuotaEnforcer,
+    QuotaExceededError,
+    QuotaCheckResult,
+    QuotaStatus,
+    QuotaType,
+    QuotaWarningLevel,
+    get_quota_enforcer,
+)
 
 __all__ = [
     # Main client
@@ -216,4 +239,24 @@ __all__ = [
     "TIER_EXECUTION_LIMITS",
     "get_trial_manager",
     "check_trial_limit",
+    # Quota management (REPO-299)
+    "SandboxQuota",
+    "QuotaOverride",
+    "TIER_QUOTAS",
+    "get_quota_for_tier",
+    "get_default_quota",
+    "apply_override",
+    # Usage tracking (REPO-299)
+    "SandboxUsageTracker",
+    "UsageSummary",
+    "ConcurrentSession",
+    "get_usage_tracker",
+    # Quota enforcement (REPO-299)
+    "QuotaEnforcer",
+    "QuotaExceededError",
+    "QuotaCheckResult",
+    "QuotaStatus",
+    "QuotaType",
+    "QuotaWarningLevel",
+    "get_quota_enforcer",
 ]
