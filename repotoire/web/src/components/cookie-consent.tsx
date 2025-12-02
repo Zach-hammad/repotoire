@@ -76,8 +76,9 @@ function updateAnalytics(analytics: boolean): void {
   }
 
   // Google Analytics (if used)
-  if ((window as { gtag?: (...args: unknown[]) => void }).gtag) {
-    (window as { gtag: (...args: unknown[]) => void }).gtag("consent", "update", {
+  const windowWithGtag = window as unknown as { gtag?: (...args: unknown[]) => void };
+  if (windowWithGtag.gtag) {
+    windowWithGtag.gtag("consent", "update", {
       analytics_storage: analytics ? "granted" : "denied",
       ad_storage: "denied", // Always deny ads by default
     });
