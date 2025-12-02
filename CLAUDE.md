@@ -141,6 +141,43 @@ repotoire auto-fix /path/to/repo --severity critical --auto-approve-high
 
 See [docs/AUTO_FIX.md](docs/AUTO_FIX.md) for complete documentation.
 
+### E2B Sandbox: Secure Isolated Execution (Optional)
+
+Repotoire uses [E2B](https://e2b.dev) cloud sandboxes to securely run tests, analysis tools, and MCP skills in isolation, protecting your host system and secrets.
+
+Install and configure:
+```bash
+pip install repotoire[sandbox]
+export E2B_API_KEY="e2b_xxx_your_key"
+```
+
+Run with sandbox:
+```bash
+# Analysis tools run in sandbox automatically
+repotoire analyze /path/to/repo
+
+# Run tests in sandbox during auto-fix
+repotoire auto-fix /path/to/repo --sandbox-tests
+
+# View sandbox metrics and costs
+repotoire sandbox-stats --period 7
+```
+
+**Security features:**
+- Firecracker microVM isolation (separate filesystem, network, processes)
+- Automatic secret filtering (`.env`, `*.key`, `credentials.json` never uploaded)
+- Resource limits (CPU, memory, timeout)
+- Audit logging for all operations
+
+**Custom templates** provide pre-installed tools for faster startup (~5-10s vs ~30-60s):
+```bash
+cd e2b-templates/repotoire-analyzer
+e2b template build
+export E2B_SANDBOX_TEMPLATE="repotoire-analyzer"
+```
+
+See [docs/SANDBOX.md](docs/SANDBOX.md) for complete documentation.
+
 ### Common Commands
 
 ```bash
@@ -202,6 +239,7 @@ Codebase → Parser (AST) → Entities + Relationships → Neo4j Graph → Detec
 8. **Config** (`repotoire/config.py`): YAML/JSON/TOML support, hierarchical search, env var interpolation
 9. **Validation** (`repotoire/validation.py`): Path/URI/credential validation with helpful error messages
 10. **Auto-Fix** (`repotoire/autofix/`): AI-powered code fixing with GPT-4o + RAG, human-in-the-loop approval, evidence-based justification, git integration
+11. **Sandbox** (`repotoire/sandbox/`): E2B cloud sandbox integration for secure test/tool/skill execution with secret filtering, metrics, and alerts
 
 **Total Analysis Time**: ~3-4 minutes (6x faster than original 12+ minutes)
 
@@ -548,6 +586,7 @@ See full troubleshooting guide in project documentation.
 - **Pre-commit hooks integration** (instant code quality checks before commits)
 - **TimescaleDB metrics tracking** (historical trends, regression detection, period comparison)
 - **Auto-fix system** (AI-powered code fixing with GPT-4o + RAG, human-in-the-loop, evidence-based)
+- **E2B Sandbox** (secure isolated execution for tests, tools, and MCP skills with secret filtering)
 - CLI interface with Rich formatting
 - 8 hybrid detectors + graph detectors
 - Health scoring framework (Structure/Quality/Architecture)
@@ -588,6 +627,7 @@ See full troubleshooting guide in project documentation.
 - **graphdatascience** (>=1.9.0): Neo4j GDS algorithms
 - **tree-sitter** (>=0.20.0): Multi-language parsing
 - **sentence-transformers** (>=2.2.0): Local embeddings (free, no API key)
+- **e2b** (>=0.17.0): E2B cloud sandbox for secure execution
 
 ### Development
 - **pytest** (>=7.4.0): Testing framework
@@ -650,4 +690,5 @@ See full troubleshooting guide in project documentation.
 **For user-facing documentation**, see [README.md](README.md) and [CONFIG.md](CONFIG.md).
 **For RAG/AI features**, see [docs/RAG_API.md](docs/RAG_API.md).
 **For auto-fix features**, see [docs/AUTO_FIX.md](docs/AUTO_FIX.md).
+**For sandbox/security**, see [docs/SANDBOX.md](docs/SANDBOX.md).
 **For contributing**, see CONTRIBUTING.md (planned).
