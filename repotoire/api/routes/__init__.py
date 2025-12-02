@@ -5,6 +5,7 @@ from repotoire.api.routes import (
     analysis,
     analytics,
     billing,
+    cli_auth,
     code,
     fixes,
     github,
@@ -12,6 +13,7 @@ from repotoire.api.routes import (
     notifications,
     sandbox,
     team,
+    usage,
     webhooks,
 )
 
@@ -20,6 +22,7 @@ __all__ = [
     "analysis",
     "analytics",
     "billing",
+    "cli_auth",
     "code",
     "fixes",
     "github",
@@ -27,5 +30,6 @@ __all__ = [
     "notifications",
     "sandbox",
     "team",
+    "usage",
     "webhooks",
 ]

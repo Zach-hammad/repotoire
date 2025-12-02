@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from repotoire.api.routes import account, analysis, analytics, billing, code, fixes, github, historical, notifications, sandbox, team, webhooks
+from repotoire.api.routes import account, analysis, analytics, billing, cli_auth, code, fixes, github, historical, notifications, sandbox, team, usage, webhooks
 from repotoire.api.models import ErrorResponse
 from repotoire.logging_config import get_logger
 
@@ -76,6 +76,7 @@ app.add_middleware(
 # Include routers
 app.include_router(account.router, prefix="/api/v1")
 app.include_router(analysis.router, prefix="/api/v1")
+app.include_router(cli_auth.router, prefix="/api/v1")
 app.include_router(code.router, prefix="/api/v1")
 app.include_router(historical.router, prefix="/api/v1")
 app.include_router(fixes.router, prefix="/api/v1")
@@ -86,6 +87,7 @@ app.include_router(webhooks.router, prefix="/api/v1")
 app.include_router(sandbox.router, prefix="/api/v1")
 app.include_router(notifications.router, prefix="/api/v1")
 app.include_router(team.router, prefix="/api/v1")
+app.include_router(usage.router, prefix="/api/v1")
 
 
 @app.get("/", tags=["Root"])

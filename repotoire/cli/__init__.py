@@ -632,6 +632,13 @@ def ingest(
     default=4,
     help="Number of parallel workers for detector execution (default: 4)",
 )
+@click.option(
+    "--offline",
+    is_flag=True,
+    default=False,
+    envvar="REPOTOIRE_OFFLINE",
+    help="Run without authentication (skip API auth and tier limit checks)",
+)
 @click.pass_context
 def analyze(
     ctx: click.Context,
@@ -646,10 +653,35 @@ def analyze(
     keep_metadata: bool,
     parallel: bool,
     workers: int,
+    offline: bool,
 ) -> None:
     """Analyze codebase health and generate report."""
     # Get config from context
     config: FalkorConfig = ctx.obj['config']
+
+    # Check auth and tier limits (unless offline mode)
+    if not offline:
+        from repotoire.cli.auth import CLIAuth, is_offline_mode
+        from repotoire.cli.tier_limits import TierLimits
+
+        if not is_offline_mode():
+            cli_auth = CLIAuth()
+            credentials = cli_auth.get_current_user()
+
+            if credentials:
+                # User is logged in, check tier limits
+                limits = TierLimits(cli_auth)
+                if not limits.check_can_analyze_sync(credentials):
+                    raise click.Abort()
+
+                if not quiet:
+                    console.print(f"[dim]Authenticated as {credentials.user_email}[/dim]")
+                    if credentials.org_slug:
+                        console.print(f"[dim]Organization: {credentials.org_slug} ({credentials.tier.title()})[/dim]")
+            else:
+                # Not logged in - show hint but allow analysis
+                if not quiet:
+                    console.print("[dim]Tip: Login with 'repotoire auth login' to track usage[/dim]")
 
     # Validate inputs before execution
     try:
@@ -5466,6 +5498,10 @@ cli.add_command(sandbox_stats)
 # Register graph management commands (REPO-263)
 from .graph import graph
 cli.add_command(graph)
+
+# Register auth commands (REPO-267)
+from .auth_commands import auth_group
+cli.add_command(auth_group)
 
 
 @cli.command()
