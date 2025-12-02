@@ -33,8 +33,8 @@ def mock_openai_embeddings():
 
 @pytest.fixture
 def embedder(mock_openai_embeddings):
-    """Create embedder with mocked OpenAI."""
-    return CodeEmbedder()
+    """Create embedder with mocked OpenAI (explicit backend to avoid auto-selection)."""
+    return CodeEmbedder(backend="openai")
 
 
 @pytest.fixture
@@ -96,32 +96,57 @@ def sample_file():
 class TestCodeEmbedder:
     """Test CodeEmbedder initialization and configuration."""
 
-    def test_initialization_with_defaults(self, mock_openai_embeddings):
-        """Test embedder initializes with default config."""
-        embedder = CodeEmbedder()
+    def test_initialization_with_defaults(self, mock_openai_embeddings, monkeypatch):
+        """Test embedder initializes with default config (auto resolves to available backend)."""
+        # Clear API keys so auto resolves to local
+        monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("DEEPINFRA_API_KEY", raising=False)
 
+        mock_st_module = MagicMock()
+        mock_model = MagicMock()
+        mock_model.get_sentence_embedding_dimension.return_value = 1024
+        mock_st_module.SentenceTransformer.return_value = mock_model
+
+        import sys
+        with patch.dict(sys.modules, {'sentence_transformers': mock_st_module}):
+            embedder = CodeEmbedder()
+
+            # Default is now "auto", which resolves to local when no API keys
+            assert embedder.config.backend == "auto"
+            assert embedder.resolved_backend == "local"
+            assert embedder.config.batch_size == 100
+
+    def test_initialization_with_explicit_openai(self, mock_openai_embeddings):
+        """Test embedder initializes with explicit OpenAI backend."""
+        embedder = CodeEmbedder(backend="openai")
+
+        assert embedder.config.backend == "openai"
+        assert embedder.resolved_backend == "openai"
         assert embedder.config.effective_model == "text-embedding-3-small"
-        assert embedder.config.dimensions == 1536
+        assert embedder.dimensions == 1536
         assert embedder.config.batch_size == 100
 
     def test_initialization_with_custom_config(self, mock_openai_embeddings):
         """Test embedder with custom configuration."""
         config = EmbeddingConfig(
+            backend="openai",  # Explicit backend for predictable testing
             model="text-embedding-3-large",
             batch_size=50
         )
         embedder = CodeEmbedder(config=config)
 
         assert embedder.config.effective_model == "text-embedding-3-large"
-        assert embedder.config.dimensions == 1536  # Still OpenAI default dimensions
+        assert embedder.dimensions == 1536  # Still OpenAI default dimensions
         assert embedder.config.batch_size == 50
 
     def test_factory_function(self, mock_openai_embeddings):
-        """Test create_embedder factory function."""
-        embedder = create_embedder(model="text-embedding-3-small")
+        """Test create_embedder factory function with explicit backend."""
+        embedder = create_embedder(backend="openai", model="text-embedding-3-small")
 
         assert isinstance(embedder, CodeEmbedder)
         assert embedder.config.effective_model == "text-embedding-3-small"
+        assert embedder.resolved_backend == "openai"
 
 
 class TestEntityTextConversion:
@@ -743,3 +768,185 @@ class TestDeepInfraEmbeddings:
         assert isinstance(embedder, CodeEmbedder)
         assert embedder.config.backend == "deepinfra"
         assert embedder.dimensions == 4096
+
+
+class TestVoyageEmbeddings:
+    """Test Voyage AI embedding backend (REPO-236)."""
+
+    def test_voyage_backend_config_defaults(self):
+        """Test Voyage backend config has correct defaults."""
+        from repotoire.ai.embeddings import BACKEND_CONFIGS
+
+        voyage_config = BACKEND_CONFIGS["voyage"]
+
+        assert voyage_config["model"] == "voyage-code-3"
+        assert voyage_config["dimensions"] == 1024
+        assert voyage_config["env_key"] == "VOYAGE_API_KEY"
+        assert "models" in voyage_config
+        assert "voyage-code-3" in voyage_config["models"]
+        assert "voyage-3.5" in voyage_config["models"]
+        assert "voyage-3.5-lite" in voyage_config["models"]
+
+    def test_embedding_config_voyage_dimensions(self):
+        """Test EmbeddingConfig returns correct dimensions for Voyage."""
+        config = EmbeddingConfig(backend="voyage")
+
+        assert config.dimensions == 1024
+        assert config.effective_model == "voyage-code-3"
+
+    def test_voyage_backend_requires_api_key(self):
+        """Test Voyage backend raises error without API key."""
+        import os
+
+        # Ensure env var is not set
+        env_backup = os.environ.pop("VOYAGE_API_KEY", None)
+
+        try:
+            with pytest.raises(ValueError, match="VOYAGE_API_KEY"):
+                CodeEmbedder(backend="voyage")
+        finally:
+            # Restore env var if it was set
+            if env_backup:
+                os.environ["VOYAGE_API_KEY"] = env_backup
+
+    def test_voyage_embedder_initialization_with_env_key(self):
+        """Test Voyage embedder initializes with env var API key."""
+        import os
+
+        # Set mock API key
+        os.environ["VOYAGE_API_KEY"] = "test-voyage-key"
+
+        try:
+            embedder = CodeEmbedder(backend="voyage")
+
+            assert embedder.dimensions == 1024
+            assert embedder._voyage_api_key == "test-voyage-key"
+        finally:
+            del os.environ["VOYAGE_API_KEY"]
+
+    def test_voyage_embedder_initialization_with_provided_key(self):
+        """Test Voyage embedder initializes with provided API key."""
+        embedder = CodeEmbedder(backend="voyage", api_key="my-voyage-key")
+
+        assert embedder.dimensions == 1024
+        assert embedder._voyage_api_key == "my-voyage-key"
+
+    def test_voyage_uses_document_type_for_batch(self):
+        """Test Voyage uses input_type='document' for batch embedding."""
+        import sys
+
+        mock_voyageai = MagicMock()
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.embeddings = [[0.1] * 1024, [0.2] * 1024]
+        mock_client.embed.return_value = mock_result
+        mock_voyageai.Client.return_value = mock_client
+
+        with patch.dict(sys.modules, {'voyageai': mock_voyageai}):
+            embedder = CodeEmbedder(backend="voyage", api_key="test-key")
+            embeddings = embedder.embed_batch(["code1", "code2"])
+
+            assert len(embeddings) == 2
+            mock_client.embed.assert_called_once_with(
+                texts=["code1", "code2"],
+                model="voyage-code-3",
+                input_type="document",
+            )
+
+    def test_voyage_uses_query_type_for_search(self):
+        """Test Voyage uses input_type='query' for query embedding."""
+        import sys
+
+        mock_voyageai = MagicMock()
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.embeddings = [[0.1] * 1024]
+        mock_client.embed.return_value = mock_result
+        mock_voyageai.Client.return_value = mock_client
+
+        with patch.dict(sys.modules, {'voyageai': mock_voyageai}):
+            embedder = CodeEmbedder(backend="voyage", api_key="test-key")
+            embedding = embedder.embed_query("find auth functions")
+
+            assert len(embedding) == 1024
+            mock_client.embed.assert_called_once_with(
+                texts=["find auth functions"],
+                model="voyage-code-3",
+                input_type="query",
+            )
+
+    def test_voyage_custom_model(self):
+        """Test Voyage with custom model override."""
+        import sys
+
+        mock_voyageai = MagicMock()
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.embeddings = [[0.1] * 512]
+        mock_client.embed.return_value = mock_result
+        mock_voyageai.Client.return_value = mock_client
+
+        with patch.dict(sys.modules, {'voyageai': mock_voyageai}):
+            embedder = CodeEmbedder(
+                backend="voyage",
+                api_key="test-key",
+                model="voyage-3.5-lite"
+            )
+            # voyage-3.5-lite has 512 dimensions
+            assert embedder.dimensions == 512
+
+            embedder.embed_query("test")
+
+            mock_client.embed.assert_called_once_with(
+                texts=["test"],
+                model="voyage-3.5-lite",
+                input_type="query",
+            )
+
+    def test_voyage_raises_import_error_when_not_installed(self, monkeypatch):
+        """Test Voyage raises ImportError when voyageai package not installed."""
+        import sys
+        import builtins
+
+        # Clear environment to avoid auto-selection issues
+        monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+
+        # Remove voyageai from sys.modules if present
+        voyageai_module = sys.modules.pop('voyageai', None)
+
+        # Also block import attempts
+        original_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == 'voyageai' or (isinstance(name, str) and name.startswith('voyageai')):
+                raise ImportError("No module named 'voyageai'")
+            return original_import(name, *args, **kwargs)
+
+        try:
+            monkeypatch.setattr(builtins, '__import__', mock_import)
+            embedder = CodeEmbedder(backend="voyage", api_key="test-key")
+
+            # This should raise ImportError when trying to embed
+            with pytest.raises(ImportError, match="voyageai package required"):
+                embedder.embed_query("test")
+        finally:
+            if voyageai_module:
+                sys.modules['voyageai'] = voyageai_module
+
+    def test_get_embedding_dimensions_voyage(self):
+        """Test get_embedding_dimensions returns correct value for Voyage."""
+        from repotoire.ai.embeddings import get_embedding_dimensions
+
+        dims = get_embedding_dimensions(backend="voyage")
+
+        assert dims == 1024
+
+    def test_create_embedder_factory_voyage(self):
+        """Test create_embedder factory function with Voyage."""
+        from repotoire.ai.embeddings import create_embedder
+
+        embedder = create_embedder(backend="voyage", api_key="test-key")
+
+        assert isinstance(embedder, CodeEmbedder)
+        assert embedder.config.backend == "voyage"
+        assert embedder.dimensions == 1024

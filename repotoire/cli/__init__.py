@@ -307,20 +307,38 @@ def cli(ctx: click.Context, config: str | None, log_level: str | None, log_forma
 )
 @click.option(
     "--embedding-backend",
-    type=click.Choice(["openai", "local", "deepinfra"], case_sensitive=False),
+    type=click.Choice(["auto", "openai", "local", "deepinfra", "voyage"], case_sensitive=False),
     default=None,
-    help="Embedding backend: 'openai' (high quality), 'deepinfra' (cheap API), or 'local' (free)",
+    help="Embedding backend: 'auto' (selects best available), 'voyage' (code-optimized), 'openai' (high quality), 'deepinfra' (cheap API), or 'local' (free)",
 )
 @click.option(
     "--embedding-model",
     default=None,
-    help="Embedding model (default: text-embedding-3-small for OpenAI, Qwen3-Embedding-0.6B for local, Qwen3-Embedding-8B for DeepInfra)",
+    help="Embedding model (default: text-embedding-3-small for OpenAI, Qwen3-Embedding-0.6B for local, Qwen3-Embedding-8B for DeepInfra, voyage-code-3 for Voyage)",
 )
 @click.option(
     "--batch-size",
     type=int,
     default=None,
     help="Number of entities to batch before loading to graph (overrides config, default: 100)",
+)
+@click.option(
+    "--generate-contexts",
+    is_flag=True,
+    default=False,
+    help="Generate semantic contexts using Claude for improved retrieval (adds cost)",
+)
+@click.option(
+    "--context-model",
+    type=click.Choice(["claude-haiku-3-5-20241022", "claude-sonnet-4-20250514"], case_sensitive=False),
+    default="claude-haiku-3-5-20241022",
+    help="Claude model for context generation (haiku is cheaper, default: claude-haiku-3-5-20241022)",
+)
+@click.option(
+    "--max-context-cost",
+    type=float,
+    default=None,
+    help="Maximum USD to spend on context generation (default: unlimited)",
 )
 @click.pass_context
 def ingest(
@@ -342,6 +360,9 @@ def ingest(
     embedding_backend: str | None,
     embedding_model: str | None,
     batch_size: int | None,
+    generate_contexts: bool,
+    context_model: str,
+    max_context_cost: float | None,
 ) -> None:
     """Ingest a codebase into the knowledge graph with security validation.
 
@@ -382,8 +403,8 @@ def ingest(
         final_secrets_policy_str = secrets_policy if secrets_policy is not None else config.secrets.policy
         final_batch_size = batch_size if batch_size is not None else config.ingestion.batch_size
 
-        # Apply embedding config (CLI options override config)
-        final_embedding_backend = embedding_backend or config.embeddings.backend
+        # Apply embedding config (CLI options override config, default to "auto")
+        final_embedding_backend = embedding_backend or config.embeddings.backend or "auto"
         final_embedding_model = embedding_model or config.embeddings.model
 
         # Convert secrets policy string to enum
@@ -441,8 +462,12 @@ def ingest(
     if generate_clues:
         console.print(f"[cyan]✨ AI Clue Generation: Enabled (spaCy)[/cyan]")
     if generate_embeddings:
-        backend_display = "local" if final_embedding_backend == "local" else "OpenAI"
-        console.print(f"[cyan]🔮 Vector Embeddings: Enabled ({backend_display})[/cyan]")
+        from repotoire.ai.embeddings import EmbeddingConfig
+        embed_cfg = EmbeddingConfig(backend=final_embedding_backend)
+        resolved_backend, reason = embed_cfg.resolve_backend()
+        console.print(f"[cyan]🔮 Vector Embeddings: Enabled ({resolved_backend})[/cyan]")
+        if final_embedding_backend == "auto":
+            console.print(f"[dim]   {reason}[/dim]")
     console.print()
 
     try:
@@ -481,6 +506,9 @@ def ingest(
                     generate_embeddings=generate_embeddings,
                     embedding_backend=final_embedding_backend,
                     embedding_model=final_embedding_model,
+                    generate_contexts=generate_contexts,
+                    context_model=context_model,
+                    max_context_cost=max_context_cost,
                 )
 
                 # Setup progress bar if not in quiet mode
@@ -1524,6 +1552,59 @@ def show_config(ctx: click.Context, format: str) -> None:
         console.print("  2. Environment variables (FALKOR_*)")
         console.print("  3. Config file (.reporc, falkor.toml)")
         console.print("  4. Built-in defaults (lowest)\n")
+
+
+@cli.command()
+def backends() -> None:
+    """Show available embedding backends and their status.
+
+    Displays all embedding backends with their configuration status,
+    API key availability, and which backend would be auto-selected.
+
+    Example:
+        repotoire backends
+    """
+    import os
+    from repotoire.ai.embeddings import (
+        BACKEND_CONFIGS,
+        BACKEND_PRIORITY,
+        detect_available_backends,
+        select_best_backend,
+    )
+
+    available = detect_available_backends()
+    selected, reason = select_best_backend()
+
+    console.print("\n[bold cyan]🎼 Embedding Backends[/bold cyan]\n")
+
+    for backend in BACKEND_PRIORITY:
+        config = BACKEND_CONFIGS[backend]
+        env_key = config.get("env_key")
+        is_available = backend in available
+        is_selected = backend == selected
+
+        # Status indicator
+        if is_selected:
+            status = "[green]● SELECTED[/green]"
+        elif is_available:
+            status = "[yellow]○ Available[/yellow]"
+        else:
+            status = "[dim]○ Not configured[/dim]"
+
+        # API key status
+        if env_key:
+            key_set = bool(os.getenv(env_key))
+            key_status = f"[green]{env_key} ✓[/green]" if key_set else f"[dim]{env_key} not set[/dim]"
+        else:
+            key_status = "[dim]No API key needed[/dim]"
+
+        console.print(f"  {status} [bold]{backend}[/bold]")
+        console.print(f"      {config['description']}")
+        console.print(f"      Model: {config['model']} ({config['dimensions']}d)")
+        console.print(f"      {key_status}")
+        console.print()
+
+    console.print(f"[bold]Auto-selected:[/bold] {reason}\n")
 
 
 @cli.command()
@@ -5381,6 +5462,192 @@ def templates_list(verbose: bool, language: str | None, template_dir: Path | Non
 # Register sandbox stats command (REPO-295)
 from .sandbox import sandbox_stats
 cli.add_command(sandbox_stats)
+
+
+@cli.command()
+@click.argument("query")
+@click.option(
+    "--neo4j-uri",
+    envvar="REPOTOIRE_NEO4J_URI",
+    default="bolt://localhost:7687",
+    help="Neo4j connection URI",
+)
+@click.option(
+    "--neo4j-password",
+    envvar="REPOTOIRE_NEO4J_PASSWORD",
+    help="Neo4j password",
+)
+@click.option(
+    "--embedding-backend",
+    type=click.Choice(["auto", "openai", "local", "deepinfra", "voyage"], case_sensitive=False),
+    default="auto",
+    help="Embedding backend for retrieval ('auto' selects best available)",
+)
+@click.option(
+    "--llm-backend",
+    type=click.Choice(["openai", "anthropic"], case_sensitive=False),
+    default="openai",
+    help="LLM backend for answer generation: 'openai' (GPT-4o) or 'anthropic' (Claude Opus 4.5)",
+)
+@click.option(
+    "--llm-model",
+    default=None,
+    help="LLM model (default: gpt-4o for OpenAI, claude-opus-4-20250514 for Anthropic)",
+)
+@click.option(
+    "--top-k",
+    type=int,
+    default=10,
+    help="Number of code snippets to retrieve for context (default: 10)",
+)
+@click.option(
+    "--hybrid-search/--no-hybrid-search",
+    default=True,
+    help="Enable hybrid search (dense + BM25) for improved recall (default: enabled)",
+)
+@click.option(
+    "--fusion-method",
+    type=click.Choice(["rrf", "linear"], case_sensitive=False),
+    default="rrf",
+    help="Fusion method for hybrid search: 'rrf' (Reciprocal Rank Fusion) or 'linear'",
+)
+@click.option(
+    "--reranker",
+    type=click.Choice(["voyage", "local", "none"], case_sensitive=False),
+    default="local",
+    help="Reranker backend: 'voyage' (API), 'local' (cross-encoder), or 'none'",
+)
+@click.option(
+    "--reranker-model",
+    default=None,
+    help="Reranker model (default: rerank-2 for voyage, ms-marco-MiniLM for local)",
+)
+def ask(
+    query: str,
+    neo4j_uri: str,
+    neo4j_password: Optional[str],
+    embedding_backend: str,
+    llm_backend: str,
+    llm_model: Optional[str],
+    top_k: int,
+    hybrid_search: bool,
+    fusion_method: str,
+    reranker: str,
+    reranker_model: Optional[str],
+) -> None:
+    """Ask a question about the codebase using RAG.
+
+    Uses hybrid search (dense embeddings + BM25) to find relevant code,
+    optionally reranks results, then generates an answer using GPT-4o or Claude.
+
+    Requires embeddings to be generated first:
+        repotoire ingest /path/to/repo --generate-embeddings
+
+    Examples:
+        repotoire ask "How does authentication work?"
+        repotoire ask "What functions call the database?" --top-k 20
+        repotoire ask "Explain the caching mechanism" --llm-backend anthropic
+        repotoire ask "JWT middleware" --hybrid-search --reranker voyage
+        repotoire ask "calculate_score function" --no-hybrid-search --reranker none
+    """
+    from repotoire.graph import Neo4jClient
+    from repotoire.ai import (
+        CodeEmbedder,
+        EmbeddingConfig,
+        GraphRAGRetriever,
+        RetrieverConfig,
+        HybridSearchConfig,
+        RerankerConfig,
+    )
+    from repotoire.ai.llm import LLMConfig
+
+    console.print("\n[bold cyan]RAG Code Q&A[/bold cyan]\n")
+    console.print(f"[dim]Query:[/dim] {query}\n")
+
+    # Connect to Neo4j
+    try:
+        client = Neo4jClient(neo4j_uri, password=neo4j_password)
+    except Exception as e:
+        console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
+        console.print("[dim]Make sure Neo4j is running and credentials are correct[/dim]")
+        raise click.Abort()
+
+    try:
+        # Check for embeddings
+        stats = client.get_stats()
+        embeddings_count = stats.get("embeddings_count", 0)
+
+        if embeddings_count == 0:
+            console.print("[yellow]No embeddings found in database[/yellow]")
+            console.print("[dim]Run 'repotoire ingest --generate-embeddings' first[/dim]")
+            raise click.Abort()
+
+        console.print(f"[dim]Using {embeddings_count:,} embeddings[/dim]")
+
+        # Initialize embedder
+        embed_config = EmbeddingConfig(backend=embedding_backend)
+        embedder = CodeEmbedder(config=embed_config)
+        console.print(f"[dim]Embedding backend: {embedder.resolved_backend}[/dim]")
+        if embedding_backend == "auto":
+            console.print(f"[dim]   {embedder.backend_reason}[/dim]")
+
+        # Initialize LLM config
+        llm_config = LLMConfig(backend=llm_backend, model=llm_model)
+        console.print(f"[dim]LLM backend: {llm_backend}/{llm_config.get_model()}[/dim]")
+
+        # Configure hybrid search (REPO-243)
+        hybrid_config = HybridSearchConfig(
+            enabled=hybrid_search,
+            fusion_method=fusion_method.lower(),
+        )
+        console.print(f"[dim]Hybrid search: {'enabled' if hybrid_search else 'disabled'}[/dim]")
+
+        # Configure reranker (REPO-241)
+        reranker_config = RerankerConfig(
+            enabled=reranker != "none",
+            backend=reranker if reranker != "none" else "local",
+            model=reranker_model,
+            top_k=top_k,
+        )
+        if reranker != "none":
+            console.print(f"[dim]Reranker: {reranker}/{reranker_config.get_model()}[/dim]")
+        else:
+            console.print("[dim]Reranker: disabled[/dim]")
+
+        # Build retriever config
+        retriever_config = RetrieverConfig(
+            top_k=top_k,
+            hybrid=hybrid_config,
+            reranker=reranker_config,
+        )
+
+        # Create retriever with LLM
+        retriever = GraphRAGRetriever(
+            client=client,
+            embedder=embedder,
+            config=retriever_config,
+            llm_config=llm_config,
+        )
+
+        console.print()
+
+        # Generate answer
+        with console.status("[bold green]Thinking..."):
+            answer = retriever.ask(query, top_k=top_k)
+
+        console.print("[bold]Answer:[/bold]\n")
+        console.print(answer)
+        console.print()
+
+    except ValueError as e:
+        console.print(f"[red]Configuration error: {e}[/red]")
+        raise click.Abort()
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        logger.exception("RAG ask failed")
+        raise click.Abort()
+    finally:
+        client.close()
 
 
 def main() -> None:
