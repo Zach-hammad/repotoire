@@ -1,7 +1,7 @@
 """API services for Repotoire.
 
 This package contains business logic services for the API,
-including GitHub integration, token encryption, and billing.
+including GitHub integration, token encryption, billing, and GDPR compliance.
 """
 
 from .billing import (
@@ -18,6 +18,25 @@ from .billing import (
     increment_usage,
 )
 from .encryption import TokenEncryption
+from .gdpr import (
+    EXPORT_EXPIRY_HOURS,
+    GRACE_PERIOD_DAYS,
+    DeletionScheduleResult,
+    ExportData,
+    anonymize_user,
+    cancel_deletion,
+    create_data_export,
+    execute_deletion,
+    generate_export_data,
+    get_current_consent,
+    get_data_export,
+    get_pending_deletion,
+    get_user_exports,
+    get_users_pending_deletion,
+    record_consent,
+    schedule_deletion,
+    update_export_status,
+)
 from .github import GitHubAppClient
 from .stripe_service import PRICE_IDS, SEAT_PRICE_IDS, StripeService, price_id_to_tier
 
@@ -41,4 +60,22 @@ __all__ = [
     "SEAT_PRICE_IDS",
     "StripeService",
     "price_id_to_tier",
+    # GDPR
+    "EXPORT_EXPIRY_HOURS",
+    "GRACE_PERIOD_DAYS",
+    "DeletionScheduleResult",
+    "ExportData",
+    "anonymize_user",
+    "cancel_deletion",
+    "create_data_export",
+    "execute_deletion",
+    "generate_export_data",
+    "get_current_consent",
+    "get_data_export",
+    "get_pending_deletion",
+    "get_user_exports",
+    "get_users_pending_deletion",
+    "record_consent",
+    "schedule_deletion",
+    "update_export_status",
 ]

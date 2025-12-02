@@ -31,6 +31,7 @@ from .billing import (
     SubscriptionStatus,
     UsageRecord,
 )
+from .gdpr import ConsentRecord, ConsentType, DataExport, ExportStatus
 from .github import GitHubInstallation, GitHubRepository
 from .organization import MemberRole, Organization, OrganizationMembership, PlanTier
 from .repository import Repository
@@ -53,10 +54,14 @@ __all__ = [
     "UsageRecord",
     "CustomerAddon",
     "BestOfNUsage",
+    "DataExport",
+    "ConsentRecord",
     # Enums
     "PlanTier",
     "MemberRole",
     "AnalysisStatus",
     "SubscriptionStatus",
     "AddonType",
+    "ExportStatus",
+    "ConsentType",
 ]

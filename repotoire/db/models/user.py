@@ -4,15 +4,16 @@ This module defines the User model that maps Clerk's user identifiers
 to internal user records with profile information.
 """
 
+from datetime import datetime
 from typing import TYPE_CHECKING, List
-from uuid import UUID
 
-from sqlalchemy import Index, String
+from sqlalchemy import DateTime, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin, generate_repr
 
 if TYPE_CHECKING:
+    from .gdpr import ConsentRecord, DataExport
     from .organization import OrganizationMembership
 
 
@@ -27,7 +28,12 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         avatar_url: URL to user's avatar image (optional)
         created_at: When the user was created
         updated_at: When the user was last updated
+        deleted_at: When the user was soft deleted (GDPR)
+        anonymized_at: When user data was anonymized (GDPR)
+        deletion_requested_at: When deletion was requested (GDPR grace period)
         memberships: List of organization memberships for this user
+        data_exports: List of data export requests for this user
+        consent_records: List of consent records for this user
     """
 
     __tablename__ = "users"
@@ -52,9 +58,34 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         nullable=True,
     )
 
+    # GDPR: Soft delete and anonymization
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+    anonymized_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    deletion_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     # Relationships
     memberships: Mapped[List["OrganizationMembership"]] = relationship(
         "OrganizationMembership",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    data_exports: Mapped[List["DataExport"]] = relationship(
+        "DataExport",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    consent_records: Mapped[List["ConsentRecord"]] = relationship(
+        "ConsentRecord",
         back_populates="user",
         cascade="all, delete-orphan",
     )
@@ -62,6 +93,21 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __table_args__ = (
         Index("ix_users_email", "email"),
     )
+
+    @property
+    def is_deleted(self) -> bool:
+        """Check if the user has been soft deleted."""
+        return self.deleted_at is not None
+
+    @property
+    def is_anonymized(self) -> bool:
+        """Check if the user data has been anonymized."""
+        return self.anonymized_at is not None
+
+    @property
+    def has_pending_deletion(self) -> bool:
+        """Check if the user has a pending deletion request."""
+        return self.deletion_requested_at is not None and not self.is_deleted
 
     def __repr__(self) -> str:
         return generate_repr(self, "id", "email")

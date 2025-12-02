@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from repotoire.api.routes import analytics, billing, code, fixes, github, historical, sandbox, webhooks
+from repotoire.api.routes import account, analytics, billing, code, fixes, github, historical, sandbox, webhooks
 from repotoire.api.models import ErrorResponse
 from repotoire.logging_config import get_logger
 
@@ -74,6 +74,7 @@ app.add_middleware(
 
 
 # Include routers
+app.include_router(account.router, prefix="/api/v1")
 app.include_router(code.router, prefix="/api/v1")
 app.include_router(historical.router, prefix="/api/v1")
 app.include_router(fixes.router, prefix="/api/v1")
@@ -110,7 +111,13 @@ async def root():
             "sandbox_metrics": "GET /api/v1/sandbox/metrics",
             "sandbox_costs": "GET /api/v1/sandbox/metrics/costs",
             "sandbox_usage": "GET /api/v1/sandbox/metrics/usage",
-            "sandbox_admin_metrics": "GET /api/v1/sandbox/admin/metrics"
+            "sandbox_admin_metrics": "GET /api/v1/sandbox/admin/metrics",
+            "account_status": "GET /api/v1/account/status",
+            "account_export": "POST /api/v1/account/export",
+            "account_delete": "DELETE /api/v1/account",
+            "account_cancel_deletion": "POST /api/v1/account/cancel-deletion",
+            "account_consent": "GET /api/v1/account/consent",
+            "account_consent_update": "PUT /api/v1/account/consent"
         }
     }
 

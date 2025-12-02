@@ -19,8 +19,12 @@ from repotoire.db.models import Base
 config = context.config
 
 # Override sqlalchemy.url with environment variable if set
-database_url = os.environ.get("REPOTOIRE_DATABASE_URL")
+# Support both REPOTOIRE_DATABASE_URL and DATABASE_URL (for Neon/Vercel)
+database_url = os.environ.get("REPOTOIRE_DATABASE_URL") or os.environ.get("DATABASE_URL")
 if database_url:
+    # Convert postgresql:// to postgresql+psycopg2:// for sync driver
+    if database_url.startswith("postgresql://"):
+        database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
     config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging.
