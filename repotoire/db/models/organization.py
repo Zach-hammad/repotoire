@@ -92,6 +92,19 @@ class Organization(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         nullable=True,
     )
 
+    # Graph database configuration for multi-tenancy
+    graph_database_name: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="Name of the graph database/graph for this organization",
+    )
+    graph_backend: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+        default="falkordb",
+        comment="Graph database backend: 'neo4j' or 'falkordb'",
+    )
+
     # Relationships
     members: Mapped[List["OrganizationMembership"]] = relationship(
         "OrganizationMembership",
@@ -184,3 +197,85 @@ class OrganizationMembership(Base, UUIDPrimaryKeyMixin):
 
     def __repr__(self) -> str:
         return generate_repr(self, "id", "user_id", "organization_id", "role")
+
+
+class InviteStatus(str, enum.Enum):
+    """Status of an organization invitation."""
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+
+class OrganizationInvite(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Invitation model for pending organization invitations.
+
+    Attributes:
+        id: UUID primary key
+        email: Email address of the invited person
+        organization_id: Organization they're invited to
+        invited_by_id: User who sent the invitation
+        role: Role they'll have when they join
+        token: Unique token for accepting the invite
+        status: Current status of the invitation
+        expires_at: When the invitation expires
+        accepted_at: When the invitation was accepted
+    """
+
+    __tablename__ = "organization_invites"
+
+    email: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    organization_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    invited_by_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    role: Mapped[MemberRole] = mapped_column(
+        Enum(MemberRole, name="member_role", create_constraint=False),
+        default=MemberRole.MEMBER,
+        nullable=False,
+    )
+    token: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[InviteStatus] = mapped_column(
+        Enum(InviteStatus, name="invite_status"),
+        default=InviteStatus.PENDING,
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    # Relationships
+    organization: Mapped["Organization"] = relationship(
+        "Organization",
+        backref="invites",
+    )
+    invited_by: Mapped["User"] = relationship(
+        "User",
+        foreign_keys=[invited_by_id],
+    )
+
+    __table_args__ = (
+        Index("ix_organization_invites_email", "email"),
+        Index("ix_organization_invites_organization_id", "organization_id"),
+    )
+
+    def __repr__(self) -> str:
+        return generate_repr(self, "id", "email", "organization_id", "status")

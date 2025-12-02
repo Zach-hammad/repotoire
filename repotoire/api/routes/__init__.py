@@ -11,6 +11,7 @@ from repotoire.api.routes import (
     historical,
     notifications,
     sandbox,
+    team,
     webhooks,
 )
 
@@ -25,5 +26,6 @@ __all__ = [
     "historical",
     "notifications",
     "sandbox",
+    "team",
     "webhooks",
 ]

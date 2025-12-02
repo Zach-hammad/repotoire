@@ -34,7 +34,14 @@ from .billing import (
 from .email import EmailPreferences
 from .gdpr import ConsentRecord, ConsentType, DataExport, ExportStatus
 from .github import GitHubInstallation, GitHubRepository
-from .organization import MemberRole, Organization, OrganizationMembership, PlanTier
+from .organization import (
+    InviteStatus,
+    MemberRole,
+    Organization,
+    OrganizationInvite,
+    OrganizationMembership,
+    PlanTier,
+)
 from .repository import Repository
 from .user import User
 
@@ -47,6 +54,7 @@ __all__ = [
     "User",
     "Organization",
     "OrganizationMembership",
+    "OrganizationInvite",
     "Repository",
     "AnalysisRun",
     "GitHubInstallation",
@@ -61,6 +69,7 @@ __all__ = [
     # Enums
     "PlanTier",
     "MemberRole",
+    "InviteStatus",
     "AnalysisStatus",
     "SubscriptionStatus",
     "AddonType",
