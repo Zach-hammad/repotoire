@@ -708,11 +708,12 @@ class CodeValidator:
 
         except SandboxError as e:
             logger.warning(f"Sandbox error during import validation: {e}")
-            # Don't fail validation if sandbox has issues
-            return True, errors, names_found
+            # Return None to indicate import validation was skipped due to sandbox issues
+            return None, errors, names_found
         except Exception as e:
             logger.error(f"Unexpected error during import validation: {e}")
-            return True, errors, names_found
+            # Return None to indicate import validation was skipped
+            return None, errors, names_found
 
     def _get_import_suggestion(
         self, error_type: str, message: str

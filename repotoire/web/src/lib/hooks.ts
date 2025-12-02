@@ -30,21 +30,27 @@ export function useFixes(
   page: number = 1,
   pageSize: number = 20
 ) {
+  const { isAuthReady } = useApiAuth();
   const key = ['fixes', filters, sort, page, pageSize];
-  return useSWR<PaginatedResponse<FixProposal>>(key, () =>
-    fixesApi.list(filters, sort, page, pageSize)
+  return useSWR<PaginatedResponse<FixProposal>>(
+    isAuthReady ? key : null,
+    () => fixesApi.list(filters, sort, page, pageSize)
   );
 }
 
 export function useFix(id: string | null) {
-  return useSWR<FixProposal>(id ? ['fix', id] : null, () =>
-    fixesApi.get(id!)
+  const { isAuthReady } = useApiAuth();
+  return useSWR<FixProposal>(
+    isAuthReady && id ? ['fix', id] : null,
+    () => fixesApi.get(id!)
   );
 }
 
 export function useFixComments(fixId: string | null) {
-  return useSWR<FixComment[]>(fixId ? ['fix-comments', fixId] : null, () =>
-    fixesApi.getComments(fixId!)
+  const { isAuthReady } = useApiAuth();
+  return useSWR<FixComment[]>(
+    isAuthReady && fixId ? ['fix-comments', fixId] : null,
+    () => fixesApi.getComments(fixId!)
   );
 }
 

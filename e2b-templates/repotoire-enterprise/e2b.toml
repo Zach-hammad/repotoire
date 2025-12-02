@@ -1,0 +1,23 @@
+# Repotoire Enterprise - Custom E2B Sandbox Template
+#
+# Premium template with Rust extensions for Pro/Enterprise tiers.
+# Includes all analysis tools PLUS repotoire_fast for 10-25x faster analysis.
+#
+# Build: e2b template build
+# Test:  e2b sandbox spawn --template repotoire-enterprise
+
+[template]
+name = "repotoire-enterprise"
+
+[build]
+dockerfile = "Dockerfile"
+
+[sandbox]
+# 4 vCPUs for parallel Rust execution
+cpu = 4
+
+# 4GB RAM for large codebase analysis
+memory = 4096
+
+# 10 minute max session for comprehensive analysis
+timeout = 600

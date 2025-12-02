@@ -5378,6 +5378,11 @@ def templates_list(verbose: bool, language: str | None, template_dir: Path | Non
             console.print(f"  [dim]{f}[/dim]")
 
 
+# Register sandbox stats command (REPO-295)
+from .sandbox import sandbox_stats
+cli.add_command(sandbox_stats)
+
+
 def main() -> None:
     """Entry point for CLI."""
     cli()

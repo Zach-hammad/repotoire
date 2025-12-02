@@ -117,7 +117,8 @@ function generateMockFixes(count: number = 50): FixProposal[] {
   for (let i = 0; i < count; i++) {
     const type = types[Math.floor(Math.random() * types.length)];
     const confidence = confidences[Math.floor(Math.random() * confidences.length)];
-    const status = statuses[Math.floor(Math.random() * statuses.length)];
+    // Ensure first 5 fixes are pending for testing
+    const status = i < 5 ? 'pending' : statuses[Math.floor(Math.random() * statuses.length)];
     const title = titles[Math.floor(Math.random() * titles.length)];
     const file = files[Math.floor(Math.random() * files.length)];
 

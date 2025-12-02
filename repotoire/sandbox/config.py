@@ -1,18 +1,34 @@
 """Configuration for E2B sandbox execution.
 
 Configuration is loaded from environment variables with sensible defaults.
-The E2B_API_KEY is required for production use but optional for development
-(allowing graceful degradation when sandbox features are unavailable).
+E2B_API_KEY is required for sandbox operations - no local fallback.
+
+Supports tier-based configuration for Stripe subscription integration:
+- FREE tier: repotoire-analyzer template (external tools) + trial limits
+- PRO/ENTERPRISE tier: repotoire-enterprise template (external tools + Rust)
+
+Trial Mode:
+- New users get a limited number of free sandbox executions
+- After trial, subscription is required
+- Usage is tracked via SandboxMetricsCollector
 """
+
+from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from repotoire.logging_config import get_logger
 from repotoire.sandbox.exceptions import SandboxConfigurationError
 
+if TYPE_CHECKING:
+    from repotoire.db.models import PlanTier
+
 logger = get_logger(__name__)
+
+# Trial limits
+DEFAULT_TRIAL_EXECUTIONS = 50  # Free executions before requiring subscription
 
 
 @dataclass
@@ -25,6 +41,7 @@ class SandboxConfig:
         memory_mb: Memory limit in MB (default: 1024)
         cpu_count: Number of CPU cores (default: 1)
         sandbox_template: E2B sandbox template to use (default: None for base template)
+        trial_executions: Number of free trial executions (default: 50)
 
     Environment Variables:
         E2B_API_KEY: Required API key for E2B service
@@ -32,6 +49,7 @@ class SandboxConfig:
         E2B_MEMORY_MB: Memory limit in MB (default: 1024)
         E2B_CPU_COUNT: CPU core count (default: 1)
         E2B_SANDBOX_TEMPLATE: Custom sandbox template ID
+        SANDBOX_TRIAL_EXECUTIONS: Number of free trial executions (default: 50)
     """
 
     api_key: Optional[str] = None
@@ -39,6 +57,7 @@ class SandboxConfig:
     memory_mb: int = 1024
     cpu_count: int = 1
     sandbox_template: Optional[str] = None
+    trial_executions: int = DEFAULT_TRIAL_EXECUTIONS
 
     @classmethod
     def from_env(cls) -> "SandboxConfig":
@@ -48,14 +67,15 @@ class SandboxConfig:
             SandboxConfig instance populated from environment
 
         Note:
-            Missing E2B_API_KEY is allowed (returns config with api_key=None).
-            The executor will log a warning when used without an API key.
+            E2B_API_KEY is required. Without it, sandbox operations will fail
+            with a clear error message directing users to sign up.
         """
         api_key = os.getenv("E2B_API_KEY")
 
         if not api_key:
-            logger.debug(
-                "E2B_API_KEY not set - sandbox features will be unavailable"
+            logger.warning(
+                "E2B_API_KEY not set - sandbox features require an API key. "
+                "Sign up at https://e2b.dev to get started."
             )
 
         # Parse timeout with validation
@@ -84,12 +104,63 @@ class SandboxConfig:
 
         sandbox_template = os.getenv("E2B_SANDBOX_TEMPLATE")
 
+        # Parse trial executions
+        trial_executions = cls._parse_int_env(
+            "SANDBOX_TRIAL_EXECUTIONS",
+            default=DEFAULT_TRIAL_EXECUTIONS,
+            min_value=0,
+            max_value=1000,
+        )
+
         return cls(
             api_key=api_key,
             timeout_seconds=timeout_seconds,
             memory_mb=memory_mb,
             cpu_count=cpu_count,
             sandbox_template=sandbox_template,
+            trial_executions=trial_executions,
+        )
+
+    @classmethod
+    def from_tier(cls, tier: PlanTier) -> SandboxConfig:
+        """Create configuration based on subscription tier.
+
+        Uses tier-specific templates and resource limits:
+        - FREE: repotoire-analyzer (external tools only) + trial limits
+        - PRO/ENTERPRISE: repotoire-enterprise (tools + Rust extensions)
+
+        API key is still loaded from environment.
+
+        Args:
+            tier: The subscription tier (FREE, PRO, ENTERPRISE)
+
+        Returns:
+            SandboxConfig with tier-appropriate settings
+        """
+        from repotoire.sandbox.tiers import get_sandbox_config_for_tier
+
+        tier_config = get_sandbox_config_for_tier(tier)
+        api_key = os.getenv("E2B_API_KEY")
+
+        if not api_key:
+            logger.warning(
+                "E2B_API_KEY not set - sandbox features require an API key"
+            )
+
+        logger.debug(
+            f"Created SandboxConfig for tier {tier.value}: "
+            f"template={tier_config.template}, "
+            f"timeout={tier_config.timeout_seconds}s, "
+            f"memory={tier_config.memory_mb}MB, "
+            f"cpu={tier_config.cpu_count}"
+        )
+
+        return cls(
+            api_key=api_key,
+            timeout_seconds=tier_config.timeout_seconds,
+            memory_mb=tier_config.memory_mb,
+            cpu_count=tier_config.cpu_count,
+            sandbox_template=tier_config.template,
         )
 
     @staticmethod
@@ -146,7 +217,10 @@ class SandboxConfig:
         if require_api_key and not self.api_key:
             raise SandboxConfigurationError(
                 "E2B API key required for sandbox execution",
-                suggestion="Set the E2B_API_KEY environment variable or pass api_key to SandboxConfig",
+                suggestion=(
+                    "Set the E2B_API_KEY environment variable. "
+                    "Sign up at https://e2b.dev to get your API key."
+                ),
             )
 
         if self.timeout_seconds <= 0:

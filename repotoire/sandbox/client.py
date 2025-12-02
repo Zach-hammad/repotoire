@@ -396,6 +396,20 @@ class SandboxExecutor:
             if isinstance(e, (SandboxTimeoutError, SandboxConfigurationError)):
                 raise
 
+            # Handle CommandExitException from e2b SDK - non-zero exit codes are
+            # expected for linters/tools that find issues (e.g., ruff returns 1
+            # when it finds lint issues, bandit returns 1 for security issues)
+            from e2b.sandbox.commands.command_handle import CommandExitException
+            if isinstance(e, CommandExitException):
+                duration_ms = int((time.time() - start_time) * 1000)
+                # Extract result from exception - e2b stores the process handle
+                return CommandResult(
+                    stdout=e.stdout or "",
+                    stderr=e.stderr or "",
+                    exit_code=e.exit_code,
+                    duration_ms=duration_ms,
+                )
+
             raise SandboxExecutionError(
                 f"Command execution failed: {e}",
                 sandbox_id=self._sandbox_id,

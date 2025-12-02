@@ -35,12 +35,10 @@ Configuration:
     - E2B_MEMORY_MB: Memory limit in MB (default: 1024)
     - E2B_CPU_COUNT: CPU core count (default: 1)
 
-Graceful Degradation:
-    When E2B_API_KEY is not set, the module will:
-    1. Log a warning on initialization
-    2. Raise SandboxConfigurationError with helpful message when used
-    This allows development without E2B while clearly indicating
-    sandbox features are unavailable.
+Trial Mode:
+    New users get 50 free sandbox executions to try the service.
+    After trial, a subscription is required. Usage is tracked via
+    SandboxMetricsCollector.
 """
 
 from repotoire.sandbox.client import (
@@ -48,7 +46,7 @@ from repotoire.sandbox.client import (
     ExecutionResult,
     CommandResult,
 )
-from repotoire.sandbox.config import SandboxConfig
+from repotoire.sandbox.config import SandboxConfig, DEFAULT_TRIAL_EXECUTIONS
 from repotoire.sandbox.exceptions import (
     SandboxError,
     SandboxConfigurationError,
@@ -95,6 +93,44 @@ from repotoire.sandbox.tool_executor import (
     DEFAULT_SENSITIVE_PATTERNS,
     run_tool_sync,
 )
+from repotoire.sandbox.tiers import (
+    TierSandboxConfig,
+    TIER_SANDBOX_CONFIGS,
+    TEMPLATE_ANALYZER,
+    TEMPLATE_ENTERPRISE,
+    get_sandbox_config_for_tier,
+    get_template_for_tier,
+    tier_has_rust,
+)
+from repotoire.sandbox.metrics import (
+    SandboxMetrics,
+    SandboxMetricsCollector,
+    calculate_cost,
+    track_sandbox_operation,
+    get_metrics_collector,
+    CPU_RATE_PER_SECOND,
+    MEMORY_RATE_PER_GB_SECOND,
+    MINIMUM_CHARGE,
+)
+from repotoire.sandbox.alerts import (
+    AlertEvent,
+    AlertManager,
+    CostThresholdAlert,
+    FailureRateAlert,
+    SlowOperationAlert,
+    SlackChannel,
+    EmailChannel,
+    WebhookChannel,
+    run_alert_check,
+)
+from repotoire.sandbox.trial import (
+    TrialManager,
+    TrialStatus,
+    TrialLimitExceeded,
+    TIER_EXECUTION_LIMITS,
+    get_trial_manager,
+    check_trial_limit,
+)
 
 __all__ = [
     # Main client
@@ -115,6 +151,7 @@ __all__ = [
     "run_tests_sync",
     # Configuration
     "SandboxConfig",
+    "DEFAULT_TRIAL_EXECUTIONS",
     # Result types
     "ExecutionResult",
     "CommandResult",
@@ -145,4 +182,38 @@ __all__ = [
     "SecretFileFilter",
     "DEFAULT_SENSITIVE_PATTERNS",
     "run_tool_sync",
+    # Tier-based templates (REPO-294)
+    "TierSandboxConfig",
+    "TIER_SANDBOX_CONFIGS",
+    "TEMPLATE_ANALYZER",
+    "TEMPLATE_ENTERPRISE",
+    "get_sandbox_config_for_tier",
+    "get_template_for_tier",
+    "tier_has_rust",
+    # Metrics and cost tracking (REPO-295)
+    "SandboxMetrics",
+    "SandboxMetricsCollector",
+    "calculate_cost",
+    "track_sandbox_operation",
+    "get_metrics_collector",
+    "CPU_RATE_PER_SECOND",
+    "MEMORY_RATE_PER_GB_SECOND",
+    "MINIMUM_CHARGE",
+    # Alerting (REPO-295)
+    "AlertEvent",
+    "AlertManager",
+    "CostThresholdAlert",
+    "FailureRateAlert",
+    "SlowOperationAlert",
+    "SlackChannel",
+    "EmailChannel",
+    "WebhookChannel",
+    "run_alert_check",
+    # Trial management (REPO-296)
+    "TrialManager",
+    "TrialStatus",
+    "TrialLimitExceeded",
+    "TIER_EXECUTION_LIMITS",
+    "get_trial_manager",
+    "check_trial_limit",
 ]

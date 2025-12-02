@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from repotoire.api.routes import analytics, billing, code, fixes, github, historical, webhooks
+from repotoire.api.routes import analytics, billing, code, fixes, github, historical, sandbox, webhooks
 from repotoire.api.models import ErrorResponse
 from repotoire.logging_config import get_logger
 
@@ -81,6 +81,7 @@ app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(github.router, prefix="/api/v1")
 app.include_router(billing.router, prefix="/api/v1")
 app.include_router(webhooks.router, prefix="/api/v1")
+app.include_router(sandbox.router, prefix="/api/v1")
 
 
 @app.get("/", tags=["Root"])
@@ -105,7 +106,11 @@ async def root():
             "billing_portal": "POST /api/v1/billing/portal",
             "billing_plans": "GET /api/v1/billing/plans",
             "stripe_webhook": "POST /api/v1/webhooks/stripe",
-            "clerk_webhook": "POST /api/v1/webhooks/clerk"
+            "clerk_webhook": "POST /api/v1/webhooks/clerk",
+            "sandbox_metrics": "GET /api/v1/sandbox/metrics",
+            "sandbox_costs": "GET /api/v1/sandbox/metrics/costs",
+            "sandbox_usage": "GET /api/v1/sandbox/metrics/usage",
+            "sandbox_admin_metrics": "GET /api/v1/sandbox/admin/metrics"
         }
     }
 

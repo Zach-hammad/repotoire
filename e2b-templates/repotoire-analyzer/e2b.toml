@@ -1,0 +1,22 @@
+# Repotoire Analyzer - Custom E2B Sandbox Template
+#
+# This template pre-installs all analysis tools used by Repotoire to dramatically
+# reduce sandbox startup time from ~30-60s (installing tools) to ~5-10s (template ready).
+#
+# Build: e2b template build
+# Test:  e2b sandbox spawn --template repotoire-analyzer
+
+# Template identifier (will be assigned on first build)
+template_id = "repotoire-analyzer"
+
+# Dockerfile to use for building
+dockerfile = "Dockerfile"
+
+# 2 vCPUs for parallel tool execution (ruff, bandit run concurrently)
+cpu_count = 2
+
+# 2GB RAM for memory-intensive tools (mypy, semgrep)
+memory_mb = 2048
+
+# Start command
+start_cmd = "/bin/bash"
