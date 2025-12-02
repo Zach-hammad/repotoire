@@ -1,12 +1,16 @@
 """Graph-aware retrieval for code Q&A using hybrid vector + graph search.
 
-Features (REPO-220):
-- Hybrid vector + graph search for optimal relevance
-- Cross-encoder reranking for improved result quality
+Features (REPO-220, REPO-240, REPO-241, REPO-243):
+- Hybrid vector + BM25 search for optimal relevance (REPO-243)
+- Reciprocal Rank Fusion (RRF) and linear fusion for combining results
+- Cross-encoder reranking for improved result quality (REPO-241)
+- Multiple reranking backends: Voyage AI, local cross-encoder
 - Query result caching with TTL and LRU eviction
 - Configurable retrieval pipeline stages
+- LLM-powered answer generation (OpenAI GPT-4o or Anthropic Claude)
 """
 
+import asyncio
 import hashlib
 import threading
 import time
@@ -17,12 +21,15 @@ from pathlib import Path
 
 from repotoire.graph.base import DatabaseClient
 from repotoire.ai.embeddings import CodeEmbedder
+from repotoire.ai.llm import LLMClient, LLMConfig
+from repotoire.ai.hybrid import HybridSearchConfig, fuse_results
+from repotoire.ai.reranker import RerankerConfig, Reranker, create_reranker
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# Optional cross-encoder support (REPO-220)
-# Requires: pip install repotoire[local-embeddings]
+# Optional cross-encoder support for legacy reranking (REPO-220)
+# New code should use RerankerConfig with backend="local"
 try:
     from sentence_transformers import CrossEncoder
     HAS_CROSS_ENCODER = True
@@ -233,35 +240,83 @@ class RetrievalResult:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class RetrieverConfig:
+    """Configuration for GraphRAGRetriever.
+
+    Combines hybrid search and reranking configuration into a single
+    config object for easy instantiation and serialization.
+
+    Attributes:
+        top_k: Final number of results to return
+        hybrid: Hybrid search configuration (dense + BM25)
+        reranker: Reranking configuration
+        context_lines: Lines of context around code snippets
+        cache_enabled: Whether to enable query result caching
+        cache_ttl: Cache time-to-live in seconds
+        cache_max_size: Maximum cache entries
+    """
+
+    top_k: int = 10
+    hybrid: HybridSearchConfig = field(default_factory=HybridSearchConfig)
+    reranker: RerankerConfig = field(default_factory=RerankerConfig)
+    context_lines: int = 5
+    cache_enabled: bool = True
+    cache_ttl: int = 3600
+    cache_max_size: int = 1000
+
+
 class GraphRAGRetriever:
-    """Hybrid retrieval combining vector search + graph traversal.
+    """Hybrid retrieval combining vector search + BM25 + graph traversal.
 
     This retriever is code-aware and leverages Repotoire's existing
     code knowledge graph structure (IMPORTS, CALLS, INHERITS, etc.)
-    combined with semantic vector search for optimal results.
+    combined with semantic vector search and BM25 keyword search.
 
-    Features:
+    Features (REPO-220, REPO-240, REPO-241, REPO-243):
+        - Hybrid search: Dense embeddings + BM25 full-text search
+        - Reciprocal Rank Fusion (RRF) for combining search results
+        - Multiple reranking backends: Voyage AI, local cross-encoder
         - Query result caching with TTL expiration
         - LRU eviction for memory management
         - Thread-safe cache operations
         - Cache statistics for monitoring
-        - Cross-encoder reranking for improved relevance (REPO-220)
+        - LLM-powered answer generation (REPO-240)
 
     Example:
+        >>> # Basic usage
         >>> retriever = GraphRAGRetriever(neo4j_client, embedder)
         >>> results = retriever.retrieve("How does authentication work?", top_k=10)
-        >>> for result in results:
-        ...     print(f"{result.qualified_name}: {result.similarity_score}")
-        >>> print(retriever.cache_stats)  # View cache performance
+
+        >>> # With hybrid search and Voyage reranking
+        >>> from repotoire.ai.retrieval import RetrieverConfig
+        >>> from repotoire.ai.hybrid import HybridSearchConfig
+        >>> from repotoire.ai.reranker import RerankerConfig
+        >>> config = RetrieverConfig(
+        ...     hybrid=HybridSearchConfig(enabled=True),
+        ...     reranker=RerankerConfig(enabled=True, backend="voyage"),
+        ... )
+        >>> retriever = GraphRAGRetriever(neo4j_client, embedder, config=config)
+
+        >>> # With LLM answer generation
+        >>> retriever = GraphRAGRetriever(neo4j_client, embedder, llm_config=LLMConfig(backend="anthropic"))
+        >>> answer = retriever.ask("How does authentication work?")
     """
 
-    # Default cross-encoder model for reranking
+    # Default cross-encoder model for legacy reranking
     DEFAULT_RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+    # Default system prompt for RAG answer generation
+    DEFAULT_SYSTEM_PROMPT = """You are an expert code analyst. Answer questions about the codebase
+based on the provided context. Be specific and reference file paths and line numbers when relevant.
+If the context doesn't contain enough information to answer the question, say so.
+Format code snippets using markdown code blocks with appropriate language tags."""
 
     def __init__(
         self,
         client: DatabaseClient,
         embedder: CodeEmbedder,
+        config: Optional[RetrieverConfig] = None,
         context_lines: int = 5,
         cache_enabled: bool = True,
         cache_ttl: int = 3600,
@@ -269,22 +324,56 @@ class GraphRAGRetriever:
         enable_reranking: bool = True,
         reranker_model: Optional[str] = None,
         rerank_multiplier: int = 3,
+        llm_config: Optional[LLMConfig] = None,
     ):
         """Initialize retriever.
 
         Args:
             client: Connected database client (Neo4j or FalkorDB)
             embedder: Code embedder for query encoding
+            config: Complete retriever configuration (overrides individual params)
             context_lines: Lines of context to include before/after code
             cache_enabled: Whether to enable query result caching (default: True)
             cache_ttl: Cache time-to-live in seconds (default: 3600 = 1 hour)
             cache_max_size: Maximum cache entries (default: 1000)
-            enable_reranking: Enable cross-encoder reranking (REPO-220, default: True)
-            reranker_model: Cross-encoder model name (default: ms-marco-MiniLM-L-6-v2)
-            rerank_multiplier: Retrieve top_k * multiplier candidates before reranking (default: 3)
+            enable_reranking: Enable legacy cross-encoder reranking (default: True)
+            reranker_model: Legacy cross-encoder model name
+            rerank_multiplier: Retrieve top_k * multiplier candidates before reranking
+            llm_config: LLM configuration for answer generation (REPO-240, optional)
+
+        Note:
+            For new code, prefer using the `config` parameter with RetrieverConfig
+            which includes HybridSearchConfig and RerankerConfig for full control
+            over hybrid search and reranking behavior.
         """
         self.client = client
         self.embedder = embedder
+
+        # Use config if provided, otherwise build from individual params
+        if config is not None:
+            self.config = config
+            context_lines = config.context_lines
+            cache_enabled = config.cache_enabled
+            cache_ttl = config.cache_ttl
+            cache_max_size = config.cache_max_size
+        else:
+            # Build config from individual parameters (backward compatibility)
+            hybrid_config = HybridSearchConfig(enabled=False)  # Disabled for backward compat
+            reranker_config = RerankerConfig(
+                enabled=enable_reranking and HAS_CROSS_ENCODER,
+                backend="local",
+                model=reranker_model,
+                retrieve_multiplier=rerank_multiplier,
+            )
+            self.config = RetrieverConfig(
+                hybrid=hybrid_config,
+                reranker=reranker_config,
+                context_lines=context_lines,
+                cache_enabled=cache_enabled,
+                cache_ttl=cache_ttl,
+                cache_max_size=cache_max_size,
+            )
+
         self.context_lines = context_lines
         # Detect if we're using FalkorDB
         self.is_falkordb = type(client).__name__ == "FalkorDBClient"
@@ -295,17 +384,31 @@ class GraphRAGRetriever:
         if cache_enabled:
             self._cache = RAGCache(max_size=cache_max_size, ttl=cache_ttl)
 
-        # Initialize cross-encoder reranking (REPO-220)
+        # Initialize reranker (REPO-241)
+        # Use new RerankerConfig-based reranker if config is provided
+        self._reranker_new: Optional[Reranker] = None
+        if config is not None and config.reranker.enabled:
+            try:
+                self._reranker_new = create_reranker(config.reranker)
+                logger.info(
+                    f"Initialized {config.reranker.backend} reranker: "
+                    f"{config.reranker.get_model()}"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to initialize reranker: {e}")
+
+        # Legacy cross-encoder reranking (REPO-220) - for backward compatibility
         self._enable_reranking = enable_reranking and HAS_CROSS_ENCODER
         self._reranker: Optional[Any] = None
         self._rerank_multiplier = rerank_multiplier
 
-        if enable_reranking:
+        # Only initialize legacy reranker if not using new config-based reranker
+        if self._reranker_new is None and enable_reranking:
             if HAS_CROSS_ENCODER:
                 model_name = reranker_model or self.DEFAULT_RERANKER_MODEL
                 try:
                     self._reranker = CrossEncoder(model_name)
-                    logger.info(f"Initialized cross-encoder reranker: {model_name}")
+                    logger.info(f"Initialized legacy cross-encoder reranker: {model_name}")
                 except Exception as e:
                     logger.warning(f"Failed to load cross-encoder model: {e}")
                     self._enable_reranking = False
@@ -315,10 +418,30 @@ class GraphRAGRetriever:
                     "Install with: pip install repotoire[local-embeddings]"
                 )
 
+        # Initialize LLM client for answer generation (REPO-240)
+        self._llm_config = llm_config
+        self._llm: Optional[LLMClient] = None
+        if llm_config:
+            try:
+                self._llm = LLMClient(llm_config)
+                logger.info(f"Initialized LLM client: {llm_config.backend}/{llm_config.get_model()}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize LLM client: {e}")
+
+        # Build status string
+        hybrid_status = "enabled" if self.config.hybrid.enabled else "disabled"
+        reranker_status = (
+            f"{self.config.reranker.backend}"
+            if self._reranker_new
+            else ("legacy" if self._enable_reranking else "disabled")
+        )
+
         logger.info(
             f"Initialized GraphRAGRetriever (backend: {'FalkorDB' if self.is_falkordb else 'Neo4j'}, "
             f"cache: {'enabled' if cache_enabled else 'disabled'}, "
-            f"reranking: {'enabled' if self._enable_reranking else 'disabled'})"
+            f"hybrid: {hybrid_status}, "
+            f"reranker: {reranker_status}, "
+            f"llm: {llm_config.backend if llm_config else 'disabled'})"
         )
 
     def get_hot_rules_context(self, top_k: int = 10) -> str:
@@ -430,6 +553,112 @@ class GraphRAGRetriever:
         logger.info(f"Retrieved {len(enriched_results)} results")
         return enriched_results
 
+    def ask(
+        self,
+        query: str,
+        top_k: int = 10,
+        entity_types: Optional[List[str]] = None,
+        include_related: bool = True,
+        system_prompt: Optional[str] = None,
+    ) -> str:
+        """Answer a question about the codebase using RAG.
+
+        Retrieves relevant code context and generates an answer using the
+        configured LLM (OpenAI GPT-4o or Anthropic Claude).
+
+        Args:
+            query: Natural language question about the codebase
+            top_k: Number of code snippets to retrieve for context
+            entity_types: Filter by types (e.g., ["Function", "Class"])
+            include_related: Whether to include related entities via graph
+            system_prompt: Custom system prompt (uses default if not provided)
+
+        Returns:
+            Generated answer from the LLM
+
+        Raises:
+            ValueError: If LLM client is not configured
+        """
+        if not self._llm:
+            raise ValueError(
+                "LLM client not configured. Initialize GraphRAGRetriever with llm_config "
+                "or call set_llm_config() first."
+            )
+
+        logger.info(f"Answering query: {query[:100]}...")
+
+        # Step 1: Retrieve relevant code context
+        results = self.retrieve(
+            query=query,
+            top_k=top_k,
+            entity_types=entity_types,
+            include_related=include_related,
+        )
+
+        if not results:
+            return "I couldn't find any relevant code in the codebase to answer your question."
+
+        # Step 2: Build context from retrieval results
+        context = self._build_context(results)
+
+        # Step 3: Get hot rules context if available
+        rules_context = self.get_hot_rules_context(top_k=5)
+
+        # Step 4: Generate answer using LLM
+        system = system_prompt or self.DEFAULT_SYSTEM_PROMPT
+        if rules_context:
+            system = f"{system}\n\n{rules_context}"
+
+        messages = [
+            {
+                "role": "user",
+                "content": f"## Code Context\n\n{context}\n\n## Question\n\n{query}"
+            }
+        ]
+
+        answer = self._llm.generate(messages, system=system)
+
+        logger.info(f"Generated answer ({len(answer)} chars)")
+        return answer
+
+    def _build_context(self, results: List[RetrievalResult]) -> str:
+        """Build context string from retrieval results.
+
+        Args:
+            results: List of retrieval results
+
+        Returns:
+            Formatted context string for LLM
+        """
+        context_parts = []
+
+        for i, result in enumerate(results, 1):
+            part = f"### {i}. {result.entity_type}: {result.qualified_name}\n"
+            part += f"**File:** {result.file_path}:{result.line_start}-{result.line_end}\n"
+
+            if result.docstring:
+                part += f"**Description:** {result.docstring}\n"
+
+            if result.relationships:
+                rel_strs = [f"{r['relationship']}: {r['entity']}" for r in result.relationships[:5]]
+                part += f"**Related:** {', '.join(rel_strs)}\n"
+
+            part += f"\n```python\n{result.code}\n```\n"
+
+            context_parts.append(part)
+
+        return "\n".join(context_parts)
+
+    def set_llm_config(self, llm_config: LLMConfig) -> None:
+        """Set or update the LLM configuration.
+
+        Args:
+            llm_config: New LLM configuration
+        """
+        self._llm_config = llm_config
+        self._llm = LLMClient(llm_config)
+        logger.info(f"Updated LLM client: {llm_config.backend}/{llm_config.get_model()}")
+
     def _execute_retrieval(
         self,
         query: str,
@@ -439,12 +668,14 @@ class GraphRAGRetriever:
     ) -> List[RetrievalResult]:
         """Execute the actual retrieval logic (used by retrieve with caching).
 
-        Pipeline stages (REPO-220):
+        Pipeline stages (REPO-220, REPO-241, REPO-243):
         1. Query embedding
-        2. Vector similarity search (retrieve top_k * multiplier candidates)
-        3. Cross-encoder reranking (if enabled)
-        4. Graph context enrichment
-        5. Return top_k results
+        2a. Dense vector similarity search
+        2b. BM25 full-text search (if hybrid enabled)
+        3. Fusion of results (RRF or linear, if hybrid enabled)
+        4. Reranking (if enabled) - Voyage or local cross-encoder
+        5. Graph context enrichment
+        6. Return top_k results
 
         Args:
             query: Natural language question
@@ -458,52 +689,140 @@ class GraphRAGRetriever:
         # Step 1: Encode query as vector
         query_embedding = self.embedder.embed_query(query)
 
-        # Step 2: Vector similarity search
-        # If reranking is enabled, retrieve more candidates than needed
-        retrieval_k = top_k * self._rerank_multiplier if self._enable_reranking else top_k
-        vector_results = self._vector_search(
-            query_embedding,
-            top_k=retrieval_k,
-            entity_types=entity_types
+        # Determine retrieval size based on reranking
+        has_reranker = self._reranker_new is not None or (
+            self._enable_reranking and self._reranker
         )
+        multiplier = (
+            self.config.reranker.retrieve_multiplier
+            if self._reranker_new
+            else self._rerank_multiplier
+        )
+        retrieval_k = top_k * multiplier if has_reranker else top_k
 
-        # Step 3: Cross-encoder reranking (REPO-220)
-        if self._enable_reranking and self._reranker and len(vector_results) > top_k:
-            vector_results = self._rerank_results(query, vector_results, top_k)
+        # Step 2: Search (hybrid or dense-only)
+        if self.config.hybrid.enabled and not self.is_falkordb:
+            # Hybrid search: combine dense + BM25 (REPO-243)
+            search_results = self._hybrid_search(
+                query=query,
+                query_embedding=query_embedding,
+                retrieval_k=retrieval_k,
+                entity_types=entity_types,
+            )
+        else:
+            # Dense-only search (original behavior)
+            search_results = self._vector_search(
+                query_embedding,
+                top_k=retrieval_k,
+                entity_types=entity_types,
+            )
+
+        # Step 3: Reranking (REPO-241)
+        if self._reranker_new and search_results:
+            # Use new config-based reranker
+            rerank_top_k = self.config.reranker.top_k
+            search_results = self._reranker_new.rerank(
+                query=query,
+                documents=search_results,
+                top_k=min(rerank_top_k, len(search_results)),
+            )
+        elif self._enable_reranking and self._reranker and len(search_results) > top_k:
+            # Legacy cross-encoder reranking
+            search_results = self._rerank_results(query, search_results, top_k)
 
         # Step 4: Enrich with graph context
         enriched_results = []
-        for result in vector_results:
+        for result in search_results[:top_k]:
+            # Handle both nested node dict and flat dict structures
+            node = result.get("node", result)
+
             # Get related entities if requested
-            if include_related:
-                relationships = self._get_related_entities(result["element_id"])
+            element_id = node.get("element_id") or result.get("element_id")
+            if include_related and element_id:
+                relationships = self._get_related_entities(element_id)
             else:
                 relationships = []
 
             # Fetch actual source code
-            code = self._fetch_code(
-                result["file_path"],
-                result["line_start"],
-                result["line_end"]
-            )
+            file_path = node.get("file_path") or result.get("file_path")
+            line_start = node.get("line_start") or result.get("line_start")
+            line_end = node.get("line_end") or result.get("line_end")
+
+            code = self._fetch_code(file_path, line_start, line_end)
 
             enriched_results.append(
                 RetrievalResult(
-                    entity_type=result["entity_type"],
-                    qualified_name=result["qualified_name"],
-                    name=result["name"],
+                    entity_type=node.get("entity_type") or result.get("entity_type", ""),
+                    qualified_name=node.get("qualified_name") or result.get("qualified_name", ""),
+                    name=node.get("name") or result.get("name", ""),
                     code=code,
-                    docstring=result.get("docstring", ""),
-                    similarity_score=result["score"],
+                    docstring=node.get("docstring") or result.get("docstring", ""),
+                    similarity_score=result.get("score", 0),
                     relationships=relationships,
-                    file_path=result["file_path"],
-                    line_start=result["line_start"],
-                    line_end=result["line_end"],
-                    metadata=result.get("metadata", {})
+                    file_path=file_path or "",
+                    line_start=line_start or 0,
+                    line_end=line_end or 0,
+                    metadata=result.get("metadata", {}),
                 )
             )
 
         return enriched_results
+
+    def _hybrid_search(
+        self,
+        query: str,
+        query_embedding: List[float],
+        retrieval_k: int,
+        entity_types: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Perform hybrid search combining dense + BM25 (REPO-243).
+
+        Runs dense vector search and BM25 full-text search in parallel,
+        then fuses results using the configured method (RRF or linear).
+
+        Args:
+            query: Natural language question
+            query_embedding: Pre-computed query embedding
+            retrieval_k: Number of candidates to retrieve
+            entity_types: Filter by entity types
+
+        Returns:
+            Fused search results
+        """
+        config = self.config.hybrid
+        start_time = time.time()
+
+        # Run dense and BM25 search
+        dense_results = self._vector_search(
+            query_embedding,
+            top_k=config.dense_top_k,
+            entity_types=entity_types,
+        )
+
+        # BM25 search using full-text indexes
+        bm25_results = []
+        if hasattr(self.client, "fulltext_search"):
+            try:
+                bm25_results = self.client.fulltext_search(
+                    query=query,
+                    top_k=config.bm25_top_k,
+                    node_labels=entity_types,
+                )
+            except Exception as e:
+                logger.warning(f"BM25 search failed, using dense-only: {e}")
+
+        # Fuse results
+        if bm25_results:
+            fused = fuse_results(dense_results, bm25_results, config)
+            duration = time.time() - start_time
+            logger.debug(
+                f"Hybrid search: {len(dense_results)} dense + {len(bm25_results)} BM25 "
+                f"-> {len(fused)} fused in {duration:.3f}s"
+            )
+            return fused[:retrieval_k]
+        else:
+            logger.debug("No BM25 results, using dense-only")
+            return dense_results[:retrieval_k]
 
     def _rerank_results(
         self,
