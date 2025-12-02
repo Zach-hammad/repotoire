@@ -137,6 +137,14 @@ sandbox = [
     "e2b-code-interpreter>=1.0.0",  # E2B cloud sandbox for secure code execution
 ]
 
+voyage = [
+    "voyageai>=0.3.0",  # Voyage AI embeddings (code-optimized, Anthropic-recommended)
+]
+
+anthropic = [
+    "anthropic>=0.40.0",  # Anthropic Claude LLM for RAG answers
+]
+
 [project.scripts]
 repotoire = "repotoire.cli:main"
 repotoire-pre-commit = "repotoire.hooks.pre_commit:main"
