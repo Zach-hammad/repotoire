@@ -307,14 +307,14 @@ def cli(ctx: click.Context, config: str | None, log_level: str | None, log_forma
 )
 @click.option(
     "--embedding-backend",
-    type=click.Choice(["openai", "local"], case_sensitive=False),
+    type=click.Choice(["openai", "local", "deepinfra"], case_sensitive=False),
     default=None,
-    help="Embedding backend: 'openai' (high quality, paid) or 'local' (free, fast)",
+    help="Embedding backend: 'openai' (high quality), 'deepinfra' (cheap API), or 'local' (free)",
 )
 @click.option(
     "--embedding-model",
     default=None,
-    help="Embedding model name (default: text-embedding-3-small for OpenAI, all-MiniLM-L6-v2 for local)",
+    help="Embedding model (default: text-embedding-3-small for OpenAI, Qwen3-Embedding-0.6B for local, Qwen3-Embedding-8B for DeepInfra)",
 )
 @click.option(
     "--batch-size",

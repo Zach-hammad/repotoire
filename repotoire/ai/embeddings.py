@@ -1,8 +1,17 @@
 """Code-aware embedding generation with backend flexibility.
 
-Supports OpenAI (high quality, paid) and local sentence-transformers (free, faster).
+Supports:
+- OpenAI: High quality embeddings via API ($0.02/1M tokens)
+- DeepInfra: Cheap, high-quality Qwen3 embeddings (~$0.01/1M tokens)
+- Local: Free, high-quality embeddings via Qwen3-Embedding-0.6B
+
+Environment variables:
+- OPENAI_API_KEY: Required for 'openai' backend
+- DEEPINFRA_API_KEY: Required for 'deepinfra' backend
+- No key needed for 'local' backend
 """
 
+import os
 from typing import List, Optional, Literal
 from dataclasses import dataclass
 
@@ -11,6 +20,8 @@ from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Type alias for embedding backends
+EmbeddingBackend = Literal["openai", "local", "deepinfra"]
 
 # Backend configurations with defaults
 BACKEND_CONFIGS = {
@@ -21,6 +32,12 @@ BACKEND_CONFIGS = {
         "fallback_model": "all-MiniLM-L6-v2",
         "fallback_dimensions": 384,
     },
+    "deepinfra": {
+        "dimensions": 4096,
+        "model": "Qwen/Qwen3-Embedding-8B",
+        "base_url": "https://api.deepinfra.com/v1/openai",
+        "env_key": "DEEPINFRA_API_KEY",
+    },
 }
 
 
@@ -28,7 +45,7 @@ BACKEND_CONFIGS = {
 class EmbeddingConfig:
     """Configuration for embedding generation."""
 
-    backend: Literal["openai", "local"] = "openai"
+    backend: EmbeddingBackend = "openai"
     model: Optional[str] = None  # Uses backend default if not specified
     batch_size: int = 100
     include_context: bool = True  # Include surrounding code context
@@ -48,8 +65,9 @@ class EmbeddingConfig:
 class CodeEmbedder:
     """Generate semantic embeddings for code entities.
 
-    Supports two backends:
-    - OpenAI (default): High quality embeddings via API ($0.13/1M tokens)
+    Supports three backends:
+    - OpenAI (default): High quality embeddings via API ($0.02/1M tokens)
+    - DeepInfra: Cheap, high-quality Qwen3 embeddings (~$0.01/1M tokens)
     - Local: Free, high-quality embeddings via Qwen3-Embedding-0.6B (MTEB-Code #1)
 
     Example:
@@ -58,6 +76,12 @@ class CodeEmbedder:
         >>> embedding = embedder.embed_entity(function_entity)
         >>> len(embedding)
         1536
+
+        >>> # DeepInfra backend (cheap API)
+        >>> embedder = CodeEmbedder(backend="deepinfra")
+        >>> embedding = embedder.embed_entity(function_entity)
+        >>> len(embedding)
+        1024
 
         >>> # Local backend (free, no API key required)
         >>> embedder = CodeEmbedder(backend="local")
@@ -69,7 +93,7 @@ class CodeEmbedder:
     def __init__(
         self,
         config: Optional[EmbeddingConfig] = None,
-        backend: Literal["openai", "local"] = "openai",
+        backend: EmbeddingBackend = "openai",
         model: Optional[str] = None,
         api_key: Optional[str] = None,
     ):
@@ -77,14 +101,15 @@ class CodeEmbedder:
 
         Args:
             config: Embedding configuration (uses defaults if not provided)
-            backend: Backend to use ("openai" or "local"), ignored if config provided
+            backend: Backend to use ("openai", "local", or "deepinfra"), ignored if config provided
             model: Model name override, ignored if config provided
-            api_key: OpenAI API key (uses OPENAI_API_KEY env var if not provided)
+            api_key: API key for OpenAI/DeepInfra (uses env vars if not provided)
         """
         # Build config from parameters if not provided
         if config is None:
             config = EmbeddingConfig(backend=backend, model=model)
         self.config = config
+        self._api_key = api_key
 
         # Store dimensions for external access
         self.dimensions = self.config.dimensions
@@ -92,6 +117,8 @@ class CodeEmbedder:
         # Initialize the appropriate backend
         if self.config.backend == "local":
             self._init_local()
+        elif self.config.backend == "deepinfra":
+            self._init_deepinfra()
         else:
             self._init_openai(api_key)
 
@@ -146,6 +173,22 @@ class CodeEmbedder:
             api_key=api_key,
         )
 
+    def _init_deepinfra(self) -> None:
+        """Initialize DeepInfra embeddings via OpenAI-compatible API."""
+        config = BACKEND_CONFIGS["deepinfra"]
+        env_key = config["env_key"]
+
+        api_key = self._api_key or os.getenv(env_key)
+        if not api_key:
+            raise ValueError(
+                f"{env_key} environment variable required for deepinfra backend. "
+                f"Get your API key at https://deepinfra.com"
+            )
+
+        # Store for later use in embed methods
+        self._deepinfra_api_key = api_key
+        self._deepinfra_base_url = config["base_url"]
+
     def embed_entity(self, entity: Entity) -> List[float]:
         """Generate embedding for a single code entity.
 
@@ -198,6 +241,8 @@ class CodeEmbedder:
         """
         if self.config.backend == "local":
             return self._embed_local([query])[0]
+        elif self.config.backend == "deepinfra":
+            return self._embed_deepinfra([query])[0]
         else:
             return self._embeddings.embed_query(query)
 
@@ -215,6 +260,8 @@ class CodeEmbedder:
 
         if self.config.backend == "local":
             return self._embed_local(texts)
+        elif self.config.backend == "deepinfra":
+            return self._embed_deepinfra(texts)
         else:
             # neo4j-graphrag doesn't have native batch, so we iterate
             return [self._embeddings.embed_query(text) for text in texts]
@@ -230,6 +277,29 @@ class CodeEmbedder:
         """
         embeddings = self._model.encode(texts, show_progress_bar=False)
         return embeddings.tolist()
+
+    def _embed_deepinfra(self, texts: List[str]) -> List[List[float]]:
+        """Generate embeddings using DeepInfra's OpenAI-compatible API.
+
+        Args:
+            texts: List of texts to embed
+
+        Returns:
+            List of embedding vectors
+        """
+        from openai import OpenAI
+
+        client = OpenAI(
+            api_key=self._deepinfra_api_key,
+            base_url=self._deepinfra_base_url,
+        )
+
+        response = client.embeddings.create(
+            model=self.config.effective_model,
+            input=texts,
+        )
+
+        return [e.embedding for e in response.data]
 
     def _entity_to_text(self, entity: Entity) -> str:
         """Convert entity to rich text representation for embedding.
@@ -387,16 +457,16 @@ class CodeEmbedder:
 
 
 def create_embedder(
-    backend: Literal["openai", "local"] = "openai",
+    backend: EmbeddingBackend = "openai",
     model: Optional[str] = None,
     api_key: Optional[str] = None,
 ) -> CodeEmbedder:
     """Factory function to create a configured CodeEmbedder.
 
     Args:
-        backend: Backend to use ("openai" or "local")
+        backend: Backend to use ("openai", "local", or "deepinfra")
         model: Model name override (uses backend default if not provided)
-        api_key: Optional OpenAI API key (uses env var if not provided)
+        api_key: Optional API key for OpenAI/DeepInfra (uses env var if not provided)
 
     Returns:
         Configured CodeEmbedder instance
@@ -405,7 +475,7 @@ def create_embedder(
     return CodeEmbedder(config=config, api_key=api_key)
 
 
-def get_embedding_dimensions(backend: Literal["openai", "local"] = "openai") -> int:
+def get_embedding_dimensions(backend: EmbeddingBackend = "openai") -> int:
     """Get the embedding dimensions for a backend.
 
     Useful for schema creation before embedder is instantiated.
@@ -414,6 +484,6 @@ def get_embedding_dimensions(backend: Literal["openai", "local"] = "openai") -> 
         backend: Backend to get dimensions for
 
     Returns:
-        Embedding dimensions (1536 for OpenAI, 1024 for local Qwen3)
+        Embedding dimensions (1536 for OpenAI, 1024 for local/DeepInfra Qwen3)
     """
     return BACKEND_CONFIGS[backend]["dimensions"]

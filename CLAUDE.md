@@ -442,7 +442,11 @@ Repotoire includes a complete RAG system for natural language code intelligence.
 export OPENAI_API_KEY="sk-..."
 repotoire ingest /path/to/repo --generate-embeddings
 
-# Option 2: Local backend (free, no API key required)
+# Option 2: DeepInfra backend (cheap, high-quality Qwen3)
+export DEEPINFRA_API_KEY="..."
+repotoire ingest /path/to/repo --generate-embeddings --embedding-backend deepinfra
+
+# Option 3: Local backend (free, no API key required)
 pip install repotoire[local-embeddings]
 repotoire ingest /path/to/repo --generate-embeddings --embedding-backend local
 
@@ -455,31 +459,40 @@ curl -X POST "http://localhost:8000/api/v1/code/search" \
 
 ### Embedding Backends
 
-| Aspect | OpenAI | Local (MiniLM) |
-|--------|--------|----------------|
-| Quality | 100% baseline | 85-90% |
-| Cost | $0.13/1M tokens | $0 |
-| Latency | 50-150ms | 5-20ms |
-| Dependencies | API key | +50MB model |
-| Dimensions | 1536 | 384 |
+| Aspect | OpenAI | DeepInfra | Local (Qwen3-0.6B) |
+|--------|--------|-----------|---------------------|
+| Model | text-embedding-3-small | Qwen3-Embedding-8B | Qwen3-Embedding-0.6B |
+| Quality | Great | Best (MTEB-Code #1) | Excellent |
+| Cost | $0.02/1M tokens | ~$0.01/1M tokens | $0 |
+| Latency | 50-150ms | 30-100ms | 5-20ms |
+| Dependencies | API key | API key | +1.5GB model |
+| Dimensions | 1536 | 4096 | 1024 |
+
+**Note**: Local backend falls back to all-MiniLM-L6-v2 (384 dims) on low-memory systems (<4GB RAM).
 
 ### Configuration
 
 Via CLI:
 ```bash
+# Local (free, high quality)
 repotoire ingest /path/to/repo --generate-embeddings --embedding-backend local
-repotoire ingest /path/to/repo --generate-embeddings --embedding-model all-MiniLM-L6-v2
+
+# DeepInfra (cheap API, best quality)
+repotoire ingest /path/to/repo --generate-embeddings --embedding-backend deepinfra
+
+# OpenAI (high quality)
+repotoire ingest /path/to/repo --generate-embeddings --embedding-backend openai
 ```
 
 Via config file (`.repotoirerc` or `falkor.toml`):
 ```yaml
 embeddings:
-  backend: "local"  # or "openai"
-  model: "all-MiniLM-L6-v2"  # optional, uses backend default if not set
+  backend: "deepinfra"  # or "openai", "local"
+  model: "Qwen/Qwen3-Embedding-8B"  # optional, uses backend default if not set
 ```
 
 ### Key Components
-- **CodeEmbedder**: Supports OpenAI (1536 dims) and local sentence-transformers (384 dims)
+- **CodeEmbedder**: Supports OpenAI (1536d), DeepInfra (4096d), and local (1024d) backends
 - **GraphRAGRetriever**: Hybrid vector + graph search
 - **FastAPI Endpoints**: `/search`, `/ask`, `/embeddings/status`
 - **Vector Indexes**: Neo4j 5.18+ native vector support (dimensions auto-configured)
@@ -487,14 +500,19 @@ embeddings:
 ### Performance
 
 **OpenAI backend:**
-- **Embedding**: ~10-20 entities/sec, ~$0.13/1M tokens
+- **Embedding**: ~10-20 entities/sec, ~$0.02/1M tokens
 - **Query**: <2s total (vector search + GPT-4o generation)
-- **Cost**: ~$0.65 for 10k files (one-time), $0.0075/query
+- **Cost**: ~$0.10 for 10k files (one-time), $0.0075/query
+
+**DeepInfra backend:**
+- **Embedding**: ~20-40 entities/sec, ~$0.01/1M tokens
+- **Query**: <1.5s total
+- **Cost**: ~$0.05 for 10k files (one-time)
 
 **Local backend:**
-- **Embedding**: ~50-100 entities/sec, $0
+- **Embedding**: ~20-50 entities/sec, $0
 - **Query**: <1s total (no network latency)
-- **Cost**: Free (one-time ~50MB model download)
+- **Cost**: Free (one-time ~1.5GB model download for Qwen3-0.6B)
 
 ## Formal Verification (Lean 4)
 

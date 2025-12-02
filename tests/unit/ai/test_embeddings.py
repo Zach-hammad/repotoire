@@ -15,7 +15,7 @@ from repotoire.models import (
 @pytest.fixture
 def mock_openai_embeddings():
     """Mock OpenAIEmbeddings from neo4j-graphrag."""
-    with patch('repotoire.ai.embeddings.OpenAIEmbeddings') as mock:
+    with patch('neo4j_graphrag.embeddings.OpenAIEmbeddings') as mock:
         # Mock the embeddings instance
         mock_instance = Mock()
         mock_instance.embed_query.return_value = [0.1] * 1536
@@ -100,7 +100,7 @@ class TestCodeEmbedder:
         """Test embedder initializes with default config."""
         embedder = CodeEmbedder()
 
-        assert embedder.config.model == "text-embedding-3-small"
+        assert embedder.config.effective_model == "text-embedding-3-small"
         assert embedder.config.dimensions == 1536
         assert embedder.config.batch_size == 100
 
@@ -108,13 +108,12 @@ class TestCodeEmbedder:
         """Test embedder with custom configuration."""
         config = EmbeddingConfig(
             model="text-embedding-3-large",
-            dimensions=3072,
             batch_size=50
         )
         embedder = CodeEmbedder(config=config)
 
-        assert embedder.config.model == "text-embedding-3-large"
-        assert embedder.config.dimensions == 3072
+        assert embedder.config.effective_model == "text-embedding-3-large"
+        assert embedder.config.dimensions == 1536  # Still OpenAI default dimensions
         assert embedder.config.batch_size == 50
 
     def test_factory_function(self, mock_openai_embeddings):
@@ -122,7 +121,7 @@ class TestCodeEmbedder:
         embedder = create_embedder(model="text-embedding-3-small")
 
         assert isinstance(embedder, CodeEmbedder)
-        assert embedder.config.model == "text-embedding-3-small"
+        assert embedder.config.effective_model == "text-embedding-3-small"
 
 
 class TestEntityTextConversion:
@@ -601,3 +600,146 @@ class TestLocalEmbeddings:
         dims = get_embedding_dimensions(backend="local")
 
         assert dims == 1024
+
+
+class TestDeepInfraEmbeddings:
+    """Test DeepInfra embedding backend."""
+
+    def test_deepinfra_backend_config_defaults(self):
+        """Test DeepInfra backend config has correct defaults."""
+        from repotoire.ai.embeddings import BACKEND_CONFIGS
+
+        deepinfra_config = BACKEND_CONFIGS["deepinfra"]
+
+        assert deepinfra_config["model"] == "Qwen/Qwen3-Embedding-8B"
+        assert deepinfra_config["dimensions"] == 4096
+        assert deepinfra_config["base_url"] == "https://api.deepinfra.com/v1/openai"
+        assert deepinfra_config["env_key"] == "DEEPINFRA_API_KEY"
+
+    def test_embedding_config_deepinfra_dimensions(self):
+        """Test EmbeddingConfig returns correct dimensions for DeepInfra."""
+        config = EmbeddingConfig(backend="deepinfra")
+
+        assert config.dimensions == 4096
+        assert config.effective_model == "Qwen/Qwen3-Embedding-8B"
+
+    def test_deepinfra_backend_requires_api_key(self):
+        """Test DeepInfra backend raises error without API key."""
+        import os
+
+        # Ensure env var is not set
+        env_backup = os.environ.pop("DEEPINFRA_API_KEY", None)
+
+        try:
+            with pytest.raises(ValueError, match="DEEPINFRA_API_KEY"):
+                CodeEmbedder(backend="deepinfra")
+        finally:
+            # Restore env var if it was set
+            if env_backup:
+                os.environ["DEEPINFRA_API_KEY"] = env_backup
+
+    def test_deepinfra_embedder_initialization_with_env_key(self):
+        """Test DeepInfra embedder initializes with env var API key."""
+        import os
+
+        # Set mock API key
+        os.environ["DEEPINFRA_API_KEY"] = "test-api-key"
+
+        try:
+            embedder = CodeEmbedder(backend="deepinfra")
+
+            assert embedder.dimensions == 4096
+            assert embedder._deepinfra_api_key == "test-api-key"
+            assert embedder._deepinfra_base_url == "https://api.deepinfra.com/v1/openai"
+        finally:
+            del os.environ["DEEPINFRA_API_KEY"]
+
+    def test_deepinfra_embedder_initialization_with_provided_key(self):
+        """Test DeepInfra embedder initializes with provided API key."""
+        embedder = CodeEmbedder(backend="deepinfra", api_key="my-custom-key")
+
+        assert embedder.dimensions == 4096
+        assert embedder._deepinfra_api_key == "my-custom-key"
+
+    def test_deepinfra_embed_query(self):
+        """Test embedding a query with DeepInfra backend."""
+        from unittest.mock import patch, MagicMock
+
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_embedding = MagicMock()
+        mock_embedding.embedding = [0.1] * 4096
+        mock_response.data = [mock_embedding]
+        mock_client.embeddings.create.return_value = mock_response
+
+        with patch('openai.OpenAI', return_value=mock_client):
+            embedder = CodeEmbedder(backend="deepinfra", api_key="test-key")
+            embedding = embedder.embed_query("test query")
+
+            assert len(embedding) == 4096
+            mock_client.embeddings.create.assert_called_once_with(
+                model="Qwen/Qwen3-Embedding-8B",
+                input=["test query"],
+            )
+
+    def test_deepinfra_embed_batch(self):
+        """Test batch embedding with DeepInfra backend."""
+        from unittest.mock import patch, MagicMock
+
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_embedding1 = MagicMock()
+        mock_embedding1.embedding = [0.1] * 4096
+        mock_embedding2 = MagicMock()
+        mock_embedding2.embedding = [0.2] * 4096
+        mock_response.data = [mock_embedding1, mock_embedding2]
+        mock_client.embeddings.create.return_value = mock_response
+
+        with patch('openai.OpenAI', return_value=mock_client):
+            embedder = CodeEmbedder(backend="deepinfra", api_key="test-key")
+            embeddings = embedder.embed_batch(["text1", "text2"])
+
+            assert len(embeddings) == 2
+            assert all(len(emb) == 4096 for emb in embeddings)
+
+    def test_deepinfra_custom_model(self):
+        """Test DeepInfra with custom model override."""
+        from unittest.mock import patch, MagicMock
+
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_embedding = MagicMock()
+        mock_embedding.embedding = [0.1] * 4096
+        mock_response.data = [mock_embedding]
+        mock_client.embeddings.create.return_value = mock_response
+
+        with patch('openai.OpenAI', return_value=mock_client):
+            embedder = CodeEmbedder(
+                backend="deepinfra",
+                api_key="test-key",
+                model="Qwen/Qwen3-Embedding-4B"
+            )
+            embedder.embed_query("test")
+
+            mock_client.embeddings.create.assert_called_once_with(
+                model="Qwen/Qwen3-Embedding-4B",
+                input=["test"],
+            )
+
+    def test_get_embedding_dimensions_deepinfra(self):
+        """Test get_embedding_dimensions returns correct value for DeepInfra."""
+        from repotoire.ai.embeddings import get_embedding_dimensions
+
+        dims = get_embedding_dimensions(backend="deepinfra")
+
+        assert dims == 4096
+
+    def test_create_embedder_factory_deepinfra(self):
+        """Test create_embedder factory function with DeepInfra."""
+        from repotoire.ai.embeddings import create_embedder
+
+        embedder = create_embedder(backend="deepinfra", api_key="test-key")
+
+        assert isinstance(embedder, CodeEmbedder)
+        assert embedder.config.backend == "deepinfra"
+        assert embedder.dimensions == 4096
