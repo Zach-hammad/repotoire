@@ -57,6 +57,38 @@ from repotoire.autofix.learning import (
     AdaptiveConfidence,
     create_decision_id,
 )
+from repotoire.autofix.entitlements import (
+    FeatureAccess,
+    BestOfNEntitlement,
+    BestOfNTierConfig,
+    TIER_BEST_OF_N_CONFIG,
+    get_customer_entitlement,
+    get_entitlement_sync,
+    get_tier_config,
+)
+from repotoire.autofix.best_of_n import (
+    BestOfNConfig,
+    BestOfNGenerator,
+    BestOfNResult,
+    BestOfNNotAvailableError,
+    BestOfNUsageLimitError,
+    generate_best_of_n,
+)
+from repotoire.autofix.scorer import (
+    FixScorer,
+    ScoringConfig,
+    ScoringDimension,
+    VerificationResult,
+    DimensionScore,
+    RankedFix,
+    select_best_fix,
+)
+from repotoire.autofix.verifier import (
+    ParallelVerifier,
+    VerificationConfig,
+    VerificationTask,
+    verify_fixes_parallel,
+)
 
 __all__ = [
     # Core auto-fix
@@ -106,4 +138,32 @@ __all__ = [
     "DecisionStore",
     "AdaptiveConfidence",
     "create_decision_id",
+    # Best-of-N entitlements
+    "FeatureAccess",
+    "BestOfNEntitlement",
+    "BestOfNTierConfig",
+    "TIER_BEST_OF_N_CONFIG",
+    "get_customer_entitlement",
+    "get_entitlement_sync",
+    "get_tier_config",
+    # Best-of-N generation
+    "BestOfNConfig",
+    "BestOfNGenerator",
+    "BestOfNResult",
+    "BestOfNNotAvailableError",
+    "BestOfNUsageLimitError",
+    "generate_best_of_n",
+    # Scoring and ranking
+    "FixScorer",
+    "ScoringConfig",
+    "ScoringDimension",
+    "VerificationResult",
+    "DimensionScore",
+    "RankedFix",
+    "select_best_fix",
+    # Parallel verification
+    "ParallelVerifier",
+    "VerificationConfig",
+    "VerificationTask",
+    "verify_fixes_parallel",
 ]

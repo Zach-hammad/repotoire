@@ -1,18 +1,20 @@
 """Billing and subscription models for Stripe integration.
 
 This module defines models for managing Stripe subscriptions, usage tracking,
-and billing-related data for the multi-tenant SaaS platform.
+customer add-ons, and billing-related data for the multi-tenant SaaS platform.
 """
 
 import enum
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -25,6 +27,15 @@ from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin, generate_repr
 
 if TYPE_CHECKING:
     from .organization import Organization
+
+
+class AddonType(str, enum.Enum):
+    """Types of purchasable add-ons."""
+
+    BEST_OF_N = "best_of_n"  # Best-of-N sampling for auto-fix
+    # Future add-ons can be added here
+    # ADVANCED_SECURITY = "advanced_security"
+    # CUSTOM_RULES = "custom_rules"
 
 
 class SubscriptionStatus(str, enum.Enum):
@@ -202,3 +213,132 @@ class UsageRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return generate_repr(self, "id", "organization_id", "period_start")
+
+
+class CustomerAddon(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Customer add-on purchases for premium features.
+
+    Add-ons are tier-specific enhancements that can be purchased separately.
+    For example, Pro tier customers can purchase the Best-of-N add-on.
+
+    Attributes:
+        id: UUID primary key
+        customer_id: Customer identifier (organization ID or Stripe customer ID)
+        addon_type: Type of add-on purchased
+        is_active: Whether the add-on is currently active
+        stripe_subscription_id: Stripe subscription ID for recurring billing
+        price_monthly: Monthly price of the add-on
+        activated_at: When the add-on was activated
+        cancelled_at: When the add-on was cancelled (if applicable)
+        created_at: When the record was created
+        updated_at: When the record was last updated
+    """
+
+    __tablename__ = "customer_addons"
+
+    customer_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        index=True,
+    )
+    addon_type: Mapped[AddonType] = mapped_column(
+        Enum(
+            AddonType,
+            name="addon_type",
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
+    stripe_subscription_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+    )
+    price_monthly: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+    activated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        nullable=False,
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "customer_id",
+            "addon_type",
+            name="uq_customer_addon",
+        ),
+        Index("ix_customer_addons_customer_id", "customer_id"),
+        Index("ix_customer_addons_addon_type", "addon_type"),
+    )
+
+    def __repr__(self) -> str:
+        return generate_repr(self, "id", "customer_id", "addon_type", "is_active")
+
+
+class BestOfNUsage(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Best-of-N usage tracking per customer per month.
+
+    Tracks monthly usage of the Best-of-N feature for billing and quota
+    enforcement purposes.
+
+    Attributes:
+        id: UUID primary key
+        customer_id: Customer identifier
+        month: First day of the month (for grouping)
+        runs_count: Number of Best-of-N runs in the month
+        candidates_generated: Total candidates generated
+        sandbox_cost_usd: Total sandbox cost for the month
+        created_at: When the record was created
+        updated_at: When the record was last updated
+    """
+
+    __tablename__ = "best_of_n_usage"
+
+    customer_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        index=True,
+    )
+    month: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+    runs_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    candidates_generated: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    sandbox_cost_usd: Mapped[float] = mapped_column(
+        Float,
+        default=0.0,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "customer_id",
+            "month",
+            name="uq_best_of_n_usage_customer_month",
+        ),
+        Index("ix_best_of_n_usage_customer_month", "customer_id", "month"),
+    )
+
+    def __repr__(self) -> str:
+        return generate_repr(self, "id", "customer_id", "month", "runs_count")

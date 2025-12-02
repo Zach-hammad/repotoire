@@ -23,7 +23,14 @@ Usage:
 
 from .analysis import AnalysisRun, AnalysisStatus
 from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from .billing import Subscription, SubscriptionStatus, UsageRecord
+from .billing import (
+    AddonType,
+    BestOfNUsage,
+    CustomerAddon,
+    Subscription,
+    SubscriptionStatus,
+    UsageRecord,
+)
 from .github import GitHubInstallation, GitHubRepository
 from .organization import MemberRole, Organization, OrganizationMembership, PlanTier
 from .repository import Repository
@@ -44,9 +51,12 @@ __all__ = [
     "GitHubRepository",
     "Subscription",
     "UsageRecord",
+    "CustomerAddon",
+    "BestOfNUsage",
     # Enums
     "PlanTier",
     "MemberRole",
     "AnalysisStatus",
     "SubscriptionStatus",
+    "AddonType",
 ]

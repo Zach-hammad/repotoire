@@ -1,10 +1,10 @@
-"""API routes for fix management."""
+"""API routes for fix management and Best-of-N generation."""
 
 import time
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from repotoire.autofix.models import (
     FixProposal,
@@ -12,8 +12,19 @@ from repotoire.autofix.models import (
     FixConfidence,
     FixType,
 )
+from repotoire.autofix.entitlements import (
+    FeatureAccess,
+    get_customer_entitlement,
+)
+from repotoire.autofix.best_of_n import (
+    BestOfNConfig,
+    BestOfNGenerator,
+    BestOfNNotAvailableError,
+    BestOfNUsageLimitError,
+)
 from repotoire.api.auth import ClerkUser, get_current_user
 from repotoire.api.models import PreviewResult, PreviewCheck
+from repotoire.db.models import PlanTier
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -508,3 +519,255 @@ def clear_fixes_store() -> None:
     """Clear the fixes store (for testing)."""
     _fixes_store.clear()
     _comments_store.clear()
+
+
+# =============================================================================
+# Best-of-N Endpoints
+# =============================================================================
+
+
+class BestOfNFixRequest(BaseModel):
+    """Request for Best-of-N fix generation."""
+
+    finding_id: str = Field(description="ID of the finding to fix")
+    repository_path: str = Field(description="Path to the repository")
+    n: int = Field(default=5, ge=2, le=10, description="Number of candidates to generate")
+    test_command: str = Field(default="pytest", description="Test command to run")
+
+
+class BestOfNFixResponse(BaseModel):
+    """Response from Best-of-N fix generation."""
+
+    ranked_fixes: List[dict] = Field(description="Ranked list of fix candidates")
+    best_fix: Optional[dict] = Field(description="Best fix (highest ranked)")
+    candidates_generated: int
+    candidates_verified: int
+    total_duration_ms: int
+    total_sandbox_cost_usd: float
+    has_recommendation: bool
+
+
+class BestOfNStatusResponse(BaseModel):
+    """Status of Best-of-N feature for a customer."""
+
+    is_available: bool = Field(description="Whether Best-of-N is available")
+    access_type: str = Field(description="Access type: unavailable, addon, or included")
+    addon_enabled: bool = Field(description="Whether Pro add-on is enabled")
+    max_n: int = Field(description="Maximum candidates allowed")
+    monthly_runs_limit: int = Field(description="Monthly runs limit (-1 = unlimited)")
+    monthly_runs_used: int = Field(description="Runs used this month")
+    remaining_runs: int = Field(description="Remaining runs (-1 = unlimited)")
+    addon_price: Optional[str] = Field(description="Add-on price (for Pro tier)")
+    upgrade_url: Optional[str] = Field(description="URL to upgrade (for Free tier)")
+    addon_url: Optional[str] = Field(description="URL to enable add-on (for Pro tier)")
+
+
+class FeatureNotAvailableError(BaseModel):
+    """Error response when feature is not available."""
+
+    error: str = "feature_not_available"
+    message: str
+    upgrade_url: Optional[str] = None
+    addon_url: Optional[str] = None
+
+
+class UsageLimitError(BaseModel):
+    """Error response when usage limit is exceeded."""
+
+    error: str = "usage_limit_exceeded"
+    message: str
+    used: int
+    limit: int
+    resets_at: str
+
+
+@router.get("/best-of-n/status")
+async def get_best_of_n_status(
+    user: ClerkUser = Depends(get_current_user),
+) -> BestOfNStatusResponse:
+    """Get customer's Best-of-N feature status and usage.
+
+    Returns information about:
+    - Whether Best-of-N is available for the user's tier
+    - Current usage and limits
+    - Pricing for add-on (Pro tier)
+    - Upgrade URLs (Free tier)
+    """
+    # In production, get tier from user's organization
+    # For now, default to FREE if not available
+    tier = getattr(user, "tier", None) or PlanTier.FREE
+
+    # Get entitlement (without DB for now)
+    entitlement = await get_customer_entitlement(
+        customer_id=user.user_id,
+        tier=tier,
+        db=None,  # Pass actual db session in production
+    )
+
+    return BestOfNStatusResponse(
+        is_available=entitlement.is_available,
+        access_type=entitlement.access.value,
+        addon_enabled=entitlement.addon_enabled,
+        max_n=entitlement.max_n,
+        monthly_runs_limit=entitlement.monthly_runs_limit,
+        monthly_runs_used=entitlement.monthly_runs_used,
+        remaining_runs=entitlement.remaining_runs,
+        addon_price=entitlement.addon_price,
+        upgrade_url=entitlement.upgrade_url,
+        addon_url=entitlement.addon_url,
+    )
+
+
+@router.post("/best-of-n")
+async def generate_best_of_n_fix(
+    request: BestOfNFixRequest,
+    user: ClerkUser = Depends(get_current_user),
+) -> BestOfNFixResponse:
+    """Generate N fix candidates using Best-of-N sampling.
+
+    This endpoint:
+    1. Checks if user has access to Best-of-N (Pro add-on or Enterprise)
+    2. Generates N fix candidates with varied approaches
+    3. Verifies each in parallel E2B sandboxes
+    4. Returns ranked fixes by test pass rate and quality
+
+    Availability:
+    - Free tier: Not available (403)
+    - Pro tier: Requires $29/month add-on
+    - Enterprise tier: Included free
+
+    Returns:
+        BestOfNFixResponse with ranked fixes
+
+    Raises:
+        403: Feature not available or add-on not enabled
+        429: Monthly usage limit exceeded
+    """
+    # Get user's tier (in production, from organization)
+    tier = getattr(user, "tier", None) or PlanTier.FREE
+
+    # Get entitlement
+    entitlement = await get_customer_entitlement(
+        customer_id=user.user_id,
+        tier=tier,
+        db=None,  # Pass actual db session in production
+    )
+
+    # Create generator with entitlement checks
+    config = BestOfNConfig(n=request.n)
+    generator = BestOfNGenerator(
+        config=config,
+        customer_id=user.user_id,
+        tier=tier,
+        entitlement=entitlement,
+        db=None,  # Pass actual db session in production
+    )
+
+    try:
+        # Get the finding from store (in production, from database)
+        finding = None
+        for fix in _fixes_store.values():
+            if hasattr(fix.finding, "id") and fix.finding.id == request.finding_id:
+                finding = fix.finding
+                break
+
+        if finding is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Finding {request.finding_id} not found",
+            )
+
+        # Generate and verify fixes
+        result = await generator.generate_and_verify(
+            issue=finding,
+            repository_path=request.repository_path,
+            test_command=request.test_command,
+        )
+
+        # Store generated fixes
+        for ranked in result.ranked_fixes:
+            _fixes_store[ranked.fix.id] = ranked.fix
+
+        return BestOfNFixResponse(
+            ranked_fixes=[rf.to_dict() for rf in result.ranked_fixes],
+            best_fix=result.best_fix.to_dict() if result.best_fix else None,
+            candidates_generated=result.candidates_generated,
+            candidates_verified=result.candidates_verified,
+            total_duration_ms=result.total_duration_ms,
+            total_sandbox_cost_usd=result.total_sandbox_cost_usd,
+            has_recommendation=result.best_fix is not None and result.best_fix.is_recommended,
+        )
+
+    except BestOfNNotAvailableError as e:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "feature_not_available",
+                "message": e.message,
+                "upgrade_url": e.upgrade_url,
+                "addon_url": e.addon_url,
+            },
+        )
+
+    except BestOfNUsageLimitError as e:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "usage_limit_exceeded",
+                "message": e.message,
+                "used": e.used,
+                "limit": e.limit,
+                "resets_at": e.resets_at.isoformat(),
+            },
+        )
+
+
+@router.post("/best-of-n/{fix_id}/select")
+async def select_best_of_n_fix(
+    fix_id: str,
+    user: ClerkUser = Depends(get_current_user),
+) -> dict:
+    """Select a fix from Best-of-N candidates.
+
+    Marks the selected fix as approved and others as rejected.
+
+    Args:
+        fix_id: ID of the fix to select
+
+    Returns:
+        Selected fix details
+    """
+    if fix_id not in _fixes_store:
+        raise HTTPException(status_code=404, detail="Fix not found")
+
+    fix = _fixes_store[fix_id]
+
+    # Find related candidates (same base ID)
+    base_id = fix_id.rsplit("_candidate_", 1)[0]
+    related_ids = [
+        fid for fid in _fixes_store.keys()
+        if fid.startswith(base_id) and fid != fix_id
+    ]
+
+    # Approve selected fix
+    fix.status = FixStatus.APPROVED
+
+    # Reject other candidates
+    for other_id in related_ids:
+        other_fix = _fixes_store.get(other_id)
+        if other_fix and other_fix.status == FixStatus.PENDING:
+            other_fix.status = FixStatus.REJECTED
+
+    logger.info(
+        f"Selected Best-of-N fix {fix_id}",
+        extra={
+            "user_id": user.user_id,
+            "rejected_count": len(related_ids),
+        },
+    )
+
+    return {
+        "data": fix.to_dict(),
+        "success": True,
+        "rejected_count": len(related_ids),
+    }
