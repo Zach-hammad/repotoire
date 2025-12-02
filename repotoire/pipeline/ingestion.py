@@ -40,6 +40,9 @@ class IngestionPipeline:
         generate_embeddings: bool = False,
         embedding_backend: str = "openai",
         embedding_model: Optional[str] = None,
+        generate_contexts: bool = False,
+        context_model: str = "claude-haiku-3-5-20241022",
+        max_context_cost: Optional[float] = None,
     ):
         """Initialize ingestion pipeline with security validation.
 
@@ -54,6 +57,9 @@ class IngestionPipeline:
             generate_embeddings: Whether to generate vector embeddings for RAG (default: False)
             embedding_backend: Backend for embeddings: 'openai' or 'local' (default: openai)
             embedding_model: Model name override for embeddings (default: uses backend default)
+            generate_contexts: Whether to generate semantic contexts using Claude (default: False)
+            context_model: Claude model for context generation (default: claude-haiku-3-5-20241022)
+            max_context_cost: Maximum USD to spend on context generation (default: unlimited)
 
         Raises:
             ValueError: If repository path is invalid
@@ -85,6 +91,9 @@ class IngestionPipeline:
         self.generate_embeddings = generate_embeddings
         self.embedding_backend = embedding_backend
         self.embedding_model = embedding_model
+        self.generate_contexts = generate_contexts
+        self.context_model = context_model
+        self.max_context_cost = max_context_cost
 
         # Track skipped files for reporting
         self.skipped_files: List[Dict[str, str]] = []
@@ -131,6 +140,31 @@ class IngestionPipeline:
                 logger.warning(f"Could not initialize embedder: {e}")
                 logger.warning("Continuing without embedding generation")
                 self.generate_embeddings = False
+
+        # Initialize context generator if needed (REPO-242)
+        self.context_generator = None
+        if self.generate_contexts:
+            try:
+                from repotoire.ai import ContextGenerator, ContextualRetrievalConfig
+                config = ContextualRetrievalConfig(
+                    enabled=True,
+                    model=self.context_model,
+                    max_cost_usd=self.max_context_cost,
+                )
+                self.context_generator = ContextGenerator(config)
+                logger.info(
+                    f"Context generation enabled (model={self.context_model}, "
+                    f"max_cost=${self.max_context_cost or 'unlimited'})"
+                )
+            except ImportError as e:
+                logger.warning(f"Could not initialize context generator: {e}")
+                logger.warning("Install with: pip install anthropic")
+                logger.warning("Continuing without context generation")
+                self.generate_contexts = False
+            except ValueError as e:
+                logger.warning(f"Could not initialize context generator: {e}")
+                logger.warning("Continuing without context generation")
+                self.generate_contexts = False
 
         # Register default parsers with secrets policy
         self.register_parser("python", PythonParser(secrets_policy=secrets_policy))
@@ -450,7 +484,7 @@ class IngestionPipeline:
         ]:
             logger.info(f"Generating embeddings for {entity_type} entities...")
 
-            # Query entities without embeddings
+            # Query entities without embeddings (include semantic_context for contextual retrieval)
             query = f"""
             MATCH (e:{entity_type})
             WHERE e.embedding IS NULL
@@ -461,7 +495,8 @@ class IngestionPipeline:
                 e.docstring as docstring,
                 e.filePath as file_path,
                 e.lineStart as line_start,
-                e.lineEnd as line_end
+                e.lineEnd as line_end,
+                e.semantic_context as semantic_context
             """
 
             entities = self.db.execute_query(query)
@@ -478,6 +513,7 @@ class IngestionPipeline:
 
                 # Convert to entity objects for embedder
                 entity_objects = []
+                semantic_contexts = []  # Track contexts for contextualized embedding
                 for e in batch:
                     if entity_type == "Function":
                         entity_obj = FunctionEntity(
@@ -509,10 +545,21 @@ class IngestionPipeline:
                         )
 
                     entity_objects.append(entity_obj)
+                    semantic_contexts.append(e.get("semantic_context"))
 
                 try:
-                    # Generate embeddings in batch
-                    embeddings = self.embedder.embed_entities_batch(entity_objects)
+                    # Generate embeddings - use contextualized text if semantic_context available
+                    texts = []
+                    for entity_obj, context in zip(entity_objects, semantic_contexts):
+                        if context and self.context_generator:
+                            # Use contextualized text for better retrieval
+                            text = self.context_generator.contextualize_text(entity_obj, context)
+                        else:
+                            # Fall back to standard entity text
+                            text = self.embedder._entity_to_text(entity_obj)
+                        texts.append(text)
+
+                    embeddings = self.embedder.embed_batch(texts)
 
                     # Update database with embeddings
                     for entity, embedding in zip(batch, embeddings):
@@ -542,6 +589,104 @@ class IngestionPipeline:
                     continue
 
         return entities_embedded
+
+    async def _generate_contexts_for_all_entities(self) -> int:
+        """Generate semantic contexts for all entities in the graph using Claude.
+
+        Queries Neo4j for all Function, Class, and File nodes without contexts,
+        generates contexts using Claude, and updates the nodes.
+
+        Returns:
+            Number of entities that received contexts
+        """
+        if not self.context_generator:
+            return 0
+
+        from repotoire.models import FunctionEntity, ClassEntity, FileEntity, NodeType
+        from repotoire.ai import CostLimitExceeded
+
+        entities_contextualized = 0
+        context_batch_size = 100  # Process entities in batches
+
+        # FalkorDB uses id() while Neo4j uses elementId()
+        id_func = "id" if self.is_falkordb else "elementId"
+
+        # Get entities without context from database
+        entity_records = self.db.get_entities_without_context(limit=10000)
+
+        if not entity_records:
+            logger.info("No entities need context generation")
+            return 0
+
+        logger.info(f"Found {len(entity_records)} entities to generate contexts for")
+
+        # Convert records to Entity objects for the context generator
+        entities = []
+        for record in entity_records:
+            entity_type = record.get("entity_type", "Function")
+
+            # Create appropriate entity type
+            if entity_type == "Function":
+                entity = FunctionEntity(
+                    name=record["name"],
+                    qualified_name=record["qualified_name"],
+                    file_path=record.get("file_path", ""),
+                    line_start=record.get("line_start", 0),
+                    line_end=record.get("line_end", 0),
+                    docstring=record.get("docstring"),
+                    parameters=[],
+                )
+            elif entity_type == "Class":
+                entity = ClassEntity(
+                    name=record["name"],
+                    qualified_name=record["qualified_name"],
+                    file_path=record.get("file_path", ""),
+                    line_start=record.get("line_start", 0),
+                    line_end=record.get("line_end", 0),
+                    docstring=record.get("docstring"),
+                )
+            else:  # File
+                entity = FileEntity(
+                    name=record["name"],
+                    qualified_name=record["qualified_name"],
+                    file_path=record.get("file_path", ""),
+                    line_start=record.get("line_start", 0),
+                    line_end=record.get("line_end", 0),
+                    language="python",
+                )
+
+            entities.append(entity)
+
+        # Process in batches
+        for i in range(0, len(entities), context_batch_size):
+            batch = entities[i:i + context_batch_size]
+
+            try:
+                # Progress callback for logging
+                def on_progress(qn: str, count: int):
+                    if count % 10 == 0:
+                        logger.debug(f"Generated context for {count}/{len(batch)} entities in batch")
+
+                # Generate contexts for batch
+                contexts = await self.context_generator.generate_contexts_batch(
+                    batch,
+                    on_progress=on_progress,
+                )
+
+                # Store contexts in database
+                if contexts:
+                    updated = self.db.batch_set_contexts(contexts)
+                    entities_contextualized += updated
+                    logger.debug(f"Stored {updated} contexts (batch {i // context_batch_size + 1})")
+
+            except CostLimitExceeded as e:
+                logger.warning(f"Context generation stopped due to cost limit: {e}")
+                break
+            except Exception as e:
+                logger.error(f"Failed to generate contexts for batch: {e}")
+                continue
+
+        return entities_contextualized
 
     def load_to_graph(
         self, entities: List[Entity], relationships: List[Relationship]
@@ -822,6 +967,21 @@ class IngestionPipeline:
                 "changed": files_changed,
                 "unchanged": files_unchanged,
             }
+
+        # Generate semantic contexts using Claude if enabled (REPO-242)
+        if self.generate_contexts and self.context_generator:
+            import asyncio
+            logger.info("Generating semantic contexts for entities...")
+            context_start = time.time()
+            contexts_generated = asyncio.run(self._generate_contexts_for_all_entities())
+            context_duration = time.time() - context_start
+            logger.info(f"Contexts generated for {contexts_generated} entities in {context_duration:.2f}s")
+
+            # Log cost summary if tracking enabled
+            if self.context_generator.cost_tracker:
+                cost_summary = self.context_generator.cost_tracker.summary()
+                logger.info(f"Context generation cost: ${cost_summary['total_cost_usd']:.4f}")
+                log_extra["context_cost"] = cost_summary
 
         # Generate embeddings for all entities if enabled
         if self.generate_embeddings and self.embedder:

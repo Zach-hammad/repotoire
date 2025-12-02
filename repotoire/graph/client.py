@@ -670,6 +670,79 @@ class Neo4jClient:
         logger.info(f"Deleted {deleted_count} nodes for file: {file_path}")
         return deleted_count
 
+    def fulltext_search(
+        self,
+        query: str,
+        top_k: int = 100,
+        node_labels: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """BM25 keyword search using Neo4j full-text indexes.
+
+        Performs full-text search across code entities for hybrid search.
+        Queries are escaped for Lucene syntax to handle special characters.
+
+        Args:
+            query: Search query text
+            top_k: Maximum number of results per entity type
+            node_labels: Entity types to search (default: Function, Class, File)
+
+        Returns:
+            List of matching entities with BM25 scores
+
+        Example:
+            >>> results = client.fulltext_search("authenticate user", top_k=50)
+            >>> for r in results:
+            ...     print(f"{r['qualified_name']}: {r['score']}")
+        """
+        from repotoire.ai.hybrid import escape_lucene_query
+
+        # Default entity types for code search
+        if node_labels is None:
+            node_labels = ["Function", "Class", "File"]
+
+        # Escape special characters for Lucene query syntax
+        escaped_query = escape_lucene_query(query)
+
+        all_results = []
+
+        for label in node_labels:
+            # Index naming convention: {label_lower}_search
+            index_name = f"{label.lower()}_search"
+
+            cypher = """
+            CALL db.index.fulltext.queryNodes($index_name, $query)
+            YIELD node, score
+            RETURN
+                elementId(node) as element_id,
+                node.qualifiedName as qualified_name,
+                node.name as name,
+                $entity_type as entity_type,
+                node.docstring as docstring,
+                node.filePath as file_path,
+                node.lineStart as line_start,
+                node.lineEnd as line_end,
+                score
+            ORDER BY score DESC
+            LIMIT $top_k
+            """
+
+            try:
+                label_results = self.execute_query(
+                    cypher,
+                    {
+                        "index_name": index_name,
+                        "query": escaped_query,
+                        "top_k": top_k,
+                        "entity_type": label,
+                    },
+                )
+                all_results.extend(label_results)
+            except Exception as e:
+                # Index might not exist yet
+                logger.warning(f"Full-text search failed for {label}: {e}")
+
+        return all_results
+
     def get_pool_metrics(self) -> Dict[str, Any]:
         """Get connection pool metrics for monitoring.
 
@@ -716,3 +789,163 @@ class Neo4jClient:
                 "encrypted": self.encrypted,
                 "error": str(e),
             }
+
+    # =========================================================================
+    # Contextual Retrieval Methods (REPO-242)
+    # =========================================================================
+
+    def set_entity_context(self, qualified_name: str, context: str) -> None:
+        """Store semantic context for an entity.
+
+        Sets the semantic_context property on a node, which is used by
+        contextual retrieval to improve embedding quality.
+
+        Args:
+            qualified_name: Entity's qualified name
+            context: Generated semantic context paragraph
+
+        Example:
+            >>> client.set_entity_context(
+            ...     "auth/handlers.py::AuthHandler.authenticate",
+            ...     "This method handles user authentication..."
+            ... )
+        """
+        query = """
+        MATCH (n {qualifiedName: $qualified_name})
+        SET n.semantic_context = $context
+        """
+        self.execute_query(query, {
+            "qualified_name": qualified_name,
+            "context": context,
+        })
+
+    def get_entities_without_context(
+        self,
+        node_labels: Optional[List[str]] = None,
+        limit: int = 1000,
+    ) -> List[Dict[str, Any]]:
+        """Get entities that don't have context generated yet.
+
+        Used for incremental context generation - only process entities
+        that haven't been contextualized.
+
+        Args:
+            node_labels: Entity types to query (default: Function, Class, File)
+            limit: Maximum number of entities to return
+
+        Returns:
+            List of entity dictionaries with properties needed for context generation
+
+        Example:
+            >>> entities = client.get_entities_without_context(limit=100)
+            >>> print(f"Found {len(entities)} entities needing context")
+        """
+        if node_labels is None:
+            node_labels = ["Function", "Class", "File"]
+
+        query = """
+        MATCH (n)
+        WHERE any(label IN labels(n) WHERE label IN $labels)
+        AND n.semantic_context IS NULL
+        RETURN
+            elementId(n) as element_id,
+            n.qualifiedName as qualified_name,
+            n.name as name,
+            labels(n)[0] as entity_type,
+            n.filePath as file_path,
+            n.docstring as docstring,
+            n.lineStart as line_start,
+            n.lineEnd as line_end
+        LIMIT $limit
+        """
+        return self.execute_query(query, {"labels": node_labels, "limit": limit})
+
+    def batch_set_contexts(self, contexts: Dict[str, str]) -> int:
+        """Batch update contexts for multiple entities.
+
+        Efficiently sets semantic_context for multiple entities in a single
+        transaction.
+
+        Args:
+            contexts: Dictionary mapping qualified_name to context string
+
+        Returns:
+            Number of entities updated
+
+        Example:
+            >>> contexts = {
+            ...     "module.py::ClassA.method1": "Context for method1...",
+            ...     "module.py::ClassA.method2": "Context for method2...",
+            ... }
+            >>> updated = client.batch_set_contexts(contexts)
+            >>> print(f"Updated {updated} entities")
+        """
+        if not contexts:
+            return 0
+
+        items = [
+            {"qualified_name": qn, "context": ctx}
+            for qn, ctx in contexts.items()
+        ]
+
+        query = """
+        UNWIND $items AS item
+        MATCH (n {qualifiedName: item.qualified_name})
+        SET n.semantic_context = item.context
+        RETURN count(n) as updated
+        """
+
+        result = self.execute_query(query, {"items": items})
+        return result[0]["updated"] if result else 0
+
+    def get_entity_context(self, qualified_name: str) -> Optional[str]:
+        """Get the semantic context for an entity.
+
+        Args:
+            qualified_name: Entity's qualified name
+
+        Returns:
+            Semantic context string or None if not set
+
+        Example:
+            >>> context = client.get_entity_context("module.py::MyClass.my_method")
+            >>> if context:
+            ...     print(f"Context: {context[:100]}...")
+        """
+        query = """
+        MATCH (n {qualifiedName: $qualified_name})
+        RETURN n.semantic_context as context
+        """
+        result = self.execute_query(query, {"qualified_name": qualified_name})
+        return result[0]["context"] if result and result[0]["context"] else None
+
+    def get_context_stats(self) -> Dict[str, Any]:
+        """Get statistics about contextual retrieval coverage.
+
+        Returns:
+            Dictionary with context coverage statistics per entity type
+
+        Example:
+            >>> stats = client.get_context_stats()
+            >>> print(f"Functions with context: {stats['Function']['with_context']}/{stats['Function']['total']}")
+        """
+        stats = {}
+
+        for label in ["Function", "Class", "File"]:
+            query = f"""
+            MATCH (n:{label})
+            RETURN
+                count(n) as total,
+                sum(CASE WHEN n.semantic_context IS NOT NULL THEN 1 ELSE 0 END) as with_context
+            """
+            result = self.execute_query(query)
+            if result:
+                stats[label] = {
+                    "total": result[0]["total"],
+                    "with_context": result[0]["with_context"],
+                    "coverage_pct": round(
+                        100 * result[0]["with_context"] / result[0]["total"], 1
+                    ) if result[0]["total"] > 0 else 0.0
+                }
+
+        return stats

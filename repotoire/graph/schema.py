@@ -81,6 +81,11 @@ class GraphSchema:
         "CREATE INDEX detector_metadata_timestamp_idx IF NOT EXISTS FOR (d:DetectorMetadata) ON (d.timestamp)",
         "CREATE INDEX flagged_by_severity_idx IF NOT EXISTS FOR ()-[r:FLAGGED_BY]-() ON (r.severity)",
         "CREATE INDEX flagged_by_confidence_idx IF NOT EXISTS FOR ()-[r:FLAGGED_BY]-() ON (r.confidence)",
+        # Contextual retrieval indexes (REPO-242)
+        # Index for checking if semantic context exists on entities
+        "CREATE INDEX function_semantic_context_idx IF NOT EXISTS FOR (f:Function) ON (f.semantic_context)",
+        "CREATE INDEX class_semantic_context_idx IF NOT EXISTS FOR (c:Class) ON (c.semantic_context)",
+        "CREATE INDEX file_semantic_context_idx IF NOT EXISTS FOR (f:File) ON (f.semantic_context)",
     ]
 
     # Vector index definitions (labels and index names)
@@ -89,6 +94,29 @@ class GraphSchema:
         ("Function", "function_embeddings", "f"),
         ("Class", "class_embeddings", "c"),
         ("File", "file_embeddings", "f"),
+    ]
+
+    # Full-text index definitions for BM25 hybrid search (REPO-243)
+    # These combine multiple fields for comprehensive keyword matching
+    FULLTEXT_INDEX_DEFS = [
+        # Functions: name, docstring, source_code for comprehensive search
+        """
+        CREATE FULLTEXT INDEX function_search IF NOT EXISTS
+        FOR (n:Function)
+        ON EACH [n.name, n.docstring, n.qualifiedName]
+        """,
+        # Classes: name, docstring
+        """
+        CREATE FULLTEXT INDEX class_search IF NOT EXISTS
+        FOR (n:Class)
+        ON EACH [n.name, n.docstring, n.qualifiedName]
+        """,
+        # Files: path, docstring (module-level docstring)
+        """
+        CREATE FULLTEXT INDEX file_search IF NOT EXISTS
+        FOR (n:File)
+        ON EACH [n.filePath, n.docstring, n.name]
+        """,
     ]
 
     # FalkorDB index definitions (simpler syntax)
@@ -188,6 +216,30 @@ class GraphSchema:
             except Exception as e:
                 print(f"Warning: Could not create index: {e}")
 
+    def create_fulltext_indexes(self) -> None:
+        """Create full-text indexes for BM25 hybrid search (REPO-243).
+
+        These indexes enable efficient keyword search that complements
+        vector similarity search. Full-text search is particularly useful
+        for exact matches (function names, class names, identifiers).
+
+        Requires Neo4j (not supported on FalkorDB).
+        """
+        if self.is_falkordb:
+            print("Skipping full-text indexes (not supported on FalkorDB)")
+            return
+
+        print("Creating full-text indexes for BM25 search...")
+
+        for index_query in self.FULLTEXT_INDEX_DEFS:
+            try:
+                self.client.execute_query(index_query)
+            except Exception as e:
+                # Index may already exist
+                print(f"Info: Could not create full-text index: {e}")
+
+        print("Full-text indexes created!")
+
     def create_vector_indexes(self, dimensions: int = 1536) -> None:
         """Create vector indexes for RAG semantic search.
 
@@ -216,12 +268,14 @@ class GraphSchema:
         self,
         enable_vector_search: bool = False,
         vector_dimensions: int = 1536,
+        enable_fulltext_search: bool = False,
     ) -> None:
         """Initialize complete schema.
 
         Args:
             enable_vector_search: Whether to create vector indexes for RAG (requires Neo4j 5.18+)
             vector_dimensions: Vector dimensions for embeddings (1536 for OpenAI, 384 for local)
+            enable_fulltext_search: Whether to create full-text indexes for hybrid BM25 search
         """
         print("Creating graph schema...")
         self.create_constraints()
@@ -229,6 +283,9 @@ class GraphSchema:
 
         if enable_vector_search:
             self.create_vector_indexes(dimensions=vector_dimensions)
+
+        if enable_fulltext_search:
+            self.create_fulltext_indexes()
 
         print("Schema created successfully!")
 
