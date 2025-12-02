@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Account Deletion Scheduled</h1>
+<p>Your account is scheduled for deletion on <strong>{{ deletion_date }}</strong>.</p>
+
+<p>After this date, all your data will be permanently deleted, including:</p>
+<ul>
+  <li>Your profile and preferences</li>
+  <li>Organization memberships</li>
+  <li>Repository connections and analysis history</li>
+</ul>
+
+<p>If you didn't request this or want to cancel, click below:</p>
+
+<p style="text-align: center; margin-top: 30px;">
+  <a href="{{ cancel_url }}" class="button">Cancel Deletion</a>
+</p>
+
+<p style="color: #888; font-size: 12px; margin-top: 20px; text-align: center;">
+  This action will restore your account immediately.
+</p>
+{% endblock %}

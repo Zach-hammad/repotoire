@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Payment Failed</h1>
+<p>We couldn't process the payment for <strong>{{ org_name }}</strong>.</p>
+
+<p>Please update your payment method to continue using Repotoire's premium features.</p>
+
+<p style="text-align: center; margin-top: 30px;">
+  <a href="{{ retry_url }}" class="button">Update Payment Method</a>
+</p>
+
+<p style="color: #888; margin-top: 20px;">
+  If you believe this is an error, please contact <a href="mailto:support@repotoire.io">support@repotoire.io</a>
+</p>
+{% endblock %}

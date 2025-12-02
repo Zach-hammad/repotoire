@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Health Score Alert</h1>
+<p>The health score for <strong>{{ repo_name }}</strong> has dropped significantly.</p>
+
+<div style="text-align: center; padding: 20px;">
+  <span style="font-size: 36px; color: #888;">{{ old_score }}</span>
+  <span style="font-size: 24px; margin: 0 10px; color: #666;">&#8594;</span>
+  <span style="font-size: 36px; color: #ef4444;">{{ new_score }}</span>
+  <div style="color: #ef4444; font-weight: bold; margin-top: 10px;">-{{ drop }} points</div>
+</div>
+
+<p>This may indicate:</p>
+<ul>
+  <li>New code smells introduced</li>
+  <li>Increased complexity</li>
+  <li>Architectural issues</li>
+</ul>
+
+<p style="text-align: center; margin-top: 30px;">
+  <a href="{{ dashboard_url }}" class="button">View Analysis Details</a>
+</p>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Account Deletion Cancelled</h1>
+<p>Your account deletion request has been cancelled. Your account is now active again.</p>
+
+<p>All your data remains intact:</p>
+<ul>
+  <li>Your profile and preferences</li>
+  <li>Organization memberships</li>
+  <li>Repository connections and analysis history</li>
+</ul>
+
+<p style="text-align: center; margin-top: 30px;">
+  <a href="{{ base_url }}/dashboard" class="button">Go to Dashboard</a>
+</p>
+
+<p style="color: #888; font-size: 12px; margin-top: 20px; text-align: center;">
+  If you didn't cancel this deletion, please contact <a href="mailto:support@repotoire.io">support@repotoire.io</a> immediately.
+</p>
+{% endblock %}

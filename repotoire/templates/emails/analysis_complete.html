@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Analysis Complete!</h1>
+<p>Your repository <strong>{{ repo_name }}</strong> has been analyzed.</p>
+
+<div style="text-align: center; padding: 20px;">
+  <div class="score grade-{{ grade | lower }}">{{ health_score }}</div>
+  <div style="font-size: 24px; color: #666;">Grade: {{ grade }}</div>
+</div>
+
+<p style="text-align: center; margin-top: 30px;">
+  <a href="{{ dashboard_url }}" class="button">View Full Report</a>
+</p>
+{% endblock %}

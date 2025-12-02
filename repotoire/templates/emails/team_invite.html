@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>You're Invited!</h1>
+<p><strong>{{ inviter_name }}</strong> has invited you to join <strong>{{ org_name }}</strong> on Repotoire.</p>
+
+<p>Repotoire is a graph-powered code health platform that helps teams maintain high-quality codebases.</p>
+
+<p style="text-align: center; margin-top: 30px;">
+  <a href="{{ invite_url }}" class="button">Accept Invitation</a>
+</p>
+
+<p style="text-align: center; color: #888; font-size: 12px; margin-top: 20px;">
+  This invitation expires in 7 days.
+</p>
+{% endblock %}

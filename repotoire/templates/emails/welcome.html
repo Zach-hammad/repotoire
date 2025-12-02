@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Welcome to Repotoire, {{ name }}!</h1>
+<p>You're all set to start analyzing your codebase health with the power of knowledge graphs.</p>
+
+<h2>Getting Started</h2>
+<ol>
+  <li><strong>Connect a repository</strong> - Link your GitHub repos</li>
+  <li><strong>Run your first analysis</strong> - We'll build a knowledge graph</li>
+  <li><strong>Review your health score</strong> - Get actionable insights</li>
+</ol>
+
+<p style="text-align: center; margin-top: 30px;">
+  <a href="{{ base_url }}/dashboard" class="button">Go to Dashboard</a>
+</p>
+{% endblock %}

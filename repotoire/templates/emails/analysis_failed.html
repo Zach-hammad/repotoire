@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Analysis Failed</h1>
+<p>We encountered an error analyzing <strong>{{ repo_name }}</strong>.</p>
+
+<div style="background: #fef2f2; border: 1px solid #fecaca; padding: 15px; border-radius: 6px; margin: 20px 0;">
+  <strong>Error:</strong> {{ error_message }}
+</div>
+
+<p>Common causes:</p>
+<ul>
+  <li>Repository access permissions changed</li>
+  <li>Repository was deleted or renamed</li>
+  <li>Network timeout during clone</li>
+</ul>
+
+<p style="text-align: center; margin-top: 30px;">
+  <a href="{{ base_url }}/repos" class="button">Check Repository Settings</a>
+</p>
+{% endblock %}
