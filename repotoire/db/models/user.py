@@ -13,6 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin, generate_repr
 
 if TYPE_CHECKING:
+    from .email import EmailPreferences
     from .gdpr import ConsentRecord, DataExport
     from .organization import OrganizationMembership
 
@@ -87,6 +88,12 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     consent_records: Mapped[List["ConsentRecord"]] = relationship(
         "ConsentRecord",
         back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    email_preferences: Mapped["EmailPreferences | None"] = relationship(
+        "EmailPreferences",
+        back_populates="user",
+        uselist=False,
         cascade="all, delete-orphan",
     )
 
