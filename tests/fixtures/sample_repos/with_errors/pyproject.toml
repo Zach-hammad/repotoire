@@ -1,0 +1,14 @@
+[project]
+name = "with-errors"
+version = "0.1.0"
+description = "Sample project with intentional errors for testing"
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 100
+# Enable many rules to catch all issues
+select = ["E", "F", "B", "S", "N", "C90", "I", "UP", "W"]
+
+[tool.bandit]
+# Run all tests
+skips = []
