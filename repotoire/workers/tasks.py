@@ -1,5 +1,7 @@
 """Celery tasks for repository and PR analysis.
 
+Build: 2025-12-03T20:10:00Z
+
 This module contains the main analysis tasks:
 - analyze_repository: Full repository analysis with progress tracking
 - analyze_pr: PR-specific analysis for changed files only
