@@ -154,10 +154,10 @@ app = FastAPI(
 # Add correlation ID middleware first (before CORS)
 app.add_middleware(CorrelationIdMiddleware)
 
-# CORS middleware for web clients - allow all origins in development
+# CORS middleware for web clients - use configured origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

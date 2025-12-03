@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -9,10 +10,15 @@ import {
   Clock,
   AlertTriangle,
   TrendingUp,
+  TrendingDown,
+  Minus,
   FileCode2,
   Zap,
+  Download,
+  Filter,
+  Calendar,
 } from 'lucide-react';
-import { useAnalyticsSummary, useTrends, useFileHotspots } from '@/lib/hooks';
+import { useAnalyticsSummary, useTrends, useFileHotspots, useHealthScore } from '@/lib/hooks';
 import {
   LineChart,
   Line,
@@ -28,9 +34,15 @@ import {
   Bar,
 } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { FixConfidence, FixType } from '@/types';
+import { FixConfidence, FixType, Severity } from '@/types';
+import { format, subDays } from 'date-fns';
 
 // Color mappings
 const confidenceColors: Record<FixConfidence, string> = {
@@ -49,6 +61,105 @@ const fixTypeColors: Record<FixType, string> = {
   type_hint: '#6366f1',
   documentation: '#64748b',
 };
+
+const gradeColors: Record<string, string> = {
+  A: '#22c55e',
+  B: '#84cc16',
+  C: '#f59e0b',
+  D: '#ef4444',
+  F: '#dc2626',
+};
+
+const severityColors: Record<Severity, string> = {
+  critical: '#dc2626',
+  high: '#ef4444',
+  medium: '#f59e0b',
+  low: '#84cc16',
+  info: '#64748b',
+};
+
+function HealthScoreGauge({ loading }: { loading?: boolean }) {
+  const { data: healthScore } = useHealthScore();
+
+  if (loading || !healthScore) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Health Score</CardTitle>
+          <CardDescription>Overall codebase health</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col items-center">
+          <Skeleton className="h-[180px] w-[180px] rounded-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const { score, grade, trend, categories } = healthScore;
+  const data = [
+    { value: score },
+    { value: 100 - score },
+  ];
+
+  const TrendIcon = trend === 'improving' ? TrendingUp : trend === 'declining' ? TrendingDown : Minus;
+  const trendColor = trend === 'improving' ? 'text-green-500' : trend === 'declining' ? 'text-red-500' : 'text-muted-foreground';
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          Health Score
+          <div className={`flex items-center gap-1 text-sm font-normal ${trendColor}`}>
+            <TrendIcon className="h-4 w-4" />
+            <span className="capitalize">{trend}</span>
+          </div>
+        </CardTitle>
+        <CardDescription>Overall codebase health</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col items-center">
+        <div className="relative">
+          <ResponsiveContainer width={180} height={100}>
+            <PieChart>
+              <Pie
+                data={data}
+                startAngle={180}
+                endAngle={0}
+                innerRadius={55}
+                outerRadius={75}
+                paddingAngle={0}
+                dataKey="value"
+              >
+                <Cell fill={gradeColors[grade]} />
+                <Cell fill="#e5e7eb" />
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="absolute inset-0 flex flex-col items-center justify-end pb-2">
+            <span className="text-3xl font-bold">{score}</span>
+            <span className="text-sm text-muted-foreground">/100</span>
+          </div>
+        </div>
+        <Badge
+          className="mt-2 text-white"
+          style={{ backgroundColor: gradeColors[grade] }}
+        >
+          Grade {grade}
+        </Badge>
+        <div className="mt-4 w-full space-y-2">
+          {Object.entries(categories).map(([key, value]) => (
+            <div key={key} className="flex items-center justify-between text-sm">
+              <span className="capitalize">{key}</span>
+              <div className="flex items-center gap-2">
+                <Progress value={value} className="h-2 w-20" />
+                <span className="text-muted-foreground w-8 text-right">{value}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function StatCard({
   title,
@@ -235,6 +346,7 @@ function TypeChart({ data, loading }: { data?: Record<FixType, number>; loading?
 
 function FileHotspotsList({ loading }: { loading?: boolean }) {
   const { data: hotspots } = useFileHotspots(5);
+  const router = useRouter();
 
   if (loading || !hotspots) {
     return (
@@ -248,44 +360,266 @@ function FileHotspotsList({ loading }: { loading?: boolean }) {
 
   const maxCount = Math.max(...hotspots.map((h) => h.fix_count), 1);
 
+  const handleFileClick = (filePath: string) => {
+    router.push(`/dashboard/fixes?file_path=${encodeURIComponent(filePath)}`);
+  };
+
   return (
     <div className="space-y-3">
       {hotspots.map((hotspot) => (
-        <div key={hotspot.file_path} className="space-y-1">
+        <button
+          key={hotspot.file_path}
+          onClick={() => handleFileClick(hotspot.file_path)}
+          className="w-full space-y-1 p-2 -m-2 rounded-md hover:bg-muted/50 transition-colors text-left cursor-pointer"
+        >
           <div className="flex items-center justify-between text-sm">
-            <span className="font-mono text-xs truncate max-w-[200px]">
+            <span className="font-mono text-xs truncate max-w-[200px] hover:text-primary">
               {hotspot.file_path.split('/').pop()}
             </span>
             <span className="text-muted-foreground">{hotspot.fix_count} fixes</span>
           </div>
           <Progress value={(hotspot.fix_count / maxCount) * 100} className="h-2" />
-        </div>
+          <div className="flex gap-1 mt-1">
+            {Object.entries(hotspot.severity_breakdown)
+              .filter(([_, count]) => count > 0)
+              .map(([severity, count]) => (
+                <Badge
+                  key={severity}
+                  variant="outline"
+                  className="text-xs px-1 py-0"
+                  style={{ borderColor: severityColors[severity as Severity], color: severityColors[severity as Severity] }}
+                >
+                  {count} {severity}
+                </Badge>
+              ))}
+          </div>
+        </button>
       ))}
     </div>
   );
 }
 
+// Date Range Selector component
+function DateRangeSelector({
+  dateRange,
+  onDateRangeChange,
+}: {
+  dateRange: { from: Date; to: Date } | null;
+  onDateRangeChange: (range: { from: Date; to: Date } | null) => void;
+}) {
+  const presets = [
+    { label: 'Last 7 days', days: 7 },
+    { label: 'Last 14 days', days: 14 },
+    { label: 'Last 30 days', days: 30 },
+  ];
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8">
+          <Calendar className="h-4 w-4 mr-2" />
+          {dateRange
+            ? `${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d')}`
+            : 'Date range'}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="end">
+        <div className="p-2 border-b">
+          <div className="flex flex-wrap gap-1">
+            {presets.map(({ label, days }) => (
+              <Button
+                key={days}
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() =>
+                  onDateRangeChange({
+                    from: subDays(new Date(), days),
+                    to: new Date(),
+                  })
+                }
+              >
+                {label}
+              </Button>
+            ))}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => onDateRangeChange(null)}
+            >
+              Clear
+            </Button>
+          </div>
+        </div>
+        <CalendarComponent
+          mode="range"
+          selected={dateRange ? { from: dateRange.from, to: dateRange.to } : undefined}
+          onSelect={(range) => {
+            if (range?.from && range?.to) {
+              onDateRangeChange({ from: range.from, to: range.to });
+            }
+          }}
+          numberOfMonths={2}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// Severity Filter component
+function SeverityFilter({
+  selected,
+  onChange,
+}: {
+  selected: Severity[];
+  onChange: (val: Severity[]) => void;
+}) {
+  const severities: Severity[] = ['critical', 'high', 'medium', 'low'];
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8">
+          <Filter className="h-4 w-4 mr-2" />
+          Severity
+          {selected.length > 0 && ` (${selected.length})`}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-48" align="end">
+        <div className="space-y-2">
+          {severities.map((severity) => (
+            <div key={severity} className="flex items-center space-x-2">
+              <Checkbox
+                id={`severity-${severity}`}
+                checked={selected.includes(severity)}
+                onCheckedChange={(checked) => {
+                  onChange(
+                    checked
+                      ? [...selected, severity]
+                      : selected.filter((s) => s !== severity)
+                  );
+                }}
+              />
+              <Label
+                htmlFor={`severity-${severity}`}
+                className="flex items-center gap-2 cursor-pointer"
+              >
+                <div
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: severityColors[severity] }}
+                />
+                <span className="capitalize">{severity}</span>
+              </Label>
+            </div>
+          ))}
+          {selected.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full mt-2"
+              onClick={() => onChange([])}
+            >
+              Clear all
+            </Button>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// PDF Export function
+async function exportToPdf() {
+  // Dynamically import libraries to avoid SSR issues
+  const [html2canvas, jsPDF] = await Promise.all([
+    import('html2canvas').then((m) => m.default),
+    import('jspdf').then((m) => m.default),
+  ]);
+
+  const dashboard = document.getElementById('dashboard-content');
+  if (!dashboard) return;
+
+  const canvas = await html2canvas(dashboard, {
+    scale: 2,
+    useCORS: true,
+    logging: false,
+    backgroundColor: '#ffffff',
+  });
+
+  const imgData = canvas.toDataURL('image/png');
+  const pdf = new jsPDF('p', 'mm', 'a4');
+  const pdfWidth = pdf.internal.pageSize.getWidth();
+  const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+  // Add title
+  pdf.setFontSize(20);
+  pdf.text('Repotoire Dashboard Report', 14, 20);
+  pdf.setFontSize(10);
+  pdf.text(`Generated: ${format(new Date(), 'PPpp')}`, 14, 28);
+
+  // Add image
+  pdf.addImage(imgData, 'PNG', 0, 35, pdfWidth, pdfHeight);
+  pdf.save(`repotoire-dashboard-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+}
+
 export default function DashboardPage() {
   const { data: summary, isLoading } = useAnalyticsSummary();
+  const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | null>(null);
+  const [severityFilter, setSeverityFilter] = useState<Severity[]>([]);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExport = useCallback(async () => {
+    setIsExporting(true);
+    try {
+      await exportToPdf();
+    } catch (error) {
+      console.error('Export failed:', error);
+    } finally {
+      setIsExporting(false);
+    }
+  }, []);
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground">
             Monitor and manage AI-generated code fixes
           </p>
         </div>
-        <Link href="/dashboard/fixes?status=pending">
-          <Button>
-            <Clock className="mr-2 h-4 w-4" />
-            Review Pending ({summary?.pending || 0})
+        <div className="flex flex-wrap items-center gap-2">
+          <DateRangeSelector
+            dateRange={dateRange}
+            onDateRangeChange={setDateRange}
+          />
+          <SeverityFilter
+            selected={severityFilter}
+            onChange={setSeverityFilter}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={handleExport}
+            disabled={isExporting}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            {isExporting ? 'Exporting...' : 'Export PDF'}
           </Button>
-        </Link>
+          <Link href="/dashboard/fixes?status=pending">
+            <Button size="sm" className="h-8">
+              <Clock className="mr-2 h-4 w-4" />
+              Review Pending ({summary?.pending || 0})
+            </Button>
+          </Link>
+        </div>
       </div>
 
+      {/* Dashboard content for PDF export */}
+      <div id="dashboard-content" className="space-y-6">
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -366,8 +700,8 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Charts Row */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      {/* Charts Row with Health Score */}
+      <div className="grid gap-4 lg:grid-cols-4">
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Fix Trends</CardTitle>
@@ -377,6 +711,8 @@ export default function DashboardPage() {
             <TrendsChart loading={isLoading} />
           </CardContent>
         </Card>
+
+        <HealthScoreGauge loading={isLoading} />
 
         <Card>
           <CardHeader>
@@ -429,6 +765,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+      </div>{/* End dashboard-content */}
     </div>
   );
 }

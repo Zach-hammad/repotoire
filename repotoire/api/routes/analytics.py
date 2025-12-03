@@ -42,6 +42,14 @@ class FileHotspot(BaseModel):
     severity_breakdown: Dict[str, int]
 
 
+class HealthScoreResponse(BaseModel):
+    """Overall health score for dashboard."""
+    score: int
+    grade: str
+    trend: str  # "improving", "declining", "stable"
+    categories: Dict[str, int]
+
+
 @router.get("/summary")
 async def get_summary(user: ClerkUser = Depends(get_current_user)) -> AnalyticsSummary:
     """Get dashboard summary statistics."""
@@ -175,3 +183,93 @@ async def get_by_file(user: ClerkUser = Depends(get_current_user), limit: int = 
         )
         for file_path, data in sorted_files
     ]
+
+
+def _calculate_grade(score: int) -> str:
+    """Calculate letter grade from score."""
+    if score >= 90:
+        return "A"
+    elif score >= 80:
+        return "B"
+    elif score >= 70:
+        return "C"
+    elif score >= 60:
+        return "D"
+    return "F"
+
+
+@router.get("/health-score")
+async def get_health_score(
+    user: ClerkUser = Depends(get_current_user),
+) -> HealthScoreResponse:
+    """Get overall health score for dashboard."""
+    fixes = get_all_fixes()
+
+    if not fixes:
+        return HealthScoreResponse(
+            score=100,
+            grade="A",
+            trend="stable",
+            categories={"structure": 100, "quality": 100, "architecture": 100},
+        )
+
+    # Calculate score based on fix metrics
+    total = len(fixes)
+    applied = sum(1 for f in fixes if f.status == FixStatus.APPLIED)
+    pending = sum(1 for f in fixes if f.status == FixStatus.PENDING)
+    failed = sum(1 for f in fixes if f.status == FixStatus.FAILED)
+
+    # Score: higher is better (fewer pending issues, more applied fixes)
+    # Base score starts at 70, adjusted by resolution rate
+    if total > 0:
+        resolution_rate = applied / total
+        pending_penalty = (pending / total) * 20
+        failed_penalty = (failed / total) * 15
+        base_score = 70 + (resolution_rate * 30) - pending_penalty - failed_penalty
+    else:
+        base_score = 100
+
+    score = max(0, min(100, int(base_score)))
+    grade = _calculate_grade(score)
+
+    # Calculate category scores based on fix types
+    type_counts = {}
+    for fix in fixes:
+        type_counts[fix.fix_type.value] = type_counts.get(fix.fix_type.value, 0) + 1
+
+    # Structure: refactor, extract, simplify
+    structure_issues = sum(type_counts.get(t, 0) for t in ["refactor", "extract", "simplify"])
+    # Quality: documentation, type_hint, rename
+    quality_issues = sum(type_counts.get(t, 0) for t in ["documentation", "type_hint", "rename"])
+    # Architecture: security, remove
+    arch_issues = sum(type_counts.get(t, 0) for t in ["security", "remove"])
+
+    # Convert issue counts to scores (fewer issues = higher score)
+    def issue_to_score(issues: int, max_issues: int = 20) -> int:
+        if issues == 0:
+            return 100
+        return max(0, min(100, 100 - int((issues / max_issues) * 50)))
+
+    categories = {
+        "structure": issue_to_score(structure_issues),
+        "quality": issue_to_score(quality_issues),
+        "architecture": issue_to_score(arch_issues),
+    }
+
+    # Determine trend based on recent activity
+    recent_fixes = [f for f in fixes if (datetime.utcnow() - f.created_at).days < 7]
+    older_fixes = [f for f in fixes if 7 <= (datetime.utcnow() - f.created_at).days < 14]
+
+    if len(recent_fixes) < len(older_fixes):
+        trend = "improving"
+    elif len(recent_fixes) > len(older_fixes):
+        trend = "declining"
+    else:
+        trend = "stable"
+
+    return HealthScoreResponse(
+        score=score,
+        grade=grade,
+        trend=trend,
+        categories=categories,
+    )
