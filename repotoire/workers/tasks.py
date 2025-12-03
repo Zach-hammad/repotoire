@@ -140,7 +140,7 @@ def analyze_repository(
             )
 
             # Run analysis engine
-            from repotoire.analysis.engine import AnalysisEngine
+            from repotoire.detectors.engine import AnalysisEngine
 
             engine = AnalysisEngine(neo4j_client=neo4j_client)
 
@@ -179,8 +179,7 @@ def analyze_repository(
     except SoftTimeLimitExceeded:
         logger.warning(
             "Analysis timed out",
-            analysis_run_id=analysis_run_id,
-            repo_id=repo_id,
+            extra={"analysis_run_id": analysis_run_id, "repo_id": repo_id},
         )
         progress.update(
             status=AnalysisStatus.FAILED,
@@ -191,9 +190,7 @@ def analyze_repository(
     except Exception as e:
         logger.exception(
             "Analysis failed",
-            analysis_run_id=analysis_run_id,
-            repo_id=repo_id,
-            error=str(e),
+            extra={"analysis_run_id": analysis_run_id, "repo_id": repo_id, "error": str(e)},
         )
 
         progress.update(
@@ -320,7 +317,7 @@ def analyze_pr(
             )
 
             # Run analysis scoped to changed files
-            from repotoire.analysis.engine import AnalysisEngine
+            from repotoire.detectors.engine import AnalysisEngine
 
             engine = AnalysisEngine(neo4j_client=neo4j_client)
             health = engine.analyze(repository_path=str(clone_dir))
@@ -374,10 +371,12 @@ def analyze_pr(
     except Exception as e:
         logger.exception(
             "PR analysis failed",
-            analysis_run_id=analysis_run_id,
-            repo_id=repo_id,
-            pr_number=pr_number,
-            error=str(e),
+            extra={
+                "analysis_run_id": analysis_run_id,
+                "repo_id": repo_id,
+                "pr_number": pr_number,
+                "error": str(e),
+            },
         )
         progress.update(
             status=AnalysisStatus.FAILED,
