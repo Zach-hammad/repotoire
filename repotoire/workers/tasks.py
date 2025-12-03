@@ -151,7 +151,7 @@ def analyze_repository(
                     progress_percent=60 + int(pct * 0.3),  # 60-90%
                 )
 
-            health = engine.analyze(repository_path=str(clone_dir))
+            health = engine.analyze()
 
             progress.update(
                 progress_percent=90,
@@ -322,7 +322,7 @@ def analyze_pr(
             from repotoire.detectors.engine import AnalysisEngine
 
             engine = AnalysisEngine(neo4j_client=neo4j_client)
-            health = engine.analyze(repository_path=str(clone_dir))
+            health = engine.analyze()
 
             # Get previous score for delta calculation
             base_score = _get_score_at_commit(session, repo_id, base_sha)

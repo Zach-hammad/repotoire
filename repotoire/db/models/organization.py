@@ -166,7 +166,7 @@ class OrganizationMembership(Base, UUIDPrimaryKeyMixin):
         nullable=False,
     )
     role: Mapped[MemberRole] = mapped_column(
-        Enum(MemberRole, name="member_role"),
+        Enum(MemberRole, name="member_role", values_callable=lambda x: [e.value for e in x]),
         default=MemberRole.MEMBER,
         nullable=False,
     )
