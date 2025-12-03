@@ -317,12 +317,12 @@ class Neo4jClient:
             # Additional validation: ensure it's a valid identifier
             validated_node_type = validate_identifier(node_type, "node type")
 
-            # Use MERGE for Module nodes to avoid duplicates (multiple files import same module)
-            # Use CREATE for other node types
-            if node_type == "Module":
+            # Use MERGE to handle re-ingestion without constraint violations
+            # File nodes use filePath as unique key, all others use qualifiedName
+            if node_type == "File":
                 query = f"""
                 UNWIND $entities AS entity
-                MERGE (n:{validated_node_type} {{qualifiedName: entity.qualifiedName}})
+                MERGE (n:{validated_node_type} {{filePath: entity.filePath}})
                 ON CREATE SET n = entity
                 ON MATCH SET n += entity
                 RETURN elementId(n) as id, entity.qualifiedName as qualifiedName
@@ -330,8 +330,9 @@ class Neo4jClient:
             else:
                 query = f"""
                 UNWIND $entities AS entity
-                CREATE (n:{validated_node_type})
-                SET n = entity
+                MERGE (n:{validated_node_type} {{qualifiedName: entity.qualifiedName}})
+                ON CREATE SET n = entity
+                ON MATCH SET n += entity
                 RETURN elementId(n) as id, entity.qualifiedName as qualifiedName
                 """
 

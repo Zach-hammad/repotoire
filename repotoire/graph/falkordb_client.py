@@ -263,21 +263,27 @@ class FalkorDBClient(DatabaseClient):
                         elif val is not None:
                             entity_dict[attr] = val
 
-                if node_type == "Module":
+                # Use MERGE to handle re-ingestion without constraint violations
+                # File nodes use filePath as unique key, all others use qualifiedName
+                if node_type == "File":
                     query = f"""
-                    MERGE (n:{validated_node_type} {{qualifiedName: $qualifiedName}})
+                    MERGE (n:{validated_node_type} {{filePath: $filePath}})
                     ON CREATE SET n = $props
                     ON MATCH SET n += $props
                     RETURN n.qualifiedName as qualifiedName
                     """
                 else:
                     query = f"""
-                    CREATE (n:{validated_node_type})
-                    SET n = $props
+                    MERGE (n:{validated_node_type} {{qualifiedName: $qualifiedName}})
+                    ON CREATE SET n = $props
+                    ON MATCH SET n += $props
                     RETURN n.qualifiedName as qualifiedName
                     """
 
-                result = self.execute_query(query, {"qualifiedName": e.qualified_name, "props": entity_dict})
+                params = {"qualifiedName": e.qualified_name, "props": entity_dict}
+                if node_type == "File":
+                    params["filePath"] = e.file_path
+                result = self.execute_query(query, params)
                 if result:
                     id_mapping[e.qualified_name] = e.qualified_name
 
