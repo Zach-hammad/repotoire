@@ -110,6 +110,18 @@ export interface FileHotspot {
   severity_breakdown: Record<Severity, number>;
 }
 
+// Health score response
+export interface HealthScore {
+  score: number;
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  trend: 'improving' | 'declining' | 'stable';
+  categories: {
+    structure: number;
+    quality: number;
+    architecture: number;
+  };
+}
+
 // API response wrapper
 export interface ApiResponse<T> {
   data: T;

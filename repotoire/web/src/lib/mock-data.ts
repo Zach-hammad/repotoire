@@ -8,6 +8,7 @@ import {
   FixProposal,
   FixStatus,
   FixType,
+  HealthScore,
   PaginatedResponse,
   TrendDataPoint,
 } from '@/types';
@@ -302,4 +303,42 @@ export function getMockComments(fixId: string): FixComment[] {
       created_at: new Date(Date.now() - 3600000).toISOString(),
     },
   ];
+}
+
+export function getMockHealthScore(): HealthScore {
+  const summary = getMockAnalyticsSummary();
+  const total = summary.total_fixes;
+  const applied = summary.applied;
+  const pending = summary.pending;
+  const failed = summary.failed;
+
+  // Calculate score based on fix metrics
+  let score: number;
+  if (total > 0) {
+    const resolutionRate = applied / total;
+    const pendingPenalty = (pending / total) * 20;
+    const failedPenalty = (failed / total) * 15;
+    score = Math.max(0, Math.min(100, Math.round(70 + resolutionRate * 30 - pendingPenalty - failedPenalty)));
+  } else {
+    score = 100;
+  }
+
+  // Calculate grade
+  let grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  if (score >= 90) grade = 'A';
+  else if (score >= 80) grade = 'B';
+  else if (score >= 70) grade = 'C';
+  else if (score >= 60) grade = 'D';
+  else grade = 'F';
+
+  return {
+    score,
+    grade,
+    trend: 'improving',
+    categories: {
+      structure: 85,
+      quality: 78,
+      architecture: 82,
+    },
+  };
 }

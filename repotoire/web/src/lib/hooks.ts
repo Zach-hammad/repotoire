@@ -7,6 +7,7 @@ import {
   FixComment,
   FixFilters,
   FixProposal,
+  HealthScore,
   PaginatedResponse,
   PlanTier,
   PlansResponse,
@@ -131,6 +132,14 @@ export function useFileHotspots(limit: number = 10) {
   return useSWR<FileHotspot[]>(
     isAuthReady ? ['file-hotspots', limit] : null,
     () => analyticsApi.fileHotspots(limit)
+  );
+}
+
+export function useHealthScore() {
+  const { isAuthReady } = useApiAuth();
+  return useSWR<HealthScore>(
+    isAuthReady ? 'health-score' : null,
+    () => analyticsApi.healthScore()
   );
 }
 

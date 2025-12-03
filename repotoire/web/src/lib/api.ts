@@ -7,6 +7,7 @@ import {
   FixComment,
   FixFilters,
   FixProposal,
+  HealthScore,
   PaginatedResponse,
   PlanTier,
   PlansResponse,
@@ -25,6 +26,7 @@ import {
   getMockTrends,
   getMockFileHotspots,
   getMockComments,
+  getMockHealthScore,
 } from './mock-data';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
@@ -313,6 +315,15 @@ export const analyticsApi = {
       return getMockFileHotspots(limit);
     }
     return request<FileHotspot[]>(`/analytics/by-file?limit=${limit}`);
+  },
+
+  // Get health score
+  healthScore: async (): Promise<HealthScore> => {
+    if (USE_MOCK) {
+      await new Promise((r) => setTimeout(r, 200));
+      return getMockHealthScore();
+    }
+    return request<HealthScore>('/analytics/health-score');
   },
 };
 
