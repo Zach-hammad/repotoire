@@ -3,7 +3,7 @@
 import { Github } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const GITHUB_APP_NAME = process.env.NEXT_PUBLIC_GITHUB_APP_NAME || "repotoire-code-health";
+const GITHUB_APP_NAME = process.env.NEXT_PUBLIC_GITHUB_APP_NAME || "repotoireapp";
 
 interface GitHubInstallButtonProps {
   className?: string;

@@ -9,6 +9,7 @@ from typing import Annotated, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -86,19 +87,46 @@ class WebhookEvent(BaseModel):
 
 
 async def get_org_by_clerk_id(
-    db: AsyncSession, org_id: str
+    db: AsyncSession, org_id: str, org_slug: Optional[str] = None
 ) -> Optional[Organization]:
     """Get organization by Clerk organization ID.
 
-    Note: This assumes the organization's slug matches the Clerk org_id.
-    In production, you'd want a dedicated clerk_org_id column.
+    Looks up by clerk_org_id first, then falls back to slug.
+    If not found and org_slug is provided, auto-creates the organization.
     """
-    # For now, we'll look up by slug which should match Clerk org_slug
-    # TODO: Add clerk_org_id column to Organization model
+    # First try to find by clerk_org_id
+    result = await db.execute(
+        select(Organization).where(Organization.clerk_org_id == org_id)
+    )
+    org = result.scalar_one_or_none()
+    if org:
+        return org
+
+    # Fall back to slug lookup
     result = await db.execute(
         select(Organization).where(Organization.slug == org_id)
     )
-    return result.scalar_one_or_none()
+    org = result.scalar_one_or_none()
+    if org:
+        # Update the org with clerk_org_id for future lookups
+        org.clerk_org_id = org_id
+        await db.commit()
+        return org
+
+    # Auto-create organization if slug is provided
+    if org_slug:
+        org = Organization(
+            name=org_slug,
+            slug=org_slug,
+            clerk_org_id=org_id,
+        )
+        db.add(org)
+        await db.commit()
+        await db.refresh(org)
+        logger.info(f"Auto-created organization {org_slug} for Clerk org {org_id}")
+        return org
+
+    return None
 
 
 async def ensure_token_fresh(
@@ -143,14 +171,43 @@ async def ensure_token_fresh(
 async def github_callback(
     installation_id: int,
     setup_action: str,
+) -> RedirectResponse:
+    """Handle GitHub App installation callback.
+
+    Called by GitHub after a user installs the GitHub App.
+    Redirects to the frontend which will complete the installation
+    with proper authentication.
+
+    Args:
+        installation_id: GitHub App installation ID
+        setup_action: One of "install", "update", "delete"
+
+    Returns:
+        Redirect to frontend settings page
+    """
+    import os
+    logger.info(
+        f"GitHub callback: installation={installation_id}, action={setup_action}"
+    )
+
+    # Redirect to frontend to complete installation with auth
+    frontend_url = os.getenv("FRONTEND_URL", "https://www.repotoire.com")
+    redirect_url = f"{frontend_url}/dashboard/settings/github?installation_id={installation_id}&setup_action={setup_action}"
+    return RedirectResponse(url=redirect_url, status_code=302)
+
+
+@router.post("/complete-installation")
+async def complete_installation(
+    installation_id: int,
+    setup_action: str,
     user: ClerkUser = Depends(require_org),
     db: AsyncSession = Depends(get_db),
     github: GitHubAppClient = Depends(get_github_client),
     encryption: TokenEncryption = Depends(get_token_encryption),
 ) -> dict:
-    """Handle GitHub App installation callback.
+    """Complete GitHub App installation after frontend redirect.
 
-    Called by GitHub after a user installs the GitHub App.
+    Called by the frontend after receiving the GitHub callback redirect.
     Stores the installation and syncs available repositories.
 
     Args:
@@ -165,7 +222,7 @@ async def github_callback(
         Status message and installation info
     """
     logger.info(
-        f"GitHub callback: installation={installation_id}, action={setup_action}"
+        f"Completing installation: installation={installation_id}, action={setup_action}"
     )
 
     if setup_action == "delete":
@@ -182,7 +239,7 @@ async def github_callback(
         return {"status": "deleted", "installation_id": installation_id}
 
     # Get organization
-    org = await get_org_by_clerk_id(db, user.org_id)
+    org = await get_org_by_clerk_id(db, user.org_id, user.org_slug)
     if not org:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -198,7 +255,7 @@ async def github_callback(
         installation_id
     )
 
-    # Check if installation already exists
+    # Check if installation already exists by installation_id
     result = await db.execute(
         select(GitHubInstallation).where(
             GitHubInstallation.installation_id == installation_id
@@ -206,18 +263,36 @@ async def github_callback(
     )
     installation = result.scalar_one_or_none()
 
+    account_login = account.get("login", "")
+
     if installation:
         # Update existing installation
         installation.access_token_encrypted = encryption.encrypt(access_token)
         installation.token_expires_at = token_expires_at
-        installation.account_login = account.get("login", "")
+        installation.account_login = account_login
         installation.account_type = account.get("type", "Organization")
     else:
+        # Check if there's an existing installation for the same account (reinstall case)
+        # This handles when user uninstalls and reinstalls - GitHub gives new installation_id
+        result = await db.execute(
+            select(GitHubInstallation).where(
+                GitHubInstallation.organization_id == org.id,
+                GitHubInstallation.account_login == account_login,
+            )
+        )
+        existing_for_account = result.scalars().all()
+
+        if existing_for_account:
+            # Delete old installations for this account (they have stale tokens)
+            for old_install in existing_for_account:
+                logger.info(f"Removing old installation {old_install.installation_id} for {account_login}")
+                await db.delete(old_install)
+
         # Create new installation
         installation = GitHubInstallation(
             organization_id=org.id,
             installation_id=installation_id,
-            account_login=account.get("login", ""),
+            account_login=account_login,
             account_type=account.get("type", "Organization"),
             access_token_encrypted=encryption.encrypt(access_token),
             token_expires_at=token_expires_at,
@@ -451,7 +526,7 @@ async def list_installations(
     Returns:
         List of GitHub installations
     """
-    org = await get_org_by_clerk_id(db, user.org_id)
+    org = await get_org_by_clerk_id(db, user.org_id, user.org_slug)
     if not org:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -501,7 +576,7 @@ async def list_repos(
     Returns:
         List of repositories
     """
-    org = await get_org_by_clerk_id(db, user.org_id)
+    org = await get_org_by_clerk_id(db, user.org_id, user.org_slug)
     if not org:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -582,7 +657,7 @@ async def update_repos(
     Returns:
         Number of repositories updated
     """
-    org = await get_org_by_clerk_id(db, user.org_id)
+    org = await get_org_by_clerk_id(db, user.org_id, user.org_slug)
     if not org:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -641,7 +716,7 @@ async def sync_repos(
     Returns:
         Sync status
     """
-    org = await get_org_by_clerk_id(db, user.org_id)
+    org = await get_org_by_clerk_id(db, user.org_id, user.org_slug)
     if not org:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

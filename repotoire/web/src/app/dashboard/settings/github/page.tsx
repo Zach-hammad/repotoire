@@ -1,7 +1,7 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Github, CheckCircle2, XCircle, AlertCircle, Loader2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -23,18 +23,49 @@ interface GitHubInstallation {
 function GitHubSettingsContent() {
   const api = useApiClient();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [installations, setInstallations] = useState<GitHubInstallation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [completing, setCompleting] = useState(false);
 
   // Check for callback status from URL params
   const callbackStatus = searchParams.get("status");
   const callbackAction = searchParams.get("action");
   const callbackAccount = searchParams.get("account");
 
+  // Check for GitHub callback params (from redirect)
+  const installationId = searchParams.get("installation_id");
+  const setupAction = searchParams.get("setup_action");
+
+  // Complete the installation when we receive callback params
+  const completeInstallation = useCallback(async (instId: string, action: string) => {
+    setCompleting(true);
+    setError(null);
+    try {
+      const result = await api.post<{ status: string; account?: string }>(`/github/complete-installation?installation_id=${instId}&setup_action=${action}`);
+      // Clear URL params and show success
+      router.replace(`/dashboard/settings/github?status=${result.status}&action=${action}&account=${result.account || ""}`);
+    } catch (err) {
+      console.error("Failed to complete installation:", err);
+      setError("Failed to complete GitHub installation. Please try again.");
+      // Clear the installation params from URL
+      router.replace("/dashboard/settings/github");
+    } finally {
+      setCompleting(false);
+    }
+  }, [api, router]);
+
+  useEffect(() => {
+    // If we have installation callback params, complete the installation
+    if (installationId && setupAction && !completing) {
+      completeInstallation(installationId, setupAction);
+    }
+  }, [installationId, setupAction, completing, completeInstallation]);
+
   useEffect(() => {
     loadInstallations();
-  }, []);
+  }, [callbackStatus]); // Reload when status changes
 
   const loadInstallations = async () => {
     setLoading(true);
@@ -59,8 +90,19 @@ function GitHubSettingsContent() {
         </p>
       </div>
 
+      {/* Completing Installation */}
+      {completing && (
+        <Alert>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <AlertTitle>Connecting GitHub...</AlertTitle>
+          <AlertDescription>
+            Please wait while we complete the GitHub App installation.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Callback Status Alerts */}
-      {callbackStatus === "success" && (
+      {!completing && callbackStatus === "success" && (
         <Alert>
           <CheckCircle2 className="h-4 w-4" />
           <AlertTitle>GitHub Connected</AlertTitle>
