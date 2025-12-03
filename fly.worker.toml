@@ -14,7 +14,7 @@ primary_region = 'iad'
 
 # No HTTP service - this is a background worker
 [processes]
-  worker = "/opt/venv/bin/celery -A repotoire.worker.celery_app worker --loglevel=info -Q default,analysis,analysis.high,webhooks,notifications,notifications.low --concurrency=4"
+  worker = "/opt/venv/bin/celery -A repotoire.workers.celery_app worker --loglevel=info -Q default,analysis,analysis.high,webhooks,notifications,notifications.low --concurrency=4"
 
 [[vm]]
   memory = '1gb'

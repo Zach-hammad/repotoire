@@ -90,19 +90,29 @@ class Neo4jClient:
         attempt = 0
         last_exception = None
 
+        # Check if URI scheme already defines encryption (e.g., neo4j+s://, bolt+s://)
+        # In that case, we shouldn't pass the encrypted parameter
+        uri_has_encryption = any(
+            self.uri.startswith(scheme)
+            for scheme in ["neo4j+s://", "neo4j+ssc://", "bolt+s://", "bolt+ssc://"]
+        )
+
         while attempt <= self.max_retries:
             try:
-                driver = GraphDatabase.driver(
-                    self.uri,
-                    auth=(self.username, self.password),
-                    max_connection_pool_size=self.max_connection_pool_size,
-                    connection_acquisition_timeout=self.connection_timeout,
-                    max_transaction_retry_time=15.0,
-                    connection_timeout=self.connection_timeout,
-                    max_connection_lifetime=self.max_connection_lifetime,
-                    keep_alive=True,
-                    encrypted=self.encrypted,
-                )
+                driver_kwargs = {
+                    "auth": (self.username, self.password),
+                    "max_connection_pool_size": self.max_connection_pool_size,
+                    "connection_acquisition_timeout": self.connection_timeout,
+                    "max_transaction_retry_time": 15.0,
+                    "connection_timeout": self.connection_timeout,
+                    "max_connection_lifetime": self.max_connection_lifetime,
+                    "keep_alive": True,
+                }
+                # Only pass encrypted param for plain bolt:// or neo4j:// schemes
+                if not uri_has_encryption:
+                    driver_kwargs["encrypted"] = self.encrypted
+
+                driver = GraphDatabase.driver(self.uri, **driver_kwargs)
                 # Verify connectivity with a simple query
                 driver.verify_connectivity()
                 if attempt > 0:
