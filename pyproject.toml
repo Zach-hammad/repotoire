@@ -92,6 +92,9 @@ saas = [
     "celery>=5.3.0",  # Distributed task queue for background jobs
     "redis>=5.0.0",  # Redis client for Celery broker
     "structlog>=24.0.0",  # Structured logging for workers
+    "sentry-sdk[fastapi,celery,sqlalchemy]>=2.0.0",  # Error tracking (REPO-271)
+    "resend>=0.5.0",  # Email service for notifications
+    "email-validator>=2.0.0",  # Pydantic email validation
 ]
 
 graphiti = [
