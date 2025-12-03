@@ -87,3 +87,4 @@ Cargo.lock
 lean/.lake/
 lean/lake-manifest.json
 .vercel
+.env.production.local
