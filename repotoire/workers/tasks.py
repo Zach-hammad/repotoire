@@ -466,8 +466,8 @@ def _clone_repository(
         )
         return clone_dir
 
-    # Get GitHub token for authenticated clone
-    token = _get_github_token(org)
+    # Get GitHub token for authenticated clone using repo's installation
+    token = _get_github_token(repo)
     clone_url = f"https://github.com/{repo.full_name}.git"
 
     if token:
@@ -506,20 +506,73 @@ def _clone_repository(
     return clone_dir
 
 
-def _get_github_token(org: Organization) -> str | None:
-    """Get GitHub installation token for organization.
+def _get_github_token(repo: Repository) -> str | None:
+    """Get GitHub installation token for repository.
+
+    Uses the stored installation token if valid, or refreshes it
+    via the GitHub App API if expired.
 
     Args:
-        org: Organization model instance.
+        repo: Repository model instance with github_installation_id.
 
     Returns:
-        Installation access token or None.
+        Installation access token or None if unavailable.
     """
-    # Check for org-specific token first
-    # In a full implementation, this would use the GitHub App to get
-    # an installation token for the organization
-    github_token = os.environ.get("GITHUB_TOKEN")
-    return github_token
+    import asyncio
+    from datetime import timezone
+
+    from repotoire.api.services.encryption import TokenEncryption
+    from repotoire.api.services.github import GitHubAppClient
+    from repotoire.db.models import GitHubInstallation
+
+    # Fall back to env var if no installation ID on repo
+    if not repo.github_installation_id:
+        logger.warning(
+            f"No github_installation_id for repo {repo.full_name}, using env token"
+        )
+        return os.environ.get("GITHUB_TOKEN")
+
+    try:
+        with get_sync_session() as session:
+            # Find the GitHubInstallation by installation_id
+            result = session.execute(
+                select(GitHubInstallation).where(
+                    GitHubInstallation.installation_id == repo.github_installation_id
+                )
+            )
+            installation = result.scalar_one_or_none()
+
+            if not installation:
+                logger.warning(
+                    f"GitHubInstallation not found for installation_id={repo.github_installation_id}"
+                )
+                return os.environ.get("GITHUB_TOKEN")
+
+            # Decrypt the token
+            encryption = TokenEncryption()
+            github_client = GitHubAppClient()
+
+            # Check if token is expiring soon (within 5 minutes)
+            if github_client.is_token_expiring_soon(installation.token_expires_at):
+                logger.info(
+                    f"Refreshing expired token for installation {installation.installation_id}"
+                )
+                # Refresh the token using asyncio.run() since we're in sync context
+                new_token, expires_at = asyncio.run(
+                    github_client.get_installation_token(installation.installation_id)
+                )
+                installation.access_token_encrypted = encryption.encrypt(new_token)
+                installation.token_expires_at = expires_at
+                session.commit()
+                return new_token
+
+            # Return the current valid token
+            return encryption.decrypt(installation.access_token_encrypted)
+
+    except Exception as e:
+        logger.error(f"Failed to get GitHub token: {e}")
+        # Fall back to environment variable
+        return os.environ.get("GITHUB_TOKEN")
 
 
 def _get_neo4j_client_for_org(org: Organization):

@@ -203,3 +203,119 @@ export function useCalculatePrice(tier: PlanTier | null, seats: number) {
     { revalidateOnFocus: false }
   );
 }
+
+// Analysis hooks
+
+interface AnalysisRunStatus {
+  id: string;
+  repository_id: string;
+  commit_sha: string;
+  branch: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  progress_percent: number;
+  current_step: string | null;
+  health_score: number | null;
+  structure_score: number | null;
+  quality_score: number | null;
+  architecture_score: number | null;
+  findings_count: number;
+  files_analyzed: number;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+interface TriggerAnalysisRequest {
+  installation_uuid: string;
+  repo_id: number;
+}
+
+interface TriggerAnalysisResponse {
+  analysis_run_id: string;
+  repository_id: string;
+  status: string;
+  message: string;
+}
+
+/**
+ * Hook to trigger analysis for a GitHub repository.
+ *
+ * Usage:
+ *   const { trigger, isMutating } = useTriggerAnalysis();
+ *   await trigger({ installation_uuid: '...', repo_id: 12345 });
+ */
+export function useTriggerAnalysis() {
+  return useSWRMutation<TriggerAnalysisResponse, Error, string, TriggerAnalysisRequest>(
+    'trigger-analysis',
+    async (_key, { arg }) => {
+      const response = await fetch('/api/v1/github/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(arg),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(error.detail || 'Failed to trigger analysis');
+      }
+      return response.json();
+    }
+  );
+}
+
+/**
+ * Hook to poll analysis status. Auto-refreshes every 3 seconds while active.
+ *
+ * Usage:
+ *   const { data: status, isLoading } = useAnalysisStatus(runId);
+ */
+export function useAnalysisStatus(runId: string | null) {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR<AnalysisRunStatus>(
+    isAuthReady && runId ? ['analysis-status', runId] : null,
+    async () => {
+      const response = await fetch(`/api/v1/analysis/${runId}/status`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch analysis status');
+      }
+      return response.json();
+    },
+    {
+      // Poll every 3 seconds while analysis is active
+      refreshInterval: (data) => {
+        if (!data) return 3000;
+        if (data.status === 'completed' || data.status === 'failed') {
+          return 0; // Stop polling
+        }
+        return 3000;
+      },
+      revalidateOnFocus: false,
+    }
+  );
+}
+
+/**
+ * Hook to get analysis history for the organization.
+ *
+ * Usage:
+ *   const { data: history } = useAnalysisHistory(repoId, 10);
+ */
+export function useAnalysisHistory(repositoryId?: string, limit: number = 20) {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR<AnalysisRunStatus[]>(
+    isAuthReady ? ['analysis-history', repositoryId, limit] : null,
+    async () => {
+      const params = new URLSearchParams({ limit: limit.toString() });
+      if (repositoryId) {
+        params.set('repository_id', repositoryId);
+      }
+      const response = await fetch(`/api/v1/analysis/history?${params}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch analysis history');
+      }
+      return response.json();
+    }
+  );
+}

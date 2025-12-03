@@ -18,7 +18,14 @@ from sqlalchemy.orm import selectinload
 from repotoire.api.auth import ClerkUser, require_org
 from repotoire.api.services.encryption import TokenEncryption, get_token_encryption
 from repotoire.api.services.github import GitHubAppClient, get_github_client
-from repotoire.db.models import GitHubInstallation, GitHubRepository, Organization
+from repotoire.db.models import (
+    AnalysisRun,
+    AnalysisStatus,
+    GitHubInstallation,
+    GitHubRepository,
+    Organization,
+    Repository,
+)
 from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
 
@@ -79,6 +86,22 @@ class WebhookEvent(BaseModel):
     repositories_added: Optional[list[dict]] = None
     repositories_removed: Optional[list[dict]] = None
     sender: Optional[dict] = None
+
+
+class AnalyzeRepoRequest(BaseModel):
+    """Request to analyze a GitHub repository."""
+
+    installation_uuid: UUID = Field(..., description="Our GitHubInstallation.id")
+    repo_id: int = Field(..., description="GitHub's repository ID")
+
+
+class AnalyzeRepoResponse(BaseModel):
+    """Response with analysis run info."""
+
+    analysis_run_id: UUID
+    repository_id: UUID
+    status: str
+    message: str
 
 
 # =============================================================================
@@ -777,3 +800,128 @@ async def sync_repos(
         "added": added,
         "removed": removed,
     }
+
+
+@router.post("/analyze", response_model=AnalyzeRepoResponse)
+async def analyze_repo(
+    request: AnalyzeRepoRequest,
+    user: ClerkUser = Depends(require_org),
+    db: AsyncSession = Depends(get_db),
+    github: GitHubAppClient = Depends(get_github_client),
+    encryption: TokenEncryption = Depends(get_token_encryption),
+) -> AnalyzeRepoResponse:
+    """Trigger analysis for a GitHub repository.
+
+    Creates a Repository record if it doesn't exist, then triggers analysis.
+    This endpoint bridges GitHubRepository (App integration) with Repository
+    (analysis tracking) models.
+
+    Args:
+        request: Contains installation_uuid and GitHub repo_id
+        user: Authenticated user (must be in an organization)
+        db: Database session
+        github: GitHub API client
+        encryption: Token encryption service
+
+    Returns:
+        Analysis run info including the analysis_run_id for status tracking
+    """
+    # 1. Get organization
+    org = await get_org_by_clerk_id(db, user.org_id, user.org_slug)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found",
+        )
+
+    # 2. Get GitHubInstallation and verify ownership
+    result = await db.execute(
+        select(GitHubInstallation)
+        .where(GitHubInstallation.id == request.installation_uuid)
+        .where(GitHubInstallation.organization_id == org.id)
+    )
+    installation = result.scalar_one_or_none()
+
+    if not installation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="GitHub installation not found",
+        )
+
+    # 3. Get GitHubRepository
+    result = await db.execute(
+        select(GitHubRepository)
+        .where(GitHubRepository.installation_id == installation.id)
+        .where(GitHubRepository.repo_id == request.repo_id)
+    )
+    github_repo = result.scalar_one_or_none()
+
+    if not github_repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Repository not found in installation",
+        )
+
+    if not github_repo.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Repository must be enabled before analysis. Enable it first.",
+        )
+
+    # 4. Find or create Repository record
+    result = await db.execute(
+        select(Repository)
+        .where(Repository.organization_id == org.id)
+        .where(Repository.github_repo_id == request.repo_id)
+    )
+    repo = result.scalar_one_or_none()
+
+    if not repo:
+        repo = Repository(
+            organization_id=org.id,
+            github_repo_id=github_repo.repo_id,
+            github_installation_id=installation.installation_id,
+            full_name=github_repo.full_name,
+            default_branch=github_repo.default_branch,
+            is_active=True,
+        )
+        db.add(repo)
+        await db.flush()  # Get the ID without committing
+        logger.info(f"Created Repository record for {github_repo.full_name}")
+
+    # 5. Create AnalysisRun
+    analysis_run = AnalysisRun(
+        repository_id=repo.id,
+        commit_sha="HEAD",  # Will be resolved by worker
+        branch=repo.default_branch,
+        status=AnalysisStatus.QUEUED,
+        progress_percent=0,
+        current_step="Queued for analysis",
+    )
+    db.add(analysis_run)
+    await db.commit()
+    await db.refresh(analysis_run)
+
+    # 6. Queue Celery task
+    from repotoire.workers.tasks import analyze_repository
+
+    analyze_repository.delay(
+        analysis_run_id=str(analysis_run.id),
+        repo_id=str(repo.id),
+        commit_sha="HEAD",
+        incremental=False,  # First analysis needs full scan
+    )
+
+    logger.info(
+        "Analysis triggered via GitHub integration",
+        analysis_run_id=str(analysis_run.id),
+        repository=github_repo.full_name,
+        user_id=user.user_id,
+    )
+
+    return AnalyzeRepoResponse(
+        analysis_run_id=analysis_run.id,
+        repository_id=repo.id,
+        status="queued",
+        message=f"Analysis queued for {github_repo.full_name}",
+    )
