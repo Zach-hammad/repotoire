@@ -71,7 +71,11 @@ class AnalysisRun(Base, UUIDPrimaryKeyMixin):
         nullable=False,
     )
     status: Mapped[AnalysisStatus] = mapped_column(
-        Enum(AnalysisStatus, name="analysis_status"),
+        Enum(
+            AnalysisStatus,
+            name="analysis_status",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         default=AnalysisStatus.QUEUED,
         nullable=False,
     )
