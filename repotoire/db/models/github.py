@@ -135,6 +135,12 @@ class GitHubRepository(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         default=False,
         nullable=False,
     )
+    auto_analyze: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        comment="Whether to auto-analyze on push events (requires enabled=True and pro/enterprise tier)",
+    )
     last_analyzed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

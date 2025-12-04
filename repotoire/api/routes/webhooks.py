@@ -4,7 +4,6 @@ This module provides webhook endpoints for processing events from
 external services like Stripe and Clerk.
 """
 
-import logging
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -23,8 +22,10 @@ from repotoire.db.models import (
     User,
 )
 from repotoire.db.session import get_db
+from repotoire.logging_config import get_logger
+from repotoire.services.audit import get_audit_service
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -911,7 +912,8 @@ async def clerk_webhook(
     """Handle Clerk webhook events.
 
     Processes user lifecycle events from Clerk including
-    user creation, updates, and deletion.
+    user creation, updates, and deletion. Also creates audit log entries
+    for all Clerk events.
     """
     payload = await request.body()
     headers = {
@@ -936,11 +938,21 @@ async def clerk_webhook(
 
     event_type = event.get("type")
     data = event.get("data", {})
+    svix_id = headers.get("svix-id")
 
     logger.info(f"Received Clerk webhook: {event_type}")
     logger.info(f"Clerk webhook data keys: {list(data.keys())}")
     if "email_addresses" in data:
         logger.info(f"Email addresses: {data.get('email_addresses')}")
+
+    # Create audit log entry for the Clerk event
+    audit_service = get_audit_service()
+    await audit_service.log_clerk_event(
+        db=db,
+        clerk_event_type=event_type,
+        data=data,
+        svix_id=svix_id,
+    )
 
     # Route to appropriate handler
     if event_type == "user.created":
@@ -966,5 +978,7 @@ async def clerk_webhook(
 
     else:
         logger.debug(f"Unhandled Clerk event type: {event_type}")
+
+    await db.commit()
 
     return {"status": "ok"}
