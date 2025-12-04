@@ -16,6 +16,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from repotoire.api.auth import ClerkUser, get_current_user
+from repotoire.api.auth.state_store import (
+    StateStoreUnavailableError,
+    StateTokenStore,
+    get_state_store,
+)
 from repotoire.db.models import Organization, OrganizationMembership, User
 from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
@@ -23,11 +28,6 @@ from repotoire.logging_config import get_logger
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/cli", tags=["cli-auth"])
-
-# In-memory state storage (for production, use Redis or similar)
-# Maps state token to creation time for CSRF protection
-_state_tokens: dict[str, datetime] = {}
-STATE_TOKEN_LIFETIME = timedelta(minutes=10)
 
 
 class CLIAuthInitRequest(BaseModel):
@@ -76,26 +76,16 @@ class CLISwitchOrgRequest(BaseModel):
     org_slug: str = Field(..., description="Target organization slug")
 
 
-def _cleanup_expired_states() -> None:
-    """Remove expired state tokens."""
-    now = datetime.now(timezone.utc)
-    expired = [
-        state for state, created in _state_tokens.items() if now - created > STATE_TOKEN_LIFETIME
-    ]
-    for state in expired:
-        _state_tokens.pop(state, None)
-
-
 @router.post("/auth/init", response_model=CLIAuthInitResponse)
-async def init_cli_auth(request: CLIAuthInitRequest) -> CLIAuthInitResponse:
+async def init_cli_auth(
+    request: CLIAuthInitRequest,
+    state_store: StateTokenStore = Depends(get_state_store),
+) -> CLIAuthInitResponse:
     """Initialize CLI OAuth flow.
 
     Returns URL to redirect user to Clerk for authentication.
     The callback will be to the specified localhost URI.
     """
-    # Cleanup expired states
-    _cleanup_expired_states()
-
     # Get Clerk frontend URL from environment
     clerk_frontend_url = os.getenv("CLERK_FRONTEND_URL", "https://accounts.repotoire.dev")
     clerk_publishable_key = os.getenv("CLERK_PUBLISHABLE_KEY")
@@ -106,11 +96,17 @@ async def init_cli_auth(request: CLIAuthInitRequest) -> CLIAuthInitResponse:
             detail="Clerk configuration missing",
         )
 
-    # Generate server-side state for additional CSRF protection
-    server_state = secrets.token_urlsafe(32)
-
-    # Store state with timestamp
-    _state_tokens[server_state] = datetime.now(timezone.utc)
+    # Generate and store state token in Redis with redirect_uri metadata
+    try:
+        server_state = await state_store.create_state({
+            "redirect_uri": request.redirect_uri,
+            "client_state": request.state,
+        })
+    except StateStoreUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="State storage unavailable. Please try again later.",
+        )
 
     # Build Clerk sign-in URL with redirect
     # After sign-in, Clerk will redirect to our API endpoint which then redirects to CLI
@@ -135,30 +131,27 @@ async def init_cli_auth(request: CLIAuthInitRequest) -> CLIAuthInitResponse:
 async def exchange_cli_token(
     request: CLITokenExchangeRequest,
     db: AsyncSession = Depends(get_db),
+    state_store: StateTokenStore = Depends(get_state_store),
 ) -> CLITokenResponse:
     """Exchange auth code for CLI access token.
 
     Called by CLI after receiving OAuth callback.
     Verifies the state and code, then returns tokens and user info.
     """
-    # Verify state token exists and is not expired
-    state_created = _state_tokens.get(request.state)
-    if not state_created:
+    # Validate and consume state token atomically (one-time use)
+    try:
+        state_metadata = await state_store.validate_and_consume(request.state)
+    except StateStoreUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="State storage unavailable. Please try again later.",
+        )
+
+    if not state_metadata:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired state token",
         )
-
-    now = datetime.now(timezone.utc)
-    if now - state_created > STATE_TOKEN_LIFETIME:
-        _state_tokens.pop(request.state, None)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="State token expired",
-        )
-
-    # Remove used state token (one-time use)
-    _state_tokens.pop(request.state, None)
 
     # The code should be a Clerk session token
     # In a real implementation, you would verify this with Clerk
@@ -261,6 +254,7 @@ async def exchange_cli_token(
         access_token = session.last_active_token.jwt if session.last_active_token else request.code
 
         # Token expires in 1 hour
+        now = datetime.now(timezone.utc)
         expires_at = now + timedelta(hours=1)
 
         # Create a simple refresh token (in production, use a more secure method)
