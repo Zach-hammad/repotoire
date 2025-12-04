@@ -17,6 +17,7 @@ from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin, generate_repr
 if TYPE_CHECKING:
     from .billing import Subscription, UsageRecord
     from .github import GitHubInstallation
+    from .quota_override import QuotaOverride
     from .repository import Repository
     from .user import User
 
@@ -129,6 +130,11 @@ class Organization(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     usage_records: Mapped[List["UsageRecord"]] = relationship(
         "UsageRecord",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
+    quota_overrides: Mapped[List["QuotaOverride"]] = relationship(
+        "QuotaOverride",
         back_populates="organization",
         cascade="all, delete-orphan",
     )

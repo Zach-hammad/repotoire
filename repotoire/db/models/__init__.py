@@ -22,7 +22,10 @@ Usage:
 """
 
 from .analysis import AnalysisRun, AnalysisStatus
+from .audit import AuditLog, AuditStatus, EventSource
 from .finding import Finding, FindingSeverity
+from .fix import Fix, FixComment, FixConfidence, FixStatus, FixType
+from .quota_override import QuotaOverride, QuotaOverrideType
 from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 from .billing import (
     AddonType,
@@ -58,6 +61,7 @@ __all__ = [
     "OrganizationInvite",
     "Repository",
     "AnalysisRun",
+    "AuditLog",
     "GitHubInstallation",
     "GitHubRepository",
     "Subscription",
@@ -72,8 +76,17 @@ __all__ = [
     "MemberRole",
     "InviteStatus",
     "AnalysisStatus",
+    "AuditStatus",
+    "EventSource",
     "Finding",
     "FindingSeverity",
+    "Fix",
+    "FixComment",
+    "FixConfidence",
+    "FixStatus",
+    "FixType",
+    "QuotaOverride",
+    "QuotaOverrideType",
     "SubscriptionStatus",
     "AddonType",
     "ExportStatus",
