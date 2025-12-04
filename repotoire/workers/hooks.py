@@ -254,7 +254,7 @@ def _get_org_owner(session, org_id: UUID) -> "User | None":
         select(User)
         .join(OrganizationMembership, OrganizationMembership.user_id == User.id)
         .where(OrganizationMembership.organization_id == org_id)
-        .where(OrganizationMembership.role == MemberRole.OWNER)
+        .where(OrganizationMembership.role == MemberRole.OWNER.value)
         .limit(1)
     )
     return result.scalar_one_or_none()
@@ -881,7 +881,7 @@ def _get_users_with_activity(session, since: datetime) -> list["User"]:
         .join(Repository, Repository.organization_id == Organization.id)
         .join(AnalysisRun, AnalysisRun.repository_id == Repository.id)
         .where(AnalysisRun.created_at >= since)
-        .where(OrganizationMembership.role == MemberRole.OWNER)
+        .where(OrganizationMembership.role == MemberRole.OWNER.value)
     )
     return list(result.scalars().all())
 
@@ -911,7 +911,7 @@ def _get_user_repos_summary(
     memberships = session.execute(
         select(OrganizationMembership)
         .where(OrganizationMembership.user_id == user.id)
-        .where(OrganizationMembership.role == MemberRole.OWNER)
+        .where(OrganizationMembership.role == MemberRole.OWNER.value)
     ).scalars().all()
 
     repos_summary = []

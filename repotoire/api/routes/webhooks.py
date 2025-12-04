@@ -133,7 +133,7 @@ async def _send_payment_failed_email(
                 .join(OrganizationMembership)
                 .where(
                     OrganizationMembership.organization_id == org.id,
-                    OrganizationMembership.role == MemberRole.OWNER,
+                    OrganizationMembership.role == MemberRole.OWNER.value,
                 )
             )
             owner = result.scalar_one_or_none()

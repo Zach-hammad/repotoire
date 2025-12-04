@@ -116,7 +116,7 @@ async def check_user_is_admin(
         select(OrganizationMembership).where(
             OrganizationMembership.user_id == db_user.id,
             OrganizationMembership.organization_id == org.id,
-            OrganizationMembership.role.in_([MemberRole.OWNER, MemberRole.ADMIN]),
+            OrganizationMembership.role.in_([MemberRole.OWNER.value, MemberRole.ADMIN.value]),
         )
     )
     return result.scalar_one_or_none() is not None
