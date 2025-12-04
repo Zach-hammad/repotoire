@@ -19,6 +19,7 @@ from repotoire.api.routes import (
     account,
     analysis,
     analytics,
+    audit,
     billing,
     cli_auth,
     code,
@@ -32,6 +33,7 @@ from repotoire.api.routes import (
     usage,
     webhooks,
 )
+from repotoire.api.routes.admin import overrides as admin_overrides
 from repotoire.logging_config import clear_context, get_logger, set_context
 
 logger = get_logger(__name__)
@@ -181,6 +183,8 @@ app.include_router(sandbox.router, prefix="/api/v1")
 app.include_router(notifications.router, prefix="/api/v1")
 app.include_router(team.router, prefix="/api/v1")
 app.include_router(usage.router, prefix="/api/v1")
+app.include_router(admin_overrides.router, prefix="/api/v1")
+app.include_router(audit.router, prefix="/api/v1")
 
 
 @app.get("/", tags=["Root"])

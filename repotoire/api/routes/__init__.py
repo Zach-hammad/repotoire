@@ -2,8 +2,10 @@
 
 from repotoire.api.routes import (
     account,
+    admin,
     analysis,
     analytics,
+    audit,
     billing,
     cli_auth,
     code,
@@ -19,8 +21,10 @@ from repotoire.api.routes import (
 
 __all__ = [
     "account",
+    "admin",
     "analysis",
     "analytics",
+    "audit",
     "billing",
     "cli_auth",
     "code",
