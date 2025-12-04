@@ -145,6 +145,14 @@ from repotoire.sandbox.usage import (
     ConcurrentSession,
     get_usage_tracker,
 )
+from repotoire.sandbox.session_tracker import (
+    DistributedSessionTracker,
+    SessionInfo,
+    SessionTrackerError,
+    SessionTrackerUnavailableError,
+    get_session_tracker,
+    close_session_tracker,
+)
 from repotoire.sandbox.enforcement import (
     QuotaEnforcer,
     QuotaExceededError,
@@ -153,6 +161,12 @@ from repotoire.sandbox.enforcement import (
     QuotaType,
     QuotaWarningLevel,
     get_quota_enforcer,
+)
+from repotoire.sandbox.override_service import (
+    QuotaOverrideService,
+    get_override_service,
+    get_redis_client,
+    close_redis_client,
 )
 
 __all__ = [
@@ -251,6 +265,13 @@ __all__ = [
     "UsageSummary",
     "ConcurrentSession",
     "get_usage_tracker",
+    # Session tracking (REPO-311)
+    "DistributedSessionTracker",
+    "SessionInfo",
+    "SessionTrackerError",
+    "SessionTrackerUnavailableError",
+    "get_session_tracker",
+    "close_session_tracker",
     # Quota enforcement (REPO-299)
     "QuotaEnforcer",
     "QuotaExceededError",
@@ -259,4 +280,9 @@ __all__ = [
     "QuotaType",
     "QuotaWarningLevel",
     "get_quota_enforcer",
+    # Override service (REPO-312)
+    "QuotaOverrideService",
+    "get_override_service",
+    "get_redis_client",
+    "close_redis_client",
 ]
