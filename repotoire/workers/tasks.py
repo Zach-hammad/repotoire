@@ -1,6 +1,6 @@
 """Celery tasks for repository and PR analysis.
 
-Build: 2025-12-04T14:10:00Z
+Build: 2025-12-04T19:30:00Z
 
 This module contains the main analysis tasks:
 - analyze_repository: Full repository analysis with progress tracking
@@ -35,6 +35,7 @@ from repotoire.db.models import (
     Organization,
     Repository,
 )
+from repotoire.db.models.finding import Finding as FindingDB, FindingSeverity
 from repotoire.db.session import get_sync_session
 from repotoire.logging_config import get_logger
 from repotoire.workers.celery_app import celery_app
@@ -750,9 +751,12 @@ def _save_analysis_results(
         health: CodebaseHealth result from analysis.
         files_analyzed: Number of files processed.
     """
+    run_id = UUID(analysis_run_id)
+
+    # Update AnalysisRun with scores
     session.execute(
         update(AnalysisRun)
-        .where(AnalysisRun.id == UUID(analysis_run_id))
+        .where(AnalysisRun.id == run_id)
         .values(
             status=AnalysisStatus.COMPLETED,
             health_score=health.overall_score,
@@ -766,3 +770,39 @@ def _save_analysis_results(
             current_step="Complete",
         )
     )
+
+    # Persist individual findings
+    if health.findings:
+        logger.info(
+            f"Persisting {len(health.findings)} findings for analysis {analysis_run_id}"
+        )
+        for finding in health.findings:
+            # Map Severity enum to FindingSeverity
+            severity_map = {
+                "CRITICAL": FindingSeverity.CRITICAL,
+                "HIGH": FindingSeverity.HIGH,
+                "MEDIUM": FindingSeverity.MEDIUM,
+                "LOW": FindingSeverity.LOW,
+                "INFO": FindingSeverity.INFO,
+            }
+            severity = severity_map.get(
+                finding.severity.name, FindingSeverity.INFO
+            )
+
+            db_finding = FindingDB(
+                analysis_run_id=run_id,
+                detector=finding.detector,
+                severity=severity,
+                title=finding.title[:500],  # Truncate to column limit
+                description=finding.description,
+                affected_files=finding.affected_files or [],
+                affected_nodes=finding.affected_nodes or [],
+                line_start=finding.line_start,
+                line_end=finding.line_end,
+                suggested_fix=finding.suggested_fix,
+                estimated_effort=finding.estimated_effort,
+                graph_context=finding.graph_context,
+            )
+            session.add(db_finding)
+
+    session.commit()

@@ -22,6 +22,7 @@ from repotoire.api.routes import (
     billing,
     cli_auth,
     code,
+    findings,
     fixes,
     github,
     historical,
@@ -171,6 +172,7 @@ app.include_router(cli_auth.router, prefix="/api/v1")
 app.include_router(code.router, prefix="/api/v1")
 app.include_router(historical.router, prefix="/api/v1")
 app.include_router(fixes.router, prefix="/api/v1")
+app.include_router(findings.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(github.router, prefix="/api/v1")
 app.include_router(billing.router, prefix="/api/v1")

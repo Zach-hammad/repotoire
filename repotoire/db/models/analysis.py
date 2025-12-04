@@ -6,7 +6,7 @@ results of code health analysis runs for repositories.
 
 import enum
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 from uuid import UUID
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text, func
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base, UUIDPrimaryKeyMixin, generate_repr
 
 if TYPE_CHECKING:
+    from .finding import Finding
     from .repository import Repository
     from .user import User
 
@@ -158,6 +159,11 @@ class AnalysisRun(Base, UUIDPrimaryKeyMixin):
     triggered_by: Mapped["User | None"] = relationship(
         "User",
         foreign_keys=[triggered_by_id],
+    )
+    findings: Mapped[List["Finding"]] = relationship(
+        "Finding",
+        back_populates="analysis_run",
+        cascade="all, delete-orphan",
     )
 
     __table_args__ = (

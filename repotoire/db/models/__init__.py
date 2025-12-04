@@ -22,6 +22,7 @@ Usage:
 """
 
 from .analysis import AnalysisRun, AnalysisStatus
+from .finding import Finding, FindingSeverity
 from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 from .billing import (
     AddonType,
@@ -71,6 +72,8 @@ __all__ = [
     "MemberRole",
     "InviteStatus",
     "AnalysisStatus",
+    "Finding",
+    "FindingSeverity",
     "SubscriptionStatus",
     "AddonType",
     "ExportStatus",
