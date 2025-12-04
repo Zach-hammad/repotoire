@@ -99,19 +99,13 @@ class ConcurrencyLimiter:
                 self.redis.decr(key)
                 logger.info(
                     "Concurrency limit reached",
-                    org_id=str(org_id),
-                    tier=tier.value,
-                    limit=limit,
-                    current=current,
+                    extra={"org_id": str(org_id), "tier": tier.value, "limit": limit, "current": current},
                 )
                 return False
 
             logger.debug(
                 "Acquired analysis slot",
-                org_id=str(org_id),
-                tier=tier.value,
-                slot=current,
-                limit=limit,
+                extra={"org_id": str(org_id), "tier": tier.value, "slot": current, "limit": limit},
             )
             return True
 
@@ -133,7 +127,7 @@ class ConcurrencyLimiter:
             current = self.redis.get(key)
             if current and int(current) > 0:
                 self.redis.decr(key)
-                logger.debug("Released analysis slot", org_id=str(org_id))
+                logger.debug("Released analysis slot", extra={"org_id": str(org_id)})
         except redis.RedisError as e:
             logger.warning(f"Redis error in release: {e}")
 
@@ -206,9 +200,7 @@ def with_concurrency_limit(func: Callable) -> Callable:
                 # Queue is full, retry later
                 logger.info(
                     "Retrying due to concurrency limit",
-                    repo_id=repo_id,
-                    org_id=str(org_id),
-                    tier=tier.value,
+                    extra={"repo_id": repo_id, "org_id": str(org_id), "tier": tier.value},
                 )
                 raise self.retry(
                     countdown=60,
