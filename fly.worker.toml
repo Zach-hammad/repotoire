@@ -17,6 +17,6 @@ primary_region = 'iad'
   worker = "/opt/venv/bin/celery -A repotoire.workers.celery_app worker --loglevel=info -Q default,analysis,analysis.high,webhooks,notifications,notifications.low --concurrency=4"
 
 [[vm]]
-  memory = '2gb'
+  memory = '4gb'
   cpu_kind = 'shared'
   cpus = 2
