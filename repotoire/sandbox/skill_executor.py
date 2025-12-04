@@ -10,6 +10,11 @@ Security requirements:
 - Timeout and memory limits must be enforced
 - Skill errors must not crash the host process
 - Input/output must be JSON-serializable
+
+REPO-313: Enhanced with:
+- Two-tier skill caching (L1: local, L2: Redis)
+- Skill code cached by hash for fast reloading
+- Cache invalidation on file changes
 """
 
 import asyncio
@@ -19,9 +24,12 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from repotoire.logging_config import get_logger
+
+if TYPE_CHECKING:
+    from repotoire.cache import TwoTierSkillCache
 from repotoire.sandbox.client import SandboxExecutor, ExecutionResult
 from repotoire.sandbox.config import SandboxConfig
 from repotoire.sandbox.exceptions import (
@@ -638,3 +646,110 @@ def load_skill_secure(
     skill_wrapper.__doc__ = f"Sandboxed skill: {skill_name}"
 
     return skill_wrapper
+
+
+# =============================================================================
+# Skill Caching Integration (REPO-313)
+# =============================================================================
+
+
+async def get_cached_skill(
+    skill_id: str,
+    cache: Optional["TwoTierSkillCache"] = None,
+) -> Optional["CachedSkill"]:  # type: ignore[name-defined]
+    """Get a cached skill by ID.
+
+    Uses the two-tier skill cache (L1 local + L2 Redis) for fast lookups.
+
+    Args:
+        skill_id: Unique skill identifier
+        cache: Optional cache instance (uses global if not provided)
+
+    Returns:
+        CachedSkill or None if not cached
+    """
+    if cache is None:
+        try:
+            from repotoire.cache import get_skill_cache
+
+            cache = await get_skill_cache()
+        except Exception as e:
+            logger.warning(f"Could not get skill cache: {e}")
+            return None
+
+    return await cache.get(skill_id)
+
+
+async def cache_skill(
+    skill_id: str,
+    skill_name: str,
+    skill_code: str,
+    source_path: Optional[str] = None,
+    cache: Optional["TwoTierSkillCache"] = None,
+) -> bool:
+    """Cache a loaded skill for future use.
+
+    Stores the skill in both L1 (local) and L2 (Redis) caches.
+
+    Args:
+        skill_id: Unique skill identifier
+        skill_name: Human-readable skill name
+        skill_code: Python source code
+        source_path: Optional path to skill source file
+        cache: Optional cache instance (uses global if not provided)
+
+    Returns:
+        True if successfully cached
+    """
+    if cache is None:
+        try:
+            from repotoire.cache import get_skill_cache
+
+            cache = await get_skill_cache()
+        except Exception as e:
+            logger.warning(f"Could not get skill cache: {e}")
+            return False
+
+    from repotoire.cache import CachedSkill
+
+    code_hash = hashlib.sha256(skill_code.encode("utf-8")).hexdigest()[:16]
+
+    cached_skill = CachedSkill(
+        skill_id=skill_id,
+        skill_name=skill_name,
+        skill_code=skill_code,
+        code_hash=code_hash,
+        loaded_at=datetime.now(timezone.utc).isoformat(),
+        source_path=source_path,
+    )
+
+    return await cache.set(skill_id, cached_skill)
+
+
+async def invalidate_skill_cache(
+    skill_id: Optional[str] = None,
+    cache: Optional["TwoTierSkillCache"] = None,
+) -> bool:
+    """Invalidate cached skills.
+
+    Args:
+        skill_id: Specific skill to invalidate, or None for all
+        cache: Optional cache instance (uses global if not provided)
+
+    Returns:
+        True if successfully invalidated
+    """
+    if cache is None:
+        try:
+            from repotoire.cache import get_skill_cache
+
+            cache = await get_skill_cache()
+        except Exception as e:
+            logger.warning(f"Could not get skill cache: {e}")
+            return False
+
+    if skill_id:
+        return await cache.invalidate(skill_id)
+    else:
+        await cache.clear_all()
+        return True

@@ -1,8 +1,10 @@
 """API routes for fix management and Best-of-N generation."""
 
+from __future__ import annotations
+
 import time
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -26,6 +28,9 @@ from repotoire.api.auth import ClerkUser, get_current_user
 from repotoire.api.models import PreviewResult, PreviewCheck
 from repotoire.db.models import PlanTier
 from repotoire.logging_config import get_logger
+
+if TYPE_CHECKING:
+    from repotoire.cache import PreviewCache
 
 logger = get_logger(__name__)
 
@@ -207,8 +212,19 @@ def _get_fix_hash(fix: FixProposal) -> str:
     return hashlib.md5(content.encode()).hexdigest()[:16]
 
 
+def _get_preview_cache():
+    """Lazy import to avoid circular dependency."""
+    from repotoire.cache import get_preview_cache
+
+    return get_preview_cache
+
+
 @router.post("/{fix_id}/preview")
-async def preview_fix(fix_id: str, user: ClerkUser = Depends(get_current_user)) -> PreviewResult:
+async def preview_fix(
+    fix_id: str,
+    user: ClerkUser = Depends(get_current_user),
+    cache: "PreviewCache" = Depends(_get_preview_cache),
+) -> PreviewResult:
     """Run fix preview in sandbox to validate before approving.
 
     Executes the proposed fix in an isolated E2B sandbox and runs:
@@ -224,12 +240,18 @@ async def preview_fix(fix_id: str, user: ClerkUser = Depends(get_current_user)) 
     fix = _fixes_store[fix_id]
     fix_hash = _get_fix_hash(fix)
 
-    # Check cache
+    # Check Redis cache first (with hash validation)
+    cached_result = await cache.get_with_hash_check(fix_id, fix_hash)
+    if cached_result:
+        logger.info(f"Returning cached preview for fix {fix_id}")
+        return cached_result
+
+    # Fallback to in-memory cache
     if fix_id in _preview_cache:
         cached_result, cached_hash = _preview_cache[fix_id]
         if cached_hash == fix_hash:
             # Return cached result with timestamp
-            logger.info(f"Returning cached preview for fix {fix_id}")
+            logger.info(f"Returning in-memory cached preview for fix {fix_id}")
             return cached_result
 
     start_time = time.time()
@@ -301,19 +323,23 @@ async def preview_fix(fix_id: str, user: ClerkUser = Depends(get_current_user)) 
                 error=None if success else "Syntax validation failed",
             )
 
-            # Cache the result
-            _preview_cache[fix_id] = (
-                PreviewResult(
-                    success=result.success,
-                    stdout=result.stdout,
-                    stderr=result.stderr,
-                    duration_ms=result.duration_ms,
-                    checks=result.checks,
-                    error=result.error,
-                    cached_at=datetime.utcnow().isoformat(),
-                ),
-                fix_hash,
+            # Cache the result with hash embedded in cached_at for validation
+            cached_at_with_hash = f"{datetime.utcnow().isoformat()}:{fix_hash}"
+            cached_result = PreviewResult(
+                success=result.success,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                duration_ms=result.duration_ms,
+                checks=result.checks,
+                error=result.error,
+                cached_at=cached_at_with_hash,
             )
+
+            # Store in Redis cache
+            await cache.set_preview(fix_id, cached_result)
+
+            # Also store in in-memory cache as fallback
+            _preview_cache[fix_id] = (cached_result, fix_hash)
 
             return result
 
@@ -391,19 +417,23 @@ async def preview_fix(fix_id: str, user: ClerkUser = Depends(get_current_user)) 
             error=None,
         )
 
-        # Cache the result with timestamp
-        _preview_cache[fix_id] = (
-            PreviewResult(
-                success=result.success,
-                stdout=result.stdout,
-                stderr=result.stderr,
-                duration_ms=result.duration_ms,
-                checks=result.checks,
-                error=result.error,
-                cached_at=datetime.utcnow().isoformat(),
-            ),
-            fix_hash,
+        # Cache the result with hash embedded in cached_at for validation
+        cached_at_with_hash = f"{datetime.utcnow().isoformat()}:{fix_hash}"
+        cached_result = PreviewResult(
+            success=result.success,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            duration_ms=result.duration_ms,
+            checks=result.checks,
+            error=result.error,
+            cached_at=cached_at_with_hash,
         )
+
+        # Store in Redis cache
+        await cache.set_preview(fix_id, cached_result)
+
+        # Also store in in-memory cache as fallback
+        _preview_cache[fix_id] = (cached_result, fix_hash)
 
         logger.info(f"Preview completed for fix {fix_id}: success={success}")
         return result

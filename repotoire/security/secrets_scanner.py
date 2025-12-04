@@ -22,6 +22,11 @@ REPO-149: Enhanced with:
 - Hash-based caching for unchanged files
 - Enhanced reporting (positions, risk levels, remediation)
 - Custom pattern support via configuration
+
+REPO-313: Enhanced with:
+- Redis-based caching via ScanCache for distributed caching
+- Content-hash based cache keys for automatic invalidation
+- 24-hour TTL for long-term caching of unchanged files
 """
 
 import hashlib
@@ -1051,3 +1056,90 @@ def apply_secrets_policy(
         # Unknown policy, default to REDACT for safety
         logger.warning(f"Unknown policy {policy}, defaulting to REDACT")
         return scan_result.redacted_text
+
+
+# =============================================================================
+# Redis Cache Integration (REPO-313)
+# =============================================================================
+
+
+async def scan_with_cache(
+    content: str,
+    context: str,
+    filename: str = "<string>",
+    scanner: Optional[SecretsScanner] = None,
+) -> SecretsScanResult:
+    """Scan content for secrets with Redis caching support.
+
+    Uses the ScanCache for distributed caching across workers.
+    Falls back to in-memory scanning if cache is unavailable.
+
+    Args:
+        content: Text content to scan
+        context: Context string for logging (e.g., "module.py:42")
+        filename: Filename for reporting
+        scanner: Optional SecretsScanner instance (creates one if not provided)
+
+    Returns:
+        SecretsScanResult with detected secrets
+
+    Example:
+        ```python
+        result = await scan_with_cache(
+            content=file_content,
+            context="src/config.py",
+            filename="config.py",
+        )
+        if result.has_secrets:
+            print(f"Found {result.total_secrets} secrets")
+        ```
+    """
+    from repotoire.cache import ScanCache, get_scan_cache
+
+    # Get the scan cache
+    try:
+        cache = await get_scan_cache()
+    except Exception as e:
+        logger.warning(f"Could not get scan cache: {e}")
+        cache = None
+
+    # Check cache first
+    if cache:
+        cached = await cache.get_by_content(content)
+        if cached:
+            # Reconstruct SecretsScanResult from cached data
+            # Note: We don't cache the full redacted_text (it's large)
+            # We return the cached stats and let caller re-redact if needed
+            result = SecretsScanResult(
+                secrets_found=[],  # Not cached, but stats are
+                redacted_text=None,
+                has_secrets=cached.has_secrets,
+                total_secrets=cached.total_secrets,
+                by_risk_level=cached.by_risk_level,
+                by_type=cached.by_type,
+                file_hash=cached.file_hash,
+            )
+            logger.debug(
+                "Secrets scan cache hit",
+                extra={
+                    "context": context,
+                    "has_secrets": cached.has_secrets,
+                    "total_secrets": cached.total_secrets,
+                },
+            )
+            return result
+
+    # Cache miss - perform scan
+    if scanner is None:
+        scanner = SecretsScanner(cache_enabled=False)  # Disable in-memory cache
+
+    result = scanner.scan_string(content, context, filename, use_cache=False)
+
+    # Cache the result
+    if cache and result.file_hash:
+        try:
+            await cache.set_from_scan_result(content, result)
+        except Exception as e:
+            logger.warning(f"Could not cache scan result: {e}")
+
+    return result
