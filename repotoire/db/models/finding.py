@@ -26,6 +26,7 @@ from .base import Base, UUIDPrimaryKeyMixin, generate_repr
 
 if TYPE_CHECKING:
     from .analysis import AnalysisRun
+    from .fix import Fix
 
 
 class FindingSeverity(str, enum.Enum):
@@ -125,6 +126,10 @@ class Finding(Base, UUIDPrimaryKeyMixin):
     analysis_run: Mapped["AnalysisRun"] = relationship(
         "AnalysisRun",
         back_populates="findings",
+    )
+    fixes: Mapped[List["Fix"]] = relationship(
+        "Fix",
+        back_populates="finding",
     )
 
     __table_args__ = (

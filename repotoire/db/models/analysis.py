@@ -16,6 +16,7 @@ from .base import Base, UUIDPrimaryKeyMixin, generate_repr
 
 if TYPE_CHECKING:
     from .finding import Finding
+    from .fix import Fix
     from .repository import Repository
     from .user import User
 
@@ -162,6 +163,11 @@ class AnalysisRun(Base, UUIDPrimaryKeyMixin):
     )
     findings: Mapped[List["Finding"]] = relationship(
         "Finding",
+        back_populates="analysis_run",
+        cascade="all, delete-orphan",
+    )
+    fixes: Mapped[List["Fix"]] = relationship(
+        "Fix",
         back_populates="analysis_run",
         cascade="all, delete-orphan",
     )

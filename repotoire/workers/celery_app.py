@@ -59,7 +59,11 @@ celery_app = Celery(
     "repotoire",
     broker=REDIS_URL,
     backend=REDIS_URL,
-    include=["repotoire.workers.tasks", "repotoire.workers.hooks"],
+    include=[
+        "repotoire.workers.tasks",
+        "repotoire.workers.hooks",
+        "repotoire.workers.audit_tasks",
+    ],
 )
 
 celery_app.conf.update(
@@ -97,8 +101,15 @@ celery_app.conf.update(
         },
         "repotoire.workers.hooks.*": {"queue": "default"},
     },
-    # Beat schedule - for periodic tasks (if needed later)
-    beat_schedule={},
+    # Beat schedule - for periodic tasks
+    beat_schedule={
+        # Audit log cleanup - runs daily at 3 AM UTC
+        "cleanup-audit-logs-daily": {
+            "task": "repotoire.workers.audit_tasks.cleanup_old_audit_logs",
+            "schedule": 86400,  # Every 24 hours (in seconds)
+            "options": {"queue": "default"},
+        },
+    },
     # Worker configuration
     worker_send_task_events=True,  # Send task events for monitoring
     task_send_sent_event=True,  # Track when tasks are sent

@@ -24,6 +24,7 @@ from repotoire.db.models import (
     GitHubInstallation,
     GitHubRepository,
     Organization,
+    PlanTier,
     Repository,
 )
 from repotoire.db.session import get_db
@@ -47,6 +48,10 @@ class GitHubRepoResponse(BaseModel):
     full_name: str = Field(..., description="Full repository name (owner/repo)")
     default_branch: str = Field(..., description="Default branch name")
     enabled: bool = Field(..., description="Whether analysis is enabled")
+    auto_analyze: bool = Field(
+        default=True,
+        description="Whether to auto-analyze on push events (requires enabled=True and pro/enterprise tier)",
+    )
     last_analyzed_at: Optional[datetime] = Field(
         None, description="When the repository was last analyzed"
     )
@@ -496,22 +501,194 @@ async def handle_installation_repos_event(
 
 
 async def handle_push_event(db: AsyncSession, payload: dict) -> None:
-    """Handle push events - triggers analysis for enabled repos."""
+    """Handle push events - triggers auto-analysis for eligible repos.
+
+    Auto-analysis is triggered when ALL of these conditions are met:
+    1. Repository exists in our database
+    2. Repository.enabled == True
+    3. Repository.auto_analyze == True
+    4. Organization.plan_tier is 'pro' or 'enterprise'
+    5. Push is to the default branch
+    6. Push is not debounced (within 60s of another push)
+
+    Args:
+        db: Database session.
+        payload: GitHub webhook payload.
+    """
+    from repotoire.workers.debounce import get_push_debouncer
+
     repo_data = payload.get("repository", {})
     repo_id = repo_data.get("id")
+    repo_full_name = repo_data.get("full_name", "unknown")
+    ref = payload.get("ref", "")
+    default_branch = repo_data.get("default_branch", "main")
+    installation_data = payload.get("installation", {})
+    installation_id = installation_data.get("id")
 
-    # Find the repo if it's enabled for analysis
+    # Extract branch name from ref (refs/heads/main -> main)
+    branch = ref.replace("refs/heads/", "") if ref.startswith("refs/heads/") else ref
+
+    # Gate 1: Check if push is to default branch
+    if branch != default_branch:
+        logger.info(
+            "Skipping auto-analysis: non-default branch",
+            extra={
+                "repo_id": repo_id,
+                "repo": repo_full_name,
+                "branch": branch,
+                "default_branch": default_branch,
+            },
+        )
+        return
+
+    # Gate 2: Find the GitHubInstallation
+    if not installation_id:
+        logger.warning(
+            "Skipping auto-analysis: no installation_id in webhook",
+            extra={"repo_id": repo_id, "repo": repo_full_name},
+        )
+        return
+
+    result = await db.execute(
+        select(GitHubInstallation)
+        .where(GitHubInstallation.installation_id == installation_id)
+        .options(selectinload(GitHubInstallation.organization))
+    )
+    installation = result.scalar_one_or_none()
+
+    if not installation:
+        logger.warning(
+            "Skipping auto-analysis: installation not found",
+            extra={
+                "repo_id": repo_id,
+                "repo": repo_full_name,
+                "installation_id": installation_id,
+            },
+        )
+        return
+
+    # Gate 3: Find the GitHubRepository
     result = await db.execute(
         select(GitHubRepository).where(
+            GitHubRepository.installation_id == installation.id,
             GitHubRepository.repo_id == repo_id,
-            GitHubRepository.enabled == True,
         )
+    )
+    github_repo = result.scalar_one_or_none()
+
+    if not github_repo:
+        logger.debug(
+            "Skipping auto-analysis: repo not registered",
+            extra={"repo_id": repo_id, "repo": repo_full_name},
+        )
+        return
+
+    # Gate 4: Check if repo is enabled
+    if not github_repo.enabled:
+        logger.info(
+            "Skipping auto-analysis: repo not enabled",
+            extra={"repo_id": repo_id, "repo": repo_full_name},
+        )
+        return
+
+    # Gate 5: Check if auto_analyze is enabled for this repo
+    if not github_repo.auto_analyze:
+        logger.info(
+            "Skipping auto-analysis: auto_analyze disabled for repo",
+            extra={"repo_id": repo_id, "repo": repo_full_name},
+        )
+        return
+
+    # Gate 6: Check organization plan tier
+    org = installation.organization
+    if org.plan_tier == PlanTier.FREE:
+        logger.info(
+            "Skipping auto-analysis: free tier",
+            extra={
+                "repo_id": repo_id,
+                "repo": repo_full_name,
+                "org_id": str(org.id),
+                "plan_tier": org.plan_tier.value,
+            },
+        )
+        return
+
+    # Gate 7: Check debouncing (prevent rapid consecutive analyses)
+    debouncer = get_push_debouncer()
+    if not debouncer.should_analyze(repo_id):
+        logger.info(
+            "Skipping auto-analysis: debounced",
+            extra={"repo_id": repo_id, "repo": repo_full_name},
+        )
+        return
+
+    # All gates passed - trigger auto-analysis
+    logger.info(
+        "Auto-analysis triggered",
+        extra={
+            "repo_id": repo_id,
+            "repo": repo_full_name,
+            "org_id": str(org.id),
+            "plan_tier": org.plan_tier.value,
+            "branch": branch,
+        },
+    )
+
+    # Find or create Repository record for analysis tracking
+    result = await db.execute(
+        select(Repository)
+        .where(Repository.organization_id == org.id)
+        .where(Repository.github_repo_id == repo_id)
     )
     repo = result.scalar_one_or_none()
 
-    if repo:
-        # TODO: Queue analysis job via Celery
-        logger.info(f"Push event for enabled repo: {repo.full_name}")
+    if not repo:
+        repo = Repository(
+            organization_id=org.id,
+            github_repo_id=github_repo.repo_id,
+            github_installation_id=installation.installation_id,
+            full_name=github_repo.full_name,
+            default_branch=github_repo.default_branch,
+            is_active=True,
+        )
+        db.add(repo)
+        await db.flush()
+        logger.info(f"Created Repository record for {github_repo.full_name}")
+
+    # Get commit SHA from payload
+    commit_sha = payload.get("after", "HEAD")
+
+    # Create AnalysisRun
+    analysis_run = AnalysisRun(
+        repository_id=repo.id,
+        commit_sha=commit_sha,
+        branch=branch,
+        status=AnalysisStatus.QUEUED,
+        progress_percent=0,
+        current_step="Queued for auto-analysis",
+    )
+    db.add(analysis_run)
+    await db.commit()
+    await db.refresh(analysis_run)
+
+    # Queue Celery task
+    from repotoire.workers.tasks import analyze_repository
+
+    analyze_repository.delay(
+        analysis_run_id=str(analysis_run.id),
+        repo_id=str(repo.id),
+        commit_sha=commit_sha,
+        incremental=True,  # Use incremental for push-triggered analysis
+    )
+
+    logger.info(
+        "Auto-analysis queued",
+        extra={
+            "analysis_run_id": str(analysis_run.id),
+            "repo": github_repo.full_name,
+            "commit_sha": commit_sha[:8] if len(commit_sha) > 8 else commit_sha,
+        },
+    )
 
 
 async def handle_pull_request_event(db: AsyncSession, payload: dict) -> None:
