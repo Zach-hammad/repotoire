@@ -1,6 +1,6 @@
 """Celery tasks for repository and PR analysis.
 
-Build: 2025-12-03T20:10:00Z
+Build: 2025-12-04T14:10:00Z
 
 This module contains the main analysis tasks:
 - analyze_repository: Full repository analysis with progress tracking
@@ -89,13 +89,21 @@ def analyze_repository(
     clone_dir: Path | None = None
 
     try:
+        # ============================================================
+        # PHASE 1: Load data and update status (short DB session)
+        # ============================================================
+        # Use short-lived sessions to avoid Neon connection timeouts
+        # during long-running operations (clone, ingestion, analysis)
         with get_sync_session() as session:
             # Load repository and organization
             repo = session.get(Repository, UUID(repo_id))
             if not repo:
                 raise ValueError(f"Repository {repo_id} not found")
 
-            org = repo.organization
+            # Extract values we need outside the session
+            # (avoids lazy loading issues after session closes)
+            repo_full_name = repo.full_name
+            repo_github_installation_id = repo.github_installation_id
 
             # Update status to running
             progress.update(
@@ -104,67 +112,79 @@ def analyze_repository(
                 current_step="Cloning repository",
                 started_at=datetime.now(timezone.utc),
             )
+        # Session is now closed - safe for long operations
 
-            # Clone repository
-            clone_dir = _clone_repository(
-                repo=repo,
-                org=org,
-                commit_sha=commit_sha,
-            )
+        # ============================================================
+        # PHASE 2: Clone repository (may take 30+ seconds)
+        # ============================================================
+        clone_dir = _clone_repository_by_values(
+            full_name=repo_full_name,
+            github_installation_id=repo_github_installation_id,
+            commit_sha=commit_sha,
+        )
 
+        progress.update(
+            progress_percent=20,
+            current_step="Building knowledge graph",
+        )
+
+        # ============================================================
+        # PHASE 3: Build knowledge graph (may take minutes)
+        # ============================================================
+        # Get Neo4j client (uses env vars, no DB needed)
+        neo4j_client = _get_neo4j_client_for_org(None)
+
+        # Import here to avoid circular imports
+        from repotoire.pipeline.ingestion import IngestionPipeline
+
+        # Run ingestion pipeline
+        pipeline = IngestionPipeline(
+            repo_path=str(clone_dir),
+            neo4j_client=neo4j_client,
+        )
+
+        def ingestion_progress(pct: float) -> None:
             progress.update(
-                progress_percent=20,
-                current_step="Building knowledge graph",
+                progress_percent=20 + int(pct * 0.4),  # 20-60%
             )
 
-            # Get Neo4j client
-            neo4j_client = _get_neo4j_client_for_org(org)
+        ingest_result = pipeline.ingest(incremental=incremental)
 
-            # Import here to avoid circular imports
-            from repotoire.pipeline.ingestion import IngestionPipeline
+        progress.update(
+            progress_percent=60,
+            current_step="Analyzing code health",
+        )
 
-            # Run ingestion pipeline
-            pipeline = IngestionPipeline(
-                repo_path=str(clone_dir),
-                neo4j_client=neo4j_client,
-            )
+        # ============================================================
+        # PHASE 4: Run analysis (may take minutes)
+        # ============================================================
+        from repotoire.detectors.engine import AnalysisEngine
 
-            def ingestion_progress(pct: float) -> None:
-                progress.update(
-                    progress_percent=20 + int(pct * 0.4),  # 20-60%
-                )
+        engine = AnalysisEngine(neo4j_client=neo4j_client)
 
-            ingest_result = pipeline.ingest(incremental=incremental)
-
+        def analysis_progress(pct: float) -> None:
             progress.update(
-                progress_percent=60,
-                current_step="Analyzing code health",
+                progress_percent=60 + int(pct * 0.3),  # 60-90%
             )
 
-            # Run analysis engine
-            from repotoire.detectors.engine import AnalysisEngine
+        health = engine.analyze()
 
-            engine = AnalysisEngine(neo4j_client=neo4j_client)
+        progress.update(
+            progress_percent=90,
+            current_step="Saving results",
+        )
 
-            def analysis_progress(pct: float) -> None:
-                progress.update(
-                    progress_percent=60 + int(pct * 0.3),  # 60-90%
-                )
-
-            health = engine.analyze()
-
-            progress.update(
-                progress_percent=90,
-                current_step="Saving results",
-            )
-
-            # Update AnalysisRun with results
+        # ============================================================
+        # PHASE 5: Save results (short DB session)
+        # ============================================================
+        with get_sync_session() as session:
             _save_analysis_results(
                 session=session,
                 analysis_run_id=analysis_run_id,
                 health=health,
                 files_analyzed=getattr(ingest_result, "files_processed", 0),
             )
+        # Session is now closed
 
         # Trigger post-analysis hooks (outside the session)
         from repotoire.workers.hooks import on_analysis_complete
@@ -437,16 +457,19 @@ def analyze_repository_priority(
 # =============================================================================
 
 
-def _clone_repository(
-    repo: Repository,
-    org: Organization,
+def _clone_repository_by_values(
+    full_name: str,
+    github_installation_id: int | None,
     commit_sha: str,
 ) -> Path:
-    """Clone repository to a temporary directory.
+    """Clone repository to a temporary directory using primitive values.
+
+    This version takes primitive values instead of ORM objects, allowing
+    it to be called outside a database session context.
 
     Args:
-        repo: Repository model instance.
-        org: Organization model instance.
+        full_name: Repository full name (e.g., "owner/repo").
+        github_installation_id: GitHub App installation ID for auth.
         commit_sha: Git commit SHA to checkout.
 
     Returns:
@@ -455,7 +478,7 @@ def _clone_repository(
     CLONE_BASE_DIR.mkdir(parents=True, exist_ok=True)
 
     # Create unique clone directory
-    clone_dir = CLONE_BASE_DIR / f"{repo.full_name.replace('/', '_')}_{commit_sha[:8]}"
+    clone_dir = CLONE_BASE_DIR / f"{full_name.replace('/', '_')}_{commit_sha[:8]}"
 
     if clone_dir.exists():
         # Already cloned, just checkout the commit
@@ -467,12 +490,12 @@ def _clone_repository(
         )
         return clone_dir
 
-    # Get GitHub token for authenticated clone using repo's installation
-    token = _get_github_token(repo)
-    clone_url = f"https://github.com/{repo.full_name}.git"
+    # Get GitHub token for authenticated clone using installation ID
+    token = _get_github_token_by_installation_id(full_name, github_installation_id)
+    clone_url = f"https://github.com/{full_name}.git"
 
     if token:
-        clone_url = f"https://x-access-token:{token}@github.com/{repo.full_name}.git"
+        clone_url = f"https://x-access-token:{token}@github.com/{full_name}.git"
 
     # Clone with depth 1 for speed
     subprocess.run(
@@ -507,14 +530,40 @@ def _clone_repository(
     return clone_dir
 
 
-def _get_github_token(repo: Repository) -> str | None:
-    """Get GitHub installation token for repository.
+def _clone_repository(
+    repo: Repository,
+    org: Organization,
+    commit_sha: str,
+) -> Path:
+    """Clone repository to a temporary directory.
+
+    Args:
+        repo: Repository model instance.
+        org: Organization model instance.
+        commit_sha: Git commit SHA to checkout.
+
+    Returns:
+        Path to the cloned repository.
+    """
+    return _clone_repository_by_values(
+        full_name=repo.full_name,
+        github_installation_id=repo.github_installation_id,
+        commit_sha=commit_sha,
+    )
+
+
+def _get_github_token_by_installation_id(
+    full_name: str,
+    github_installation_id: int | None,
+) -> str | None:
+    """Get GitHub installation token using primitive values.
 
     Uses the stored installation token if valid, or refreshes it
     via the GitHub App API if expired.
 
     Args:
-        repo: Repository model instance with github_installation_id.
+        full_name: Repository full name for logging.
+        github_installation_id: GitHub App installation ID.
 
     Returns:
         Installation access token or None if unavailable.
@@ -526,10 +575,10 @@ def _get_github_token(repo: Repository) -> str | None:
     from repotoire.api.services.github import GitHubAppClient
     from repotoire.db.models import GitHubInstallation
 
-    # Fall back to env var if no installation ID on repo
-    if not repo.github_installation_id:
+    # Fall back to env var if no installation ID
+    if not github_installation_id:
         logger.warning(
-            f"No github_installation_id for repo {repo.full_name}, using env token"
+            f"No github_installation_id for repo {full_name}, using env token"
         )
         return os.environ.get("GITHUB_TOKEN")
 
@@ -538,14 +587,14 @@ def _get_github_token(repo: Repository) -> str | None:
             # Find the GitHubInstallation by installation_id
             result = session.execute(
                 select(GitHubInstallation).where(
-                    GitHubInstallation.installation_id == repo.github_installation_id
+                    GitHubInstallation.installation_id == github_installation_id
                 )
             )
             installation = result.scalar_one_or_none()
 
             if not installation:
                 logger.warning(
-                    f"GitHubInstallation not found for installation_id={repo.github_installation_id}"
+                    f"GitHubInstallation not found for installation_id={github_installation_id}"
                 )
                 return os.environ.get("GITHUB_TOKEN")
 
@@ -576,7 +625,25 @@ def _get_github_token(repo: Repository) -> str | None:
         return os.environ.get("GITHUB_TOKEN")
 
 
-def _get_neo4j_client_for_org(org: Organization):
+def _get_github_token(repo: Repository) -> str | None:
+    """Get GitHub installation token for repository.
+
+    Uses the stored installation token if valid, or refreshes it
+    via the GitHub App API if expired.
+
+    Args:
+        repo: Repository model instance with github_installation_id.
+
+    Returns:
+        Installation access token or None if unavailable.
+    """
+    return _get_github_token_by_installation_id(
+        full_name=repo.full_name,
+        github_installation_id=repo.github_installation_id,
+    )
+
+
+def _get_neo4j_client_for_org(org: Organization | None):
     """Get Neo4j client for organization.
 
     In a multi-tenant setup, each organization could have its own
