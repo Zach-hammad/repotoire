@@ -118,6 +118,42 @@ async def _user_has_repo_access(
     return repo.organization_id == org.id
 
 
+async def _get_latest_analysis_run_ids(
+    session: AsyncSession, org: Organization, repository_id: Optional[UUID] = None
+) -> list[UUID]:
+    """Get the latest completed analysis run ID for each repository in the org.
+
+    This ensures we only count findings from the most recent analysis, not duplicates
+    from multiple analysis runs on the same repo.
+    """
+    # Subquery to get the latest completed analysis run per repository
+    subq = (
+        select(
+            AnalysisRun.repository_id,
+            func.max(AnalysisRun.completed_at).label("max_completed")
+        )
+        .join(Repository, AnalysisRun.repository_id == Repository.id)
+        .where(Repository.organization_id == org.id)
+        .where(AnalysisRun.status == "completed")
+    )
+
+    if repository_id:
+        subq = subq.where(AnalysisRun.repository_id == repository_id)
+
+    subq = subq.group_by(AnalysisRun.repository_id).subquery()
+
+    # Get the analysis run IDs that match the latest completed_at per repo
+    query = (
+        select(AnalysisRun.id)
+        .join(subq,
+              (AnalysisRun.repository_id == subq.c.repository_id) &
+              (AnalysisRun.completed_at == subq.c.max_completed))
+    )
+
+    result = await session.execute(query)
+    return [row[0] for row in result.all()]
+
+
 # =============================================================================
 # Endpoints
 # =============================================================================
@@ -129,6 +165,7 @@ async def list_findings(
     repository_id: Optional[UUID] = Query(None, description="Filter by repository"),
     severity: Optional[List[str]] = Query(None, description="Filter by severity"),
     detector: Optional[str] = Query(None, description="Filter by detector"),
+    all_runs: bool = Query(False, description="Show findings from all runs, not just latest"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     sort_by: str = Query("created_at", description="Sort field"),
@@ -139,6 +176,8 @@ async def list_findings(
     """List findings with pagination and filtering.
 
     Returns findings from analysis runs for repositories the user has access to.
+    By default, only shows findings from the latest completed analysis run per repository
+    to avoid duplicates. Set all_runs=true to see all historical findings.
     """
     # Get user's organization
     org = await _get_user_org(session, user)
@@ -158,7 +197,22 @@ async def list_findings(
 
     # Apply filters
     if analysis_run_id:
+        # If specific run is requested, use that
         query = query.where(Finding.analysis_run_id == analysis_run_id)
+    elif not all_runs:
+        # Default to latest runs only to avoid duplicates
+        latest_run_ids = await _get_latest_analysis_run_ids(session, org, repository_id)
+        if latest_run_ids:
+            query = query.where(Finding.analysis_run_id.in_(latest_run_ids))
+        else:
+            # No completed runs, return empty
+            return PaginatedFindingsResponse(
+                items=[],
+                total=0,
+                page=page,
+                page_size=page_size,
+                has_more=False,
+            )
 
     if repository_id:
         query = query.where(AnalysisRun.repository_id == repository_id)
@@ -231,7 +285,10 @@ async def get_findings_summary(
     user: ClerkUser = Depends(require_org),
     session: AsyncSession = Depends(get_db),
 ) -> FindingsSummary:
-    """Get summary of findings by severity."""
+    """Get summary of findings by severity.
+
+    By default, only counts findings from the latest completed analysis run per repository.
+    """
     org = await _get_user_org(session, user)
     if not org:
         raise HTTPException(
@@ -239,21 +296,20 @@ async def get_findings_summary(
             detail="Organization not found",
         )
 
-    # Build query
+    # Determine which run IDs to use
+    if analysis_run_id:
+        run_ids = [analysis_run_id]
+    else:
+        run_ids = await _get_latest_analysis_run_ids(session, org, repository_id)
+        if not run_ids:
+            return FindingsSummary()
+
+    # Build query - only from specified/latest runs
     query = (
         select(Finding.severity, func.count(Finding.id).label("count"))
-        .join(AnalysisRun, Finding.analysis_run_id == AnalysisRun.id)
-        .join(Repository, AnalysisRun.repository_id == Repository.id)
-        .where(Repository.organization_id == org.id)
+        .where(Finding.analysis_run_id.in_(run_ids))
+        .group_by(Finding.severity)
     )
-
-    if analysis_run_id:
-        query = query.where(Finding.analysis_run_id == analysis_run_id)
-
-    if repository_id:
-        query = query.where(AnalysisRun.repository_id == repository_id)
-
-    query = query.group_by(Finding.severity)
 
     result = await session.execute(query)
     rows = result.all()
@@ -275,7 +331,10 @@ async def get_findings_by_detector(
     user: ClerkUser = Depends(require_org),
     session: AsyncSession = Depends(get_db),
 ) -> List[FindingsByDetector]:
-    """Get findings grouped by detector."""
+    """Get findings grouped by detector.
+
+    By default, only counts findings from the latest completed analysis run per repository.
+    """
     org = await _get_user_org(session, user)
     if not org:
         raise HTTPException(
@@ -283,20 +342,21 @@ async def get_findings_by_detector(
             detail="Organization not found",
         )
 
+    # Determine which run IDs to use
+    if analysis_run_id:
+        run_ids = [analysis_run_id]
+    else:
+        run_ids = await _get_latest_analysis_run_ids(session, org, repository_id)
+        if not run_ids:
+            return []
+
     query = (
         select(Finding.detector, func.count(Finding.id).label("count"))
-        .join(AnalysisRun, Finding.analysis_run_id == AnalysisRun.id)
-        .join(Repository, AnalysisRun.repository_id == Repository.id)
-        .where(Repository.organization_id == org.id)
+        .where(Finding.analysis_run_id.in_(run_ids))
+        .group_by(Finding.detector)
+        .order_by(func.count(Finding.id).desc())
+        .limit(limit)
     )
-
-    if analysis_run_id:
-        query = query.where(Finding.analysis_run_id == analysis_run_id)
-
-    if repository_id:
-        query = query.where(AnalysisRun.repository_id == repository_id)
-
-    query = query.group_by(Finding.detector).order_by(func.count(Finding.id).desc()).limit(limit)
 
     result = await session.execute(query)
     rows = result.all()
