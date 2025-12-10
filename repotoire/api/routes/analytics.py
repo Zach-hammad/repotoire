@@ -1,44 +1,60 @@
-"""API routes for analytics."""
+"""API routes for analytics.
+
+Dashboard analytics based on analysis findings (code health issues detected).
+"""
 
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from repotoire.autofix.models import FixStatus, FixConfidence, FixType
-from repotoire.api.routes.fixes import get_all_fixes
-from repotoire.api.auth import ClerkUser, get_current_user
+from repotoire.api.auth import ClerkUser, get_current_user, require_org
+from repotoire.db.models import (
+    AnalysisRun,
+    Finding,
+    FindingSeverity,
+    Organization,
+    Repository,
+)
+from repotoire.db.session import get_db
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
 class AnalyticsSummary(BaseModel):
-    """Dashboard analytics summary."""
-    total_fixes: int
-    pending: int
-    approved: int
-    rejected: int
-    applied: int
-    failed: int
-    approval_rate: float
-    avg_confidence: float
-    by_type: Dict[str, int]
-    by_confidence: Dict[str, int]
+    """Dashboard analytics summary based on findings."""
+
+    total_findings: int
+    critical: int
+    high: int
+    medium: int
+    low: int
+    info: int
+    by_severity: Dict[str, int]
+    by_detector: Dict[str, int]
 
 
 class TrendDataPoint(BaseModel):
-    """A single data point for trends."""
+    """A single data point for trends (findings by date)."""
+
     date: str
-    pending: int
-    approved: int
-    rejected: int
-    applied: int
+    critical: int
+    high: int
+    medium: int
+    low: int
+    info: int
+    total: int
 
 
 class FileHotspot(BaseModel):
-    """File hotspot analysis."""
+    """File hotspot analysis (files with most findings)."""
+
     file_path: str
-    fix_count: int
+    finding_count: int
     severity_breakdown: Dict[str, int]
 
 
@@ -50,135 +66,231 @@ class HealthScoreResponse(BaseModel):
     categories: Dict[str, int]
 
 
-@router.get("/summary")
-async def get_summary(user: ClerkUser = Depends(get_current_user)) -> AnalyticsSummary:
-    """Get dashboard summary statistics."""
-    fixes = get_all_fixes()
-
-    # Count by status
-    status_counts = {s.value: 0 for s in FixStatus}
-    for fix in fixes:
-        status_counts[fix.status.value] += 1
-
-    # Count by type
-    type_counts = {t.value: 0 for t in FixType}
-    for fix in fixes:
-        type_counts[fix.fix_type.value] += 1
-
-    # Count by confidence
-    confidence_counts = {c.value: 0 for c in FixConfidence}
-    confidence_values = {"high": 0.95, "medium": 0.80, "low": 0.60}
-    total_confidence = 0.0
-    for fix in fixes:
-        confidence_counts[fix.confidence.value] += 1
-        total_confidence += confidence_values.get(fix.confidence.value, 0.70)
-
-    # Calculate rates
-    reviewed = status_counts["approved"] + status_counts["rejected"]
-    approval_rate = (
-        status_counts["approved"] / reviewed if reviewed > 0 else 0.0
+async def _get_user_org(session: AsyncSession, user: ClerkUser) -> Organization | None:
+    """Get user's organization."""
+    if not user.org_slug:
+        return None
+    result = await session.execute(
+        select(Organization).where(Organization.slug == user.org_slug)
     )
-    avg_confidence = total_confidence / len(fixes) if fixes else 0.0
+    return result.scalar_one_or_none()
+
+
+@router.get("/summary")
+async def get_summary(
+    user: ClerkUser = Depends(require_org),
+    session: AsyncSession = Depends(get_db),
+    repository_id: Optional[UUID] = Query(None, description="Filter by repository"),
+) -> AnalyticsSummary:
+    """Get dashboard summary statistics based on analysis findings."""
+    org = await _get_user_org(session, user)
+    if not org:
+        return AnalyticsSummary(
+            total_findings=0,
+            critical=0,
+            high=0,
+            medium=0,
+            low=0,
+            info=0,
+            by_severity={},
+            by_detector={},
+        )
+
+    # Build base query for severity counts
+    severity_query = (
+        select(Finding.severity, func.count(Finding.id).label("count"))
+        .join(AnalysisRun, Finding.analysis_run_id == AnalysisRun.id)
+        .join(Repository, AnalysisRun.repository_id == Repository.id)
+        .where(Repository.organization_id == org.id)
+    )
+
+    if repository_id:
+        severity_query = severity_query.where(AnalysisRun.repository_id == repository_id)
+
+    severity_query = severity_query.group_by(Finding.severity)
+    severity_result = await session.execute(severity_query)
+    severity_rows = severity_result.all()
+
+    # Build severity counts
+    severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+    total = 0
+    for severity, count in severity_rows:
+        severity_counts[severity.value] = count
+        total += count
+
+    # Build detector query
+    detector_query = (
+        select(Finding.detector, func.count(Finding.id).label("count"))
+        .join(AnalysisRun, Finding.analysis_run_id == AnalysisRun.id)
+        .join(Repository, AnalysisRun.repository_id == Repository.id)
+        .where(Repository.organization_id == org.id)
+    )
+
+    if repository_id:
+        detector_query = detector_query.where(AnalysisRun.repository_id == repository_id)
+
+    detector_query = detector_query.group_by(Finding.detector)
+    detector_result = await session.execute(detector_query)
+    detector_rows = detector_result.all()
+
+    detector_counts = {detector: count for detector, count in detector_rows}
 
     return AnalyticsSummary(
-        total_fixes=len(fixes),
-        pending=status_counts["pending"],
-        approved=status_counts["approved"],
-        rejected=status_counts["rejected"],
-        applied=status_counts["applied"],
-        failed=status_counts["failed"],
-        approval_rate=approval_rate,
-        avg_confidence=avg_confidence,
-        by_type=type_counts,
-        by_confidence=confidence_counts,
+        total_findings=total,
+        critical=severity_counts["critical"],
+        high=severity_counts["high"],
+        medium=severity_counts["medium"],
+        low=severity_counts["low"],
+        info=severity_counts["info"],
+        by_severity=severity_counts,
+        by_detector=detector_counts,
     )
 
 
 @router.get("/trends")
 async def get_trends(
-    user: ClerkUser = Depends(get_current_user),
+    user: ClerkUser = Depends(require_org),
+    session: AsyncSession = Depends(get_db),
     period: str = Query("week", regex="^(day|week|month)$"),
     limit: int = Query(30, ge=1, le=90),
+    repository_id: Optional[UUID] = Query(None, description="Filter by repository"),
 ) -> List[TrendDataPoint]:
-    """Get trend data for charts."""
-    fixes = get_all_fixes()
+    """Get trend data for charts based on findings by date."""
+    org = await _get_user_org(session, user)
+    if not org:
+        return []
 
-    # Determine date range
+    # Get findings from the last `limit` days
     today = datetime.utcnow().date()
-    if period == "day":
-        delta = timedelta(days=1)
-    elif period == "week":
-        delta = timedelta(days=7)
-    else:
-        delta = timedelta(days=30)
+    start_date = today - timedelta(days=limit)
 
-    # Group fixes by date
+    # Query findings with their dates
+    query = (
+        select(
+            func.date(Finding.created_at).label("date"),
+            Finding.severity,
+            func.count(Finding.id).label("count"),
+        )
+        .join(AnalysisRun, Finding.analysis_run_id == AnalysisRun.id)
+        .join(Repository, AnalysisRun.repository_id == Repository.id)
+        .where(Repository.organization_id == org.id)
+        .where(Finding.created_at >= start_date)
+    )
+
+    if repository_id:
+        query = query.where(AnalysisRun.repository_id == repository_id)
+
+    query = query.group_by(func.date(Finding.created_at), Finding.severity)
+    result = await session.execute(query)
+    rows = result.all()
+
+    # Build a lookup for counts by date and severity
+    date_severity_counts: Dict[str, Dict[str, int]] = {}
+    for date_val, severity, count in rows:
+        date_str = date_val.isoformat() if hasattr(date_val, "isoformat") else str(date_val)
+        if date_str not in date_severity_counts:
+            date_severity_counts[date_str] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+        date_severity_counts[date_str][severity.value] = count
+
+    # Generate trend data for each day in the range
     trends = []
     for i in range(limit - 1, -1, -1):
         date = today - timedelta(days=i)
         date_str = date.isoformat()
-
-        # Count fixes created on this date by status
-        day_fixes = [
-            f for f in fixes
-            if f.created_at.date() == date
-        ]
-
-        trends.append(TrendDataPoint(
-            date=date_str,
-            pending=sum(1 for f in day_fixes if f.status == FixStatus.PENDING),
-            approved=sum(1 for f in day_fixes if f.status == FixStatus.APPROVED),
-            rejected=sum(1 for f in day_fixes if f.status == FixStatus.REJECTED),
-            applied=sum(1 for f in day_fixes if f.status == FixStatus.APPLIED),
-        ))
+        counts = date_severity_counts.get(date_str, {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0})
+        total = sum(counts.values())
+        trends.append(
+            TrendDataPoint(
+                date=date_str,
+                critical=counts["critical"],
+                high=counts["high"],
+                medium=counts["medium"],
+                low=counts["low"],
+                info=counts["info"],
+                total=total,
+            )
+        )
 
     return trends
 
 
 @router.get("/by-type")
-async def get_by_type(user: ClerkUser = Depends(get_current_user)) -> Dict[str, int]:
-    """Get fix counts by type."""
-    fixes = get_all_fixes()
+async def get_by_type(
+    user: ClerkUser = Depends(require_org),
+    session: AsyncSession = Depends(get_db),
+    repository_id: Optional[UUID] = Query(None, description="Filter by repository"),
+) -> Dict[str, int]:
+    """Get finding counts by detector type."""
+    org = await _get_user_org(session, user)
+    if not org:
+        return {}
 
-    type_counts = {t.value: 0 for t in FixType}
-    for fix in fixes:
-        type_counts[fix.fix_type.value] += 1
+    query = (
+        select(Finding.detector, func.count(Finding.id).label("count"))
+        .join(AnalysisRun, Finding.analysis_run_id == AnalysisRun.id)
+        .join(Repository, AnalysisRun.repository_id == Repository.id)
+        .where(Repository.organization_id == org.id)
+    )
 
-    return type_counts
+    if repository_id:
+        query = query.where(AnalysisRun.repository_id == repository_id)
+
+    query = query.group_by(Finding.detector)
+    result = await session.execute(query)
+    rows = result.all()
+
+    return {detector: count for detector, count in rows}
 
 
 @router.get("/by-file")
-async def get_by_file(user: ClerkUser = Depends(get_current_user), limit: int = Query(10, ge=1, le=50)) -> List[FileHotspot]:
-    """Get file hotspot analysis."""
-    fixes = get_all_fixes()
+async def get_by_file(
+    user: ClerkUser = Depends(require_org),
+    session: AsyncSession = Depends(get_db),
+    limit: int = Query(10, ge=1, le=50),
+    repository_id: Optional[UUID] = Query(None, description="Filter by repository"),
+) -> List[FileHotspot]:
+    """Get file hotspot analysis based on findings."""
+    org = await _get_user_org(session, user)
+    if not org:
+        return []
 
-    # Count fixes per file
+    # Query findings with file paths (from affected_files array)
+    # First get all findings
+    query = (
+        select(Finding)
+        .join(AnalysisRun, Finding.analysis_run_id == AnalysisRun.id)
+        .join(Repository, AnalysisRun.repository_id == Repository.id)
+        .where(Repository.organization_id == org.id)
+    )
+
+    if repository_id:
+        query = query.where(AnalysisRun.repository_id == repository_id)
+
+    result = await session.execute(query)
+    findings = result.scalars().all()
+
+    # Count findings per file
     file_counts: Dict[str, Dict[str, Any]] = {}
-    for fix in fixes:
-        for change in fix.changes:
-            file_path = str(change.file_path)
+    for finding in findings:
+        affected_files = finding.affected_files or []
+        for file_path in affected_files:
             if file_path not in file_counts:
                 file_counts[file_path] = {
                     "count": 0,
-                    "severities": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+                    "severities": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0},
                 }
             file_counts[file_path]["count"] += 1
-            # Map confidence to severity for breakdown
-            severity_map = {"high": "high", "medium": "medium", "low": "low"}
-            severity = severity_map.get(fix.confidence.value, "medium")
-            file_counts[file_path]["severities"][severity] += 1
+            severity = finding.severity.value if finding.severity else "medium"
+            if severity in file_counts[file_path]["severities"]:
+                file_counts[file_path]["severities"][severity] += 1
 
-    # Sort and limit
-    sorted_files = sorted(
-        file_counts.items(),
-        key=lambda x: x[1]["count"],
-        reverse=True
-    )[:limit]
+    # Sort by count descending and limit
+    sorted_files = sorted(file_counts.items(), key=lambda x: x[1]["count"], reverse=True)[:limit]
 
     return [
         FileHotspot(
             file_path=file_path,
-            fix_count=data["count"],
+            finding_count=data["count"],
             severity_breakdown=data["severities"],
         )
         for file_path, data in sorted_files
@@ -200,12 +312,17 @@ def _calculate_grade(score: int) -> str:
 
 @router.get("/health-score")
 async def get_health_score(
-    user: ClerkUser = Depends(get_current_user),
+    user: ClerkUser = Depends(require_org),
+    session: AsyncSession = Depends(get_db),
+    repository_id: Optional[UUID] = Query(None, description="Filter by repository"),
 ) -> HealthScoreResponse:
-    """Get overall health score for dashboard."""
-    fixes = get_all_fixes()
+    """Get overall health score for dashboard.
 
-    if not fixes:
+    If a repository_id is provided, returns the health score from the latest
+    analysis run for that repository. Otherwise returns a default score.
+    """
+    org = await _get_user_org(session, user)
+    if not org:
         return HealthScoreResponse(
             score=100,
             grade="A",
@@ -213,57 +330,62 @@ async def get_health_score(
             categories={"structure": 100, "quality": 100, "architecture": 100},
         )
 
-    # Calculate score based on fix metrics
-    total = len(fixes)
-    applied = sum(1 for f in fixes if f.status == FixStatus.APPLIED)
-    pending = sum(1 for f in fixes if f.status == FixStatus.PENDING)
-    failed = sum(1 for f in fixes if f.status == FixStatus.FAILED)
+    # Get the latest analysis run for the repository (or org-wide)
+    query = (
+        select(AnalysisRun)
+        .join(Repository, AnalysisRun.repository_id == Repository.id)
+        .where(Repository.organization_id == org.id)
+        .where(AnalysisRun.status == "completed")
+    )
 
-    # Score: higher is better (fewer pending issues, more applied fixes)
-    # Base score starts at 70, adjusted by resolution rate
-    if total > 0:
-        resolution_rate = applied / total
-        pending_penalty = (pending / total) * 20
-        failed_penalty = (failed / total) * 15
-        base_score = 70 + (resolution_rate * 30) - pending_penalty - failed_penalty
-    else:
-        base_score = 100
+    if repository_id:
+        query = query.where(AnalysisRun.repository_id == repository_id)
 
-    score = max(0, min(100, int(base_score)))
+    query = query.order_by(AnalysisRun.completed_at.desc()).limit(1)
+    result = await session.execute(query)
+    latest_run = result.scalar_one_or_none()
+
+    if not latest_run or latest_run.health_score is None:
+        return HealthScoreResponse(
+            score=100,
+            grade="A",
+            trend="stable",
+            categories={"structure": 100, "quality": 100, "architecture": 100},
+        )
+
+    score = int(latest_run.health_score)
     grade = _calculate_grade(score)
 
-    # Calculate category scores based on fix types
-    type_counts = {}
-    for fix in fixes:
-        type_counts[fix.fix_type.value] = type_counts.get(fix.fix_type.value, 0) + 1
-
-    # Structure: refactor, extract, simplify
-    structure_issues = sum(type_counts.get(t, 0) for t in ["refactor", "extract", "simplify"])
-    # Quality: documentation, type_hint, rename
-    quality_issues = sum(type_counts.get(t, 0) for t in ["documentation", "type_hint", "rename"])
-    # Architecture: security, remove
-    arch_issues = sum(type_counts.get(t, 0) for t in ["security", "remove"])
-
-    # Convert issue counts to scores (fewer issues = higher score)
-    def issue_to_score(issues: int, max_issues: int = 20) -> int:
-        if issues == 0:
-            return 100
-        return max(0, min(100, 100 - int((issues / max_issues) * 50)))
-
+    # Get category scores from the analysis run
     categories = {
-        "structure": issue_to_score(structure_issues),
-        "quality": issue_to_score(quality_issues),
-        "architecture": issue_to_score(arch_issues),
+        "structure": int(latest_run.structure_score or 100),
+        "quality": int(latest_run.quality_score or 100),
+        "architecture": int(latest_run.architecture_score or 100),
     }
 
-    # Determine trend based on recent activity
-    recent_fixes = [f for f in fixes if (datetime.utcnow() - f.created_at).days < 7]
-    older_fixes = [f for f in fixes if 7 <= (datetime.utcnow() - f.created_at).days < 14]
+    # Determine trend by comparing with previous analysis
+    prev_query = (
+        select(AnalysisRun)
+        .join(Repository, AnalysisRun.repository_id == Repository.id)
+        .where(Repository.organization_id == org.id)
+        .where(AnalysisRun.status == "completed")
+        .where(AnalysisRun.id != latest_run.id)
+    )
 
-    if len(recent_fixes) < len(older_fixes):
-        trend = "improving"
-    elif len(recent_fixes) > len(older_fixes):
-        trend = "declining"
+    if repository_id:
+        prev_query = prev_query.where(AnalysisRun.repository_id == repository_id)
+
+    prev_query = prev_query.order_by(AnalysisRun.completed_at.desc()).limit(1)
+    prev_result = await session.execute(prev_query)
+    prev_run = prev_result.scalar_one_or_none()
+
+    if prev_run and prev_run.health_score is not None:
+        if score > prev_run.health_score:
+            trend = "improving"
+        elif score < prev_run.health_score:
+            trend = "declining"
+        else:
+            trend = "stable"
     else:
         trend = "stable"
 

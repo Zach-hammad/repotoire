@@ -211,39 +211,28 @@ export function getMockFix(id: string): FixProposal | undefined {
 }
 
 export function getMockAnalyticsSummary(): AnalyticsSummary {
-  const pending = mockFixes.filter((f) => f.status === 'pending').length;
-  const approved = mockFixes.filter((f) => f.status === 'approved').length;
-  const rejected = mockFixes.filter((f) => f.status === 'rejected').length;
-  const applied = mockFixes.filter((f) => f.status === 'applied').length;
-  const failed = mockFixes.filter((f) => f.status === 'failed').length;
-
-  const byType = mockFixes.reduce(
-    (acc, f) => {
-      acc[f.fix_type] = (acc[f.fix_type] || 0) + 1;
-      return acc;
-    },
-    {} as Record<FixType, number>
-  );
-
-  const byConfidence = mockFixes.reduce(
-    (acc, f) => {
-      acc[f.confidence] = (acc[f.confidence] || 0) + 1;
-      return acc;
-    },
-    {} as Record<FixConfidence, number>
-  );
+  // Mock findings by severity
+  const critical = 5;
+  const high = 15;
+  const medium = 25;
+  const low = 30;
+  const info = 10;
 
   return {
-    total_fixes: mockFixes.length,
-    pending,
-    approved,
-    rejected,
-    applied,
-    failed,
-    approval_rate: approved / (approved + rejected) || 0,
-    avg_confidence: 0.75,
-    by_type: byType,
-    by_confidence: byConfidence,
+    total_findings: critical + high + medium + low + info,
+    critical,
+    high,
+    medium,
+    low,
+    info,
+    by_severity: { critical, high, medium, low, info },
+    by_detector: {
+      ruff: 25,
+      mypy: 15,
+      bandit: 10,
+      pylint: 20,
+      complexity: 15,
+    },
   };
 }
 
@@ -255,12 +244,20 @@ export function getMockTrends(days: number = 14): TrendDataPoint[] {
     const date = new Date(today);
     date.setDate(date.getDate() - i);
 
+    const critical = Math.floor(Math.random() * 3);
+    const high = Math.floor(Math.random() * 5) + 2;
+    const medium = Math.floor(Math.random() * 10) + 5;
+    const low = Math.floor(Math.random() * 15) + 5;
+    const info = Math.floor(Math.random() * 5);
+
     trends.push({
       date: date.toISOString().split('T')[0],
-      pending: Math.floor(Math.random() * 10) + 5,
-      approved: Math.floor(Math.random() * 8) + 2,
-      rejected: Math.floor(Math.random() * 3),
-      applied: Math.floor(Math.random() * 6) + 1,
+      critical,
+      high,
+      medium,
+      low,
+      info,
+      total: critical + high + medium + low + info,
     });
   }
 
@@ -279,9 +276,9 @@ export function getMockFileHotspots(limit: number = 5): FileHotspot[] {
   return Object.entries(fileCount)
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
-    .map(([file_path, fix_count]) => ({
+    .map(([file_path, finding_count]) => ({
       file_path,
-      fix_count,
+      finding_count,
       severity_breakdown: { critical: 0, high: 2, medium: 3, low: 1, info: 0 },
     }));
 }
@@ -307,18 +304,16 @@ export function getMockComments(fixId: string): FixComment[] {
 
 export function getMockHealthScore(): HealthScore {
   const summary = getMockAnalyticsSummary();
-  const total = summary.total_fixes;
-  const applied = summary.applied;
-  const pending = summary.pending;
-  const failed = summary.failed;
+  const total = summary.total_findings;
+  const critical = summary.critical;
+  const high = summary.high;
 
-  // Calculate score based on fix metrics
+  // Calculate score based on finding metrics (fewer critical/high = better score)
   let score: number;
   if (total > 0) {
-    const resolutionRate = applied / total;
-    const pendingPenalty = (pending / total) * 20;
-    const failedPenalty = (failed / total) * 15;
-    score = Math.max(0, Math.min(100, Math.round(70 + resolutionRate * 30 - pendingPenalty - failedPenalty)));
+    const criticalPenalty = (critical / total) * 30;
+    const highPenalty = (high / total) * 15;
+    score = Math.max(0, Math.min(100, Math.round(100 - criticalPenalty - highPenalty)));
   } else {
     score = 100;
   }

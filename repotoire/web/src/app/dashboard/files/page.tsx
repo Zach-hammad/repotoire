@@ -32,22 +32,22 @@ const severityIcons: Record<Severity, React.ElementType> = {
 export default function FilesPage() {
   const { data: hotspots, isLoading } = useFileHotspots(20);
 
-  const maxCount = hotspots ? Math.max(...hotspots.map((h) => h.fix_count), 1) : 1;
+  const maxCount = hotspots ? Math.max(...hotspots.map((h) => h.finding_count), 1) : 1;
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">File Hotspots</h1>
         <p className="text-muted-foreground">
-          Files with the most fixes and issues
+          Files with the most findings and issues
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Files by Fix Count</CardTitle>
+          <CardTitle>Files by Finding Count</CardTitle>
           <CardDescription>
-            Files are ranked by the number of AI-generated fixes
+            Files are ranked by the number of detected issues
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -106,22 +106,22 @@ export default function FilesPage() {
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-2xl font-bold">{hotspot.fix_count}</p>
-                      <p className="text-xs text-muted-foreground">fixes</p>
+                      <p className="text-2xl font-bold">{hotspot.finding_count}</p>
+                      <p className="text-xs text-muted-foreground">findings</p>
                     </div>
                   </div>
                   <div className="mt-3">
                     <Progress
-                      value={(hotspot.fix_count / maxCount) * 100}
+                      value={(hotspot.finding_count / maxCount) * 100}
                       className="h-2"
                     />
                   </div>
                   <div className="mt-2 flex justify-end">
                     <Link
-                      href={`/dashboard/fixes?file_path=${encodeURIComponent(hotspot.file_path)}`}
+                      href={`/dashboard/findings?file_path=${encodeURIComponent(hotspot.file_path)}`}
                       className="text-xs text-primary hover:underline"
                     >
-                      View fixes for this file
+                      View findings for this file
                     </Link>
                   </div>
                 </div>

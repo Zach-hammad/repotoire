@@ -299,11 +299,11 @@ export const analyticsApi = {
     );
   },
 
-  // Get breakdown by fix type
+  // Get breakdown by detector type
   byType: async (): Promise<Record<string, number>> => {
     if (USE_MOCK) {
       await new Promise((r) => setTimeout(r, 200));
-      return getMockAnalyticsSummary().by_type;
+      return getMockAnalyticsSummary().by_detector;
     }
     return request<Record<string, number>>('/analytics/by-type');
   },

@@ -80,33 +80,33 @@ export interface FixComment {
   created_at: string;
 }
 
-// Dashboard analytics summary
+// Dashboard analytics summary (based on analysis findings)
 export interface AnalyticsSummary {
-  total_fixes: number;
-  pending: number;
-  approved: number;
-  rejected: number;
-  applied: number;
-  failed: number;
-  approval_rate: number;
-  avg_confidence: number;
-  by_type: Record<FixType, number>;
-  by_confidence: Record<FixConfidence, number>;
+  total_findings: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  info: number;
+  by_severity: Record<Severity, number>;
+  by_detector: Record<string, number>;
 }
 
-// Time-series data point for trends
+// Time-series data point for trends (findings by date)
 export interface TrendDataPoint {
   date: string;
-  pending: number;
-  approved: number;
-  rejected: number;
-  applied: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  info: number;
+  total: number;
 }
 
-// File hotspot analysis
+// File hotspot analysis (files with most findings)
 export interface FileHotspot {
   file_path: string;
-  fix_count: number;
+  finding_count: number;
   severity_breakdown: Record<Severity, number>;
 }
 

@@ -236,38 +236,38 @@ function TrendsChart({ loading }: { loading?: boolean }) {
         />
         <Line
           type="monotone"
-          dataKey="pending"
-          stroke="#f59e0b"
+          dataKey="critical"
+          stroke="#dc2626"
           strokeWidth={2}
-          name="Pending"
+          name="Critical"
         />
         <Line
           type="monotone"
-          dataKey="approved"
-          stroke="#3b82f6"
-          strokeWidth={2}
-          name="Approved"
-        />
-        <Line
-          type="monotone"
-          dataKey="applied"
-          stroke="#22c55e"
-          strokeWidth={2}
-          name="Applied"
-        />
-        <Line
-          type="monotone"
-          dataKey="rejected"
+          dataKey="high"
           stroke="#ef4444"
           strokeWidth={2}
-          name="Rejected"
+          name="High"
+        />
+        <Line
+          type="monotone"
+          dataKey="medium"
+          stroke="#f59e0b"
+          strokeWidth={2}
+          name="Medium"
+        />
+        <Line
+          type="monotone"
+          dataKey="low"
+          stroke="#84cc16"
+          strokeWidth={2}
+          name="Low"
         />
       </LineChart>
     </ResponsiveContainer>
   );
 }
 
-function ConfidenceChart({ data, loading }: { data?: Record<FixConfidence, number>; loading?: boolean }) {
+function SeverityChart({ data, loading }: { data?: Record<Severity, number>; loading?: boolean }) {
   if (loading || !data) {
     return <Skeleton className="h-[200px] w-full" />;
   }
@@ -275,7 +275,7 @@ function ConfidenceChart({ data, loading }: { data?: Record<FixConfidence, numbe
   const chartData = Object.entries(data).map(([name, value]) => ({
     name: name.charAt(0).toUpperCase() + name.slice(1),
     value,
-    color: confidenceColors[name as FixConfidence],
+    color: severityColors[name as Severity],
   }));
 
   return (
@@ -306,7 +306,7 @@ function ConfidenceChart({ data, loading }: { data?: Record<FixConfidence, numbe
   );
 }
 
-function TypeChart({ data, loading }: { data?: Record<FixType, number>; loading?: boolean }) {
+function DetectorChart({ data, loading }: { data?: Record<string, number>; loading?: boolean }) {
   if (loading || !data) {
     return <Skeleton className="h-[200px] w-full" />;
   }
@@ -315,7 +315,7 @@ function TypeChart({ data, loading }: { data?: Record<FixType, number>; loading?
     .map(([name, value]) => ({
       name: name.replace(/_/g, ' '),
       value,
-      fill: fixTypeColors[name as FixType],
+      fill: '#6366f1', // Default indigo color for detectors
     }))
     .sort((a, b) => b.value - a.value)
     .slice(0, 6);
@@ -338,7 +338,7 @@ function TypeChart({ data, loading }: { data?: Record<FixType, number>; loading?
             borderRadius: '8px',
           }}
         />
-        <Bar dataKey="value" />
+        <Bar dataKey="value" fill="#6366f1" />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -358,10 +358,10 @@ function FileHotspotsList({ loading }: { loading?: boolean }) {
     );
   }
 
-  const maxCount = Math.max(...hotspots.map((h) => h.fix_count), 1);
+  const maxCount = Math.max(...hotspots.map((h) => h.finding_count), 1);
 
   const handleFileClick = (filePath: string) => {
-    router.push(`/dashboard/fixes?file_path=${encodeURIComponent(filePath)}`);
+    router.push(`/dashboard/findings?file_path=${encodeURIComponent(filePath)}`);
   };
 
   return (
@@ -376,9 +376,9 @@ function FileHotspotsList({ loading }: { loading?: boolean }) {
             <span className="font-mono text-xs truncate max-w-[200px] hover:text-primary">
               {hotspot.file_path.split('/').pop()}
             </span>
-            <span className="text-muted-foreground">{hotspot.fix_count} fixes</span>
+            <span className="text-muted-foreground">{hotspot.finding_count} findings</span>
           </div>
-          <Progress value={(hotspot.fix_count / maxCount) * 100} className="h-2" />
+          <Progress value={(hotspot.finding_count / maxCount) * 100} className="h-2" />
           <div className="flex gap-1 mt-1">
             {Object.entries(hotspot.severity_breakdown)
               .filter(([_, count]) => count > 0)
@@ -587,7 +587,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground">
-            Monitor and manage AI-generated code fixes
+            Code health analysis and findings overview
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -609,10 +609,10 @@ export default function DashboardPage() {
             <Download className="h-4 w-4 mr-2" />
             {isExporting ? 'Exporting...' : 'Export PDF'}
           </Button>
-          <Link href="/dashboard/fixes?status=pending">
+          <Link href="/dashboard/findings?severity=critical&severity=high">
             <Button size="sm" className="h-8">
-              <Clock className="mr-2 h-4 w-4" />
-              Review Pending ({summary?.pending || 0})
+              <AlertTriangle className="mr-2 h-4 w-4" />
+              Critical Issues ({(summary?.critical || 0) + (summary?.high || 0)})
             </Button>
           </Link>
         </div>
@@ -623,44 +623,44 @@ export default function DashboardPage() {
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          title="Total Fixes"
-          value={summary?.total_fixes || 0}
-          description="All-time fixes generated"
+          title="Total Findings"
+          value={summary?.total_findings || 0}
+          description="Issues detected in analysis"
           icon={Zap}
           loading={isLoading}
         />
         <StatCard
-          title="Pending Review"
-          value={summary?.pending || 0}
-          description="Awaiting human review"
+          title="Critical"
+          value={summary?.critical || 0}
+          description="Urgent issues requiring attention"
+          icon={AlertTriangle}
+          loading={isLoading}
+        />
+        <StatCard
+          title="High Severity"
+          value={summary?.high || 0}
+          description="Important issues to address"
+          icon={XCircle}
+          loading={isLoading}
+        />
+        <StatCard
+          title="Medium/Low"
+          value={(summary?.medium || 0) + (summary?.low || 0)}
+          description="Less urgent improvements"
           icon={Clock}
-          loading={isLoading}
-        />
-        <StatCard
-          title="Approval Rate"
-          value={summary ? `${Math.round(summary.approval_rate * 100)}%` : '0%'}
-          description="Of reviewed fixes approved"
-          icon={CheckCircle2}
-          loading={isLoading}
-        />
-        <StatCard
-          title="Applied"
-          value={summary?.applied || 0}
-          description="Successfully applied to codebase"
-          icon={TrendingUp}
           loading={isLoading}
         />
       </div>
 
-      {/* Status Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card className="border-green-500/20 bg-green-500/5">
+      {/* Severity Cards */}
+      <div className="grid gap-4 md:grid-cols-5">
+        <Card className="border-red-600/20 bg-red-600/5">
           <CardContent className="flex items-center justify-between p-4">
             <div className="flex items-center gap-3">
-              <CheckCircle2 className="h-8 w-8 text-green-500" />
+              <AlertTriangle className="h-8 w-8 text-red-600" />
               <div>
-                <p className="text-sm font-medium">Approved</p>
-                <p className="text-2xl font-bold">{summary?.approved || 0}</p>
+                <p className="text-sm font-medium">Critical</p>
+                <p className="text-2xl font-bold">{summary?.critical || 0}</p>
               </div>
             </div>
           </CardContent>
@@ -670,8 +670,8 @@ export default function DashboardPage() {
             <div className="flex items-center gap-3">
               <XCircle className="h-8 w-8 text-red-500" />
               <div>
-                <p className="text-sm font-medium">Rejected</p>
-                <p className="text-2xl font-bold">{summary?.rejected || 0}</p>
+                <p className="text-sm font-medium">High</p>
+                <p className="text-2xl font-bold">{summary?.high || 0}</p>
               </div>
             </div>
           </CardContent>
@@ -681,19 +681,30 @@ export default function DashboardPage() {
             <div className="flex items-center gap-3">
               <Clock className="h-8 w-8 text-yellow-500" />
               <div>
-                <p className="text-sm font-medium">Pending</p>
-                <p className="text-2xl font-bold">{summary?.pending || 0}</p>
+                <p className="text-sm font-medium">Medium</p>
+                <p className="text-2xl font-bold">{summary?.medium || 0}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="border-orange-500/20 bg-orange-500/5">
+        <Card className="border-green-500/20 bg-green-500/5">
           <CardContent className="flex items-center justify-between p-4">
             <div className="flex items-center gap-3">
-              <AlertTriangle className="h-8 w-8 text-orange-500" />
+              <CheckCircle2 className="h-8 w-8 text-green-500" />
               <div>
-                <p className="text-sm font-medium">Failed</p>
-                <p className="text-2xl font-bold">{summary?.failed || 0}</p>
+                <p className="text-sm font-medium">Low</p>
+                <p className="text-2xl font-bold">{summary?.low || 0}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-gray-500/20 bg-gray-500/5">
+          <CardContent className="flex items-center justify-between p-4">
+            <div className="flex items-center gap-3">
+              <FileCode2 className="h-8 w-8 text-gray-500" />
+              <div>
+                <p className="text-sm font-medium">Info</p>
+                <p className="text-2xl font-bold">{summary?.info || 0}</p>
               </div>
             </div>
           </CardContent>
@@ -704,8 +715,8 @@ export default function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-4">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Fix Trends</CardTitle>
-            <CardDescription>Fix activity over the last 2 weeks</CardDescription>
+            <CardTitle>Finding Trends</CardTitle>
+            <CardDescription>Findings by severity over the last 2 weeks</CardDescription>
           </CardHeader>
           <CardContent>
             <TrendsChart loading={isLoading} />
@@ -716,13 +727,13 @@ export default function DashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>By Confidence</CardTitle>
-            <CardDescription>Distribution of fix confidence levels</CardDescription>
+            <CardTitle>By Severity</CardTitle>
+            <CardDescription>Distribution of finding severity levels</CardDescription>
           </CardHeader>
           <CardContent>
-            <ConfidenceChart data={summary?.by_confidence} loading={isLoading} />
-            <div className="mt-4 flex justify-center gap-4">
-              {Object.entries(confidenceColors).map(([key, color]) => (
+            <SeverityChart data={summary?.by_severity} loading={isLoading} />
+            <div className="mt-4 flex justify-center gap-4 flex-wrap">
+              {Object.entries(severityColors).map(([key, color]) => (
                 <div key={key} className="flex items-center gap-2">
                   <div
                     className="h-3 w-3 rounded-full"
@@ -740,11 +751,11 @@ export default function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>By Fix Type</CardTitle>
-            <CardDescription>Most common fix categories</CardDescription>
+            <CardTitle>By Detector</CardTitle>
+            <CardDescription>Findings by analysis tool</CardDescription>
           </CardHeader>
           <CardContent>
-            <TypeChart data={summary?.by_type} loading={isLoading} />
+            <DetectorChart data={summary?.by_detector} loading={isLoading} />
           </CardContent>
         </Card>
 
@@ -752,9 +763,9 @@ export default function DashboardPage() {
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>File Hotspots</CardTitle>
-              <CardDescription>Files with the most fixes</CardDescription>
+              <CardDescription>Files with the most findings</CardDescription>
             </div>
-            <Link href="/dashboard/files">
+            <Link href="/dashboard/findings">
               <Button variant="outline" size="sm">
                 View All
               </Button>
