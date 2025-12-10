@@ -20,6 +20,7 @@ from repotoire.db.models import (
     Organization,
     Repository,
 )
+from repotoire.db.models.fix import Fix, FixStatus
 from repotoire.db.session import get_db
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -436,4 +437,77 @@ async def get_health_score(
         grade=grade,
         trend=trend,
         categories=categories,
+    )
+
+
+class FixStatistics(BaseModel):
+    """Fix statistics for dashboard."""
+
+    total: int
+    pending: int
+    approved: int
+    applied: int
+    rejected: int
+    failed: int
+    by_status: Dict[str, int]
+
+
+@router.get("/fix-stats")
+async def get_fix_statistics(
+    user: ClerkUser = Depends(require_org),
+    session: AsyncSession = Depends(get_db),
+    repository_id: Optional[UUID] = Query(None, description="Filter by repository"),
+) -> FixStatistics:
+    """Get fix statistics for the dashboard.
+
+    Returns counts of fixes by status (pending, approved, applied, rejected, failed).
+    """
+    org = await _get_user_org(session, user)
+    if not org:
+        return FixStatistics(
+            total=0,
+            pending=0,
+            approved=0,
+            applied=0,
+            rejected=0,
+            failed=0,
+            by_status={},
+        )
+
+    # Build query for fix counts by status
+    query = (
+        select(Fix.status, func.count(Fix.id).label("count"))
+        .join(AnalysisRun, Fix.analysis_run_id == AnalysisRun.id)
+        .join(Repository, AnalysisRun.repository_id == Repository.id)
+        .where(Repository.organization_id == org.id)
+    )
+
+    if repository_id:
+        query = query.where(AnalysisRun.repository_id == repository_id)
+
+    query = query.group_by(Fix.status)
+    result = await session.execute(query)
+    rows = result.all()
+
+    # Build status counts
+    status_counts = {
+        "pending": 0,
+        "approved": 0,
+        "applied": 0,
+        "rejected": 0,
+        "failed": 0,
+    }
+    total = 0
+    for status, count in rows:
+        status_counts[status.value] = count
+        total += count
+
+    return FixStatistics(
+        total=total,
+        pending=status_counts["pending"],
+        approved=status_counts["approved"],
+        applied=status_counts["applied"],
+        rejected=status_counts["rejected"],
+        failed=status_counts["failed"],
+        by_status=status_counts,
     )

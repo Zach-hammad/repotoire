@@ -20,8 +20,10 @@ import {
   Activity,
   Play,
   Loader2,
+  Wand2,
 } from 'lucide-react';
-import { useAnalyticsSummary, useTrends, useFileHotspots, useHealthScore, useAnalysisHistory, useFindings } from '@/lib/hooks';
+import { useAnalyticsSummary, useTrends, useFileHotspots, useHealthScore, useAnalysisHistory, useFindings, useGenerateFixes, useFixStats } from '@/lib/hooks';
+import { toast } from 'sonner';
 import {
   LineChart,
   Line,
@@ -406,6 +408,34 @@ function FileHotspotsList({ loading }: { loading?: boolean }) {
 // Recent Analyses component
 function RecentAnalyses({ loading }: { loading?: boolean }) {
   const { data: analyses } = useAnalysisHistory(undefined, 5);
+  const { trigger: generateFixes, isMutating: isGenerating } = useGenerateFixes();
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
+
+  const handleGenerateFixes = async (analysisId: string) => {
+    setGeneratingId(analysisId);
+    try {
+      const result = await generateFixes({ analysisRunId: analysisId });
+      if (result.status === 'queued') {
+        toast.success('Fix generation started', {
+          description: result.message,
+        });
+      } else if (result.status === 'skipped') {
+        toast.info('Fix generation skipped', {
+          description: result.message,
+        });
+      } else {
+        toast.error('Fix generation failed', {
+          description: result.message,
+        });
+      }
+    } catch (error: any) {
+      toast.error('Failed to generate fixes', {
+        description: error?.message || 'Unknown error',
+      });
+    } finally {
+      setGeneratingId(null);
+    }
+  };
 
   if (loading || !analyses) {
     return (
@@ -492,6 +522,25 @@ function RecentAnalyses({ loading }: { loading?: boolean }) {
                 {analysis.findings_count} findings
               </Badge>
             )}
+            {analysis.status === 'completed' && analysis.findings_count > 0 && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleGenerateFixes(analysis.id);
+                }}
+                disabled={isGenerating && generatingId === analysis.id}
+                title="Generate AI fixes"
+              >
+                {isGenerating && generatingId === analysis.id ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Wand2 className="h-4 w-4" />
+                )}
+              </Button>
+            )}
             <Badge variant="outline" className={getStatusColor(analysis.status)}>
               {analysis.status}
             </Badge>
@@ -499,6 +548,98 @@ function RecentAnalyses({ loading }: { loading?: boolean }) {
         </div>
       ))}
     </div>
+  );
+}
+
+// Fix Statistics component
+function FixStatsCard({ loading }: { loading?: boolean }) {
+  const { data: fixStats } = useFixStats();
+
+  if (loading || !fixStats) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wand2 className="h-4 w-4" />
+            AI Fixes
+          </CardTitle>
+          <CardDescription>Generated fix proposals</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {[1, 2, 3, 4].map((i) => (
+              <Skeleton key={i} className="h-8 w-full" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const statusItems = [
+    { label: 'Pending Review', value: fixStats.pending, color: 'bg-yellow-500', textColor: 'text-yellow-500' },
+    { label: 'Approved', value: fixStats.approved, color: 'bg-blue-500', textColor: 'text-blue-500' },
+    { label: 'Applied', value: fixStats.applied, color: 'bg-green-500', textColor: 'text-green-500' },
+    { label: 'Rejected', value: fixStats.rejected, color: 'bg-red-500', textColor: 'text-red-500' },
+  ];
+
+  const totalFixes = fixStats.total;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Wand2 className="h-4 w-4" />
+            AI Fixes
+          </CardTitle>
+          <CardDescription>Generated fix proposals</CardDescription>
+        </div>
+        <Link href="/dashboard/fixes">
+          <Button variant="outline" size="sm">
+            View All
+          </Button>
+        </Link>
+      </CardHeader>
+      <CardContent>
+        {totalFixes === 0 ? (
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <Wand2 className="h-12 w-12 text-muted-foreground mb-3" />
+            <p className="text-sm text-muted-foreground">No fixes generated yet</p>
+            <p className="text-xs text-muted-foreground">Run analysis and generate AI fixes</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Total Fixes</span>
+              <span className="text-2xl font-bold">{totalFixes}</span>
+            </div>
+            <div className="space-y-3">
+              {statusItems.map((item) => (
+                <div key={item.label} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">{item.label}</span>
+                    <span className={`font-medium ${item.textColor}`}>{item.value}</span>
+                  </div>
+                  <Progress
+                    value={totalFixes > 0 ? (item.value / totalFixes) * 100 : 0}
+                    className="h-2"
+                  />
+                </div>
+              ))}
+            </div>
+            {fixStats.pending > 0 && (
+              <Link href="/dashboard/fixes?status=pending">
+                <Button variant="outline" size="sm" className="w-full mt-2">
+                  <Clock className="mr-2 h-4 w-4" />
+                  Review {fixStats.pending} pending fix{fixStats.pending !== 1 ? 'es' : ''}
+                </Button>
+              </Link>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -950,8 +1091,8 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Recent Activity and Top Issues Row */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      {/* Recent Activity, Top Issues, and Fix Stats Row */}
+      <div className="grid gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
@@ -987,6 +1128,8 @@ export default function DashboardPage() {
             <TopIssues loading={isLoading} />
           </CardContent>
         </Card>
+
+        <FixStatsCard loading={isLoading} />
       </div>
       </div>{/* End dashboard-content */}
     </div>

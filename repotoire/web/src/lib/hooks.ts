@@ -380,3 +380,44 @@ export function useAnalysisHistory(repositoryId?: string, limit: number = 20) {
     }
   );
 }
+
+/**
+ * Hook to generate AI fixes for an analysis run.
+ *
+ * Usage:
+ *   const { trigger, isMutating } = useGenerateFixes();
+ *   await trigger({ analysisRunId: '...', maxFixes: 10 });
+ */
+export function useGenerateFixes() {
+  return useSWRMutation<
+    { status: string; message: string; task_id?: string },
+    Error,
+    string,
+    { analysisRunId: string; maxFixes?: number; severityFilter?: string[] }
+  >(
+    'generate-fixes',
+    async (_key, { arg }) => {
+      return fixesApi.generate(arg.analysisRunId, {
+        maxFixes: arg.maxFixes,
+        severityFilter: arg.severityFilter,
+      });
+    }
+  );
+}
+
+// Fix statistics hook
+export function useFixStats() {
+  const { isAuthReady } = useApiAuth();
+  return useSWR<{
+    total: number;
+    pending: number;
+    approved: number;
+    applied: number;
+    rejected: number;
+    failed: number;
+    by_status: Record<string, number>;
+  }>(
+    isAuthReady ? 'fix-stats' : null,
+    () => analyticsApi.fixStats()
+  );
+}

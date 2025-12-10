@@ -420,6 +420,20 @@ export default function FixReviewPage({
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              {fix.finding_id && (
+                <>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Related Finding</span>
+                    <Link href={`/dashboard/findings?id=${fix.finding_id}`}>
+                      <Button variant="outline" size="sm" className="h-7">
+                        <AlertTriangle className="mr-1 h-3 w-3" />
+                        View Finding
+                      </Button>
+                    </Link>
+                  </div>
+                  <Separator />
+                </>
+              )}
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Created</span>
                 <span>{new Date(fix.created_at).toLocaleString()}</span>

@@ -410,7 +410,35 @@ export const analyticsApi = {
     }
     return request<HealthScore>('/analytics/health-score');
   },
+
+  // Get fix statistics
+  fixStats: async (): Promise<FixStatistics> => {
+    if (USE_MOCK) {
+      await new Promise((r) => setTimeout(r, 200));
+      return {
+        total: 12,
+        pending: 5,
+        approved: 3,
+        applied: 2,
+        rejected: 1,
+        failed: 1,
+        by_status: { pending: 5, approved: 3, applied: 2, rejected: 1, failed: 1 },
+      };
+    }
+    return request<FixStatistics>('/analytics/fix-stats');
+  },
 };
+
+// Fix statistics type
+export interface FixStatistics {
+  total: number;
+  pending: number;
+  approved: number;
+  applied: number;
+  rejected: number;
+  failed: number;
+  by_status: Record<string, number>;
+}
 
 // Repository info for filter dropdowns
 export interface RepositoryInfo {

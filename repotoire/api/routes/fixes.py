@@ -69,6 +69,7 @@ def _fix_to_dict(fix: Fix) -> dict:
 
     return {
         "id": str(fix.id),
+        "finding_id": str(fix.finding_id) if fix.finding_id else None,
         "finding": {"id": str(fix.finding_id)} if fix.finding_id else None,
         "fix_type": fix.fix_type.value,
         "confidence": fix.confidence.value,

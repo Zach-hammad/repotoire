@@ -65,6 +65,7 @@ export interface FindingFilters {
 // A complete fix proposal
 export interface FixProposal {
   id: string;
+  finding_id?: string | null;
   finding?: Finding;
   fix_type: FixType;
   confidence: FixConfidence;
