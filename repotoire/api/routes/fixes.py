@@ -5,14 +5,16 @@ from __future__ import annotations
 import time
 from datetime import datetime
 from typing import List, Optional, TYPE_CHECKING
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from repotoire.autofix.models import (
     FixProposal,
-    FixStatus,
-    FixConfidence,
-    FixType,
+    FixStatus as AutofixFixStatus,
+    FixConfidence as AutofixFixConfidence,
+    FixType as AutofixFixType,
 )
 from repotoire.autofix.entitlements import (
     FeatureAccess,
@@ -27,7 +29,12 @@ from repotoire.autofix.best_of_n import (
 from repotoire.api.auth import ClerkUser, get_current_user
 from repotoire.api.models import PreviewResult, PreviewCheck
 from repotoire.db.models import PlanTier
+from repotoire.db.models.fix import Fix, FixStatus, FixConfidence, FixType
+from repotoire.db.models.user import User
+from repotoire.db.repositories.fix import FixRepository
+from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
+from sqlalchemy import select
 
 if TYPE_CHECKING:
     from repotoire.cache import PreviewCache
@@ -36,9 +43,60 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/fixes", tags=["fixes"])
 
-# In-memory storage for fixes (replace with database in production)
+# In-memory storage for legacy FixProposal objects (Best-of-N)
 _fixes_store: dict[str, FixProposal] = {}
 _comments_store: dict[str, list] = {}
+
+
+async def _get_db_user(db: AsyncSession, clerk_user_id: str) -> Optional[User]:
+    """Get database user by Clerk user ID."""
+    result = await db.execute(
+        select(User).where(User.clerk_user_id == clerk_user_id)
+    )
+    return result.scalar_one_or_none()
+
+
+def _fix_to_dict(fix: Fix) -> dict:
+    """Convert a Fix DB model to API response dict."""
+    # Ensure evidence has the expected structure
+    evidence = fix.evidence or {}
+    evidence_structured = {
+        "similar_patterns": evidence.get("similar_patterns", []),
+        "documentation_refs": evidence.get("documentation_refs", []),
+        "best_practices": evidence.get("best_practices", []),
+        "rag_context_count": evidence.get("rag_context_count", 0),
+    }
+
+    return {
+        "id": str(fix.id),
+        "finding": {"id": str(fix.finding_id)} if fix.finding_id else None,
+        "fix_type": fix.fix_type.value,
+        "confidence": fix.confidence.value,
+        "changes": [{
+            "file_path": fix.file_path,
+            "original_code": fix.original_code,
+            "fixed_code": fix.fixed_code,
+            "start_line": fix.line_start or 0,
+            "end_line": fix.line_end or 0,
+            "description": fix.description,
+        }],
+        "title": fix.title,
+        "description": fix.description,
+        "rationale": fix.explanation,
+        "evidence": evidence_structured,
+        "status": fix.status.value,
+        "created_at": fix.created_at.isoformat() if fix.created_at else None,
+        "applied_at": fix.applied_at.isoformat() if fix.applied_at else None,
+        "syntax_valid": fix.validation_data.get("syntax_valid", True) if fix.validation_data else True,
+        "import_valid": fix.validation_data.get("import_valid") if fix.validation_data else None,
+        "type_valid": fix.validation_data.get("type_valid") if fix.validation_data else None,
+        "validation_errors": fix.validation_data.get("errors", []) if fix.validation_data else [],
+        "validation_warnings": fix.validation_data.get("warnings", []) if fix.validation_data else [],
+        "tests_generated": False,
+        "test_code": None,
+        "branch_name": None,
+        "commit_message": None,
+    }
 
 
 class PaginatedResponse(BaseModel):
@@ -79,124 +137,249 @@ class BatchRejectRequest(BatchRequest):
     reason: str
 
 
+class ApplyFixRequest(BaseModel):
+    """Request to apply a fix."""
+    repository_path: str = Field(description="Path to the repository where the fix should be applied")
+    create_branch: bool = Field(default=True, description="Whether to create a git branch for the fix")
+    commit: bool = Field(default=True, description="Whether to create a git commit")
+
+
 @router.get("")
 async def list_fixes(
     user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    status: Optional[List[FixStatus]] = Query(None),
-    confidence: Optional[List[FixConfidence]] = Query(None),
-    fix_type: Optional[List[FixType]] = Query(None),
+    status: Optional[List[str]] = Query(None),
+    confidence: Optional[List[str]] = Query(None),
+    fix_type: Optional[List[str]] = Query(None),
+    repository_id: Optional[str] = Query(None),
     search: Optional[str] = None,
     sort_by: str = "created_at",
     sort_direction: str = "desc",
 ) -> PaginatedResponse:
     """List fixes with filters and pagination."""
-    # Filter fixes
-    fixes = list(_fixes_store.values())
+    repo = FixRepository(db)
 
-    if status:
-        fixes = [f for f in fixes if f.status in status]
-    if confidence:
-        fixes = [f for f in fixes if f.confidence in confidence]
-    if fix_type:
-        fixes = [f for f in fixes if f.fix_type in fix_type]
-    if search:
-        search_lower = search.lower()
-        fixes = [
-            f for f in fixes
-            if search_lower in f.title.lower() or search_lower in f.description.lower()
-        ]
+    # Convert string params to enums
+    status_enums = [FixStatus(s) for s in status] if status else None
+    confidence_enums = [FixConfidence(c) for c in confidence] if confidence else None
+    fix_type_enums = [FixType(t) for t in fix_type] if fix_type else None
+    repo_uuid = UUID(repository_id) if repository_id else None
 
-    # Sort
-    reverse = sort_direction == "desc"
-    if sort_by == "created_at":
-        fixes.sort(key=lambda f: f.created_at, reverse=reverse)
-    elif sort_by == "confidence":
-        confidence_order = {"high": 3, "medium": 2, "low": 1}
-        fixes.sort(key=lambda f: confidence_order.get(f.confidence.value, 0), reverse=reverse)
-    elif sort_by == "status":
-        fixes.sort(key=lambda f: f.status.value, reverse=reverse)
+    # Calculate offset
+    offset = (page - 1) * page_size
 
-    # Paginate
-    total = len(fixes)
-    start = (page - 1) * page_size
-    end = start + page_size
-    items = fixes[start:end]
+    # Get fixes from database
+    fixes, total = await repo.search(
+        repository_id=repo_uuid,
+        status=status_enums,
+        confidence=confidence_enums,
+        fix_type=fix_type_enums,
+        search_text=search,
+        sort_by=sort_by,
+        sort_direction=sort_direction,
+        limit=page_size,
+        offset=offset,
+    )
 
     return PaginatedResponse(
-        items=[f.to_dict() for f in items],
+        items=[_fix_to_dict(f) for f in fixes],
         total=total,
         page=page,
         page_size=page_size,
-        has_more=end < total,
+        has_more=(offset + page_size) < total,
     )
 
 
 @router.get("/{fix_id}")
-async def get_fix(fix_id: str, user: ClerkUser = Depends(get_current_user)) -> dict:
+async def get_fix(
+    fix_id: str,
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
     """Get a specific fix by ID."""
-    if fix_id not in _fixes_store:
+    repo = FixRepository(db)
+    try:
+        fix = await repo.get_by_id(UUID(fix_id))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid fix ID format")
+
+    if fix is None:
         raise HTTPException(status_code=404, detail="Fix not found")
-    return _fixes_store[fix_id].to_dict()
+    return _fix_to_dict(fix)
 
 
 @router.post("/{fix_id}/approve")
-async def approve_fix(fix_id: str, user: ClerkUser = Depends(get_current_user)) -> dict:
+async def approve_fix(
+    fix_id: str,
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
     """Approve a fix."""
-    if fix_id not in _fixes_store:
+    repo = FixRepository(db)
+    try:
+        fix = await repo.get_by_id(UUID(fix_id))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid fix ID format")
+
+    if fix is None:
         raise HTTPException(status_code=404, detail="Fix not found")
 
-    fix = _fixes_store[fix_id]
     if fix.status != FixStatus.PENDING:
         raise HTTPException(status_code=400, detail="Fix is not pending")
 
-    fix.status = FixStatus.APPROVED
-    return {"data": fix.to_dict(), "success": True}
+    fix = await repo.update_status(UUID(fix_id), FixStatus.APPROVED)
+    return {"data": _fix_to_dict(fix), "success": True}
 
 
 @router.post("/{fix_id}/reject")
-async def reject_fix(fix_id: str, request: RejectRequest, user: ClerkUser = Depends(get_current_user)) -> dict:
+async def reject_fix(
+    fix_id: str,
+    request: RejectRequest,
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
     """Reject a fix with a reason."""
-    if fix_id not in _fixes_store:
+    repo = FixRepository(db)
+    try:
+        fix_uuid = UUID(fix_id)
+        fix = await repo.get_by_id(fix_uuid)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid fix ID format")
+
+    if fix is None:
         raise HTTPException(status_code=404, detail="Fix not found")
 
-    fix = _fixes_store[fix_id]
     if fix.status != FixStatus.PENDING:
         raise HTTPException(status_code=400, detail="Fix is not pending")
 
-    fix.status = FixStatus.REJECTED
-    # Store rejection reason in comments
-    comment_id = f"reject-{fix_id}-{datetime.utcnow().timestamp()}"
-    if fix_id not in _comments_store:
-        _comments_store[fix_id] = []
-    _comments_store[fix_id].append({
-        "id": comment_id,
-        "fix_id": fix_id,
-        "author": "System",
-        "content": f"Rejected: {request.reason}",
-        "created_at": datetime.utcnow().isoformat(),
-    })
+    fix = await repo.update_status(fix_uuid, FixStatus.REJECTED)
 
-    return {"data": fix.to_dict(), "success": True}
+    # Store rejection reason as a comment in database
+    db_user = await _get_db_user(db, user.user_id)
+    if db_user:
+        await repo.add_comment(
+            fix_id=fix_uuid,
+            user_id=db_user.id,
+            content=f"Rejected: {request.reason}",
+        )
+        logger.info(f"Added rejection comment for fix {fix_id} by user {db_user.id}")
+    else:
+        # Fallback to in-memory if user not found in DB
+        logger.warning(f"User {user.user_id} not found in DB, storing comment in memory")
+        if fix_id not in _comments_store:
+            _comments_store[fix_id] = []
+        _comments_store[fix_id].append({
+            "id": f"reject-{fix_id}-{datetime.utcnow().timestamp()}",
+            "fix_id": fix_id,
+            "author": user.user_id,
+            "content": f"Rejected: {request.reason}",
+            "created_at": datetime.utcnow().isoformat(),
+        })
+
+    return {"data": _fix_to_dict(fix), "success": True}
 
 
 @router.post("/{fix_id}/apply")
-async def apply_fix(fix_id: str, user: ClerkUser = Depends(get_current_user)) -> dict:
-    """Apply an approved fix to the codebase."""
-    if fix_id not in _fixes_store:
+async def apply_fix(
+    fix_id: str,
+    request: Optional[ApplyFixRequest] = None,
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Apply an approved fix to the codebase.
+
+    If repository_path is provided, the fix will be applied to the filesystem.
+    Otherwise, only the status will be updated (for manual application).
+    """
+    from pathlib import Path
+    from repotoire.autofix.applicator import FixApplicator
+    from repotoire.autofix.models import (
+        FixProposal as AutofixProposal,
+        CodeChange as AutofixCodeChange,
+        Evidence as AutofixEvidence,
+        FixStatus as AutofixStatus,
+        FixConfidence as AutofixConfidence,
+        FixType as AutofixType,
+    )
+    from repotoire.models import Finding, Severity
+
+    repo = FixRepository(db)
+    try:
+        fix_uuid = UUID(fix_id)
+        fix = await repo.get_by_id(fix_uuid)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid fix ID format")
+
+    if fix is None:
         raise HTTPException(status_code=404, detail="Fix not found")
 
-    fix = _fixes_store[fix_id]
     if fix.status != FixStatus.APPROVED:
         raise HTTPException(status_code=400, detail="Fix must be approved before applying")
 
-    # TODO: Actually apply the fix using the applicator
-    # For now, just mark it as applied
-    fix.status = FixStatus.APPLIED
-    fix.applied_at = datetime.utcnow()
+    # If repository_path provided, actually apply the fix to filesystem
+    if request and request.repository_path:
+        repository_path = Path(request.repository_path)
 
-    return {"data": fix.to_dict(), "success": True}
+        if not repository_path.exists():
+            raise HTTPException(status_code=400, detail=f"Repository path does not exist: {repository_path}")
+
+        # Convert DB Fix to autofix FixProposal
+        proposal = AutofixProposal(
+            id=str(fix.id),
+            finding=Finding(
+                id=str(fix.finding_id) if fix.finding_id else "unknown",
+                title=fix.title,
+                description=fix.description,
+                severity=Severity.MEDIUM,
+                detector="manual",
+                affected_files=[fix.file_path],
+            ),
+            fix_type=AutofixType(fix.fix_type.value),
+            confidence=AutofixConfidence(fix.confidence.value),
+            changes=[
+                AutofixCodeChange(
+                    file_path=Path(fix.file_path),
+                    original_code=fix.original_code,
+                    fixed_code=fix.fixed_code,
+                    start_line=fix.line_start or 0,
+                    end_line=fix.line_end or 0,
+                    description=fix.description,
+                )
+            ],
+            title=fix.title,
+            description=fix.description,
+            rationale=fix.explanation,
+            evidence=AutofixEvidence(
+                similar_patterns=fix.evidence.get("similar_patterns", []) if fix.evidence else [],
+                documentation_refs=fix.evidence.get("documentation_refs", []) if fix.evidence else [],
+                best_practices=fix.evidence.get("best_practices", []) if fix.evidence else [],
+            ),
+            status=AutofixStatus.APPROVED,
+            branch_name=f"autofix/{fix.fix_type.value}/{fix.id}",
+            commit_message=f"fix: {fix.title}\n\n{fix.description}",
+        )
+
+        # Apply the fix using FixApplicator
+        applicator = FixApplicator(
+            repository_path=repository_path,
+            create_branch=request.create_branch,
+        )
+
+        success, error = applicator.apply_fix(proposal, commit=request.commit)
+
+        if not success:
+            # Mark as failed in database
+            fix = await repo.update_status(fix_uuid, FixStatus.FAILED)
+            raise HTTPException(status_code=500, detail=f"Failed to apply fix: {error}")
+
+        logger.info(f"Successfully applied fix {fix_id} to {repository_path}")
+
+    # Mark as applied in database
+    fix = await repo.update_status(fix_uuid, FixStatus.APPLIED)
+
+    return {"data": _fix_to_dict(fix), "success": True}
 
 
 # In-memory cache for preview results
@@ -486,13 +669,37 @@ async def add_comment(fix_id: str, request: CommentCreate, user: ClerkUser = Dep
 
 
 @router.get("/{fix_id}/comments")
-async def get_comments(fix_id: str, user: ClerkUser = Depends(get_current_user), limit: int = Query(25, ge=1, le=100)) -> List[dict]:
+async def get_comments(
+    fix_id: str,
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(25, ge=1, le=100),
+) -> List[dict]:
     """Get comments for a fix."""
-    if fix_id not in _fixes_store:
+    repo = FixRepository(db)
+    try:
+        fix_uuid = UUID(fix_id)
+        fix = await repo.get_by_id(fix_uuid)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid fix ID format")
+
+    if fix is None:
         raise HTTPException(status_code=404, detail="Fix not found")
 
-    comments = _comments_store.get(fix_id, [])
-    return comments[:limit]
+    # Get comments from database
+    comments = await repo.get_comments(fix_uuid, limit=limit)
+
+    # Convert to dict format
+    return [
+        {
+            "id": str(c.id),
+            "fix_id": str(c.fix_id),
+            "author": c.user.email if c.user else "Unknown",
+            "content": c.content,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        }
+        for c in comments
+    ]
 
 
 @router.post("/batch/approve")
@@ -801,3 +1008,101 @@ async def select_best_of_n_fix(
         "success": True,
         "rejected_count": len(related_ids),
     }
+
+
+# =============================================================================
+# Generate Fixes for Analysis
+# =============================================================================
+
+
+class GenerateFixesRequest(BaseModel):
+    """Request to generate fixes for an analysis run."""
+
+    max_fixes: int = Field(default=10, ge=1, le=50, description="Maximum number of fixes to generate")
+    severity_filter: Optional[List[str]] = Field(
+        default=["critical", "high"],
+        description="Severities to process (critical, high, medium, low, info)"
+    )
+
+
+class GenerateFixesResponse(BaseModel):
+    """Response from fix generation request."""
+
+    status: str = Field(description="Task status: queued, skipped, or error")
+    message: str = Field(description="Human readable message")
+    task_id: Optional[str] = Field(default=None, description="Celery task ID if queued")
+
+
+@router.post("/generate/{analysis_run_id}")
+async def generate_fixes(
+    analysis_run_id: str,
+    request: GenerateFixesRequest = GenerateFixesRequest(),
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GenerateFixesResponse:
+    """Trigger AI fix generation for an analysis run.
+
+    Queues a background task to generate fix proposals for high-severity
+    findings from the specified analysis run. Fixes are generated using
+    GPT-4o with RAG context from the knowledge graph.
+
+    Requires OPENAI_API_KEY to be configured on the worker.
+
+    Args:
+        analysis_run_id: UUID of the analysis run with findings
+        request: Configuration for fix generation
+
+    Returns:
+        GenerateFixesResponse with task status
+    """
+    from repotoire.db.models import AnalysisRun, AnalysisStatus
+
+    # Validate analysis run exists and is completed
+    try:
+        run_uuid = UUID(analysis_run_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid analysis run ID format")
+
+    result = await db.execute(
+        select(AnalysisRun).where(AnalysisRun.id == run_uuid)
+    )
+    analysis = result.scalar_one_or_none()
+
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis run not found")
+
+    if analysis.status != AnalysisStatus.COMPLETED:
+        return GenerateFixesResponse(
+            status="skipped",
+            message=f"Analysis is not completed (status: {analysis.status.value})",
+            task_id=None,
+        )
+
+    # Queue the fix generation task
+    try:
+        from repotoire.workers.hooks import generate_fixes_for_analysis
+
+        task = generate_fixes_for_analysis.delay(
+            analysis_run_id=analysis_run_id,
+            max_fixes=request.max_fixes,
+            severity_filter=request.severity_filter,
+        )
+
+        logger.info(
+            f"Queued fix generation for analysis {analysis_run_id}",
+            extra={"task_id": task.id, "user_id": user.user_id},
+        )
+
+        return GenerateFixesResponse(
+            status="queued",
+            message=f"Fix generation queued for {analysis.findings_count or 0} findings",
+            task_id=task.id,
+        )
+
+    except Exception as e:
+        logger.exception(f"Failed to queue fix generation: {e}")
+        return GenerateFixesResponse(
+            status="error",
+            message=f"Failed to queue task: {str(e)}",
+            task_id=None,
+        )

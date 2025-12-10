@@ -39,15 +39,27 @@ export interface Evidence {
 // A finding (code smell, issue) from analysis
 export interface Finding {
   id: string;
+  analysis_run_id: string;
   detector: string;
-  category: string;
   severity: Severity;
-  message: string;
-  file_path: string;
-  start_line: number;
-  end_line: number;
-  code_snippet?: string;
-  suggestion?: string;
+  title: string;
+  description: string;
+  affected_files: string[];
+  affected_nodes: string[];
+  line_start?: number;
+  line_end?: number;
+  suggested_fix?: string;
+  estimated_effort?: string;
+  graph_context?: Record<string, unknown>;
+  created_at: string;
+}
+
+// Filters for findings list
+export interface FindingFilters {
+  severity?: Severity[];
+  detector?: string;
+  analysis_run_id?: string;
+  repository_id?: string;
 }
 
 // A complete fix proposal
@@ -147,6 +159,7 @@ export interface FixFilters {
   date_to?: string;
   file_path?: string;
   search?: string;
+  repository_id?: string;
 }
 
 // Sort options

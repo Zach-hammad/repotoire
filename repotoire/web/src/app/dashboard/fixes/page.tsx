@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useFixes, useBatchApprove, useBatchReject } from '@/lib/hooks';
+import { useFixes, useBatchApprove, useBatchReject, useRepositories } from '@/lib/hooks';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -108,21 +108,28 @@ function FixesListContent() {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [search, setSearch] = useState('');
+  const [repositoryFilter, setRepositoryFilter] = useState<string>('all');
 
   // Selection state for batch actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
 
+  // Build filters with repository
+  const filtersWithRepo = repositoryFilter !== 'all'
+    ? { ...filters, repository_id: repositoryFilter, search: search || undefined }
+    : { ...filters, search: search || undefined };
+
   // Fetch data
   const { data, isLoading, error } = useFixes(
-    { ...filters, search: search || undefined },
+    filtersWithRepo,
     sort,
     page,
     pageSize
   );
   const { trigger: batchApprove, isMutating: isApproving } = useBatchApprove();
   const { trigger: batchReject, isMutating: isRejecting } = useBatchReject();
+  const { data: repositories } = useRepositories();
 
   // Handlers
   const handleFilterChange = useCallback((key: keyof FixFilters, value: unknown) => {
@@ -177,6 +184,7 @@ function FixesListContent() {
   const clearFilters = () => {
     setFilters({});
     setSearch('');
+    setRepositoryFilter('all');
     setPage(1);
   };
 
@@ -187,7 +195,7 @@ function FixesListContent() {
   }, [data?.items, selectedIds]);
 
   const hasActiveFilters = filters.status?.length || filters.confidence?.length ||
-    filters.fix_type?.length || search;
+    filters.fix_type?.length || search || repositoryFilter !== 'all';
 
   return (
     <div className="space-y-6">
@@ -311,6 +319,29 @@ function FixesListContent() {
                 ))}
               </SelectContent>
             </Select>
+
+            {/* Repository Filter */}
+            {repositories && repositories.length > 0 && (
+              <Select
+                value={repositoryFilter}
+                onValueChange={(value) => {
+                  setRepositoryFilter(value);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Repository" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Repositories</SelectItem>
+                  {repositories.map((repo) => (
+                    <SelectItem key={repo.id} value={repo.id}>
+                      {repo.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
 
             {hasActiveFilters && (
               <Button variant="ghost" size="sm" onClick={clearFilters}>

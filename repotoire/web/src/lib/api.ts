@@ -4,6 +4,8 @@ import {
   CheckoutRequest,
   CheckoutResponse,
   FileHotspot,
+  Finding,
+  FindingFilters,
   FixComment,
   FixFilters,
   FixProposal,
@@ -122,6 +124,7 @@ export const fixesApi = {
       if (filters.date_to) params.set('date_to', filters.date_to);
       if (filters.file_path) params.set('file_path', filters.file_path);
       if (filters.search) params.set('search', filters.search);
+      if (filters.repository_id) params.set('repository_id', filters.repository_id);
     }
 
     if (sort) {
@@ -272,6 +275,88 @@ export const fixesApi = {
       method: 'POST',
     });
   },
+
+  // Generate fixes for an analysis run
+  generate: async (
+    analysisRunId: string,
+    options?: { maxFixes?: number; severityFilter?: string[] }
+  ): Promise<{ status: string; message: string; task_id?: string }> => {
+    if (USE_MOCK) {
+      await new Promise((r) => setTimeout(r, 500));
+      return {
+        status: 'queued',
+        message: 'Fix generation queued (mock)',
+        task_id: 'mock-task-id',
+      };
+    }
+    return request(`/fixes/generate/${analysisRunId}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        max_fixes: options?.maxFixes ?? 10,
+        severity_filter: options?.severityFilter ?? ['critical', 'high'],
+      }),
+    });
+  },
+};
+
+// Findings API
+export const findingsApi = {
+  // List findings with pagination and filters
+  list: async (
+    filters?: FindingFilters,
+    page: number = 1,
+    pageSize: number = 20,
+    sortBy: string = 'created_at',
+    sortDirection: 'asc' | 'desc' = 'desc'
+  ): Promise<PaginatedResponse<Finding>> => {
+    const params = new URLSearchParams();
+    params.set('page', String(page));
+    params.set('page_size', String(pageSize));
+    params.set('sort_by', sortBy);
+    params.set('sort_direction', sortDirection);
+
+    if (filters) {
+      if (filters.severity?.length) {
+        filters.severity.forEach((s) => params.append('severity', s));
+      }
+      if (filters.detector) params.set('detector', filters.detector);
+      if (filters.analysis_run_id) params.set('analysis_run_id', filters.analysis_run_id);
+      if (filters.repository_id) params.set('repository_id', filters.repository_id);
+    }
+
+    return request<PaginatedResponse<Finding>>(`/findings?${params}`);
+  },
+
+  // Get a single finding by ID
+  get: async (id: string): Promise<Finding> => {
+    return request<Finding>(`/findings/${id}`);
+  },
+
+  // Get findings summary
+  summary: async (analysisRunId?: string, repositoryId?: string): Promise<{
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+    info: number;
+    total: number;
+  }> => {
+    const params = new URLSearchParams();
+    if (analysisRunId) params.set('analysis_run_id', analysisRunId);
+    if (repositoryId) params.set('repository_id', repositoryId);
+    return request(`/findings/summary?${params}`);
+  },
+
+  // Get findings by detector
+  byDetector: async (analysisRunId?: string, repositoryId?: string): Promise<Array<{
+    detector: string;
+    count: number;
+  }>> => {
+    const params = new URLSearchParams();
+    if (analysisRunId) params.set('analysis_run_id', analysisRunId);
+    if (repositoryId) params.set('repository_id', repositoryId);
+    return request(`/findings/by-detector?${params}`);
+  },
 };
 
 // Analytics API
@@ -324,6 +409,21 @@ export const analyticsApi = {
       return getMockHealthScore();
     }
     return request<HealthScore>('/analytics/health-score');
+  },
+};
+
+// Repository info for filter dropdowns
+export interface RepositoryInfo {
+  id: string;
+  full_name: string;
+  health_score: number | null;
+  last_analyzed_at: string | null;
+}
+
+// Repositories API (for filter dropdowns)
+export const repositoriesApi = {
+  list: async (): Promise<RepositoryInfo[]> => {
+    return request<RepositoryInfo[]>('/analytics/repositories');
   },
 };
 

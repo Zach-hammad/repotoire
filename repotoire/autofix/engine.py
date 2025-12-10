@@ -4,14 +4,13 @@ import hashlib
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict, Any
-
-from openai import OpenAI
+from typing import Optional, List, Dict, Any, Literal
 
 from repotoire.logging_config import get_logger
 from repotoire.models import Finding, Severity
 from repotoire.ai.retrieval import GraphRAGRetriever
 from repotoire.ai.embeddings import CodeEmbedder
+from repotoire.ai.llm import LLMClient, LLMConfig, LLMBackend
 from repotoire.graph import Neo4jClient
 from repotoire.autofix.languages import get_handler, LanguageHandler
 from repotoire.autofix.models import (
@@ -48,36 +47,46 @@ class AutoFixEngine:
     def __init__(
         self,
         neo4j_client: Neo4jClient,
-        openai_api_key: Optional[str] = None,
-        model: str = "gpt-4o",
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        llm_backend: LLMBackend = "anthropic",
         decision_store: Optional[DecisionStore] = None,
         validation_config: Optional[ValidationConfig] = None,
         skip_runtime_validation: bool = False,
+        # Legacy parameter for backwards compatibility
+        openai_api_key: Optional[str] = None,
     ):
         """Initialize auto-fix engine.
 
         Args:
             neo4j_client: Neo4j client for RAG context
-            openai_api_key: OpenAI API key (or use OPENAI_API_KEY env var)
-            model: OpenAI model to use for fix generation
+            api_key: API key for LLM backend (or use env var)
+            model: Model to use for fix generation (uses backend default if not specified)
+            llm_backend: LLM backend to use ("anthropic" or "openai")
             decision_store: Store for learning from user decisions
             validation_config: Configuration for runtime validation
             skip_runtime_validation: Skip sandbox-based validation (faster)
+            openai_api_key: (Deprecated) Use api_key instead
         """
         self.neo4j_client = neo4j_client
-        self.model = model
         self.skip_runtime_validation = skip_runtime_validation
 
-        # Initialize OpenAI client
-        api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "OPENAI_API_KEY environment variable or openai_api_key parameter required"
-            )
-        self.client = OpenAI(api_key=api_key)
+        # Handle legacy parameter
+        effective_api_key = api_key or openai_api_key
+
+        # Initialize LLM client with backend abstraction
+        llm_config = LLMConfig(
+            backend=llm_backend,
+            model=model,
+            temperature=0.2,  # Lower temperature for consistent code generation
+        )
+        self.llm_client = LLMClient(config=llm_config, api_key=effective_api_key)
+        self.model = self.llm_client.model
 
         # Initialize RAG retriever for context gathering
-        embedder = CodeEmbedder(api_key=api_key)
+        # Use OpenAI embeddings for RAG (separate from LLM generation)
+        embeddings_api_key = effective_api_key or os.getenv("OPENAI_API_KEY")
+        embedder = CodeEmbedder(api_key=embeddings_api_key)
         self.rag_retriever = GraphRAGRetriever(neo4j_client, embedder)
 
         # Initialize template registry for fast, deterministic fixes
@@ -102,7 +111,7 @@ class AutoFixEngine:
         self._code_validator: Optional[CodeValidator] = None
 
         logger.info(
-            f"AutoFixEngine initialized with model={model}, "
+            f"AutoFixEngine initialized with backend={llm_backend}, model={self.model}, "
             f"skip_runtime_validation={skip_runtime_validation}"
         )
 
@@ -514,21 +523,14 @@ class AutoFixEngine:
             finding, context, fix_type, handler, repository_path
         )
 
-        # Call GPT-4 with language-specific system prompt
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": handler.get_system_prompt(),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,  # Lower temperature for more consistent code generation
+        # Call LLM with language-specific system prompt
+        response_text = self.llm_client.generate(
+            messages=[{"role": "user", "content": prompt}],
+            system=handler.get_system_prompt(),
         )
 
         # Parse response
-        fix_data = self._parse_llm_response(response.choices[0].message.content)
+        fix_data = self._parse_llm_response(response_text)
 
         # Add RAG context to evidence
         evidence = fix_data.get("evidence", Evidence())
@@ -1047,19 +1049,11 @@ Generate a fix for this issue. Provide your response in the following JSON forma
 
 Provide only the test code, no explanations."""
 
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert at writing comprehensive pytest test cases.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
+            test_code = self.llm_client.generate(
+                messages=[{"role": "user", "content": prompt}],
+                system="You are an expert at writing comprehensive pytest test cases.",
                 temperature=0.3,
             )
-
-            test_code = response.choices[0].message.content
 
             # Extract code from markdown if needed
             import re

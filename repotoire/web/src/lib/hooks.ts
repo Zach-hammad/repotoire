@@ -4,6 +4,8 @@ import {
   AnalyticsSummary,
   CheckoutResponse,
   FileHotspot,
+  Finding,
+  FindingFilters,
   FixComment,
   FixFilters,
   FixProposal,
@@ -18,11 +20,62 @@ import {
   Subscription,
   TrendDataPoint,
 } from '@/types';
-import { analyticsApi, billingApi, fixesApi } from './api';
+import { analyticsApi, billingApi, findingsApi, fixesApi, repositoriesApi, RepositoryInfo } from './api';
 import { useApiAuth } from '@/components/providers/api-auth-provider';
 
 // Generic fetcher for SWR
 const fetcher = <T>(fn: () => Promise<T>) => fn();
+
+// Findings hooks
+export function useFindings(
+  filters?: FindingFilters,
+  page: number = 1,
+  pageSize: number = 20,
+  sortBy: string = 'created_at',
+  sortDirection: 'asc' | 'desc' = 'desc',
+  repositoryId?: string
+) {
+  const { isAuthReady } = useApiAuth();
+  const filtersWithRepo = repositoryId
+    ? { ...filters, repository_id: repositoryId }
+    : filters;
+  const key = ['findings', filtersWithRepo, page, pageSize, sortBy, sortDirection];
+  return useSWR<PaginatedResponse<Finding>>(
+    isAuthReady ? key : null,
+    () => findingsApi.list(filtersWithRepo, page, pageSize, sortBy, sortDirection)
+  );
+}
+
+export function useFinding(id: string | null) {
+  const { isAuthReady } = useApiAuth();
+  return useSWR<Finding>(
+    isAuthReady && id ? ['finding', id] : null,
+    () => findingsApi.get(id!)
+  );
+}
+
+export function useFindingsSummary(analysisRunId?: string, repositoryId?: string) {
+  const { isAuthReady } = useApiAuth();
+  return useSWR<{
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+    info: number;
+    total: number;
+  }>(
+    isAuthReady ? ['findings-summary', analysisRunId, repositoryId] : null,
+    () => findingsApi.summary(analysisRunId, repositoryId)
+  );
+}
+
+export function useFindingsByDetector(analysisRunId?: string, repositoryId?: string) {
+  const { isAuthReady } = useApiAuth();
+  return useSWR<Array<{ detector: string; count: number }>>(
+    isAuthReady ? ['findings-by-detector', analysisRunId, repositoryId] : null,
+    () => findingsApi.byDetector(analysisRunId, repositoryId)
+  );
+}
 
 // Fixes hooks
 export function useFixes(
@@ -140,6 +193,14 @@ export function useHealthScore() {
   return useSWR<HealthScore>(
     isAuthReady ? 'health-score' : null,
     () => analyticsApi.healthScore()
+  );
+}
+
+export function useRepositories() {
+  const { isAuthReady } = useApiAuth();
+  return useSWR<RepositoryInfo[]>(
+    isAuthReady ? 'repositories' : null,
+    () => repositoriesApi.list()
   );
 }
 

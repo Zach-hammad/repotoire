@@ -31,6 +31,8 @@ from repotoire.db.models import (
     OrganizationMembership,
     Repository,
 )
+from repotoire.db.models.finding import Finding as FindingDB, FindingSeverity
+from repotoire.db.models.fix import Fix as FixDB, FixConfidence as FixConfidenceDB, FixType as FixTypeDB, FixStatus as FixStatusDB
 from repotoire.db.session import get_sync_session
 from repotoire.logging_config import get_logger
 from repotoire.workers.celery_app import celery_app
@@ -105,12 +107,22 @@ def on_analysis_complete(analysis_run_id: str) -> dict:
                     repo=repo,
                     health_score=analysis.health_score,
                 )
-                return {
-                    "status": "notified",
-                    "notification_type": "analysis_complete",
-                }
 
-            return {"status": "skipped", "reason": "notifications_disabled"}
+            # Trigger AI fix generation for high-severity findings
+            # This runs asynchronously so users can start reviewing findings immediately
+            generate_fixes_for_analysis.delay(
+                analysis_run_id=analysis_run_id,
+                max_fixes=10,
+                severity_filter=["critical", "high"],
+            )
+            log = logger.bind(analysis_run_id=analysis_run_id)
+            log.info("triggered_fix_generation")
+
+            return {
+                "status": "notified",
+                "notification_type": "analysis_complete",
+                "fix_generation": "triggered",
+            }
 
     except Exception as e:
         logger.exception(f"on_analysis_complete failed: {e}")
@@ -1106,3 +1118,343 @@ def _build_digest_email_html(
     </body>
     </html>
     """
+
+
+# =============================================================================
+# AI Fix Generation
+# =============================================================================
+
+
+@celery_app.task(
+    name="repotoire.workers.hooks.generate_fixes_for_analysis",
+    soft_time_limit=600,  # 10 minutes
+    time_limit=660,
+    max_retries=1,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+)
+def generate_fixes_for_analysis(
+    analysis_run_id: str,
+    max_fixes: int = 10,
+    severity_filter: list[str] | None = None,
+) -> dict[str, Any]:
+    """Generate AI fixes for findings from an analysis run.
+
+    Uses the AutoFixEngine to generate code fix proposals for high-priority
+    findings. Fixes are stored in the database for human review.
+
+    Args:
+        analysis_run_id: UUID of the AnalysisRun with findings.
+        max_fixes: Maximum number of fixes to generate (default 10).
+        severity_filter: Optional list of severities to process (default: critical, high).
+
+    Returns:
+        dict with status, fixes_generated count, and errors.
+    """
+    import asyncio
+    import os
+    from pathlib import Path
+
+    log = logger.bind(
+        task="generate_fixes",
+        analysis_run_id=analysis_run_id,
+    )
+    log.info("starting_fix_generation", max_fixes=max_fixes)
+
+    # Check if Anthropic API key is available (prefer Claude Opus 4.5 for fix generation)
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        log.warning("anthropic_api_key_missing")
+        return {
+            "status": "skipped",
+            "reason": "ANTHROPIC_API_KEY not configured",
+        }
+
+    severity_filter = severity_filter or ["critical", "high"]
+    fixes_generated = 0
+    errors: list[str] = []
+
+    try:
+        with get_sync_session() as session:
+            # Get analysis run and repository
+            analysis = session.get(AnalysisRun, UUID(analysis_run_id))
+            if not analysis:
+                log.warning("analysis_not_found")
+                return {"status": "skipped", "reason": "analysis_not_found"}
+
+            if analysis.status != AnalysisStatus.COMPLETED:
+                log.warning("analysis_not_completed", status=analysis.status)
+                return {"status": "skipped", "reason": "analysis_not_completed"}
+
+            repo = analysis.repository
+            repo_full_name = repo.full_name
+
+            # Get findings to process
+            severity_enums = [
+                FindingSeverity(s) for s in severity_filter
+                if s in [e.value for e in FindingSeverity]
+            ]
+
+            findings_query = (
+                select(FindingDB)
+                .where(FindingDB.analysis_run_id == analysis.id)
+                .where(FindingDB.severity.in_(severity_enums))
+                .order_by(FindingDB.severity.asc())  # Critical first
+                .limit(max_fixes)
+            )
+            findings_result = session.execute(findings_query)
+            db_findings = list(findings_result.scalars().all())
+
+            if not db_findings:
+                log.info("no_findings_to_fix")
+                return {
+                    "status": "completed",
+                    "fixes_generated": 0,
+                    "reason": "no_high_severity_findings",
+                }
+
+            log.info("found_findings", count=len(db_findings))
+
+        # Initialize AutoFixEngine with Claude Opus 4.5 (outside session to avoid long transactions)
+        from repotoire.autofix.engine import AutoFixEngine
+        from repotoire.graph.client import Neo4jClient
+        from repotoire.models import Finding as ModelFinding, Severity
+
+        neo4j_uri = os.environ.get("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687")
+        neo4j_password = os.environ.get("REPOTOIRE_NEO4J_PASSWORD", "")
+        neo4j_client = Neo4jClient(uri=neo4j_uri, password=neo4j_password)
+
+        engine = AutoFixEngine(
+            neo4j_client=neo4j_client,
+            llm_backend="anthropic",  # Use Claude Opus 4.5 for best fix quality
+            skip_runtime_validation=True,  # Skip sandbox validation for speed
+        )
+
+        # Clone repository to temp location for fix generation
+        clone_dir = _clone_for_fixes(repo_full_name)
+        if not clone_dir:
+            log.error("clone_failed")
+            return {"status": "failed", "reason": "could_not_clone_repository"}
+
+        try:
+            # Generate fixes for each finding
+            for db_finding in db_findings:
+                try:
+                    # Convert DB finding to model finding
+                    severity_map = {
+                        FindingSeverity.CRITICAL: Severity.CRITICAL,
+                        FindingSeverity.HIGH: Severity.HIGH,
+                        FindingSeverity.MEDIUM: Severity.MEDIUM,
+                        FindingSeverity.LOW: Severity.LOW,
+                        FindingSeverity.INFO: Severity.INFO,
+                    }
+
+                    model_finding = ModelFinding(
+                        id=str(db_finding.id),
+                        detector=db_finding.detector,
+                        severity=severity_map.get(db_finding.severity, Severity.MEDIUM),
+                        title=db_finding.title,
+                        description=db_finding.description or "",
+                        affected_nodes=db_finding.affected_nodes or [],
+                        affected_files=db_finding.affected_files or [],
+                        line_start=db_finding.line_start,
+                        line_end=db_finding.line_end,
+                        graph_context=db_finding.graph_context or {},
+                        suggested_fix=db_finding.suggested_fix,
+                        estimated_effort=db_finding.estimated_effort,
+                    )
+
+                    # Generate fix using async engine
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        fix_proposal = loop.run_until_complete(
+                            engine.generate_fix(
+                                finding=model_finding,
+                                repository_path=Path(clone_dir),
+                                context_size=3,
+                                skip_runtime_validation=True,
+                            )
+                        )
+                    finally:
+                        loop.close()
+
+                    if fix_proposal is None:
+                        log.debug("no_fix_generated", finding_id=str(db_finding.id))
+                        continue
+
+                    # Store fix in database
+                    with get_sync_session() as session:
+                        _store_fix(
+                            session=session,
+                            analysis_run_id=UUID(analysis_run_id),
+                            finding_id=db_finding.id,
+                            fix_proposal=fix_proposal,
+                        )
+
+                    fixes_generated += 1
+                    log.info(
+                        "fix_generated",
+                        finding_id=str(db_finding.id),
+                        fix_type=fix_proposal.fix_type.value,
+                        confidence=fix_proposal.confidence.value,
+                    )
+
+                except Exception as e:
+                    log.warning(
+                        "fix_generation_failed",
+                        finding_id=str(db_finding.id),
+                        error=str(e),
+                    )
+                    errors.append(f"Finding {db_finding.id}: {str(e)[:100]}")
+
+        finally:
+            # Cleanup clone directory
+            import shutil
+            if clone_dir and Path(clone_dir).exists():
+                shutil.rmtree(clone_dir, ignore_errors=True)
+
+        log.info(
+            "fix_generation_complete",
+            fixes_generated=fixes_generated,
+            errors_count=len(errors),
+        )
+
+        return {
+            "status": "completed",
+            "fixes_generated": fixes_generated,
+            "errors": errors[:5],  # Limit error messages
+        }
+
+    except Exception as e:
+        log.exception("fix_generation_error", error=str(e))
+        return {
+            "status": "failed",
+            "error": str(e),
+            "fixes_generated": fixes_generated,
+        }
+
+
+def _clone_for_fixes(full_name: str) -> str | None:
+    """Clone repository for fix generation.
+
+    Args:
+        full_name: Repository full name (owner/repo).
+
+    Returns:
+        Path to clone directory or None if failed.
+    """
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    try:
+        # Create temp directory
+        clone_dir = Path(tempfile.mkdtemp(prefix="repotoire-fixes-"))
+
+        # Get GitHub token
+        token = os.environ.get("GITHUB_TOKEN")
+        clone_url = f"https://github.com/{full_name}.git"
+        if token:
+            clone_url = f"https://x-access-token:{token}@github.com/{full_name}.git"
+
+        # Shallow clone for speed
+        subprocess.run(
+            ["git", "clone", "--depth", "1", clone_url, str(clone_dir)],
+            check=True,
+            capture_output=True,
+            timeout=120,
+        )
+
+        return str(clone_dir)
+
+    except Exception as e:
+        logger.warning(f"Clone failed: {e}")
+        return None
+
+
+def _store_fix(
+    session,
+    analysis_run_id: UUID,
+    finding_id: UUID,
+    fix_proposal,
+) -> None:
+    """Store a generated fix in the database.
+
+    Args:
+        session: Database session.
+        analysis_run_id: Analysis run UUID.
+        finding_id: Finding UUID.
+        fix_proposal: FixProposal from AutoFixEngine.
+    """
+    from repotoire.autofix.models import FixType, FixConfidence
+
+    # Map autofix types to DB types
+    type_map = {
+        FixType.REFACTOR: FixTypeDB.REFACTOR,
+        FixType.SIMPLIFY: FixTypeDB.SIMPLIFY,
+        FixType.EXTRACT: FixTypeDB.EXTRACT,
+        FixType.RENAME: FixTypeDB.RENAME,
+        FixType.REMOVE: FixTypeDB.REMOVE,
+        FixType.SECURITY: FixTypeDB.SECURITY,
+        FixType.TYPE_HINT: FixTypeDB.TYPE_HINT,
+        FixType.DOCUMENTATION: FixTypeDB.DOCUMENTATION,
+    }
+
+    confidence_map = {
+        FixConfidence.HIGH: FixConfidenceDB.HIGH,
+        FixConfidence.MEDIUM: FixConfidenceDB.MEDIUM,
+        FixConfidence.LOW: FixConfidenceDB.LOW,
+    }
+
+    # Get the first change (most fixes have one change)
+    change = fix_proposal.changes[0] if fix_proposal.changes else None
+    if not change:
+        return
+
+    # Build evidence dict
+    evidence = {}
+    if fix_proposal.evidence:
+        evidence = {
+            "similar_patterns": fix_proposal.evidence.similar_patterns or [],
+            "documentation_refs": fix_proposal.evidence.documentation_refs or [],
+            "best_practices": fix_proposal.evidence.best_practices or [],
+            "rag_context_count": len(fix_proposal.evidence.rag_context or []),
+        }
+
+    # Build validation data
+    validation_data = {
+        "syntax_valid": fix_proposal.syntax_valid,
+        "import_valid": fix_proposal.import_valid,
+        "type_valid": fix_proposal.type_valid,
+        "errors": fix_proposal.validation_errors or [],
+        "warnings": fix_proposal.validation_warnings or [],
+    }
+
+    # Calculate numeric confidence score
+    confidence_score_map = {
+        FixConfidence.HIGH: 0.9,
+        FixConfidence.MEDIUM: 0.7,
+        FixConfidence.LOW: 0.5,
+    }
+
+    fix = FixDB(
+        analysis_run_id=analysis_run_id,
+        finding_id=finding_id,
+        file_path=str(change.file_path),
+        line_start=change.start_line,
+        line_end=change.end_line,
+        original_code=change.original_code,
+        fixed_code=change.fixed_code,
+        title=fix_proposal.title[:500],
+        description=fix_proposal.description or "",
+        explanation=fix_proposal.rationale or "",
+        fix_type=type_map.get(fix_proposal.fix_type, FixTypeDB.REFACTOR),
+        confidence=confidence_map.get(fix_proposal.confidence, FixConfidenceDB.MEDIUM),
+        confidence_score=confidence_score_map.get(fix_proposal.confidence, 0.7),
+        status=FixStatusDB.PENDING,
+        evidence=evidence,
+        validation_data=validation_data,
+    )
+
+    session.add(fix)
+    session.commit()

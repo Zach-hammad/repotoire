@@ -310,6 +310,48 @@ def _calculate_grade(score: int) -> str:
     return "F"
 
 
+class RepositoryInfo(BaseModel):
+    """Repository info for filter dropdowns."""
+
+    id: UUID
+    full_name: str
+    health_score: Optional[int]
+    last_analyzed_at: Optional[datetime]
+
+
+@router.get("/repositories")
+async def get_repositories(
+    user: ClerkUser = Depends(require_org),
+    session: AsyncSession = Depends(get_db),
+) -> List[RepositoryInfo]:
+    """Get all repositories for the organization.
+
+    Used for populating filter dropdowns on findings/fixes pages.
+    """
+    org = await _get_user_org(session, user)
+    if not org:
+        return []
+
+    query = (
+        select(Repository)
+        .where(Repository.organization_id == org.id)
+        .where(Repository.is_active == True)
+        .order_by(Repository.full_name)
+    )
+    result = await session.execute(query)
+    repos = result.scalars().all()
+
+    return [
+        RepositoryInfo(
+            id=repo.id,
+            full_name=repo.full_name,
+            health_score=repo.health_score,
+            last_analyzed_at=repo.last_analyzed_at,
+        )
+        for repo in repos
+    ]
+
+
 @router.get("/health-score")
 async def get_health_score(
     user: ClerkUser = Depends(require_org),

@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google"
 import { ThemeProvider } from "next-themes"
 import { ClerkProvider } from "@/components/providers/clerk-provider"
 import { CookieConsent } from "@/components/cookie-consent"
+import { Toaster } from "sonner"
 import "./globals.css"
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
@@ -64,6 +65,7 @@ export default function RootLayout({
           <ClerkProvider>
             {children}
             <CookieConsent />
+            <Toaster richColors position="top-right" />
           </ClerkProvider>
         </ThemeProvider>
       </body>

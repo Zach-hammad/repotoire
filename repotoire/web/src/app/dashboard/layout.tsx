@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   Menu,
   CreditCard,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
@@ -26,6 +27,11 @@ const sidebarLinks = [
     name: 'Overview',
     href: '/dashboard',
     icon: LayoutDashboard,
+  },
+  {
+    name: 'Findings',
+    href: '/dashboard/findings',
+    icon: AlertCircle,
   },
   {
     name: 'Fixes',

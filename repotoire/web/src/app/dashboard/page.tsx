@@ -17,8 +17,11 @@ import {
   Download,
   Filter,
   Calendar,
+  Activity,
+  Play,
+  Loader2,
 } from 'lucide-react';
-import { useAnalyticsSummary, useTrends, useFileHotspots, useHealthScore } from '@/lib/hooks';
+import { useAnalyticsSummary, useTrends, useFileHotspots, useHealthScore, useAnalysisHistory, useFindings } from '@/lib/hooks';
 import {
   LineChart,
   Line,
@@ -41,6 +44,7 @@ import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { QuickAnalysisButton } from '@/components/dashboard/quick-analysis';
 import { FixConfidence, FixType, Severity } from '@/types';
 import { format, subDays } from 'date-fns';
 
@@ -399,6 +403,174 @@ function FileHotspotsList({ loading }: { loading?: boolean }) {
   );
 }
 
+// Recent Analyses component
+function RecentAnalyses({ loading }: { loading?: boolean }) {
+  const { data: analyses } = useAnalysisHistory(undefined, 5);
+
+  if (loading || !analyses) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-16 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  if (analyses.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center">
+        <Activity className="h-12 w-12 text-muted-foreground mb-3" />
+        <p className="text-sm text-muted-foreground">No analyses yet</p>
+        <p className="text-xs text-muted-foreground">Run your first analysis to see results here</p>
+      </div>
+    );
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return 'bg-green-500/10 text-green-500 border-green-500/20';
+      case 'running':
+        return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
+      case 'failed':
+        return 'bg-red-500/10 text-red-500 border-red-500/20';
+      case 'queued':
+        return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20';
+      default:
+        return 'bg-gray-500/10 text-gray-500 border-gray-500/20';
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircle2 className="h-4 w-4" />;
+      case 'running':
+        return <Loader2 className="h-4 w-4 animate-spin" />;
+      case 'failed':
+        return <XCircle className="h-4 w-4" />;
+      case 'queued':
+        return <Clock className="h-4 w-4" />;
+      default:
+        return <Activity className="h-4 w-4" />;
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      {analyses.map((analysis) => (
+        <div
+          key={analysis.id}
+          className="flex items-center justify-between rounded-lg border p-3 hover:bg-muted/50 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${getStatusColor(analysis.status)}`}>
+              {getStatusIcon(analysis.status)}
+            </div>
+            <div>
+              <p className="text-sm font-medium truncate max-w-[150px]">
+                {analysis.branch || 'main'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {analysis.completed_at
+                  ? format(new Date(analysis.completed_at), 'MMM d, HH:mm')
+                  : analysis.started_at
+                  ? format(new Date(analysis.started_at), 'MMM d, HH:mm')
+                  : 'Pending'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {analysis.health_score !== null && (
+              <Badge variant="outline" className="font-mono">
+                {analysis.health_score}%
+              </Badge>
+            )}
+            {analysis.findings_count > 0 && (
+              <Badge variant="secondary">
+                {analysis.findings_count} findings
+              </Badge>
+            )}
+            <Badge variant="outline" className={getStatusColor(analysis.status)}>
+              {analysis.status}
+            </Badge>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Top Issues component (critical/high severity)
+function TopIssues({ loading }: { loading?: boolean }) {
+  const { data: findings } = useFindings({ severity: ['critical', 'high'] }, 1, 5);
+
+  if (loading || !findings) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-16 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  if (findings.items.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center">
+        <CheckCircle2 className="h-12 w-12 text-green-500 mb-3" />
+        <p className="text-sm font-medium">No critical issues!</p>
+        <p className="text-xs text-muted-foreground">Your codebase is looking healthy</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {findings.items.map((finding) => (
+        <Link
+          key={finding.id}
+          href={`/dashboard/findings?severity=${finding.severity}`}
+          className="block rounded-lg border p-3 hover:bg-muted/50 transition-colors"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded ${
+                finding.severity === 'critical' ? 'bg-red-600/10 text-red-600' : 'bg-red-500/10 text-red-500'
+              }`}>
+                <AlertTriangle className="h-3 w-3" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">{finding.title}</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {finding.affected_files?.[0] || 'Unknown file'}
+                </p>
+              </div>
+            </div>
+            <Badge
+              variant="outline"
+              className={finding.severity === 'critical'
+                ? 'bg-red-600/10 text-red-600 border-red-600/20'
+                : 'bg-red-500/10 text-red-500 border-red-500/20'
+              }
+            >
+              {finding.severity}
+            </Badge>
+          </div>
+        </Link>
+      ))}
+      {findings.total > 5 && (
+        <Link href="/dashboard/findings?severity=critical&severity=high">
+          <Button variant="outline" size="sm" className="w-full">
+            View all {findings.total} critical/high issues
+          </Button>
+        </Link>
+      )}
+    </div>
+  );
+}
+
 // Date Range Selector component
 function DateRangeSelector({
   dateRange,
@@ -591,6 +763,7 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <QuickAnalysisButton />
           <DateRangeSelector
             dateRange={dateRange}
             onDateRangeChange={setDateRange}
@@ -773,6 +946,45 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <FileHotspotsList loading={isLoading} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Recent Activity and Top Issues Row */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Activity className="h-4 w-4" />
+                Recent Analyses
+              </CardTitle>
+              <CardDescription>Latest code analysis runs</CardDescription>
+            </div>
+            <QuickAnalysisButton />
+          </CardHeader>
+          <CardContent>
+            <RecentAnalyses loading={isLoading} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-red-500" />
+                Top Issues
+              </CardTitle>
+              <CardDescription>Critical and high severity findings</CardDescription>
+            </div>
+            <Link href="/dashboard/findings?severity=critical&severity=high">
+              <Button variant="outline" size="sm">
+                View All
+              </Button>
+            </Link>
+          </CardHeader>
+          <CardContent>
+            <TopIssues loading={isLoading} />
           </CardContent>
         </Card>
       </div>

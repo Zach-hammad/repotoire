@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from repotoire.db.models.fix import Fix, FixComment, FixConfidence, FixStatus, FixType
+from repotoire.db.models.analysis import AnalysisRun
 
 
 class FixNotFoundError(Exception):
@@ -221,6 +222,7 @@ class FixRepository:
     async def search(
         self,
         analysis_run_id: Optional[UUID] = None,
+        repository_id: Optional[UUID] = None,
         status: Optional[List[FixStatus]] = None,
         confidence: Optional[List[FixConfidence]] = None,
         fix_type: Optional[List[FixType]] = None,
@@ -236,6 +238,7 @@ class FixRepository:
 
         Args:
             analysis_run_id: Filter by analysis run
+            repository_id: Filter by repository (via analysis_run)
             status: Filter by status(es)
             confidence: Filter by confidence level(s)
             fix_type: Filter by fix type(s)
@@ -253,6 +256,15 @@ class FixRepository:
         # Base query
         query = select(Fix)
         count_query = select(func.count()).select_from(Fix)
+
+        # Apply repository filter (requires join with analysis_runs)
+        if repository_id:
+            query = query.join(AnalysisRun, Fix.analysis_run_id == AnalysisRun.id).where(
+                AnalysisRun.repository_id == repository_id
+            )
+            count_query = count_query.join(AnalysisRun, Fix.analysis_run_id == AnalysisRun.id).where(
+                AnalysisRun.repository_id == repository_id
+            )
 
         # Apply filters
         if analysis_run_id:
@@ -483,6 +495,7 @@ class FixRepository:
         query = (
             select(FixComment)
             .where(FixComment.fix_id == fix_id)
+            .options(selectinload(FixComment.user))  # Eagerly load user
             .order_by(FixComment.created_at.asc())
             .limit(limit)
             .offset(offset)

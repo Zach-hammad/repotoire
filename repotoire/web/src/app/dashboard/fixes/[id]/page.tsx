@@ -41,6 +41,7 @@ import {
 import { cn } from '@/lib/utils';
 import { FixConfidence, FixStatus, FixType, PreviewResult } from '@/types';
 import { mutate } from 'swr';
+import { toast } from 'sonner';
 
 // Badge color mappings
 const confidenceBadgeColors: Record<FixConfidence, string> = {
@@ -94,33 +95,70 @@ export default function FixReviewPage({
   const [localPreviewResult, setLocalPreviewResult] = useState<PreviewResult | null>(null);
 
   const handleApprove = async () => {
-    await approve();
-    mutate(['fixes']);
+    try {
+      await approve();
+      toast.success('Fix approved successfully');
+      mutate(['fix', id]); // Refresh current fix
+      mutate(['fixes']); // Refresh fixes list
+    } catch (error) {
+      toast.error('Failed to approve fix');
+      console.error('Approve error:', error);
+    }
   };
 
   const handleReject = async () => {
-    await reject(rejectReason);
-    setRejectDialogOpen(false);
-    setRejectReason('');
-    mutate(['fixes']);
+    try {
+      await reject(rejectReason);
+      toast.success('Fix rejected');
+      setRejectDialogOpen(false);
+      setRejectReason('');
+      mutate(['fix', id]);
+      mutate(['fixes']);
+    } catch (error) {
+      toast.error('Failed to reject fix');
+      console.error('Reject error:', error);
+    }
   };
 
   const handleApply = async () => {
-    await apply();
-    mutate(['fixes']);
+    try {
+      await apply();
+      toast.success('Fix applied successfully');
+      mutate(['fix', id]);
+      mutate(['fixes']);
+    } catch (error) {
+      toast.error('Failed to apply fix');
+      console.error('Apply error:', error);
+    }
   };
 
   const handleAddComment = async () => {
     if (!newComment.trim()) return;
-    await addComment(newComment);
-    setNewComment('');
-    mutate(['fix-comments', id]);
+    try {
+      await addComment(newComment);
+      setNewComment('');
+      mutate(['fix-comments', id]);
+      toast.success('Comment added');
+    } catch (error) {
+      toast.error('Failed to add comment');
+      console.error('Comment error:', error);
+    }
   };
 
   const handlePreview = async () => {
-    const result = await preview();
-    if (result) {
-      setLocalPreviewResult(result);
+    try {
+      const result = await preview();
+      if (result) {
+        setLocalPreviewResult(result);
+        if (result.success) {
+          toast.success('Preview completed - all checks passed');
+        } else {
+          toast.warning('Preview completed with issues');
+        }
+      }
+    } catch (error) {
+      toast.error('Failed to run preview');
+      console.error('Preview error:', error);
     }
   };
 
