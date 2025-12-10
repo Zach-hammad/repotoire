@@ -76,10 +76,16 @@ class GitHubInstallationResponse(BaseModel):
 
 
 class UpdateReposRequest(BaseModel):
-    """Request model for updating repository enabled status."""
+    """Request model for updating repository enabled status (batch)."""
 
     repo_ids: list[int] = Field(..., description="List of GitHub repository IDs")
     enabled: bool = Field(..., description="Enable or disable analysis")
+
+
+class RepoUpdateRequest(BaseModel):
+    """Request model for updating a single repository."""
+
+    enabled: bool = Field(..., description="Enable or disable analysis for this repository")
 
 
 class WebhookEvent(BaseModel):
@@ -894,6 +900,65 @@ async def update_repos(
     await db.commit()
 
     return {"updated": len(repos), "enabled": request.enabled}
+
+
+@router.patch("/repos/{repo_id}", response_model=GitHubRepoResponse)
+async def update_repo(
+    repo_id: UUID,
+    update: RepoUpdateRequest,
+    user: ClerkUser = Depends(require_org),
+    db: AsyncSession = Depends(get_db),
+) -> GitHubRepoResponse:
+    """Update a single repository's enabled status.
+
+    Args:
+        repo_id: UUID of the GitHubRepository record
+        update: Contains the new enabled status
+        user: Authenticated user (must be in an organization)
+        db: Database session
+
+    Returns:
+        Updated repository object
+    """
+    # Get organization
+    org = await get_org_by_clerk_id(db, user.org_id, user.org_slug)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found",
+        )
+
+    # Find repo and verify ownership via installation -> organization chain
+    result = await db.execute(
+        select(GitHubRepository)
+        .join(GitHubInstallation, GitHubRepository.installation_id == GitHubInstallation.id)
+        .where(GitHubRepository.id == repo_id)
+        .where(GitHubInstallation.organization_id == org.id)
+    )
+    repo = result.scalar_one_or_none()
+
+    if not repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Repository not found",
+        )
+
+    # Update
+    repo.enabled = update.enabled
+    await db.commit()
+    await db.refresh(repo)
+
+    logger.info(
+        f"Repository {repo.full_name} {'enabled' if update.enabled else 'disabled'}",
+        extra={
+            "repo_id": str(repo_id),
+            "repo_full_name": repo.full_name,
+            "enabled": update.enabled,
+            "user_id": user.user_id,
+        },
+    )
+
+    return GitHubRepoResponse.model_validate(repo)
 
 
 @router.post("/installations/{installation_id}/sync")

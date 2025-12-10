@@ -154,23 +154,34 @@ export function RepositoryList({
   };
 
   const handleToggle = async (repo: GitHubRepo, enabled: boolean) => {
+    // Optimistic update - update UI immediately
+    const previousEnabled = repo.enabled;
+    if (onReposChange) {
+      const updated = repos.map((r) =>
+        r.repo_id === repo.repo_id ? { ...r, enabled } : r
+      );
+      onReposChange(updated);
+    }
+
     setUpdatingRepos((prev) => new Set(prev).add(repo.repo_id));
 
     try {
-      await api.post(`/github/installations/${installationId}/repos`, {
-        repo_ids: [repo.repo_id],
-        enabled,
+      // Use new PATCH endpoint for single repo
+      await api.patch<GitHubRepo>(`/github/repos/${repo.id}`, { enabled });
+      toast.success(`${repo.full_name} ${enabled ? "enabled" : "disabled"}`);
+    } catch (error: any) {
+      console.error("Failed to update repo:", error);
+      toast.error("Failed to update repository", {
+        description: error?.message || "Please try again",
       });
 
-      // Update local state
+      // Rollback optimistic update on error
       if (onReposChange) {
-        const updated = repos.map((r) =>
-          r.repo_id === repo.repo_id ? { ...r, enabled } : r
+        const rolledBack = repos.map((r) =>
+          r.repo_id === repo.repo_id ? { ...r, enabled: previousEnabled } : r
         );
-        onReposChange(updated);
+        onReposChange(rolledBack);
       }
-    } catch (error) {
-      console.error("Failed to update repo:", error);
     } finally {
       setUpdatingRepos((prev) => {
         const next = new Set(prev);
