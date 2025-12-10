@@ -10,17 +10,18 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "012_quota_overrides"
-down_revision: Union[str, None] = "011_add_fixes_tables"
+down_revision: Union[str, None] = "011"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
     # Create the quota_override_type enum
-    quota_override_type = sa.Enum(
+    quota_override_type = postgresql.ENUM(
         "sandbox_minutes",
         "concurrent_sessions",
         "storage_gb",
@@ -30,6 +31,7 @@ def upgrade() -> None:
         "monthly_sandbox_minutes",
         "sandboxes_per_day",
         name="quota_override_type",
+        create_type=False,
     )
     quota_override_type.create(op.get_bind(), checkfirst=True)
 
@@ -38,22 +40,7 @@ def upgrade() -> None:
         "quota_overrides",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("organization_id", sa.UUID(), nullable=False),
-        sa.Column(
-            "override_type",
-            sa.Enum(
-                "sandbox_minutes",
-                "concurrent_sessions",
-                "storage_gb",
-                "analysis_per_month",
-                "max_repo_size_mb",
-                "daily_sandbox_minutes",
-                "monthly_sandbox_minutes",
-                "sandboxes_per_day",
-                name="quota_override_type",
-                create_constraint=False,
-            ),
-            nullable=False,
-        ),
+        sa.Column("override_type", quota_override_type, nullable=False),
         sa.Column(
             "original_limit",
             sa.Integer(),

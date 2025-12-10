@@ -58,33 +58,12 @@ def upgrade() -> None:
         sa.Column('title', sa.String(length=500), nullable=False),
         sa.Column('description', sa.Text(), nullable=False),
         sa.Column('explanation', sa.Text(), nullable=False),
-        sa.Column(
-            'fix_type',
-            sa.Enum(
-                'refactor', 'simplify', 'extract', 'rename', 'remove',
-                'security', 'type_hint', 'documentation',
-                name='fix_type',
-                create_type=False,
-            ),
-            nullable=False,
-        ),
-        sa.Column(
-            'confidence',
-            sa.Enum(
-                'high', 'medium', 'low',
-                name='fix_confidence',
-                create_type=False,
-            ),
-            nullable=False,
-        ),
+        sa.Column('fix_type', fix_type, nullable=False),
+        sa.Column('confidence', fix_confidence, nullable=False),
         sa.Column('confidence_score', sa.Float(), nullable=False),
         sa.Column(
             'status',
-            sa.Enum(
-                'pending', 'approved', 'rejected', 'applied', 'failed',
-                name='fix_status',
-                create_type=False,
-            ),
+            fix_status,
             nullable=False,
             server_default='pending',
         ),

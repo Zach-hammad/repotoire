@@ -13,6 +13,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 
@@ -25,9 +26,20 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Create audit_logs table with indexes for common query patterns."""
-    # Create enum types
-    op.execute("CREATE TYPE event_source AS ENUM ('clerk', 'application')")
-    op.execute("CREATE TYPE audit_status AS ENUM ('success', 'failure')")
+    # Create enum types using postgresql.ENUM with checkfirst for idempotency
+    event_source_enum = postgresql.ENUM(
+        "clerk", "application",
+        name="event_source",
+        create_type=False,
+    )
+    event_source_enum.create(op.get_bind(), checkfirst=True)
+
+    audit_status_enum = postgresql.ENUM(
+        "success", "failure",
+        name="audit_status",
+        create_type=False,
+    )
+    audit_status_enum.create(op.get_bind(), checkfirst=True)
 
     # Create audit_logs table
     op.create_table(
@@ -52,7 +64,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "event_source",
-            sa.Enum("clerk", "application", name="event_source", create_type=False),
+            event_source_enum,
             nullable=False,
             comment="Whether event originated from Clerk webhook or application",
         ),
@@ -114,7 +126,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "status",
-            sa.Enum("success", "failure", name="audit_status", create_type=False),
+            audit_status_enum,
             nullable=False,
             default="success",
             comment="Whether the action succeeded or failed",
