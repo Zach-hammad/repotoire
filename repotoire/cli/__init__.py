@@ -199,11 +199,47 @@ def get_config() -> FalkorConfig:
 def cli(ctx: click.Context, config: str | None, log_level: str | None, log_format: str | None, log_file: str | None) -> None:
     """Repotoire - Graph-Powered Code Health Platform
 
-    Configuration priority (highest to lowest):
-    1. Command-line options
-    2. Config file (--config, .reporc, falkor.toml)
-    3. Environment variables
-    4. Built-in defaults
+    \b
+    Repotoire analyzes codebases using Neo4j knowledge graphs to detect
+    code smells, architectural issues, and technical debt. Unlike traditional
+    linters, it combines structural analysis (AST), semantic understanding
+    (NLP + AI), and relational patterns (graph algorithms).
+
+    \b
+    QUICK START:
+      $ repotoire ingest ./my-repo           # Build knowledge graph
+      $ repotoire analyze ./my-repo          # Run health analysis
+      $ repotoire ask "Where is auth?"       # Query with natural language
+
+    \b
+    CONFIGURATION:
+      Priority (highest to lowest):
+      1. Command-line options (--neo4j-uri, etc.)
+      2. Config file (--config, .reporc, falkor.toml)
+      3. Environment variables (REPOTOIRE_NEO4J_URI, etc.)
+      4. Built-in defaults
+
+    \b
+    COMMON WORKFLOWS:
+      First-time setup:
+        $ repotoire init                     # Create config file
+        $ repotoire validate                 # Test connectivity
+        $ repotoire ingest ./repo            # Ingest codebase
+
+      Daily development:
+        $ repotoire analyze ./repo           # Quick health check
+        $ repotoire hotspots                 # Find problem areas
+        $ repotoire auto-fix                 # AI-powered fixes
+
+      CI/CD integration:
+        $ repotoire analyze ./repo -f json   # Machine-readable output
+        $ repotoire security audit           # Security scan
+
+    \b
+    DOCUMENTATION:
+      Full docs: https://docs.repotoire.io
+      API docs:  https://api.repotoire.io/docs
+      Support:   support@repotoire.io
     """
     global _config
 
@@ -364,17 +400,62 @@ def ingest(
     context_model: str,
     max_context_cost: float | None,
 ) -> None:
-    """Ingest a codebase into the knowledge graph with security validation.
+    """Ingest a codebase into the knowledge graph.
 
-    Security features:
-    - Repository path validation and boundary checks
-    - Symlink protection (disabled by default)
-    - File size limits (10MB default)
-    - Relative path storage (prevents system path exposure)
+    \b
+    Parses source code and builds a Neo4j knowledge graph containing:
+    - Files, modules, classes, functions, and variables
+    - Relationships: IMPORTS, CALLS, CONTAINS, INHERITS, USES
+    - Optional: AI-powered semantic clues and vector embeddings
 
-    Database backends:
-    - neo4j: Full-featured Neo4j database (default)
-    - falkordb: Lightweight Redis-based graph database
+    \b
+    EXAMPLES:
+      # Basic ingestion
+      $ repotoire ingest ./my-project
+
+      # With embeddings for RAG search
+      $ repotoire ingest ./my-project --generate-embeddings
+
+      # Force full re-ingestion (ignore cache)
+      $ repotoire ingest ./my-project --force-full
+
+      # Use FalkorDB instead of Neo4j
+      $ repotoire ingest ./my-project --db-type falkordb
+
+    \b
+    INCREMENTAL MODE (default):
+      Only processes files changed since last ingestion. Uses MD5 hashes
+      stored in the graph to detect changes. 10-100x faster than full
+      re-ingestion. Use --force-full to override.
+
+    \b
+    SECURITY FEATURES:
+      - Repository boundary validation (prevents path traversal)
+      - Symlink protection (disabled by default)
+      - File size limits (10MB default)
+      - Secrets detection with configurable policy
+
+    \b
+    DATABASE BACKENDS:
+      neo4j     Full-featured graph database (recommended)
+      falkordb  Lightweight Redis-based alternative (faster startup)
+
+    \b
+    EMBEDDING BACKENDS:
+      auto      Auto-select best available (default)
+      voyage    Voyage AI code-optimized embeddings (best for code)
+      openai    OpenAI text-embedding-3-small (high quality)
+      deepinfra DeepInfra Qwen3-Embedding-8B (cheap API)
+      local     Local Qwen3-Embedding-0.6B (free, no API key)
+
+    \b
+    ENVIRONMENT VARIABLES:
+      REPOTOIRE_NEO4J_URI       Neo4j connection URI
+      REPOTOIRE_NEO4J_PASSWORD  Neo4j password
+      REPOTOIRE_DB_TYPE         Database type (neo4j/falkordb)
+      OPENAI_API_KEY            For OpenAI embeddings
+      VOYAGE_API_KEY            For Voyage embeddings
+      DEEPINFRA_API_KEY         For DeepInfra embeddings
     """
     # Get config from context
     config: FalkorConfig = ctx.obj['config']
@@ -655,7 +736,66 @@ def analyze(
     workers: int,
     offline: bool,
 ) -> None:
-    """Analyze codebase health and generate report."""
+    """Analyze codebase health and generate a comprehensive report.
+
+    \b
+    Runs 8+ detectors to identify code smells, security issues, and
+    architectural problems. Combines graph-based analysis with external
+    tools (ruff, pylint, mypy, bandit, radon, jscpd, vulture, semgrep).
+
+    \b
+    EXAMPLES:
+      # Basic analysis with terminal output
+      $ repotoire analyze ./my-project
+
+      # Generate HTML report
+      $ repotoire analyze ./my-project -o report.html -f html
+
+      # JSON output for CI/CD
+      $ repotoire analyze ./my-project -f json -o results.json
+
+      # Track metrics over time (requires TimescaleDB)
+      $ repotoire analyze ./my-project --track-metrics
+
+    \b
+    HEALTH SCORES:
+      The analysis produces three category scores (0-100):
+      - Structure (40%): Modularity, dependencies, coupling
+      - Quality (30%): Complexity, duplication, dead code
+      - Architecture (30%): Patterns, layering, cohesion
+
+      Overall health = weighted average of category scores.
+
+    \b
+    SEVERITY LEVELS:
+      critical   Must fix immediately (security, crashes)
+      high       Should fix soon (bugs, major issues)
+      medium     Should address (maintainability)
+      low        Nice to fix (style, minor issues)
+      info       Informational only
+
+    \b
+    DETECTORS:
+      ruff       400+ linting rules (fast)
+      pylint     Python-specific checks
+      mypy       Type checking errors
+      bandit     Security vulnerabilities
+      radon      Complexity metrics
+      jscpd      Duplicate code detection
+      vulture    Dead code detection
+      semgrep    Advanced security patterns
+
+    \b
+    PARALLEL EXECUTION:
+      Detectors run in parallel by default for 3-4x speedup.
+      Use --no-parallel to disable, --workers to adjust threads.
+
+    \b
+    EXIT CODES:
+      0   Success (no critical findings)
+      1   Analysis error
+      2   Critical findings detected (CI/CD fail condition)
+    """
     # Get config from context
     config: FalkorConfig = ctx.obj['config']
 
