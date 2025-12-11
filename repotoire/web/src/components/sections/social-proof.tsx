@@ -1,47 +1,65 @@
 "use client"
 
-const testimonials = [
-  {
-    quote:
-      "Found circular dependencies that had been silently breaking hot reload for 2 years. Fixed them all in an afternoon.",
-    author: "Engineering Lead at a Series B startup",
-    role: "(200k LOC codebase)",
-  },
-]
+import { useEffect, useRef, useState } from "react"
 
 export function SocialProof() {
+  const sectionRef = useRef<HTMLElement>(null)
+  const [isVisible, setIsVisible] = useState(false)
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) setIsVisible(true)
+      },
+      { threshold: 0.1 },
+    )
+    if (sectionRef.current) observer.observe(sectionRef.current)
+    return () => observer.disconnect()
+  }, [])
+
   return (
-    <section className="py-20 px-4 sm:px-6 lg:px-8 border-t border-border">
+    <section ref={sectionRef} className="py-24 px-4 sm:px-6 lg:px-8 border-t border-border">
       <div className="max-w-4xl mx-auto">
-        <h2 className="text-2xl font-bold text-foreground mb-8 text-center">Results from real teams</h2>
-
-        <div className="grid md:grid-cols-3 gap-6">
-          <div className="bg-card rounded-lg border border-border p-6">
-            <div className="text-3xl font-bold text-emerald-400 mb-2">47</div>
-            <div className="text-sm text-foreground font-medium mb-1">circular dependencies fixed</div>
-            <div className="text-xs text-muted-foreground">in a 200k LOC TypeScript monorepo</div>
-          </div>
-
-          <div className="bg-card rounded-lg border border-border p-6">
-            <div className="text-3xl font-bold text-emerald-400 mb-2">12 min → 8 sec</div>
-            <div className="text-sm text-foreground font-medium mb-1">CI time reduction</div>
-            <div className="text-xs text-muted-foreground">with incremental analysis</div>
-          </div>
-
-          <div className="bg-card rounded-lg border border-border p-6">
-            <div className="text-3xl font-bold text-emerald-400 mb-2">2,340</div>
-            <div className="text-sm text-foreground font-medium mb-1">dead exports removed</div>
-            <div className="text-xs text-muted-foreground">saving 18% bundle size</div>
+        <div className={`card-elevated rounded-xl p-8 md:p-10 mb-12 opacity-0 ${isVisible ? "animate-fade-up" : ""}`}>
+          <div className="flex flex-col md:flex-row gap-6 items-start">
+            <div className="flex-shrink-0">
+              <div className="w-14 h-14 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                <span className="text-lg font-display font-bold text-primary">JK</span>
+              </div>
+            </div>
+            <div>
+              <blockquote className="text-lg md:text-xl text-foreground mb-4 leading-relaxed">
+                "We had circular dependencies silently breaking hot reload for 2 years. Repotoire found 47 of them in
+                our monorepo.
+                <span className="text-primary font-medium"> Fixed them all in one afternoon</span> with the AI
+                auto-fix."
+              </blockquote>
+              <div className="flex items-center gap-3">
+                <div>
+                  <div className="font-display font-medium text-foreground">James Kim</div>
+                  <div className="text-sm text-muted-foreground">Staff Engineer at Lattice</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="mt-12 bg-card rounded-lg border border-border p-8 text-center">
-          <p className="text-lg text-foreground mb-4">
-            "We found circular dependencies that had been silently breaking hot reload for 2 years. Fixed them all in an
-            afternoon."
-          </p>
-          <div className="text-sm text-muted-foreground">
-            — Engineering Lead at a Series B startup (200k LOC codebase)
+        <div className="grid grid-cols-3 gap-4">
+          <div className={`text-center opacity-0 ${isVisible ? "animate-fade-up delay-200" : ""}`}>
+            <div className="text-2xl md:text-3xl font-display font-bold text-foreground mb-1">47</div>
+            <div className="text-xs md:text-sm text-muted-foreground">cycles fixed in one repo</div>
+          </div>
+
+          <div
+            className={`text-center border-x border-border opacity-0 ${isVisible ? "animate-fade-up delay-300" : ""}`}
+          >
+            <div className="text-2xl md:text-3xl font-display font-bold text-foreground mb-1">8s</div>
+            <div className="text-xs md:text-sm text-muted-foreground">re-analysis (was 12 min)</div>
+          </div>
+
+          <div className={`text-center opacity-0 ${isVisible ? "animate-fade-up delay-400" : ""}`}>
+            <div className="text-2xl md:text-3xl font-display font-bold text-foreground mb-1">18%</div>
+            <div className="text-xs md:text-sm text-muted-foreground">bundle size reduction</div>
           </div>
         </div>
       </div>

@@ -275,3 +275,63 @@ export interface PreviewResult {
   error: string | null;
   cached_at: string | null;  // ISO timestamp if cached
 }
+
+// Repository analysis status
+export type AnalysisStatus = 'idle' | 'queued' | 'running' | 'completed' | 'failed';
+
+// Repository with full details
+export interface Repository {
+  id: string;
+  full_name: string;
+  github_repo_id: number;
+  health_score: number | null;
+  last_analyzed_at: string | null;
+  analysis_status: AnalysisStatus;
+  is_enabled: boolean;
+  default_branch: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// GitHub App installation
+export interface GitHubInstallation {
+  id: string;
+  uuid: string;
+  installation_id: number;
+  account_login: string;
+  account_type: 'User' | 'Organization';
+  account_avatar_url?: string;
+  repo_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Available GitHub repo (not yet connected)
+export interface GitHubAvailableRepo {
+  id: number;
+  full_name: string;
+  description: string | null;
+  private: boolean;
+  default_branch: string;
+}
+
+// Analysis run status for polling
+export interface AnalysisRunStatus {
+  id: string;
+  repository_id: string;
+  commit_sha: string;
+  branch: string;
+  status: AnalysisStatus;
+  progress_percent: number;
+  current_step: string | null;
+  health_score: number | null;
+  structure_score: number | null;
+  quality_score: number | null;
+  architecture_score: number | null;
+  findings_count: number;
+  files_analyzed: number;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}

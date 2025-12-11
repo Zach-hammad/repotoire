@@ -89,75 +89,76 @@ function HealthScoreGauge({ loading }: { loading?: boolean }) {
 
   if (loading || !healthScore) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Health Score</CardTitle>
-          <CardDescription>Overall codebase health</CardDescription>
+      <Card className="card-elevated">
+        <CardHeader className="pb-3">
+          <CardTitle className="font-display text-sm">Health Score</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col items-center">
-          <Skeleton className="h-[180px] w-[180px] rounded-full" />
+        <CardContent className="space-y-4">
+          <Skeleton className="h-16 w-full" />
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+          </div>
         </CardContent>
       </Card>
     );
   }
 
   const { score, grade, trend, categories } = healthScore;
-  const data = [
-    { value: score },
-    { value: 100 - score },
-  ];
 
   const TrendIcon = trend === 'improving' ? TrendingUp : trend === 'declining' ? TrendingDown : Minus;
   const trendColor = trend === 'improving' ? 'text-green-500' : trend === 'declining' ? 'text-red-500' : 'text-muted-foreground';
 
+  // Category colors matching the brand gradient
+  const categoryColors: Record<string, string> = {
+    structure: '#8b5cf6',
+    quality: '#ec4899',
+    architecture: '#f97316',
+  };
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          Health Score
-          <div className={`flex items-center gap-1 text-sm font-normal ${trendColor}`}>
-            <TrendIcon className="h-4 w-4" />
+    <Card className="card-elevated">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="font-display text-sm">Health Score</CardTitle>
+          <div className={`flex items-center gap-1 text-xs ${trendColor}`}>
+            <TrendIcon className="h-3 w-3" />
             <span className="capitalize">{trend}</span>
           </div>
-        </CardTitle>
-        <CardDescription>Overall codebase health</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col items-center">
-        <div className="relative">
-          <ResponsiveContainer width={180} height={100}>
-            <PieChart>
-              <Pie
-                data={data}
-                startAngle={180}
-                endAngle={0}
-                innerRadius={55}
-                outerRadius={75}
-                paddingAngle={0}
-                dataKey="value"
-              >
-                <Cell fill={gradeColors[grade]} />
-                <Cell fill="#e5e7eb" />
-              </Pie>
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="absolute inset-0 flex flex-col items-center justify-end pb-2">
-            <span className="text-3xl font-bold">{score}</span>
-            <span className="text-sm text-muted-foreground">/100</span>
-          </div>
         </div>
-        <Badge
-          className="mt-2 text-white"
-          style={{ backgroundColor: gradeColors[grade] }}
-        >
-          Grade {grade}
-        </Badge>
-        <div className="mt-4 w-full space-y-2">
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Big Number Hero */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-baseline gap-1">
+            <span className="text-4xl font-bold font-display text-gradient">{score}</span>
+            <span className="text-lg text-muted-foreground">/100</span>
+          </div>
+          <Badge
+            className="text-white text-xs px-2 py-0.5"
+            style={{ backgroundColor: gradeColors[grade] }}
+          >
+            Grade {grade}
+          </Badge>
+        </div>
+
+        {/* Category Breakdown - Stacked Bars */}
+        <div className="space-y-2">
           {Object.entries(categories).map(([key, value]) => (
-            <div key={key} className="flex items-center justify-between text-sm">
-              <span className="capitalize">{key}</span>
-              <div className="flex items-center gap-2">
-                <Progress value={value} className="h-2 w-20" />
-                <span className="text-muted-foreground w-8 text-right">{value}</span>
+            <div key={key} className="space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="capitalize font-medium">{key}</span>
+                <span className="text-muted-foreground tabular-nums">{value}%</span>
+              </div>
+              <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${value}%`,
+                    backgroundColor: categoryColors[key] || '#6366f1',
+                  }}
+                />
               </div>
             </div>
           ))}
@@ -183,30 +184,30 @@ function StatCard({
   loading?: boolean;
 }) {
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <Icon className="h-4 w-4 text-muted-foreground" />
-      </CardHeader>
-      <CardContent>
+    <Card className="card-elevated">
+      <CardContent className="p-4">
         {loading ? (
-          <Skeleton className="h-8 w-24" />
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-8 w-16" />
+            <Skeleton className="h-3 w-24" />
+          </div>
         ) : (
-          <>
-            <div className="text-2xl font-bold">{value}</div>
-            <p className="text-xs text-muted-foreground">
-              {description}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{title}</span>
+              <Icon className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-display">{value}</span>
               {trend && (
-                <span
-                  className={trend.isPositive ? 'text-green-500' : 'text-red-500'}
-                >
-                  {' '}
-                  {trend.isPositive ? '+' : ''}
-                  {trend.value}%
+                <span className={`text-xs font-medium ${trend.isPositive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {trend.isPositive ? '↑' : '↓'} {Math.abs(trend.value)}%
                 </span>
               )}
-            </p>
-          </>
+            </div>
+            <p className="text-xs text-muted-foreground">{description}</p>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -223,22 +224,26 @@ function TrendsChart({ loading }: { loading?: boolean }) {
   return (
     <ResponsiveContainer width="100%" height={300}>
       <LineChart data={trends}>
-        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} />
         <XAxis
           dataKey="date"
-          className="text-xs"
-          tick={{ fill: 'hsl(var(--muted-foreground))' }}
+          tick={{ fill: 'var(--foreground)', fontSize: 11, opacity: 0.7 }}
+          tickLine={{ stroke: 'var(--border)' }}
+          axisLine={{ stroke: 'var(--border)' }}
         />
         <YAxis
-          className="text-xs"
-          tick={{ fill: 'hsl(var(--muted-foreground))' }}
+          tick={{ fill: 'var(--foreground)', fontSize: 11, opacity: 0.7 }}
+          tickLine={{ stroke: 'var(--border)' }}
+          axisLine={{ stroke: 'var(--border)' }}
         />
         <Tooltip
           contentStyle={{
-            backgroundColor: 'hsl(var(--card))',
-            border: '1px solid hsl(var(--border))',
+            backgroundColor: 'var(--card)',
+            border: '1px solid var(--border)',
             borderRadius: '8px',
+            color: 'var(--foreground)',
           }}
+          labelStyle={{ color: 'var(--foreground)', fontWeight: 500 }}
         />
         <Line
           type="monotone"
@@ -246,27 +251,31 @@ function TrendsChart({ loading }: { loading?: boolean }) {
           stroke="#dc2626"
           strokeWidth={2}
           name="Critical"
+          dot={{ fill: '#dc2626', strokeWidth: 0, r: 3 }}
         />
         <Line
           type="monotone"
           dataKey="high"
-          stroke="#ef4444"
+          stroke="#f97316"
           strokeWidth={2}
           name="High"
+          dot={{ fill: '#f97316', strokeWidth: 0, r: 3 }}
         />
         <Line
           type="monotone"
           dataKey="medium"
-          stroke="#f59e0b"
+          stroke="#eab308"
           strokeWidth={2}
           name="Medium"
+          dot={{ fill: '#eab308', strokeWidth: 0, r: 3 }}
         />
         <Line
           type="monotone"
           dataKey="low"
-          stroke="#84cc16"
+          stroke="#22c55e"
           strokeWidth={2}
           name="Low"
+          dot={{ fill: '#22c55e', strokeWidth: 0, r: 3 }}
         />
       </LineChart>
     </ResponsiveContainer>
@@ -302,10 +311,13 @@ function SeverityChart({ data, loading }: { data?: Record<Severity, number>; loa
         </Pie>
         <Tooltip
           contentStyle={{
-            backgroundColor: 'hsl(var(--card))',
-            border: '1px solid hsl(var(--border))',
+            backgroundColor: 'var(--card)',
+            border: '1px solid var(--border)',
             borderRadius: '8px',
+            color: 'var(--foreground)',
           }}
+          labelStyle={{ color: 'var(--foreground)', fontWeight: 500 }}
+          itemStyle={{ color: 'var(--foreground)' }}
         />
       </PieChart>
     </ResponsiveContainer>
@@ -314,37 +326,58 @@ function SeverityChart({ data, loading }: { data?: Record<Severity, number>; loa
 
 function DetectorChart({ data, loading }: { data?: Record<string, number>; loading?: boolean }) {
   if (loading || !data) {
-    return <Skeleton className="h-[200px] w-full" />;
+    return <Skeleton className="h-[220px] w-full" />;
   }
 
+  // Colors from brand gradient for detector bars
+  const detectorColors = ['#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e', '#f97316'];
+
   const chartData = Object.entries(data)
-    .map(([name, value]) => ({
-      name: name.replace(/_/g, ' '),
+    .map(([name, value], index) => ({
+      // Truncate long detector names
+      name: name.replace(/_/g, ' ').slice(0, 12) + (name.length > 12 ? '...' : ''),
+      fullName: name.replace(/_/g, ' '),
       value,
-      fill: '#6366f1', // Default indigo color for detectors
+      fill: detectorColors[index % detectorColors.length],
     }))
     .sort((a, b) => b.value - a.value)
     .slice(0, 6);
 
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={chartData} layout="vertical">
-        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" horizontal={false} />
-        <XAxis type="number" tick={{ fill: 'hsl(var(--muted-foreground))' }} />
+    <ResponsiveContainer width="100%" height={220}>
+      <BarChart data={chartData} layout="vertical" margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} horizontal={false} />
+        <XAxis
+          type="number"
+          tick={{ fill: 'var(--foreground)', fontSize: 10, opacity: 0.7 }}
+          tickLine={{ stroke: 'var(--border)' }}
+          axisLine={{ stroke: 'var(--border)' }}
+        />
         <YAxis
           type="category"
           dataKey="name"
-          tick={{ fill: 'hsl(var(--muted-foreground))' }}
-          width={80}
+          tick={{ fill: 'var(--foreground)', fontSize: 10 }}
+          tickLine={false}
+          axisLine={{ stroke: 'var(--border)' }}
+          width={90}
         />
         <Tooltip
           contentStyle={{
-            backgroundColor: 'hsl(var(--card))',
-            border: '1px solid hsl(var(--border))',
+            backgroundColor: 'var(--card)',
+            border: '1px solid var(--border)',
             borderRadius: '8px',
+            color: 'var(--foreground)',
           }}
+          labelStyle={{ color: 'var(--foreground)', fontWeight: 500 }}
+          itemStyle={{ color: 'var(--foreground)' }}
+          cursor={{ fill: 'var(--accent)', opacity: 0.3 }}
+          formatter={(value: number, name: string, props: any) => [value, props.payload.fullName]}
         />
-        <Bar dataKey="value" fill="#6366f1" />
+        <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+          {chartData.map((entry, index) => (
+            <Cell key={`cell-${index}`} fill={entry.fill} />
+          ))}
+        </Bar>
       </BarChart>
     </ResponsiveContainer>
   );
@@ -356,10 +389,20 @@ function FileHotspotsList({ loading }: { loading?: boolean }) {
 
   if (loading || !hotspots) {
     return (
-      <div className="space-y-3">
+      <div className="space-y-2">
         {[1, 2, 3, 4, 5].map((i) => (
-          <Skeleton key={i} className="h-12 w-full" />
+          <Skeleton key={i} className="h-14 w-full" />
         ))}
+      </div>
+    );
+  }
+
+  if (hotspots.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-6 text-center">
+        <FileCode2 className="h-10 w-10 text-muted-foreground/50 mb-2" />
+        <p className="text-sm text-muted-foreground">No hotspots found</p>
+        <p className="text-xs text-muted-foreground/70">Run an analysis to see file hotspots</p>
       </div>
     );
   }
@@ -370,29 +413,46 @@ function FileHotspotsList({ loading }: { loading?: boolean }) {
     router.push(`/dashboard/findings?file_path=${encodeURIComponent(filePath)}`);
   };
 
+  // Progress bar colors from brand gradient
+  const progressColors = ['#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e'];
+
   return (
-    <div className="space-y-3">
-      {hotspots.map((hotspot) => (
+    <div className="space-y-2">
+      {hotspots.map((hotspot, index) => (
         <button
           key={hotspot.file_path}
           onClick={() => handleFileClick(hotspot.file_path)}
-          className="w-full space-y-1 p-2 -m-2 rounded-md hover:bg-muted/50 transition-colors text-left cursor-pointer"
+          className="w-full rounded-lg border border-border/50 p-3 hover:bg-muted/30 transition-colors text-left cursor-pointer"
         >
-          <div className="flex items-center justify-between text-sm">
-            <span className="font-mono text-xs truncate max-w-[200px] hover:text-primary">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <span className="font-mono text-xs truncate flex-1 min-w-0 text-foreground">
               {hotspot.file_path.split('/').pop()}
             </span>
-            <span className="text-muted-foreground">{hotspot.finding_count} findings</span>
+            <span className="text-[11px] text-muted-foreground whitespace-nowrap tabular-nums">
+              {hotspot.finding_count} findings
+            </span>
           </div>
-          <Progress value={(hotspot.finding_count / maxCount) * 100} className="h-2" />
-          <div className="flex gap-1 mt-1">
+          <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden mb-2">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${(hotspot.finding_count / maxCount) * 100}%`,
+                backgroundColor: progressColors[index % progressColors.length],
+              }}
+            />
+          </div>
+          <div className="flex gap-1 flex-wrap">
             {Object.entries(hotspot.severity_breakdown)
               .filter(([_, count]) => count > 0)
+              .sort(([a], [b]) => {
+                const order = ['critical', 'high', 'medium', 'low', 'info'];
+                return order.indexOf(a) - order.indexOf(b);
+              })
               .map(([severity, count]) => (
                 <Badge
                   key={severity}
                   variant="outline"
-                  className="text-xs px-1 py-0"
+                  className="text-[10px] px-1.5 py-0"
                   style={{ borderColor: severityColors[severity as Severity], color: severityColors[severity as Severity] }}
                 >
                   {count} {severity}
@@ -449,104 +509,110 @@ function RecentAnalyses({ loading }: { loading?: boolean }) {
 
   if (analyses.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-8 text-center">
-        <Activity className="h-12 w-12 text-muted-foreground mb-3" />
+      <div className="flex flex-col items-center justify-center py-6 text-center">
+        <Activity className="h-10 w-10 text-muted-foreground/50 mb-2" />
         <p className="text-sm text-muted-foreground">No analyses yet</p>
-        <p className="text-xs text-muted-foreground">Run your first analysis to see results here</p>
+        <p className="text-xs text-muted-foreground/70">Run your first analysis</p>
       </div>
     );
   }
 
-  const getStatusColor = (status: string) => {
+  const getStatusStyles = (status: string) => {
     switch (status) {
       case 'completed':
-        return 'bg-green-500/10 text-green-500 border-green-500/20';
+        return { bg: 'bg-green-500/10', text: 'text-green-600 dark:text-green-400', border: 'border-green-500/20' };
       case 'running':
-        return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
+        return { bg: 'bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/20' };
       case 'failed':
-        return 'bg-red-500/10 text-red-500 border-red-500/20';
+        return { bg: 'bg-red-500/10', text: 'text-red-600 dark:text-red-400', border: 'border-red-500/20' };
       case 'queued':
-        return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20';
+        return { bg: 'bg-yellow-500/10', text: 'text-yellow-600 dark:text-yellow-400', border: 'border-yellow-500/20' };
       default:
-        return 'bg-gray-500/10 text-gray-500 border-gray-500/20';
+        return { bg: 'bg-gray-500/10', text: 'text-gray-600 dark:text-gray-400', border: 'border-gray-500/20' };
     }
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'completed':
-        return <CheckCircle2 className="h-4 w-4" />;
+        return <CheckCircle2 className="h-3.5 w-3.5" />;
       case 'running':
-        return <Loader2 className="h-4 w-4 animate-spin" />;
+        return <Loader2 className="h-3.5 w-3.5 animate-spin" />;
       case 'failed':
-        return <XCircle className="h-4 w-4" />;
+        return <XCircle className="h-3.5 w-3.5" />;
       case 'queued':
-        return <Clock className="h-4 w-4" />;
+        return <Clock className="h-3.5 w-3.5" />;
       default:
-        return <Activity className="h-4 w-4" />;
+        return <Activity className="h-3.5 w-3.5" />;
     }
   };
 
   return (
-    <div className="space-y-3">
-      {analyses.map((analysis) => (
-        <div
-          key={analysis.id}
-          className="flex items-center justify-between rounded-lg border p-3 hover:bg-muted/50 transition-colors"
-        >
-          <div className="flex items-center gap-3">
-            <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${getStatusColor(analysis.status)}`}>
-              {getStatusIcon(analysis.status)}
+    <div className="space-y-2">
+      {analyses.map((analysis) => {
+        const styles = getStatusStyles(analysis.status);
+        return (
+          <div
+            key={analysis.id}
+            className="rounded-lg border border-border/50 p-3 hover:bg-muted/30 transition-colors"
+          >
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${styles.bg} ${styles.text}`}>
+                  {getStatusIcon(analysis.status)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium truncate">
+                    {analysis.branch || 'main'}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {analysis.completed_at
+                      ? format(new Date(analysis.completed_at), 'MMM d, HH:mm')
+                      : analysis.started_at
+                      ? format(new Date(analysis.started_at), 'MMM d, HH:mm')
+                      : 'Pending'}
+                  </p>
+                </div>
+              </div>
+              <Badge variant="outline" className={`shrink-0 text-[10px] px-1.5 py-0 ${styles.bg} ${styles.text} ${styles.border}`}>
+                {analysis.status}
+              </Badge>
             </div>
-            <div>
-              <p className="text-sm font-medium truncate max-w-[150px]">
-                {analysis.branch || 'main'}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {analysis.completed_at
-                  ? format(new Date(analysis.completed_at), 'MMM d, HH:mm')
-                  : analysis.started_at
-                  ? format(new Date(analysis.started_at), 'MMM d, HH:mm')
-                  : 'Pending'}
-              </p>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {analysis.health_score !== null && (
+                <Badge variant="secondary" className="font-mono text-[10px] px-1.5 py-0 bg-secondary/50">
+                  {analysis.health_score}%
+                </Badge>
+              )}
+              {analysis.findings_count > 0 && (
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-secondary/50">
+                  {analysis.findings_count} findings
+                </Badge>
+              )}
+              {analysis.status === 'completed' && analysis.findings_count > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 px-1.5 ml-auto text-[10px] text-muted-foreground hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleGenerateFixes(analysis.id);
+                  }}
+                  disabled={isGenerating && generatingId === analysis.id}
+                  title="Generate AI fixes"
+                >
+                  {isGenerating && generatingId === analysis.id ? (
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                  ) : (
+                    <Wand2 className="h-3 w-3 mr-1" />
+                  )}
+                  Fix
+                </Button>
+              )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {analysis.health_score !== null && (
-              <Badge variant="outline" className="font-mono">
-                {analysis.health_score}%
-              </Badge>
-            )}
-            {analysis.findings_count > 0 && (
-              <Badge variant="secondary">
-                {analysis.findings_count} findings
-              </Badge>
-            )}
-            {analysis.status === 'completed' && analysis.findings_count > 0 && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleGenerateFixes(analysis.id);
-                }}
-                disabled={isGenerating && generatingId === analysis.id}
-                title="Generate AI fixes"
-              >
-                {isGenerating && generatingId === analysis.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Wand2 className="h-4 w-4" />
-                )}
-              </Button>
-            )}
-            <Badge variant="outline" className={getStatusColor(analysis.status)}>
-              {analysis.status}
-            </Badge>
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -557,13 +623,12 @@ function FixStatsCard({ loading }: { loading?: boolean }) {
 
   if (loading || !fixStats) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Wand2 className="h-4 w-4" />
-            AI Fixes
-          </CardTitle>
-          <CardDescription>Generated fix proposals</CardDescription>
+      <Card className="card-elevated">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">AI Fixes</span>
+            <Wand2 className="h-4 w-4 text-muted-foreground" />
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
@@ -577,62 +642,70 @@ function FixStatsCard({ loading }: { loading?: boolean }) {
   }
 
   const statusItems = [
-    { label: 'Pending Review', value: fixStats.pending, color: 'bg-yellow-500', textColor: 'text-yellow-500' },
-    { label: 'Approved', value: fixStats.approved, color: 'bg-blue-500', textColor: 'text-blue-500' },
-    { label: 'Applied', value: fixStats.applied, color: 'bg-green-500', textColor: 'text-green-500' },
-    { label: 'Rejected', value: fixStats.rejected, color: 'bg-red-500', textColor: 'text-red-500' },
+    { label: 'Pending', value: fixStats.pending, barColor: '#eab308', textColor: 'text-yellow-600 dark:text-yellow-400' },
+    { label: 'Approved', value: fixStats.approved, barColor: '#3b82f6', textColor: 'text-blue-600 dark:text-blue-400' },
+    { label: 'Applied', value: fixStats.applied, barColor: '#22c55e', textColor: 'text-green-600 dark:text-green-400' },
+    { label: 'Rejected', value: fixStats.rejected, barColor: '#ef4444', textColor: 'text-red-600 dark:text-red-400' },
   ];
 
   const totalFixes = fixStats.total;
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <div>
-          <CardTitle className="flex items-center gap-2">
-            <Wand2 className="h-4 w-4" />
-            AI Fixes
-          </CardTitle>
-          <CardDescription>Generated fix proposals</CardDescription>
+    <Card className="card-elevated">
+      <CardHeader className="pb-3 flex flex-row items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">AI Fixes</span>
         </div>
-        <Link href="/dashboard/fixes">
-          <Button variant="outline" size="sm">
-            View All
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Wand2 className="h-4 w-4 text-muted-foreground" />
+          <Link href="/dashboard/fixes">
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs">
+              View All
+            </Button>
+          </Link>
+        </div>
       </CardHeader>
       <CardContent>
         {totalFixes === 0 ? (
-          <div className="flex flex-col items-center justify-center py-8 text-center">
-            <Wand2 className="h-12 w-12 text-muted-foreground mb-3" />
-            <p className="text-sm text-muted-foreground">No fixes generated yet</p>
-            <p className="text-xs text-muted-foreground">Run analysis and generate AI fixes</p>
+          <div className="flex flex-col items-center justify-center py-6 text-center">
+            <Wand2 className="h-10 w-10 text-muted-foreground/50 mb-2" />
+            <p className="text-sm text-muted-foreground">No fixes yet</p>
+            <p className="text-xs text-muted-foreground/70">Run analysis to generate AI fixes</p>
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">Total Fixes</span>
-              <span className="text-2xl font-bold">{totalFixes}</span>
+            {/* Big Number Hero */}
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-bold font-display">{totalFixes}</span>
+              <span className="text-sm text-muted-foreground">total fixes</span>
             </div>
-            <div className="space-y-3">
+
+            {/* Status Breakdown */}
+            <div className="space-y-2">
               {statusItems.map((item) => (
                 <div key={item.label} className="space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{item.label}</span>
-                    <span className={`font-medium ${item.textColor}`}>{item.value}</span>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium">{item.label}</span>
+                    <span className={`tabular-nums ${item.textColor}`}>{item.value}</span>
                   </div>
-                  <Progress
-                    value={totalFixes > 0 ? (item.value / totalFixes) * 100 : 0}
-                    className="h-2"
-                  />
+                  <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: totalFixes > 0 ? `${(item.value / totalFixes) * 100}%` : '0%',
+                        backgroundColor: item.barColor,
+                      }}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
+
             {fixStats.pending > 0 && (
               <Link href="/dashboard/fixes?status=pending">
-                <Button variant="outline" size="sm" className="w-full mt-2">
-                  <Clock className="mr-2 h-4 w-4" />
-                  Review {fixStats.pending} pending fix{fixStats.pending !== 1 ? 'es' : ''}
+                <Button variant="outline" size="sm" className="w-full h-8 text-xs">
+                  <Clock className="mr-1.5 h-3 w-3" />
+                  Review {fixStats.pending} pending
                 </Button>
               </Link>
             )}
@@ -649,9 +722,9 @@ function TopIssues({ loading }: { loading?: boolean }) {
 
   if (loading || !findings) {
     return (
-      <div className="space-y-3">
+      <div className="space-y-2">
         {[1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-16 w-full" />
+          <Skeleton key={i} className="h-14 w-full" />
         ))}
       </div>
     );
@@ -659,51 +732,56 @@ function TopIssues({ loading }: { loading?: boolean }) {
 
   if (findings.items.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-8 text-center">
-        <CheckCircle2 className="h-12 w-12 text-green-500 mb-3" />
-        <p className="text-sm font-medium">No critical issues!</p>
-        <p className="text-xs text-muted-foreground">Your codebase is looking healthy</p>
+      <div className="flex flex-col items-center justify-center py-6 text-center">
+        <CheckCircle2 className="h-10 w-10 text-green-500/80 mb-2" />
+        <p className="text-sm font-medium text-green-600 dark:text-green-400">No critical issues!</p>
+        <p className="text-xs text-muted-foreground/70">Your codebase is looking healthy</p>
       </div>
     );
   }
 
+  const getSeverityStyles = (severity: string) => {
+    if (severity === 'critical') {
+      return { bg: 'bg-red-600/10', text: 'text-red-600 dark:text-red-400', border: 'border-red-600/20' };
+    }
+    return { bg: 'bg-orange-500/10', text: 'text-orange-600 dark:text-orange-400', border: 'border-orange-500/20' };
+  };
+
   return (
-    <div className="space-y-3">
-      {findings.items.map((finding) => (
-        <Link
-          key={finding.id}
-          href={`/dashboard/findings?severity=${finding.severity}`}
-          className="block rounded-lg border p-3 hover:bg-muted/50 transition-colors"
-        >
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-start gap-3 min-w-0">
-              <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded ${
-                finding.severity === 'critical' ? 'bg-red-600/10 text-red-600' : 'bg-red-500/10 text-red-500'
-              }`}>
-                <AlertTriangle className="h-3 w-3" />
+    <div className="space-y-2">
+      {findings.items.map((finding) => {
+        const styles = getSeverityStyles(finding.severity);
+        return (
+          <Link
+            key={finding.id}
+            href={`/dashboard/findings?severity=${finding.severity}`}
+            className="block rounded-lg border border-border/50 p-3 hover:bg-muted/30 transition-colors"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md mt-0.5 ${styles.bg} ${styles.text}`}>
+                  <AlertTriangle className="h-3 w-3" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{finding.title}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    {finding.affected_files?.[0] || 'Unknown file'}
+                  </p>
+                </div>
               </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium truncate">{finding.title}</p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {finding.affected_files?.[0] || 'Unknown file'}
-                </p>
-              </div>
+              <Badge
+                variant="outline"
+                className={`shrink-0 text-[10px] px-1.5 py-0 ${styles.bg} ${styles.text} ${styles.border}`}
+              >
+                {finding.severity}
+              </Badge>
             </div>
-            <Badge
-              variant="outline"
-              className={finding.severity === 'critical'
-                ? 'bg-red-600/10 text-red-600 border-red-600/20'
-                : 'bg-red-500/10 text-red-500 border-red-500/20'
-              }
-            >
-              {finding.severity}
-            </Badge>
-          </div>
-        </Link>
-      ))}
+          </Link>
+        );
+      })}
       {findings.total > 5 && (
         <Link href="/dashboard/findings?severity=critical&severity=high">
-          <Button variant="outline" size="sm" className="w-full">
+          <Button variant="outline" size="sm" className="w-full h-8 text-xs">
             View all {findings.total} critical/high issues
           </Button>
         </Link>
@@ -898,7 +976,9 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <h1 className="text-3xl font-bold tracking-tight font-display">
+            <span className="text-gradient">Dashboard</span>
+          </h1>
           <p className="text-muted-foreground">
             Code health analysis and findings overview
           </p>
@@ -966,71 +1046,64 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Severity Cards */}
-      <div className="grid gap-4 md:grid-cols-5">
-        <Card className="border-red-600/20 bg-red-600/5">
-          <CardContent className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="h-8 w-8 text-red-600" />
-              <div>
-                <p className="text-sm font-medium">Critical</p>
-                <p className="text-2xl font-bold">{summary?.critical || 0}</p>
-              </div>
+      {/* Severity Cards - Linear style with colored left border */}
+      <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+        <Card className="card-elevated border-l-4 border-l-red-600">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Critical</span>
+              <AlertTriangle className="h-4 w-4 text-red-600" />
             </div>
+            <p className="text-2xl font-bold font-display text-red-600 dark:text-red-400">{summary?.critical || 0}</p>
           </CardContent>
         </Card>
-        <Card className="border-red-500/20 bg-red-500/5">
-          <CardContent className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-3">
-              <XCircle className="h-8 w-8 text-red-500" />
-              <div>
-                <p className="text-sm font-medium">High</p>
-                <p className="text-2xl font-bold">{summary?.high || 0}</p>
-              </div>
+        <Card className="card-elevated border-l-4 border-l-orange-500">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">High</span>
+              <XCircle className="h-4 w-4 text-orange-500" />
             </div>
+            <p className="text-2xl font-bold font-display text-orange-600 dark:text-orange-400">{summary?.high || 0}</p>
           </CardContent>
         </Card>
-        <Card className="border-yellow-500/20 bg-yellow-500/5">
-          <CardContent className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-3">
-              <Clock className="h-8 w-8 text-yellow-500" />
-              <div>
-                <p className="text-sm font-medium">Medium</p>
-                <p className="text-2xl font-bold">{summary?.medium || 0}</p>
-              </div>
+        <Card className="card-elevated border-l-4 border-l-yellow-500">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Medium</span>
+              <Clock className="h-4 w-4 text-yellow-500" />
             </div>
+            <p className="text-2xl font-bold font-display text-yellow-600 dark:text-yellow-400">{summary?.medium || 0}</p>
           </CardContent>
         </Card>
-        <Card className="border-green-500/20 bg-green-500/5">
-          <CardContent className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-3">
-              <CheckCircle2 className="h-8 w-8 text-green-500" />
-              <div>
-                <p className="text-sm font-medium">Low</p>
-                <p className="text-2xl font-bold">{summary?.low || 0}</p>
-              </div>
+        <Card className="card-elevated border-l-4 border-l-green-500">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Low</span>
+              <CheckCircle2 className="h-4 w-4 text-green-500" />
             </div>
+            <p className="text-2xl font-bold font-display text-green-600 dark:text-green-400">{summary?.low || 0}</p>
           </CardContent>
         </Card>
-        <Card className="border-gray-500/20 bg-gray-500/5">
-          <CardContent className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-3">
-              <FileCode2 className="h-8 w-8 text-gray-500" />
-              <div>
-                <p className="text-sm font-medium">Info</p>
-                <p className="text-2xl font-bold">{summary?.info || 0}</p>
-              </div>
+        <Card className="card-elevated border-l-4 border-l-slate-400 col-span-2 sm:col-span-1">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Info</span>
+              <FileCode2 className="h-4 w-4 text-slate-400" />
             </div>
+            <p className="text-2xl font-bold font-display">{summary?.info || 0}</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Charts Row with Health Score */}
-      <div className="grid gap-4 lg:grid-cols-4">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Finding Trends</CardTitle>
-            <CardDescription>Findings by severity over the last 2 weeks</CardDescription>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card className="md:col-span-2 card-elevated">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Finding Trends</span>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <p className="text-xs text-muted-foreground/70">Findings by severity over the last 2 weeks</p>
           </CardHeader>
           <CardContent>
             <TrendsChart loading={isLoading} />
@@ -1039,21 +1112,23 @@ export default function DashboardPage() {
 
         <HealthScoreGauge loading={isLoading} />
 
-        <Card>
-          <CardHeader>
-            <CardTitle>By Severity</CardTitle>
-            <CardDescription>Distribution of finding severity levels</CardDescription>
+        <Card className="card-elevated">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">By Severity</span>
+            </div>
+            <p className="text-xs text-muted-foreground/70">Distribution of severity levels</p>
           </CardHeader>
           <CardContent>
             <SeverityChart data={summary?.by_severity} loading={isLoading} />
-            <div className="mt-4 flex justify-center gap-4 flex-wrap">
+            <div className="mt-3 flex justify-center gap-3 flex-wrap">
               {Object.entries(severityColors).map(([key, color]) => (
-                <div key={key} className="flex items-center gap-2">
+                <div key={key} className="flex items-center gap-1.5">
                   <div
-                    className="h-3 w-3 rounded-full"
+                    className="h-2.5 w-2.5 rounded-full"
                     style={{ backgroundColor: color }}
                   />
-                  <span className="text-sm capitalize">{key}</span>
+                  <span className="text-xs capitalize text-muted-foreground">{key}</span>
                 </div>
               ))}
             </div>
@@ -1062,25 +1137,27 @@ export default function DashboardPage() {
       </div>
 
       {/* Bottom Row */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>By Detector</CardTitle>
-            <CardDescription>Findings by analysis tool</CardDescription>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card className="card-elevated">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">By Detector</span>
+            </div>
+            <p className="text-xs text-muted-foreground/70">Findings by analysis tool</p>
           </CardHeader>
           <CardContent>
             <DetectorChart data={summary?.by_detector} loading={isLoading} />
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+        <Card className="card-elevated">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between">
             <div>
-              <CardTitle>File Hotspots</CardTitle>
-              <CardDescription>Files with the most findings</CardDescription>
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">File Hotspots</span>
+              <p className="text-xs text-muted-foreground/70 mt-0.5">Files with the most findings</p>
             </div>
             <Link href="/dashboard/findings">
-              <Button variant="outline" size="sm">
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs">
                 View All
               </Button>
             </Link>
@@ -1092,15 +1169,15 @@ export default function DashboardPage() {
       </div>
 
       {/* Recent Activity, Top Issues, and Fix Stats Row */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Card className="card-elevated">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <Activity className="h-4 w-4" />
-                Recent Analyses
-              </CardTitle>
-              <CardDescription>Latest code analysis runs</CardDescription>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Recent Analyses</span>
+                <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
+              <p className="text-xs text-muted-foreground/70 mt-0.5">Latest code analysis runs</p>
             </div>
             <QuickAnalysisButton />
           </CardHeader>
@@ -1109,17 +1186,17 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+        <Card className="card-elevated">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-red-500" />
-                Top Issues
-              </CardTitle>
-              <CardDescription>Critical and high severity findings</CardDescription>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Top Issues</span>
+                <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+              </div>
+              <p className="text-xs text-muted-foreground/70 mt-0.5">Critical and high severity findings</p>
             </div>
             <Link href="/dashboard/findings?severity=critical&severity=high">
-              <Button variant="outline" size="sm">
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs">
                 View All
               </Button>
             </Link>

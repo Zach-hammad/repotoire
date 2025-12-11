@@ -1,5 +1,4 @@
 import { Metadata } from "next"
-import { Navbar } from "@/components/navbar"
 import { Hero } from "@/components/sections/hero"
 import { ProblemSolution } from "@/components/sections/problem-solution"
 import { Features } from "@/components/sections/features"
@@ -9,7 +8,6 @@ import { SocialProof } from "@/components/sections/social-proof"
 import { Pricing } from "@/components/sections/pricing"
 import { FAQ } from "@/components/sections/faq"
 import { FinalCTA } from "@/components/sections/final-cta"
-import { Footer } from "@/components/sections/footer"
 
 export const metadata: Metadata = {
   title: "Repotoire - AI-Powered Code Health Platform",
@@ -31,20 +29,16 @@ export const metadata: Metadata = {
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <Navbar />
-      <main className="flex-1">
-        <Hero />
-        <ProblemSolution />
-        <Features />
-        <HowItWorks />
-        <Differentiators />
-        <SocialProof />
-        <Pricing />
-        <FAQ />
-        <FinalCTA />
-      </main>
-      <Footer />
-    </div>
+    <>
+      <Hero />
+      <ProblemSolution />
+      <Features />
+      <HowItWorks />
+      <Differentiators />
+      <SocialProof />
+      <Pricing />
+      <FAQ />
+      <FinalCTA />
+    </>
   )
 }

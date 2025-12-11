@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useRef, useState } from "react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 
 const faqs = [
@@ -30,20 +31,52 @@ const faqs = [
 ]
 
 export function FAQ() {
+  const sectionRef = useRef<HTMLElement>(null)
+  const [isVisible, setIsVisible] = useState(false)
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true)
+        }
+      },
+      { threshold: 0.1 },
+    )
+
+    if (sectionRef.current) {
+      observer.observe(sectionRef.current)
+    }
+
+    return () => observer.disconnect()
+  }, [])
+
   return (
-    <section id="faq" className="py-20 px-4 sm:px-6 lg:px-8">
+    <section ref={sectionRef} id="faq" className="py-24 px-4 sm:px-6 lg:px-8 dot-grid">
       <div className="max-w-2xl mx-auto">
-        <div className="text-center mb-12">
-          <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">FAQ</h2>
+        <div className="text-center mb-10">
+          <h2
+            className={`text-3xl sm:text-4xl tracking-tight text-foreground mb-4 opacity-0 ${
+              isVisible ? "animate-fade-up" : ""
+            }`}
+          >
+            <span className="font-serif italic text-muted-foreground">Frequently asked</span>{" "}
+            <span className="text-gradient font-display font-semibold">questions</span>
+          </h2>
         </div>
 
         <Accordion type="single" collapsible className="space-y-3">
           {faqs.map((faq, index) => (
-            <AccordionItem key={index} value={`item-${index}`} className="bg-card border border-border rounded-lg px-4">
-              <AccordionTrigger className="text-left text-foreground hover:no-underline">
+            <AccordionItem
+              key={index}
+              value={`item-${index}`}
+              className={`card-elevated rounded-xl px-5 border opacity-0 ${isVisible ? "animate-scale-in" : ""}`}
+              style={{ animationDelay: `${150 + index * 75}ms` }}
+            >
+              <AccordionTrigger className="text-left text-foreground hover:no-underline py-4 text-sm font-medium">
                 {faq.question}
               </AccordionTrigger>
-              <AccordionContent className="text-muted-foreground">{faq.answer}</AccordionContent>
+              <AccordionContent className="text-muted-foreground pb-4 text-sm">{faq.answer}</AccordionContent>
             </AccordionItem>
           ))}
         </Accordion>

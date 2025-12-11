@@ -2,6 +2,7 @@ import useSWR from 'swr';
 import useSWRMutation from 'swr/mutation';
 import {
   AnalyticsSummary,
+  AnalysisRunStatus,
   CheckoutResponse,
   FileHotspot,
   Finding,
@@ -9,6 +10,8 @@ import {
   FixComment,
   FixFilters,
   FixProposal,
+  GitHubAvailableRepo,
+  GitHubInstallation,
   HealthScore,
   PaginatedResponse,
   PlanTier,
@@ -16,6 +19,7 @@ import {
   PortalResponse,
   PreviewResult,
   PriceCalculationResponse,
+  Repository,
   SortOptions,
   Subscription,
   TrendDataPoint,
@@ -267,26 +271,6 @@ export function useCalculatePrice(tier: PlanTier | null, seats: number) {
 
 // Analysis hooks
 
-interface AnalysisRunStatus {
-  id: string;
-  repository_id: string;
-  commit_sha: string;
-  branch: string;
-  status: 'queued' | 'running' | 'completed' | 'failed';
-  progress_percent: number;
-  current_step: string | null;
-  health_score: number | null;
-  structure_score: number | null;
-  quality_score: number | null;
-  architecture_score: number | null;
-  findings_count: number;
-  files_analyzed: number;
-  error_message: string | null;
-  started_at: string | null;
-  completed_at: string | null;
-  created_at: string;
-}
-
 interface TriggerAnalysisRequest {
   installation_uuid: string;
   repo_id: number;
@@ -419,5 +403,163 @@ export function useFixStats() {
   }>(
     isAuthReady ? 'fix-stats' : null,
     () => analyticsApi.fixStats()
+  );
+}
+
+// ==========================================
+// Repository Management Hooks
+// ==========================================
+
+/**
+ * Hook to get all repositories for the current organization.
+ */
+export function useRepositoriesFull() {
+  const { isAuthReady } = useApiAuth();
+  return useSWR<Repository[]>(
+    isAuthReady ? 'repositories-full' : null,
+    async () => {
+      const response = await fetch('/api/v1/repositories');
+      if (!response.ok) throw new Error('Failed to fetch repositories');
+      return response.json();
+    }
+  );
+}
+
+/**
+ * Hook to get a single repository by ID.
+ */
+export function useRepository(id: string | null) {
+  const { isAuthReady } = useApiAuth();
+  return useSWR<Repository>(
+    isAuthReady && id ? ['repository', id] : null,
+    async () => {
+      const response = await fetch(`/api/v1/repositories/${id}`);
+      if (!response.ok) throw new Error('Failed to fetch repository');
+      return response.json();
+    }
+  );
+}
+
+/**
+ * Hook to get list of GitHub installations for current org.
+ */
+export function useGitHubInstallations() {
+  const { isAuthReady } = useApiAuth();
+  return useSWR<GitHubInstallation[]>(
+    isAuthReady ? 'github-installations' : null,
+    async () => {
+      const response = await fetch('/api/v1/github/installations');
+      if (!response.ok) throw new Error('Failed to fetch installations');
+      return response.json();
+    }
+  );
+}
+
+/**
+ * Hook to get available repos for an installation (not yet connected).
+ */
+export function useAvailableRepos(installationUuid: string | null) {
+  const { isAuthReady } = useApiAuth();
+  return useSWR<GitHubAvailableRepo[]>(
+    isAuthReady && installationUuid ? ['available-repos', installationUuid] : null,
+    async () => {
+      const response = await fetch(`/api/v1/github/installations/${installationUuid}/available-repos`);
+      if (!response.ok) throw new Error('Failed to fetch available repos');
+      return response.json();
+    }
+  );
+}
+
+/**
+ * Hook to connect repositories from a GitHub installation.
+ */
+export function useConnectRepos() {
+  return useSWRMutation(
+    'connect-repos',
+    async (_key, { arg }: { arg: { installation_uuid: string; repo_ids: number[] } }) => {
+      const response = await fetch('/api/v1/github/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(arg),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(error.detail || 'Failed to connect repos');
+      }
+      return response.json();
+    }
+  );
+}
+
+/**
+ * Hook to disconnect a repository.
+ */
+export function useDisconnectRepo() {
+  return useSWRMutation(
+    'disconnect-repo',
+    async (_key, { arg }: { arg: { repository_id: string } }) => {
+      const response = await fetch(`/api/v1/repositories/${arg.repository_id}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(error.detail || 'Failed to disconnect repo');
+      }
+      return response.json();
+    }
+  );
+}
+
+/**
+ * Hook to trigger analysis for a repository by ID.
+ */
+export function useTriggerAnalysisById() {
+  return useSWRMutation<
+    { analysis_run_id: string; repository_id: string; status: string; message: string },
+    Error,
+    string,
+    { repository_id: string }
+  >(
+    'trigger-analysis-by-id',
+    async (_key, { arg }) => {
+      const response = await fetch(`/api/v1/repositories/${arg.repository_id}/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(error.detail || 'Failed to trigger analysis');
+      }
+      return response.json();
+    }
+  );
+}
+
+/**
+ * Hook to poll analysis status for a repository. Auto-refreshes while active.
+ */
+export function useRepositoryAnalysisStatus(repositoryId: string | null) {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR<AnalysisRunStatus | null>(
+    isAuthReady && repositoryId ? ['repository-analysis-status', repositoryId] : null,
+    async () => {
+      const response = await fetch(`/api/v1/repositories/${repositoryId}/analysis-status`);
+      if (!response.ok) {
+        if (response.status === 404) return null;
+        throw new Error('Failed to fetch analysis status');
+      }
+      return response.json();
+    },
+    {
+      refreshInterval: (data) => {
+        if (!data) return 0;
+        if (data.status === 'completed' || data.status === 'failed') {
+          return 0; // Stop polling
+        }
+        return 3000; // Poll every 3 seconds
+      },
+      revalidateOnFocus: false,
+    }
   );
 }
