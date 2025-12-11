@@ -9,7 +9,6 @@ This module contains Celery tasks for processing GitHub webhooks:
 from __future__ import annotations
 
 from typing import Any
-from uuid import UUID
 
 from sqlalchemy import select
 
@@ -126,6 +125,8 @@ def process_pr_event(payload: dict[str, Any]) -> dict[str, Any]:
     """Process a GitHub pull request webhook event.
 
     Triggers PR analysis on opened, synchronize, and reopened actions.
+    Creates an AnalysisRun record to track the analysis and enables
+    PR commenting with results.
 
     Args:
         payload: GitHub pull_request webhook payload.
@@ -137,6 +138,7 @@ def process_pr_event(payload: dict[str, Any]) -> dict[str, Any]:
     pr = payload.get("pull_request", {})
     pr_number = payload.get("number") or pr.get("number")
     repo_full_name = payload.get("repository", {}).get("full_name")
+    head_branch = pr.get("head", {}).get("ref", "unknown")
 
     log = logger.bind(
         action=action,
@@ -170,21 +172,44 @@ def process_pr_event(payload: dict[str, Any]) -> dict[str, Any]:
             log.debug("pr_analysis_disabled")
             return {"status": "skipped", "reason": "pr_analysis_disabled"}
 
+        # Idempotency check: Skip if already processing this commit
+        existing = _get_analysis_by_commit(session, repo_full_name, head_sha)
+        if existing:
+            log.debug("pr_already_processing", analysis_id=str(existing.id))
+            return {
+                "status": "skipped",
+                "reason": "already_processing",
+                "analysis_id": str(existing.id),
+            }
+
+        # Create AnalysisRun record for tracking
+        analysis_run = AnalysisRun(
+            repository_id=repo.id,
+            commit_sha=head_sha,
+            branch=head_branch,
+            status=AnalysisStatus.QUEUED,
+        )
+        session.add(analysis_run)
+        session.commit()
+        analysis_run_id = str(analysis_run.id)
+
         # Queue PR analysis task
         from repotoire.workers.tasks import analyze_pr
 
         task = analyze_pr.delay(
+            analysis_run_id=analysis_run_id,
             repo_id=str(repo.id),
             pr_number=pr_number,
             base_sha=base_sha,
             head_sha=head_sha,
         )
 
-        log.info("pr_analysis_queued", task_id=task.id)
+        log.info("pr_analysis_queued", task_id=task.id, analysis_run_id=analysis_run_id)
 
         return {
             "status": "queued",
             "task_id": task.id,
+            "analysis_run_id": analysis_run_id,
             "pr_number": pr_number,
             "base_sha": base_sha,
             "head_sha": head_sha,
