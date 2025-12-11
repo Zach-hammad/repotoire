@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, List
 from uuid import UUID
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin, generate_repr
@@ -140,6 +141,18 @@ class GitHubRepository(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         default=True,
         nullable=False,
         comment="Whether to auto-analyze on push events (requires enabled=True and pro/enterprise tier)",
+    )
+    pr_analysis_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        comment="Whether to analyze pull requests",
+    )
+    quality_gates: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        default=None,
+        comment="Quality gate configuration: {enabled, block_on_critical, block_on_high, min_health_score, max_new_issues}",
     )
     last_analyzed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),

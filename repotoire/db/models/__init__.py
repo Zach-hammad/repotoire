@@ -48,6 +48,7 @@ from .organization import (
 )
 from .repository import Repository
 from .user import User
+from .webhook import DeliveryStatus, Webhook, WebhookDelivery, WebhookEvent
 
 __all__ = [
     # Base classes
@@ -91,4 +92,9 @@ __all__ = [
     "AddonType",
     "ExportStatus",
     "ConsentType",
+    # Webhook models
+    "Webhook",
+    "WebhookDelivery",
+    "WebhookEvent",
+    "DeliveryStatus",
 ]

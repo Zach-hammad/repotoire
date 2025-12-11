@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from .quota_override import QuotaOverride
     from .repository import Repository
     from .user import User
+    from .webhook import Webhook
 
 
 class PlanTier(str, enum.Enum):
@@ -135,6 +136,11 @@ class Organization(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     quota_overrides: Mapped[List["QuotaOverride"]] = relationship(
         "QuotaOverride",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
+    webhooks: Mapped[List["Webhook"]] = relationship(
+        "Webhook",
         back_populates="organization",
         cascade="all, delete-orphan",
     )
