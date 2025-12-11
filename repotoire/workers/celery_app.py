@@ -63,6 +63,7 @@ celery_app = Celery(
         "repotoire.workers.tasks",
         "repotoire.workers.hooks",
         "repotoire.workers.audit_tasks",
+        "repotoire.workers.webhook_delivery",
     ],
 )
 
@@ -100,6 +101,7 @@ celery_app.conf.update(
             "queue": "analysis.priority"
         },
         "repotoire.workers.hooks.*": {"queue": "default"},
+        "repotoire.workers.webhook_delivery.*": {"queue": "default"},
     },
     # Beat schedule - for periodic tasks
     beat_schedule={
@@ -107,6 +109,12 @@ celery_app.conf.update(
         "cleanup-audit-logs-daily": {
             "task": "repotoire.workers.audit_tasks.cleanup_old_audit_logs",
             "schedule": 86400,  # Every 24 hours (in seconds)
+            "options": {"queue": "default"},
+        },
+        # Webhook delivery retry - runs every 5 minutes
+        "retry-failed-webhooks": {
+            "task": "repotoire.workers.webhook_delivery.retry_failed_deliveries",
+            "schedule": 300,  # Every 5 minutes (in seconds)
             "options": {"queue": "default"},
         },
     },

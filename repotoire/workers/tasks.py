@@ -19,13 +19,11 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from celery import states
 from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import select, update
 
@@ -35,11 +33,12 @@ from repotoire.db.models import (
     Organization,
     Repository,
 )
-from repotoire.db.models.finding import Finding as FindingDB, FindingSeverity
+from repotoire.db.models.finding import Finding as FindingDB
+from repotoire.db.models.finding import FindingSeverity
 from repotoire.db.session import get_sync_session
 from repotoire.logging_config import get_logger
 from repotoire.workers.celery_app import celery_app
-from repotoire.workers.limits import ConcurrencyLimiter, with_concurrency_limit
+from repotoire.workers.limits import with_concurrency_limit
 from repotoire.workers.progress import ProgressTracker
 
 if TYPE_CHECKING:
@@ -105,6 +104,7 @@ def analyze_repository(
             # (avoids lazy loading issues after session closes)
             repo_full_name = repo.full_name
             repo_github_installation_id = repo.github_installation_id
+            org_id = repo.organization_id
 
             # Update status to running
             progress.update(
@@ -113,7 +113,20 @@ def analyze_repository(
                 current_step="Cloning repository",
                 started_at=datetime.now(timezone.utc),
             )
+
         # Session is now closed - safe for long operations
+
+        # Trigger analysis.started webhook
+        from repotoire.workers.hooks import _trigger_analysis_started_webhook
+
+        _trigger_analysis_started_webhook(
+            org_id=org_id,
+            analysis_run_id=UUID(analysis_run_id),
+            repo_id=UUID(repo_id),
+            repo_full_name=repo_full_name,
+            commit_sha=commit_sha,
+            triggered_by="push",  # Default to push, could be enhanced later
+        )
 
         # ============================================================
         # PHASE 2: Clone repository (may take 30+ seconds)
@@ -281,6 +294,15 @@ def analyze_pr(
     progress = ProgressTracker(self, analysis_run_id)
     clone_dir: Path | None = None
 
+    # Set pending commit status at start
+    from repotoire.workers.hooks import set_commit_status_pending
+
+    set_commit_status_pending.delay(
+        repo_id=repo_id,
+        commit_sha=head_sha,
+        analysis_run_id=analysis_run_id,
+    )
+
     try:
         with get_sync_session() as session:
             repo = session.get(Repository, UUID(repo_id))
@@ -288,12 +310,26 @@ def analyze_pr(
                 raise ValueError(f"Repository {repo_id} not found")
 
             org = repo.organization
+            org_id = org.id
+            repo_full_name = repo.full_name
 
             progress.update(
                 status=AnalysisStatus.RUNNING,
                 progress_percent=5,
                 current_step="Cloning repository",
                 started_at=datetime.now(timezone.utc),
+            )
+
+            # Trigger analysis.started webhook for PR analysis
+            from repotoire.workers.hooks import _trigger_analysis_started_webhook
+
+            _trigger_analysis_started_webhook(
+                org_id=org_id,
+                analysis_run_id=UUID(analysis_run_id),
+                repo_id=UUID(repo_id),
+                repo_full_name=repo_full_name,
+                commit_sha=head_sha,
+                triggered_by="pr",
             )
 
             # Clone and get changed files
@@ -356,9 +392,10 @@ def analyze_pr(
             )
 
             # Update AnalysisRun
+            run_id = UUID(analysis_run_id)
             session.execute(
                 update(AnalysisRun)
-                .where(AnalysisRun.id == UUID(analysis_run_id))
+                .where(AnalysisRun.id == run_id)
                 .values(
                     status=AnalysisStatus.COMPLETED,
                     health_score=head_score,
@@ -374,13 +411,56 @@ def analyze_pr(
                 )
             )
 
-        # Post PR comment
-        from repotoire.workers.hooks import post_pr_comment
+            # Persist individual findings for PR comment
+            if health.findings:
+                logger.info(
+                    f"Persisting {len(health.findings)} findings for PR analysis {analysis_run_id}"
+                )
+                severity_map = {
+                    "CRITICAL": FindingSeverity.CRITICAL,
+                    "HIGH": FindingSeverity.HIGH,
+                    "MEDIUM": FindingSeverity.MEDIUM,
+                    "LOW": FindingSeverity.LOW,
+                    "INFO": FindingSeverity.INFO,
+                }
+                for finding in health.findings:
+                    severity = severity_map.get(
+                        finding.severity.name, FindingSeverity.INFO
+                    )
+                    db_finding = FindingDB(
+                        analysis_run_id=run_id,
+                        detector=finding.detector,
+                        severity=severity,
+                        title=finding.title[:500],
+                        description=finding.description,
+                        affected_files=finding.affected_files or [],
+                        affected_nodes=finding.affected_nodes or [],
+                        line_start=finding.line_start,
+                        line_end=finding.line_end,
+                        suggested_fix=finding.suggested_fix,
+                        estimated_effort=finding.estimated_effort,
+                        graph_context=finding.graph_context,
+                    )
+                    session.add(db_finding)
+
+            session.commit()
+
+        # Post PR comment with analysis results
+        from repotoire.workers.hooks import post_pr_comment, set_commit_status_result
 
         post_pr_comment.delay(
             repo_id=repo_id,
             pr_number=pr_number,
             analysis_run_id=analysis_run_id,
+            base_sha=base_sha,
+        )
+
+        # Set final commit status based on quality gates
+        set_commit_status_result.delay(
+            repo_id=repo_id,
+            commit_sha=head_sha,
+            analysis_run_id=analysis_run_id,
+            base_sha=base_sha,
         )
 
         return {
@@ -405,6 +485,34 @@ def analyze_pr(
             status=AnalysisStatus.FAILED,
             error_message=str(e)[:1000],
         )
+
+        # Set error commit status
+        try:
+            from repotoire.github.pr_commenter import get_installation_token_for_repo
+            from repotoire.services.github_status import (
+                CommitState,
+                build_analysis_url,
+                set_commit_status,
+            )
+
+            with get_sync_session() as session:
+                repo = session.get(Repository, UUID(repo_id))
+                if repo:
+                    token = get_installation_token_for_repo(repo.id)
+                    if token:
+                        target_url = build_analysis_url(analysis_run_id, repo_id)
+                        error_desc = f"Analysis failed: {str(e)[:100]}"
+                        set_commit_status(
+                            installation_token=token,
+                            repo_full_name=repo.full_name,
+                            sha=head_sha,
+                            state=CommitState.ERROR,
+                            description=error_desc,
+                            target_url=target_url,
+                        )
+        except Exception as status_error:
+            logger.warning(f"Failed to set error commit status: {status_error}")
+
         raise
 
     finally:
@@ -570,7 +678,6 @@ def _get_github_token_by_installation_id(
         Installation access token or None if unavailable.
     """
     import asyncio
-    from datetime import timezone
 
     from repotoire.api.services.encryption import TokenEncryption
     from repotoire.api.services.github import GitHubAppClient

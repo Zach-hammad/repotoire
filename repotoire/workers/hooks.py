@@ -31,8 +31,12 @@ from repotoire.db.models import (
     OrganizationMembership,
     Repository,
 )
-from repotoire.db.models.finding import Finding as FindingDB, FindingSeverity
-from repotoire.db.models.fix import Fix as FixDB, FixConfidence as FixConfidenceDB, FixType as FixTypeDB, FixStatus as FixStatusDB
+from repotoire.db.models.finding import Finding as FindingDB
+from repotoire.db.models.finding import FindingSeverity
+from repotoire.db.models.fix import Fix as FixDB
+from repotoire.db.models.fix import FixConfidence as FixConfidenceDB
+from repotoire.db.models.fix import FixStatus as FixStatusDB
+from repotoire.db.models.fix import FixType as FixTypeDB
 from repotoire.db.session import get_sync_session
 from repotoire.logging_config import get_logger
 from repotoire.workers.celery_app import celery_app
@@ -118,6 +122,13 @@ def on_analysis_complete(analysis_run_id: str) -> dict:
             log = logger.bind(analysis_run_id=analysis_run_id)
             log.info("triggered_fix_generation")
 
+            # Trigger customer webhooks for analysis.completed event
+            _trigger_analysis_completed_webhook(
+                org_id=org.id,
+                analysis=analysis,
+                repo=repo,
+            )
+
             return {
                 "status": "notified",
                 "notification_type": "analysis_complete",
@@ -163,6 +174,16 @@ def on_analysis_failed(analysis_run_id: str, error_message: str) -> dict:
                     repo=repo,
                     error_message=error_message,
                 )
+
+            # Trigger customer webhooks for analysis.failed event
+            _trigger_analysis_failed_webhook(
+                org_id=org.id,
+                analysis=analysis,
+                repo=repo,
+                error_message=error_message,
+            )
+
+            if owner.email_preferences is None or owner.email_preferences.analysis_failed:
                 return {
                     "status": "notified",
                     "notification_type": "analysis_failed",
@@ -180,67 +201,324 @@ def post_pr_comment(
     repo_id: str,
     pr_number: int,
     analysis_run_id: str,
+    base_sha: str | None = None,
 ) -> dict:
     """Post analysis results as a PR comment.
 
     Creates a formatted comment on the pull request with:
     - Health score and score delta
-    - Category breakdowns (structure, quality, architecture)
-    - Findings count
+    - NEW issues only (not pre-existing in base branch)
+    - Grouped by severity
     - Link to full report
+
+    Uses unique marker to update existing comments (avoids duplicates).
 
     Args:
         repo_id: UUID of the Repository.
         pr_number: Pull request number.
         analysis_run_id: UUID of the AnalysisRun.
+        base_sha: Base commit SHA for comparison (optional).
 
     Returns:
         dict with status and comment_id if posted.
     """
+    log = logger.bind(
+        repo_id=repo_id,
+        pr_number=pr_number,
+        analysis_run_id=analysis_run_id,
+    )
+
     try:
+        from repotoire.github.pr_commenter import (
+            format_pr_comment,
+            get_base_analysis,
+            get_installation_token_for_repo,
+            get_new_findings,
+            post_or_update_pr_comment,
+        )
+
         with get_sync_session() as session:
             analysis = session.get(AnalysisRun, UUID(analysis_run_id))
             if not analysis:
+                log.warning("analysis_not_found")
                 return {"status": "skipped", "reason": "analysis_not_found"}
+
+            if analysis.status != AnalysisStatus.COMPLETED:
+                log.warning("analysis_not_completed", status=analysis.status)
+                return {"status": "skipped", "reason": "analysis_not_completed"}
 
             repo = session.get(Repository, UUID(repo_id))
             if not repo:
+                log.warning("repo_not_found")
                 return {"status": "skipped", "reason": "repo_not_found"}
 
-            org = repo.organization
+            # Get base analysis for comparison (to find NEW issues)
+            base_analysis = get_base_analysis(session, repo.id, base_sha)
+            base_analysis_id = base_analysis.id if base_analysis else None
+            base_score = base_analysis.health_score if base_analysis else None
 
-            # Build comment body
-            comment = _format_pr_comment(analysis)
+            # Find NEW findings (not in base)
+            new_findings = get_new_findings(
+                session=session,
+                head_analysis_id=analysis.id,
+                base_analysis_id=base_analysis_id,
+            )
 
-            # Post via GitHub API
-            github_token = _get_github_token(org)
-            if not github_token:
-                logger.warning("No GitHub token available for PR comment")
-                return {"status": "skipped", "reason": "no_github_token"}
+            log.info(
+                "found_new_findings",
+                total_findings=analysis.findings_count,
+                new_findings=len(new_findings),
+            )
+
+            # Format comment
+            dashboard_url = f"{APP_BASE_URL}/repos/{repo.id}/analysis/{analysis.id}"
+            comment_body = format_pr_comment(
+                analysis=analysis,
+                new_findings=new_findings,
+                base_score=base_score,
+                dashboard_url=dashboard_url,
+            )
 
             # Parse owner/repo from full_name
             parts = repo.full_name.split("/")
             if len(parts) != 2:
+                log.error("invalid_repo_name", full_name=repo.full_name)
                 return {"status": "skipped", "reason": "invalid_repo_name"}
 
             owner, repo_name = parts
 
-            comment_id = _create_pr_comment(
-                github_token=github_token,
+            # Get GitHub token
+            github_token = get_installation_token_for_repo(repo.id)
+            if not github_token:
+                log.warning("no_github_token")
+                return {"status": "skipped", "reason": "no_github_token"}
+
+            # Post or update comment
+            result = post_or_update_pr_comment(
                 owner=owner,
                 repo=repo_name,
                 pr_number=pr_number,
-                body=comment,
+                body=comment_body,
+                installation_token=github_token,
+            )
+
+            log.info(
+                "pr_comment_posted",
+                action=result.get("action"),
+                comment_id=result.get("comment_id"),
             )
 
             return {
                 "status": "posted",
-                "comment_id": comment_id,
+                "action": result.get("action"),
+                "comment_id": result.get("comment_id"),
+                "url": result.get("url"),
                 "pr_number": pr_number,
+                "new_findings_count": len(new_findings),
             }
 
     except Exception as e:
-        logger.exception(f"post_pr_comment failed: {e}")
+        log.exception("post_pr_comment_failed", error=str(e))
+        # Don't fail the task - PR comments are non-critical
+        return {"status": "error", "error": str(e)}
+
+
+# =============================================================================
+# Commit Status Checks
+# =============================================================================
+
+
+@celery_app.task(name="repotoire.workers.hooks.set_commit_status_pending")
+def set_commit_status_pending(
+    repo_id: str,
+    commit_sha: str,
+    analysis_run_id: str,
+) -> dict:
+    """Set pending commit status when analysis starts.
+
+    Args:
+        repo_id: UUID of the Repository.
+        commit_sha: Git commit SHA.
+        analysis_run_id: UUID of the AnalysisRun.
+
+    Returns:
+        dict with status.
+    """
+    log = logger.bind(
+        repo_id=repo_id,
+        commit_sha=commit_sha[:8],
+        analysis_run_id=analysis_run_id,
+    )
+
+    try:
+        from repotoire.github.pr_commenter import get_installation_token_for_repo
+        from repotoire.services.github_status import (
+            CommitState,
+            build_analysis_url,
+            set_commit_status,
+        )
+
+        with get_sync_session() as session:
+            repo = session.get(Repository, UUID(repo_id))
+            if not repo:
+                log.warning("repo_not_found")
+                return {"status": "skipped", "reason": "repo_not_found"}
+
+            # Get GitHub token
+            token = get_installation_token_for_repo(repo.id)
+            if not token:
+                log.warning("no_github_token")
+                return {"status": "skipped", "reason": "no_github_token"}
+
+            # Set pending status
+            target_url = build_analysis_url(analysis_run_id, repo_id)
+            result = set_commit_status(
+                installation_token=token,
+                repo_full_name=repo.full_name,
+                sha=commit_sha,
+                state=CommitState.PENDING,
+                description="Repotoire analysis in progress...",
+                target_url=target_url,
+            )
+
+            if result:
+                log.info("commit_status_pending_set")
+                return {"status": "set", "state": "pending"}
+            else:
+                log.warning("commit_status_failed")
+                return {"status": "failed"}
+
+    except Exception as e:
+        log.exception("set_commit_status_pending_error", error=str(e))
+        return {"status": "error", "error": str(e)}
+
+
+@celery_app.task(name="repotoire.workers.hooks.set_commit_status_result")
+def set_commit_status_result(
+    repo_id: str,
+    commit_sha: str,
+    analysis_run_id: str,
+    base_sha: str | None = None,
+) -> dict:
+    """Set final commit status based on quality gate evaluation.
+
+    Evaluates quality gates and sets success/failure status on the commit.
+    This can block PR merges when configured as a required check.
+
+    Args:
+        repo_id: UUID of the Repository.
+        commit_sha: Git commit SHA.
+        analysis_run_id: UUID of the AnalysisRun.
+        base_sha: Base commit SHA for finding new issues (optional).
+
+    Returns:
+        dict with status and quality gate result.
+    """
+    log = logger.bind(
+        repo_id=repo_id,
+        commit_sha=commit_sha[:8],
+        analysis_run_id=analysis_run_id,
+    )
+
+    try:
+        from repotoire.db.models import GitHubRepository
+        from repotoire.github.pr_commenter import (
+            get_base_analysis,
+            get_installation_token_for_repo,
+        )
+        from repotoire.services.github_status import build_analysis_url, set_commit_status
+        from repotoire.services.quality_gates import evaluate_quality_gates
+
+        with get_sync_session() as session:
+            # Get analysis run
+            analysis = session.get(AnalysisRun, UUID(analysis_run_id))
+            if not analysis:
+                log.warning("analysis_not_found")
+                return {"status": "skipped", "reason": "analysis_not_found"}
+
+            if analysis.status != AnalysisStatus.COMPLETED:
+                log.warning("analysis_not_completed", status=analysis.status)
+                return {"status": "skipped", "reason": "analysis_not_completed"}
+
+            # Get repository
+            repo = session.get(Repository, UUID(repo_id))
+            if not repo:
+                log.warning("repo_not_found")
+                return {"status": "skipped", "reason": "repo_not_found"}
+
+            # Find GitHubRepository to get quality gates config
+            result = session.execute(
+                select(GitHubRepository).where(
+                    GitHubRepository.repo_id == repo.github_repo_id
+                )
+            )
+            github_repo = result.scalar_one_or_none()
+
+            quality_gates = github_repo.quality_gates if github_repo else None
+
+            # Get base analysis for comparison (for PR analysis)
+            base_analysis = get_base_analysis(session, repo.id, base_sha) if base_sha else None
+            base_analysis_id = base_analysis.id if base_analysis else None
+
+            # Evaluate quality gates
+            gate_result = evaluate_quality_gates(
+                session=session,
+                quality_gates=quality_gates,
+                analysis_run=analysis,
+                new_findings_only=bool(base_sha),
+                base_analysis_id=base_analysis_id,
+            )
+
+            log.info(
+                "quality_gates_evaluated",
+                passed=gate_result.passed,
+                state=gate_result.state.value,
+                description=gate_result.description,
+            )
+
+            # Get GitHub token
+            token = get_installation_token_for_repo(repo.id)
+            if not token:
+                log.warning("no_github_token")
+                return {
+                    "status": "skipped",
+                    "reason": "no_github_token",
+                    "gate_result": {
+                        "passed": gate_result.passed,
+                        "description": gate_result.description,
+                    },
+                }
+
+            # Set commit status
+            target_url = build_analysis_url(analysis_run_id, repo_id)
+            result = set_commit_status(
+                installation_token=token,
+                repo_full_name=repo.full_name,
+                sha=commit_sha,
+                state=gate_result.state,
+                description=gate_result.description,
+                target_url=target_url,
+            )
+
+            if result:
+                log.info(
+                    "commit_status_result_set",
+                    state=gate_result.state.value,
+                    passed=gate_result.passed,
+                )
+                return {
+                    "status": "set",
+                    "state": gate_result.state.value,
+                    "passed": gate_result.passed,
+                    "description": gate_result.description,
+                    "details": gate_result.details,
+                }
+            else:
+                log.warning("commit_status_failed")
+                return {"status": "failed", "gate_result": gate_result.details}
+
+    except Exception as e:
+        log.exception("set_commit_status_result_error", error=str(e))
         return {"status": "error", "error": str(e)}
 
 
@@ -260,6 +538,7 @@ def _get_org_owner(session, org_id: UUID) -> "User | None":
         User model instance or None.
     """
     from sqlalchemy import select
+
     from repotoire.db.models import User
 
     result = session.execute(
@@ -288,6 +567,7 @@ def _get_previous_analysis(
         AnalysisRun model instance or None.
     """
     from sqlalchemy import select
+
     from repotoire.db.models import AnalysisStatus
 
     result = session.execute(
@@ -316,8 +596,9 @@ def _send_regression_alert(
         new_score: New (lower) health score.
     """
     try:
-        from repotoire.services.email import get_email_service
         import asyncio
+
+        from repotoire.services.email import get_email_service
 
         email_service = get_email_service()
         dashboard_url = f"{APP_BASE_URL}/repos/{repo.id}"
@@ -352,8 +633,9 @@ def _send_completion_notification(
         return
 
     try:
-        from repotoire.services.email import get_email_service
         import asyncio
+
+        from repotoire.services.email import get_email_service
 
         email_service = get_email_service()
         dashboard_url = f"{APP_BASE_URL}/repos/{repo.id}"
@@ -383,8 +665,9 @@ def _send_failure_notification(
         error_message: Error description.
     """
     try:
-        from repotoire.services.email import get_email_service
         import asyncio
+
+        from repotoire.services.email import get_email_service
 
         email_service = get_email_service()
 
@@ -397,115 +680,6 @@ def _send_failure_notification(
         )
     except Exception as e:
         logger.exception(f"Failed to send failure notification: {e}")
-
-
-def _format_pr_comment(analysis: AnalysisRun) -> str:
-    """Format analysis results as a GitHub PR comment.
-
-    Args:
-        analysis: AnalysisRun model instance.
-
-    Returns:
-        Markdown formatted comment body.
-    """
-    # Determine emoji based on score
-    score = analysis.health_score or 0
-    if score >= 70:
-        emoji = "white_check_mark"
-    elif score >= 50:
-        emoji = "warning"
-    else:
-        emoji = "x"
-
-    # Format score delta
-    delta_str = ""
-    if analysis.score_delta is not None:
-        if analysis.score_delta > 0:
-            delta_str = f" (:chart_with_upwards_trend: +{analysis.score_delta})"
-        elif analysis.score_delta < 0:
-            delta_str = f" (:chart_with_downwards_trend: {analysis.score_delta})"
-        else:
-            delta_str = " (no change)"
-
-    return f"""## :{emoji}: Repotoire Code Health Analysis
-
-**Health Score:** {score}/100{delta_str}
-
-| Category | Score |
-|----------|-------|
-| Structure | {analysis.structure_score or '-'}/100 |
-| Quality | {analysis.quality_score or '-'}/100 |
-| Architecture | {analysis.architecture_score or '-'}/100 |
-
-**Files Analyzed:** {analysis.files_analyzed}
-**Issues Found:** {analysis.findings_count}
-
-[View Full Report]({APP_BASE_URL}/analysis/{analysis.id})
-
----
-*Powered by [Repotoire](https://repotoire.io) - Graph-Powered Code Health*
-"""
-
-
-def _get_github_token(org: Organization) -> str | None:
-    """Get GitHub token for organization.
-
-    Args:
-        org: Organization model instance.
-
-    Returns:
-        GitHub token or None.
-    """
-    # Use environment variable for now
-    return os.environ.get("GITHUB_TOKEN")
-
-
-def _create_pr_comment(
-    github_token: str,
-    owner: str,
-    repo: str,
-    pr_number: int,
-    body: str,
-) -> str | None:
-    """Create a comment on a GitHub PR.
-
-    Args:
-        github_token: GitHub API token.
-        owner: Repository owner.
-        repo: Repository name.
-        pr_number: Pull request number.
-        body: Comment body (markdown).
-
-    Returns:
-        Comment ID or None if failed.
-    """
-    try:
-        import httpx
-
-        url = f"https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments"
-
-        with httpx.Client(timeout=30.0) as client:
-            response = client.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {github_token}",
-                    "Accept": "application/vnd.github.v3+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-                json={"body": body},
-            )
-
-            if response.is_success:
-                return str(response.json().get("id"))
-            else:
-                logger.error(
-                    f"Failed to create PR comment: {response.status_code} {response.text}"
-                )
-                return None
-
-    except Exception as e:
-        logger.exception(f"Failed to create PR comment: {e}")
-        return None
 
 
 # =============================================================================
@@ -1006,8 +1180,9 @@ def _send_digest_email(user: "User", repos_summary: list[dict[str, Any]]) -> Non
         repos_summary: List of repository summaries.
     """
     try:
-        from repotoire.services.email import get_email_service
         import asyncio
+
+        from repotoire.services.email import get_email_service
 
         email_service = get_email_service()
         dashboard_url = f"{APP_BASE_URL}/dashboard"
@@ -1121,6 +1296,179 @@ def _build_digest_email_html(
 
 
 # =============================================================================
+# Customer Webhook Trigger Helpers
+# =============================================================================
+
+
+def _trigger_analysis_started_webhook(
+    org_id: UUID,
+    analysis_run_id: UUID,
+    repo_id: UUID,
+    repo_full_name: str,
+    commit_sha: str,
+    triggered_by: str = "api",
+) -> None:
+    """Trigger analysis.started webhooks for the organization.
+
+    Args:
+        org_id: Organization UUID.
+        analysis_run_id: AnalysisRun UUID.
+        repo_id: Repository UUID.
+        repo_full_name: Repository full name (e.g., "owner/repo").
+        commit_sha: Git commit SHA being analyzed.
+        triggered_by: What triggered the analysis (e.g., "push", "pr", "manual").
+    """
+    try:
+        from repotoire.services.webhook_payloads import build_analysis_started_payload
+        from repotoire.workers.webhook_delivery import trigger_webhook_event
+
+        payload = build_analysis_started_payload(
+            analysis_run_id=analysis_run_id,
+            repository_id=repo_id,
+            repository_name=repo_full_name,
+            commit_sha=commit_sha,
+            triggered_by=triggered_by,
+        )
+
+        trigger_webhook_event.delay(
+            organization_id=str(org_id),
+            event_type="analysis.started",
+            payload=payload,
+            repository_id=str(repo_id),
+        )
+
+        logger.debug(
+            "triggered_analysis_started_webhook",
+            extra={"org_id": str(org_id), "analysis_run_id": str(analysis_run_id)},
+        )
+
+    except Exception as e:
+        # Don't fail the main task if webhook triggering fails
+        logger.warning(
+            f"Failed to trigger analysis.started webhook: {e}",
+            extra={"org_id": str(org_id), "analysis_run_id": str(analysis_run_id)},
+        )
+
+
+def _trigger_analysis_completed_webhook(
+    org_id: UUID,
+    analysis: AnalysisRun,
+    repo: Repository,
+) -> None:
+    """Trigger analysis.completed webhooks for the organization.
+
+    Args:
+        org_id: Organization UUID.
+        analysis: Completed AnalysisRun instance.
+        repo: Repository instance.
+    """
+    try:
+        from repotoire.services.webhook_payloads import build_analysis_completed_payload
+        from repotoire.workers.webhook_delivery import trigger_webhook_event
+
+        # Build finding counts by severity
+        finding_counts: dict[str, int] = {
+            "critical": 0,
+            "high": 0,
+            "medium": 0,
+            "low": 0,
+            "info": 0,
+        }
+
+        # Count findings if available
+        if analysis.findings:
+            for finding in analysis.findings:
+                severity_key = finding.severity.value if finding.severity else "info"
+                if severity_key in finding_counts:
+                    finding_counts[severity_key] += 1
+
+        # Calculate duration
+        duration_seconds = 0
+        if analysis.started_at and analysis.completed_at:
+            duration_seconds = int(
+                (analysis.completed_at - analysis.started_at).total_seconds()
+            )
+
+        payload = build_analysis_completed_payload(
+            analysis_run_id=analysis.id,
+            repository_id=repo.id,
+            repository_name=repo.full_name,
+            commit_sha=analysis.commit_sha or "",
+            health_score=analysis.health_score or 0,
+            finding_counts=finding_counts,
+            duration_seconds=duration_seconds,
+            structure_score=analysis.structure_score,
+            quality_score=analysis.quality_score,
+            architecture_score=analysis.architecture_score,
+        )
+
+        trigger_webhook_event.delay(
+            organization_id=str(org_id),
+            event_type="analysis.completed",
+            payload=payload,
+            repository_id=str(repo.id),
+        )
+
+        logger.debug(
+            "triggered_analysis_completed_webhook",
+            extra={"org_id": str(org_id), "analysis_id": str(analysis.id)},
+        )
+
+    except Exception as e:
+        # Don't fail the main task if webhook triggering fails
+        logger.warning(
+            f"Failed to trigger analysis.completed webhook: {e}",
+            extra={"org_id": str(org_id), "analysis_id": str(analysis.id)},
+        )
+
+
+def _trigger_analysis_failed_webhook(
+    org_id: UUID,
+    analysis: AnalysisRun,
+    repo: Repository,
+    error_message: str,
+) -> None:
+    """Trigger analysis.failed webhooks for the organization.
+
+    Args:
+        org_id: Organization UUID.
+        analysis: Failed AnalysisRun instance.
+        repo: Repository instance.
+        error_message: Error description.
+    """
+    try:
+        from repotoire.services.webhook_payloads import build_analysis_failed_payload
+        from repotoire.workers.webhook_delivery import trigger_webhook_event
+
+        payload = build_analysis_failed_payload(
+            analysis_run_id=analysis.id,
+            repository_id=repo.id,
+            repository_name=repo.full_name,
+            commit_sha=analysis.commit_sha or "",
+            error_message=error_message,
+        )
+
+        trigger_webhook_event.delay(
+            organization_id=str(org_id),
+            event_type="analysis.failed",
+            payload=payload,
+            repository_id=str(repo.id),
+        )
+
+        logger.debug(
+            "triggered_analysis_failed_webhook",
+            extra={"org_id": str(org_id), "analysis_id": str(analysis.id)},
+        )
+
+    except Exception as e:
+        # Don't fail the main task if webhook triggering fails
+        logger.warning(
+            f"Failed to trigger analysis.failed webhook: {e}",
+            extra={"org_id": str(org_id), "analysis_id": str(analysis.id)},
+        )
+
+
+# =============================================================================
 # AI Fix Generation
 # =============================================================================
 
@@ -1217,7 +1565,8 @@ def generate_fixes_for_analysis(
         # Initialize AutoFixEngine with Claude Opus 4.5 (outside session to avoid long transactions)
         from repotoire.autofix.engine import AutoFixEngine
         from repotoire.graph.client import Neo4jClient
-        from repotoire.models import Finding as ModelFinding, Severity
+        from repotoire.models import Finding as ModelFinding
+        from repotoire.models import Severity
 
         neo4j_uri = os.environ.get("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687")
         neo4j_password = os.environ.get("REPOTOIRE_NEO4J_PASSWORD", "")
@@ -1386,7 +1735,7 @@ def _store_fix(
         finding_id: Finding UUID.
         fix_proposal: FixProposal from AutoFixEngine.
     """
-    from repotoire.autofix.models import FixType, FixConfidence
+    from repotoire.autofix.models import FixConfidence, FixType
 
     # Map autofix types to DB types
     type_map = {
