@@ -235,18 +235,150 @@ class EmbeddingsStatusResponse(BaseModel):
 
 
 class ErrorResponse(BaseModel):
-    """Standard error response model."""
+    """Standard error response model.
 
-    error: str = Field(..., description="Error message")
-    detail: Optional[str] = Field(default=None, description="Detailed error information")
-    error_code: Optional[str] = Field(default=None, description="Error code for client handling")
+    All API errors follow this consistent format for easy client-side handling.
+    The `error_code` field provides machine-readable codes for programmatic error handling.
+    """
+
+    error: str = Field(..., description="Error type/category (e.g., 'validation_error', 'not_found')")
+    detail: str = Field(..., description="Human-readable error description")
+    error_code: str = Field(..., description="Machine-readable error code for client handling")
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "error": "Query too short",
+                "error": "validation_error",
                 "detail": "Query must be at least 3 characters long",
                 "error_code": "VALIDATION_ERROR"
+            }
+        }
+    )
+
+
+class NotFoundError(BaseModel):
+    """Error response for resources that don't exist."""
+
+    error: str = Field(default="not_found", description="Error type")
+    detail: str = Field(..., description="Description of what was not found")
+    error_code: str = Field(default="NOT_FOUND", description="Error code")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "error": "not_found",
+                "detail": "Repository with ID '550e8400-e29b-41d4-a716-446655440000' not found",
+                "error_code": "NOT_FOUND"
+            }
+        }
+    )
+
+
+class ForbiddenError(BaseModel):
+    """Error response for permission denied scenarios."""
+
+    error: str = Field(default="forbidden", description="Error type")
+    detail: str = Field(..., description="Description of why access was denied")
+    error_code: str = Field(default="FORBIDDEN", description="Error code")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "error": "forbidden",
+                "detail": "You do not have permission to access this repository",
+                "error_code": "FORBIDDEN"
+            }
+        }
+    )
+
+
+class UnauthorizedError(BaseModel):
+    """Error response for authentication failures."""
+
+    error: str = Field(default="unauthorized", description="Error type")
+    detail: str = Field(..., description="Description of authentication failure")
+    error_code: str = Field(default="UNAUTHORIZED", description="Error code")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "error": "unauthorized",
+                "detail": "Invalid or expired authentication token",
+                "error_code": "UNAUTHORIZED"
+            }
+        }
+    )
+
+
+class RateLimitError(BaseModel):
+    """Error response for rate limit exceeded scenarios."""
+
+    error: str = Field(default="rate_limit_exceeded", description="Error type")
+    detail: str = Field(..., description="Description of rate limit")
+    error_code: str = Field(default="RATE_LIMIT_EXCEEDED", description="Error code")
+    retry_after: int = Field(..., description="Seconds until rate limit resets", ge=0)
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "error": "rate_limit_exceeded",
+                "detail": "API rate limit exceeded. Try again in 60 seconds.",
+                "error_code": "RATE_LIMIT_EXCEEDED",
+                "retry_after": 60
+            }
+        }
+    )
+
+
+class ValidationErrorDetail(BaseModel):
+    """Individual validation error detail."""
+
+    loc: List[str | int] = Field(..., description="Location of the error (path to field)")
+    msg: str = Field(..., description="Human-readable error message")
+    type: str = Field(..., description="Error type identifier")
+
+
+class ValidationErrorResponse(BaseModel):
+    """Validation error response (HTTP 422).
+
+    Returned when request body fails Pydantic validation.
+    """
+
+    detail: List[ValidationErrorDetail] = Field(..., description="List of validation errors")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "detail": [
+                    {
+                        "loc": ["body", "repository_id"],
+                        "msg": "field required",
+                        "type": "value_error.missing"
+                    },
+                    {
+                        "loc": ["body", "top_k"],
+                        "msg": "ensure this value is less than or equal to 50",
+                        "type": "value_error.number.not_le"
+                    }
+                ]
+            }
+        }
+    )
+
+
+class ConflictError(BaseModel):
+    """Error response for resource conflicts."""
+
+    error: str = Field(default="conflict", description="Error type")
+    detail: str = Field(..., description="Description of the conflict")
+    error_code: str = Field(default="CONFLICT", description="Error code")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "error": "conflict",
+                "detail": "An analysis is already in progress for this repository",
+                "error_code": "ANALYSIS_IN_PROGRESS"
             }
         }
     )

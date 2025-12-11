@@ -102,64 +102,175 @@ def _fix_to_dict(fix: Fix) -> dict:
 
 class PaginatedResponse(BaseModel):
     """Paginated response wrapper."""
-    items: List[dict]
-    total: int
-    page: int
-    page_size: int
-    has_more: bool
+
+    items: List[dict] = Field(..., description="List of fix objects")
+    total: int = Field(..., description="Total number of fixes matching filters", ge=0)
+    page: int = Field(..., description="Current page number (1-indexed)", ge=1)
+    page_size: int = Field(..., description="Items per page", ge=1, le=100)
+    has_more: bool = Field(..., description="Whether more pages are available")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "items": [
+                    {
+                        "id": "550e8400-e29b-41d4-a716-446655440000",
+                        "finding_id": "660e8400-e29b-41d4-a716-446655440001",
+                        "fix_type": "code_change",
+                        "confidence": "high",
+                        "title": "Fix hardcoded password",
+                        "status": "pending",
+                    }
+                ],
+                "total": 15,
+                "page": 1,
+                "page_size": 20,
+                "has_more": False,
+            }
+        }
+    }
 
 
 class FixComment(BaseModel):
     """A comment on a fix."""
-    id: str
-    fix_id: str
-    author: str
-    content: str
-    created_at: datetime
+
+    id: str = Field(..., description="Unique comment identifier")
+    fix_id: str = Field(..., description="ID of the fix this comment belongs to")
+    author: str = Field(..., description="Author's user ID or email")
+    content: str = Field(..., description="Comment content")
+    created_at: datetime = Field(..., description="When the comment was created")
 
 
 class CommentCreate(BaseModel):
-    """Request to create a comment."""
-    content: str
+    """Request to create a comment on a fix."""
+
+    content: str = Field(
+        ...,
+        description="Comment text",
+        min_length=1,
+        max_length=5000,
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "content": "This fix looks good, but consider also updating the related config file."
+            }
+        }
+    }
 
 
 class RejectRequest(BaseModel):
     """Request to reject a fix."""
-    reason: str
+
+    reason: str = Field(
+        ...,
+        description="Reason for rejecting the fix",
+        min_length=1,
+        max_length=1000,
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "reason": "This change breaks backward compatibility. Need a migration path."
+            }
+        }
+    }
 
 
 class BatchRequest(BaseModel):
     """Request for batch operations."""
-    ids: List[str]
+
+    ids: List[str] = Field(
+        ...,
+        description="List of fix IDs to operate on",
+        min_length=1,
+        max_length=100,
+    )
 
 
 class BatchRejectRequest(BatchRequest):
     """Request for batch reject."""
-    reason: str
+
+    reason: str = Field(
+        ...,
+        description="Reason for rejecting all selected fixes",
+        min_length=1,
+        max_length=1000,
+    )
 
 
 class ApplyFixRequest(BaseModel):
-    """Request to apply a fix."""
-    repository_path: str = Field(description="Path to the repository where the fix should be applied")
-    create_branch: bool = Field(default=True, description="Whether to create a git branch for the fix")
-    commit: bool = Field(default=True, description="Whether to create a git commit")
+    """Request to apply a fix to the repository."""
+
+    repository_path: str = Field(
+        ...,
+        description="Absolute path to the repository where the fix should be applied",
+        json_schema_extra={"example": "/home/user/projects/my-app"},
+    )
+    create_branch: bool = Field(
+        default=True,
+        description="Create a new git branch for the fix (recommended for review)",
+    )
+    commit: bool = Field(
+        default=True,
+        description="Create a git commit with the fix",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "repository_path": "/home/user/projects/my-app",
+                "create_branch": True,
+                "commit": True,
+            }
+        }
+    }
 
 
-@router.get("")
+@router.get(
+    "",
+    response_model=PaginatedResponse,
+    summary="List fixes",
+    description="""
+List AI-generated fix proposals with filtering and pagination.
+
+**Fix Statuses:**
+- `pending` - Awaiting review
+- `approved` - Approved by reviewer
+- `rejected` - Rejected by reviewer
+- `applied` - Successfully applied to codebase
+- `failed` - Failed to apply
+
+**Confidence Levels:**
+- `high` - High confidence fix, likely correct
+- `medium` - Moderate confidence, needs review
+- `low` - Low confidence, manual review recommended
+
+**Fix Types:**
+- `code_change` - Direct code modification
+- `configuration` - Configuration file change
+- `dependency` - Dependency update
+    """,
+    responses={
+        200: {"description": "Fixes retrieved successfully"},
+    },
+)
 async def list_fixes(
     user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    status: Optional[List[str]] = Query(None),
-    confidence: Optional[List[str]] = Query(None),
-    fix_type: Optional[List[str]] = Query(None),
-    repository_id: Optional[str] = Query(None),
-    search: Optional[str] = None,
-    sort_by: str = "created_at",
-    sort_direction: str = "desc",
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    status: Optional[List[str]] = Query(None, description="Filter by status (pending, approved, rejected, applied, failed)"),
+    confidence: Optional[List[str]] = Query(None, description="Filter by confidence (high, medium, low)"),
+    fix_type: Optional[List[str]] = Query(None, description="Filter by fix type"),
+    repository_id: Optional[str] = Query(None, description="Filter by repository UUID"),
+    search: Optional[str] = Query(None, description="Search in title and description"),
+    sort_by: str = Query("created_at", description="Field to sort by"),
+    sort_direction: str = Query("desc", description="Sort direction: 'asc' or 'desc'"),
 ) -> PaginatedResponse:
-    """List fixes with filters and pagination."""
+    """List AI-generated fix proposals with filtering and pagination."""
     repo = FixRepository(db)
 
     # Convert string params to enums
@@ -193,13 +304,45 @@ async def list_fixes(
     )
 
 
-@router.get("/{fix_id}")
+@router.get(
+    "/{fix_id}",
+    summary="Get fix details",
+    description="""
+Get detailed information about a specific fix proposal.
+
+Returns the full fix object including:
+- Original and fixed code
+- Explanation and rationale
+- Evidence from RAG context (similar patterns, documentation refs)
+- Validation status (syntax, imports, types)
+- Current status and timestamps
+    """,
+    responses={
+        200: {"description": "Fix retrieved successfully"},
+        400: {
+            "description": "Invalid fix ID format",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid fix ID format"}
+                }
+            },
+        },
+        404: {
+            "description": "Fix not found",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Fix not found"}
+                }
+            },
+        },
+    },
+)
 async def get_fix(
     fix_id: str,
     user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Get a specific fix by ID."""
+    """Get detailed information about a specific fix proposal."""
     repo = FixRepository(db)
     try:
         fix = await repo.get_by_id(UUID(fix_id))
@@ -211,13 +354,33 @@ async def get_fix(
     return _fix_to_dict(fix)
 
 
-@router.post("/{fix_id}/approve")
+@router.post(
+    "/{fix_id}/approve",
+    summary="Approve fix",
+    description="""
+Approve a fix proposal for application.
+
+Marks the fix as approved so it can be applied to the codebase.
+Only fixes with status `pending` can be approved.
+
+**Recommended Workflow:**
+1. Preview fix with `/fixes/{id}/preview`
+2. Review sandbox validation results
+3. Approve if all checks pass
+4. Apply with `/fixes/{id}/apply`
+    """,
+    responses={
+        200: {"description": "Fix approved successfully"},
+        400: {"description": "Fix is not pending or invalid ID format"},
+        404: {"description": "Fix not found"},
+    },
+)
 async def approve_fix(
     fix_id: str,
     user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Approve a fix."""
+    """Approve a fix proposal for application."""
     repo = FixRepository(db)
     try:
         fix = await repo.get_by_id(UUID(fix_id))
@@ -234,14 +397,34 @@ async def approve_fix(
     return {"data": _fix_to_dict(fix), "success": True}
 
 
-@router.post("/{fix_id}/reject")
+@router.post(
+    "/{fix_id}/reject",
+    summary="Reject fix",
+    description="""
+Reject a fix proposal with a reason.
+
+Marks the fix as rejected and records the rejection reason as a comment.
+Only fixes with status `pending` can be rejected.
+
+**When to Reject:**
+- Fix introduces bugs or breaks tests
+- Fix doesn't address the root cause
+- Better alternative exists
+- Change is not appropriate for the codebase
+    """,
+    responses={
+        200: {"description": "Fix rejected successfully"},
+        400: {"description": "Fix is not pending or invalid ID format"},
+        404: {"description": "Fix not found"},
+    },
+)
 async def reject_fix(
     fix_id: str,
     request: RejectRequest,
     user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Reject a fix with a reason."""
+    """Reject a fix proposal with a reason."""
     repo = FixRepository(db)
     try:
         fix_uuid = UUID(fix_id)
@@ -282,18 +465,49 @@ async def reject_fix(
     return {"data": _fix_to_dict(fix), "success": True}
 
 
-@router.post("/{fix_id}/apply")
+@router.post(
+    "/{fix_id}/apply",
+    summary="Apply fix to codebase",
+    description="""
+Apply an approved fix to the repository.
+
+**Requires:** Fix must be in `approved` status.
+
+**Process:**
+1. Validates fix is approved
+2. Creates git branch (if enabled)
+3. Applies code changes to files
+4. Creates git commit (if enabled)
+5. Updates fix status to `applied`
+
+**Options:**
+- `repository_path`: Where to apply changes (required for actual application)
+- `create_branch`: Create a new branch for review (default: true)
+- `commit`: Create a git commit (default: true)
+
+If `repository_path` is omitted, only the status is updated (for manual application tracking).
+    """,
+    responses={
+        200: {"description": "Fix applied successfully"},
+        400: {
+            "description": "Fix not approved or repository path invalid",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Fix must be approved before applying"}
+                }
+            },
+        },
+        404: {"description": "Fix not found"},
+        500: {"description": "Failed to apply fix"},
+    },
+)
 async def apply_fix(
     fix_id: str,
     request: Optional[ApplyFixRequest] = None,
     user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Apply an approved fix to the codebase.
-
-    If repository_path is provided, the fix will be applied to the filesystem.
-    Otherwise, only the status will be updated (for manual application).
-    """
+    """Apply an approved fix to the repository."""
     from pathlib import Path
     from repotoire.autofix.applicator import FixApplicator
     from repotoire.autofix.models import (
@@ -403,21 +617,44 @@ def _get_preview_cache():
     return get_preview_cache
 
 
-@router.post("/{fix_id}/preview")
+@router.post(
+    "/{fix_id}/preview",
+    response_model=PreviewResult,
+    summary="Preview fix in sandbox",
+    description="""
+Run a fix preview in an isolated E2B sandbox to validate before approving.
+
+**Validation Checks:**
+1. **Syntax** - Validates Python syntax using AST parser
+2. **Imports** - Verifies all imports can be resolved
+3. **Types** (optional) - Runs mypy type checking
+4. **Tests** (optional) - Runs test suite with the fix applied
+
+**Sandbox Environment:**
+- Isolated Firecracker microVM
+- No network access to your infrastructure
+- Automatic cleanup after execution
+- ~30 second timeout
+
+**Caching:**
+Results are cached in Redis. Subsequent calls return cached results
+unless the fix content changes.
+
+**Without E2B Configured:**
+Falls back to local syntax-only validation (import/type checks skipped).
+    """,
+    responses={
+        200: {"description": "Preview completed successfully"},
+        404: {"description": "Fix not found"},
+        500: {"description": "Preview execution failed"},
+    },
+)
 async def preview_fix(
     fix_id: str,
     user: ClerkUser = Depends(get_current_user),
     cache: "PreviewCache" = Depends(_get_preview_cache),
 ) -> PreviewResult:
-    """Run fix preview in sandbox to validate before approving.
-
-    Executes the proposed fix in an isolated E2B sandbox and runs:
-    - Syntax validation (ast.parse)
-    - Import validation (module can be imported)
-    - Optional type checking (mypy)
-
-    Returns detailed results for each check.
-    """
+    """Run fix preview in sandbox to validate before approving."""
     if fix_id not in _fixes_store:
         raise HTTPException(status_code=404, detail="Fix not found")
 

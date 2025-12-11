@@ -37,53 +37,141 @@ router = APIRouter(prefix="/findings", tags=["findings"])
 
 
 class FindingResponse(BaseModel):
-    """Response model for a single finding."""
+    """Response model for a single code health finding."""
 
-    id: UUID
-    analysis_run_id: UUID
-    detector: str
-    severity: str
-    title: str
-    description: str
-    affected_files: List[str]
-    affected_nodes: List[str]
-    line_start: Optional[int] = None
-    line_end: Optional[int] = None
-    suggested_fix: Optional[str] = None
-    estimated_effort: Optional[str] = None
-    graph_context: Optional[dict] = None
-    created_at: datetime
+    id: UUID = Field(..., description="Unique identifier for this finding")
+    analysis_run_id: UUID = Field(..., description="Analysis run that detected this finding")
+    detector: str = Field(
+        ...,
+        description="Detection tool that identified this issue (e.g., 'ruff', 'bandit', 'cyclomatic-complexity')",
+    )
+    severity: str = Field(
+        ...,
+        description="Severity level: critical, high, medium, low, info",
+    )
+    title: str = Field(..., description="Short summary of the issue")
+    description: str = Field(..., description="Detailed explanation of the issue and why it matters")
+    affected_files: List[str] = Field(
+        default_factory=list,
+        description="List of file paths affected by this finding",
+    )
+    affected_nodes: List[str] = Field(
+        default_factory=list,
+        description="Qualified names of affected code entities (e.g., 'module.Class.method')",
+    )
+    line_start: Optional[int] = Field(None, description="Starting line number in the primary affected file")
+    line_end: Optional[int] = Field(None, description="Ending line number in the primary affected file")
+    suggested_fix: Optional[str] = Field(None, description="Suggested code change to resolve this issue")
+    estimated_effort: Optional[str] = Field(
+        None,
+        description="Estimated effort to fix: 'trivial', 'small', 'medium', 'large'",
+    )
+    graph_context: Optional[dict] = Field(
+        None,
+        description="Additional context from graph analysis (related entities, metrics)",
+    )
+    created_at: datetime = Field(..., description="When this finding was created")
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True,
+        "json_schema_extra": {
+            "example": {
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "analysis_run_id": "660e8400-e29b-41d4-a716-446655440001",
+                "detector": "cyclomatic-complexity",
+                "severity": "medium",
+                "title": "High cyclomatic complexity",
+                "description": "Function 'process_data' has cyclomatic complexity of 15, exceeding threshold of 10.",
+                "affected_files": ["src/processors/data.py"],
+                "affected_nodes": ["data.py::process_data:45"],
+                "line_start": 45,
+                "line_end": 120,
+                "suggested_fix": "Consider breaking this function into smaller, focused functions.",
+                "estimated_effort": "medium",
+                "graph_context": {"calls_count": 8, "callers_count": 3},
+                "created_at": "2025-01-15T10:35:00Z",
+            }
+        },
+    }
 
 
 class PaginatedFindingsResponse(BaseModel):
     """Paginated response for findings list."""
 
-    items: List[FindingResponse]
-    total: int
-    page: int
-    page_size: int
-    has_more: bool
+    items: List[FindingResponse] = Field(..., description="List of findings for this page")
+    total: int = Field(..., description="Total number of findings matching the query", ge=0)
+    page: int = Field(..., description="Current page number (1-indexed)", ge=1)
+    page_size: int = Field(..., description="Number of items per page", ge=1, le=100)
+    has_more: bool = Field(..., description="Whether more pages are available")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "items": [
+                    {
+                        "id": "550e8400-e29b-41d4-a716-446655440000",
+                        "analysis_run_id": "660e8400-e29b-41d4-a716-446655440001",
+                        "detector": "bandit",
+                        "severity": "high",
+                        "title": "Hardcoded password",
+                        "description": "Hardcoded password detected in source code.",
+                        "affected_files": ["src/config.py"],
+                        "affected_nodes": ["config.py::DB_PASSWORD:12"],
+                        "line_start": 12,
+                        "line_end": 12,
+                        "suggested_fix": "Use environment variables for sensitive values.",
+                        "estimated_effort": "trivial",
+                        "graph_context": None,
+                        "created_at": "2025-01-15T10:35:00Z",
+                    }
+                ],
+                "total": 42,
+                "page": 1,
+                "page_size": 20,
+                "has_more": True,
+            }
+        }
+    }
 
 
 class FindingsSummary(BaseModel):
     """Summary of findings by severity."""
 
-    critical: int = 0
-    high: int = 0
-    medium: int = 0
-    low: int = 0
-    info: int = 0
-    total: int = 0
+    critical: int = Field(0, description="Number of critical severity findings", ge=0)
+    high: int = Field(0, description="Number of high severity findings", ge=0)
+    medium: int = Field(0, description="Number of medium severity findings", ge=0)
+    low: int = Field(0, description="Number of low severity findings", ge=0)
+    info: int = Field(0, description="Number of informational findings", ge=0)
+    total: int = Field(0, description="Total number of findings across all severities", ge=0)
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "critical": 2,
+                "high": 8,
+                "medium": 15,
+                "low": 12,
+                "info": 5,
+                "total": 42,
+            }
+        }
+    }
 
 
 class FindingsByDetector(BaseModel):
     """Findings grouped by detector."""
 
-    detector: str
-    count: int
+    detector: str = Field(..., description="Name of the detection tool")
+    count: int = Field(..., description="Number of findings from this detector", ge=0)
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "detector": "ruff",
+                "count": 25,
+            }
+        }
+    }
 
 
 # =============================================================================
@@ -159,26 +247,68 @@ async def _get_latest_analysis_run_ids(
 # =============================================================================
 
 
-@router.get("", response_model=PaginatedFindingsResponse)
+@router.get(
+    "",
+    response_model=PaginatedFindingsResponse,
+    summary="List findings",
+    description="""
+List code health findings with pagination and filtering.
+
+Returns findings from analysis runs for repositories the user has access to.
+
+**Deduplication:**
+By default, only shows findings from the latest completed analysis run per repository
+to avoid showing duplicates from multiple analysis runs. Set `all_runs=true` to see
+all historical findings.
+
+**Filtering:**
+- `severity`: Filter by one or more severity levels (critical, high, medium, low, info)
+- `detector`: Filter by detection tool name (e.g., 'ruff', 'bandit', 'mypy')
+- `repository_id`: Limit to a specific repository
+- `analysis_run_id`: Limit to a specific analysis run
+
+**Sorting:**
+- `sort_by`: Field to sort by (created_at, severity, detector)
+- `sort_direction`: 'asc' or 'desc'
+
+**Pagination:**
+- `page`: Page number (1-indexed)
+- `page_size`: Items per page (max 100)
+    """,
+    responses={
+        200: {"description": "Findings retrieved successfully"},
+        403: {
+            "description": "Organization not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "forbidden",
+                        "detail": "Organization not found",
+                        "error_code": "FORBIDDEN",
+                    }
+                }
+            },
+        },
+    },
+)
 async def list_findings(
-    analysis_run_id: Optional[UUID] = Query(None, description="Filter by analysis run"),
-    repository_id: Optional[UUID] = Query(None, description="Filter by repository"),
-    severity: Optional[List[str]] = Query(None, description="Filter by severity"),
-    detector: Optional[str] = Query(None, description="Filter by detector"),
-    all_runs: bool = Query(False, description="Show findings from all runs, not just latest"),
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
-    sort_by: str = Query("created_at", description="Sort field"),
-    sort_direction: str = Query("desc", regex="^(asc|desc)$", description="Sort direction"),
+    analysis_run_id: Optional[UUID] = Query(None, description="Filter by specific analysis run ID"),
+    repository_id: Optional[UUID] = Query(None, description="Filter by repository ID"),
+    severity: Optional[List[str]] = Query(
+        None,
+        description="Filter by severity levels (can specify multiple)",
+        example=["critical", "high"],
+    ),
+    detector: Optional[str] = Query(None, description="Filter by detector name (e.g., 'ruff', 'bandit')"),
+    all_runs: bool = Query(False, description="Include findings from all runs, not just the latest per repo"),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(20, ge=1, le=100, description="Number of items per page"),
+    sort_by: str = Query("created_at", description="Field to sort by"),
+    sort_direction: str = Query("desc", pattern="^(asc|desc)$", description="Sort direction: 'asc' or 'desc'"),
     user: ClerkUser = Depends(require_org),
     session: AsyncSession = Depends(get_db),
 ) -> PaginatedFindingsResponse:
-    """List findings with pagination and filtering.
-
-    Returns findings from analysis runs for repositories the user has access to.
-    By default, only shows findings from the latest completed analysis run per repository
-    to avoid duplicates. Set all_runs=true to see all historical findings.
-    """
+    """List code health findings with pagination and filtering."""
     # Get user's organization
     org = await _get_user_org(session, user)
     if not org:
@@ -278,17 +408,48 @@ async def list_findings(
     )
 
 
-@router.get("/summary", response_model=FindingsSummary)
+@router.get(
+    "/summary",
+    response_model=FindingsSummary,
+    summary="Get findings summary",
+    description="""
+Get a summary count of findings grouped by severity level.
+
+By default, only counts findings from the latest completed analysis run per repository
+to provide an accurate picture of current code health.
+
+**Use Cases:**
+- Dashboard summary cards
+- Health score widgets
+- Trend comparison (compare with previous summary)
+
+**Filtering:**
+- `repository_id`: Limit to a specific repository
+- `analysis_run_id`: Limit to a specific analysis run
+    """,
+    responses={
+        200: {"description": "Summary retrieved successfully"},
+        403: {
+            "description": "Organization not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "forbidden",
+                        "detail": "Organization not found",
+                        "error_code": "FORBIDDEN",
+                    }
+                }
+            },
+        },
+    },
+)
 async def get_findings_summary(
-    analysis_run_id: Optional[UUID] = Query(None, description="Filter by analysis run"),
-    repository_id: Optional[UUID] = Query(None, description="Filter by repository"),
+    analysis_run_id: Optional[UUID] = Query(None, description="Filter by specific analysis run ID"),
+    repository_id: Optional[UUID] = Query(None, description="Filter by repository ID"),
     user: ClerkUser = Depends(require_org),
     session: AsyncSession = Depends(get_db),
 ) -> FindingsSummary:
-    """Get summary of findings by severity.
-
-    By default, only counts findings from the latest completed analysis run per repository.
-    """
+    """Get a summary count of findings grouped by severity level."""
     org = await _get_user_org(session, user)
     if not org:
         raise HTTPException(
@@ -323,18 +484,52 @@ async def get_findings_summary(
     return summary
 
 
-@router.get("/by-detector", response_model=List[FindingsByDetector])
+@router.get(
+    "/by-detector",
+    response_model=List[FindingsByDetector],
+    summary="Get findings by detector",
+    description="""
+Get findings grouped and counted by detection tool.
+
+Returns a list of detectors sorted by finding count (descending).
+Useful for understanding which types of issues are most common.
+
+**Available Detectors:**
+- `ruff` - General linting (400+ rules)
+- `pylint` - Python-specific checks
+- `mypy` - Type checking errors
+- `bandit` - Security vulnerabilities
+- `radon` - Complexity metrics
+- `jscpd` - Duplicate code detection
+- `vulture` - Dead code detection
+- `semgrep` - Advanced security patterns
+
+By default, only counts findings from the latest completed analysis run per repository.
+    """,
+    responses={
+        200: {"description": "Findings by detector retrieved successfully"},
+        403: {
+            "description": "Organization not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "forbidden",
+                        "detail": "Organization not found",
+                        "error_code": "FORBIDDEN",
+                    }
+                }
+            },
+        },
+    },
+)
 async def get_findings_by_detector(
-    analysis_run_id: Optional[UUID] = Query(None, description="Filter by analysis run"),
-    repository_id: Optional[UUID] = Query(None, description="Filter by repository"),
-    limit: int = Query(20, ge=1, le=50, description="Max detectors to return"),
+    analysis_run_id: Optional[UUID] = Query(None, description="Filter by specific analysis run ID"),
+    repository_id: Optional[UUID] = Query(None, description="Filter by repository ID"),
+    limit: int = Query(20, ge=1, le=50, description="Maximum number of detectors to return"),
     user: ClerkUser = Depends(require_org),
     session: AsyncSession = Depends(get_db),
 ) -> List[FindingsByDetector]:
-    """Get findings grouped by detector.
-
-    By default, only counts findings from the latest completed analysis run per repository.
-    """
+    """Get findings grouped and counted by detection tool."""
     org = await _get_user_org(session, user)
     if not org:
         raise HTTPException(
@@ -364,13 +559,53 @@ async def get_findings_by_detector(
     return [FindingsByDetector(detector=detector, count=count) for detector, count in rows]
 
 
-@router.get("/{finding_id}", response_model=FindingResponse)
+@router.get(
+    "/{finding_id}",
+    response_model=FindingResponse,
+    summary="Get finding details",
+    description="""
+Get detailed information about a single finding by ID.
+
+Returns the full finding object including:
+- Affected files and code locations
+- Suggested fix (if available)
+- Graph context (related entities)
+- Estimated effort to fix
+    """,
+    responses={
+        200: {"description": "Finding retrieved successfully"},
+        403: {
+            "description": "Access denied to this finding",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "forbidden",
+                        "detail": "Access denied",
+                        "error_code": "FORBIDDEN",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "Finding not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "not_found",
+                        "detail": "Finding not found",
+                        "error_code": "NOT_FOUND",
+                    }
+                }
+            },
+        },
+    },
+)
 async def get_finding(
     finding_id: UUID,
     user: ClerkUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> FindingResponse:
-    """Get a single finding by ID."""
+    """Get detailed information about a single finding."""
     # Get finding with access check
     query = (
         select(Finding)

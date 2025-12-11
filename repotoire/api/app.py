@@ -8,6 +8,7 @@ from typing import Any
 import sentry_sdk
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
@@ -23,11 +24,13 @@ from repotoire.api.routes import (
     billing,
     cli_auth,
     code,
+    customer_webhooks,
     findings,
     fixes,
     github,
     historical,
     notifications,
+    organizations,
     sandbox,
     team,
     usage,
@@ -120,38 +123,227 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Repotoire RAG API")
 
 
+# OpenAPI tag metadata for endpoint categorization
+OPENAPI_TAGS = [
+    {
+        "name": "analysis",
+        "description": "Trigger and monitor repository code analysis. Supports incremental analysis, "
+        "real-time progress streaming via SSE, and concurrent analysis management.",
+    },
+    {
+        "name": "repositories",
+        "description": "Repository connection and management. Connect GitHub repositories, "
+        "manage quality gates, and configure analysis settings.",
+    },
+    {
+        "name": "findings",
+        "description": "Code health findings from analysis. Query, filter, and aggregate findings "
+        "by severity, detector type, or file location.",
+    },
+    {
+        "name": "fixes",
+        "description": "AI-generated fix suggestions. Preview fixes in sandboxed environments, "
+        "approve/reject proposals, and apply changes to repositories.",
+    },
+    {
+        "name": "analytics",
+        "description": "Dashboards and metrics. Health scores, trend analysis, and repository-level "
+        "statistics for tracking code quality over time.",
+    },
+    {
+        "name": "billing",
+        "description": "Subscription and usage management. Manage plans, create checkout sessions, "
+        "and access the customer portal via Stripe integration.",
+    },
+    {
+        "name": "organizations",
+        "description": "Organization and team management. Create and manage organizations, "
+        "invite team members, and configure organization settings.",
+    },
+    {
+        "name": "webhooks",
+        "description": "Webhook configuration and delivery. Configure endpoints to receive "
+        "event notifications for analysis completions, findings, and more.",
+    },
+    {
+        "name": "customer-webhooks",
+        "description": "Customer webhook endpoints for event notifications. Manage webhook "
+        "subscriptions, test deliveries, and rotate secrets.",
+    },
+    {
+        "name": "code",
+        "description": "Code search and RAG Q&A. Semantic code search using vector embeddings "
+        "and graph traversal, plus LLM-powered question answering.",
+    },
+    {
+        "name": "account",
+        "description": "User account and GDPR operations. Export personal data, manage consent "
+        "preferences, and handle account deletion.",
+    },
+    {
+        "name": "audit",
+        "description": "Audit logs for compliance. Track API access, data changes, and "
+        "administrative actions for security and compliance purposes.",
+    },
+    {
+        "name": "github",
+        "description": "GitHub App integration. Handle GitHub OAuth, manage installations, "
+        "configure quality gates, and process webhooks.",
+    },
+    {
+        "name": "health",
+        "description": "Service health checks. Liveness and readiness probes for load balancers "
+        "and orchestration systems.",
+    },
+    {
+        "name": "historical",
+        "description": "Git history and temporal analysis. Ingest commit history, query code "
+        "evolution, and generate entity timelines.",
+    },
+    {
+        "name": "sandbox",
+        "description": "E2B sandbox metrics and management. Monitor sandbox usage, costs, "
+        "and execution statistics for secure code testing.",
+    },
+    {
+        "name": "notifications",
+        "description": "Notification management. Configure and manage user notifications "
+        "for analysis events and system alerts.",
+    },
+    {
+        "name": "team",
+        "description": "Team member management. Invite users, manage roles, and configure "
+        "team-level permissions and settings.",
+    },
+    {
+        "name": "usage",
+        "description": "Usage tracking and analytics. Monitor API usage, analysis counts, "
+        "and resource consumption across the organization.",
+    },
+    {
+        "name": "cli-auth",
+        "description": "CLI authentication flows. OAuth device flow for CLI tool authentication "
+        "and token management.",
+    },
+    {
+        "name": "admin",
+        "description": "Administrative endpoints. Internal operations for quota overrides "
+        "and system management.",
+    },
+]
+
 # Create FastAPI app
 app = FastAPI(
-    title="Repotoire RAG API",
+    title="Repotoire API",
     description="""
-    # Repotoire Code Intelligence API
+# Repotoire Code Intelligence API
 
-    Graph-powered code question answering using Retrieval Augmented Generation (RAG).
+Graph-powered code health analysis platform with AI-assisted fixes.
 
-    ## Features
+## Overview
 
-    - **Semantic Code Search**: Find code using natural language queries
-    - **Code Q&A**: Ask questions and get AI-powered answers with source citations
-    - **Graph-Aware**: Leverages code relationships (imports, calls, inheritance)
-    - **Hybrid Retrieval**: Combines vector embeddings + graph traversal
+Repotoire analyzes codebases using Neo4j knowledge graphs to detect code smells,
+architectural issues, and technical debt. Unlike traditional linters that examine
+files in isolation, Repotoire builds a graph combining structural analysis (AST),
+semantic understanding (NLP + AI), and relational patterns (graph algorithms).
 
-    ## Authentication
+## Authentication
 
-    This API uses Clerk for authentication. Include a valid JWT token
-    in the Authorization header:
-    ```
-    Authorization: Bearer <your-clerk-token>
-    ```
+All API requests require authentication via one of:
 
-    ## Rate Limits
+### Bearer Token (Clerk JWT)
+```
+Authorization: Bearer <your-clerk-token>
+```
 
-    No rate limits currently enforced.
+Obtain tokens through the web dashboard or CLI authentication flow.
+
+### API Key (for CI/CD)
+```
+X-API-Key: <your-api-key>
+```
+
+Generate API keys in Settings > API Keys. Recommended for automated pipelines.
+
+## Rate Limits
+
+| Tier | Analyses/Hour | API Calls/Min |
+|------|---------------|---------------|
+| Free | 2 | 60 |
+| Pro | 20 | 300 |
+| Enterprise | Unlimited | 1000 |
+
+Rate limit headers are included in responses:
+- `X-RateLimit-Limit`: Maximum requests allowed
+- `X-RateLimit-Remaining`: Requests remaining in window
+- `X-RateLimit-Reset`: Unix timestamp when limit resets
+
+## Webhooks
+
+Subscribe to events via Settings > Webhooks:
+
+| Event | Description |
+|-------|-------------|
+| `analysis.started` | Analysis job has begun processing |
+| `analysis.completed` | Analysis finished successfully |
+| `analysis.failed` | Analysis encountered an error |
+| `health_score.changed` | Repository health score changed |
+| `finding.new` | New code issue detected |
+| `finding.resolved` | Previously detected issue resolved |
+
+Webhook payloads are signed with HMAC-SHA256. Verify using the `X-Repotoire-Signature` header.
+
+## Error Responses
+
+All errors follow this format:
+
+```json
+{
+  "error": "error_type",
+  "detail": "Human-readable message",
+  "error_code": "MACHINE_READABLE_CODE"
+}
+```
+
+Common error codes:
+- `UNAUTHORIZED` - Missing or invalid authentication
+- `FORBIDDEN` - Insufficient permissions
+- `NOT_FOUND` - Resource does not exist
+- `RATE_LIMIT_EXCEEDED` - Too many requests
+- `VALIDATION_ERROR` - Invalid request parameters
+- `INTERNAL_ERROR` - Unexpected server error
+
+## SDKs & Tools
+
+- **CLI**: `pip install repotoire` - Command-line interface
+- **GitHub Action**: `repotoire/analyze-action@v1` - CI/CD integration
+- **VS Code Extension**: Coming soon
+
+## Support
+
+- Documentation: https://docs.repotoire.io
+- GitHub Issues: https://github.com/repotoire/repotoire/issues
+- Email: support@repotoire.io
     """,
-    version="0.1.0",
+    version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
-    lifespan=lifespan
+    openapi_tags=OPENAPI_TAGS,
+    contact={
+        "name": "Repotoire Support",
+        "email": "support@repotoire.io",
+        "url": "https://repotoire.io",
+    },
+    license_info={
+        "name": "Proprietary",
+        "url": "https://repotoire.io/terms",
+    },
+    servers=[
+        {"url": "https://api.repotoire.io", "description": "Production"},
+        {"url": "http://localhost:8000", "description": "Local development"},
+    ],
+    lifespan=lifespan,
 )
 
 # Add correlation ID middleware first (before CORS)
@@ -182,9 +374,11 @@ app.include_router(webhooks.router, prefix="/api/v1")
 app.include_router(sandbox.router, prefix="/api/v1")
 app.include_router(notifications.router, prefix="/api/v1")
 app.include_router(team.router, prefix="/api/v1")
+app.include_router(organizations.router, prefix="/api/v1")
 app.include_router(usage.router, prefix="/api/v1")
 app.include_router(admin_overrides.router, prefix="/api/v1")
 app.include_router(audit.router, prefix="/api/v1")
+app.include_router(customer_webhooks.router, prefix="/api/v1")
 
 
 @app.get("/", tags=["Root"])
@@ -328,6 +522,104 @@ async def global_exception_handler(request: Request, exc: Exception):
             error_code="INTERNAL_ERROR"
         ).model_dump()
     )
+
+
+def custom_openapi() -> dict[str, Any]:
+    """Generate custom OpenAPI schema with security schemes."""
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        tags=app.openapi_tags,
+        servers=app.servers,
+        contact=app.contact,
+        license_info=app.license_info,
+    )
+
+    # Add security schemes
+    openapi_schema["components"]["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "Clerk JWT token obtained from web dashboard or CLI authentication flow. "
+            "Include in the Authorization header as `Bearer <token>`.",
+        },
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-Key",
+            "description": "API key for CI/CD integrations. Generate in Settings > API Keys. "
+            "Recommended for automated pipelines and GitHub Actions.",
+        },
+    }
+
+    # Apply security globally (endpoints can override if needed)
+    openapi_schema["security"] = [{"BearerAuth": []}, {"ApiKeyAuth": []}]
+
+    # Add common error response schemas to components
+    if "schemas" not in openapi_schema["components"]:
+        openapi_schema["components"]["schemas"] = {}
+
+    openapi_schema["components"]["schemas"]["HTTPValidationError"] = {
+        "type": "object",
+        "properties": {
+            "detail": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "loc": {
+                            "type": "array",
+                            "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]},
+                            "description": "Location of the error (path to the invalid field)",
+                        },
+                        "msg": {"type": "string", "description": "Human-readable error message"},
+                        "type": {"type": "string", "description": "Error type identifier"},
+                    },
+                    "required": ["loc", "msg", "type"],
+                },
+            }
+        },
+        "example": {
+            "detail": [
+                {
+                    "loc": ["body", "repository_id"],
+                    "msg": "field required",
+                    "type": "value_error.missing",
+                }
+            ]
+        },
+    }
+
+    openapi_schema["components"]["schemas"]["RateLimitError"] = {
+        "type": "object",
+        "properties": {
+            "error": {"type": "string", "example": "rate_limit_exceeded"},
+            "detail": {
+                "type": "string",
+                "example": "API rate limit exceeded. Try again in 60 seconds.",
+            },
+            "error_code": {"type": "string", "example": "RATE_LIMIT_EXCEEDED"},
+            "retry_after": {
+                "type": "integer",
+                "description": "Seconds until rate limit resets",
+                "example": 60,
+            },
+        },
+        "required": ["error", "detail", "error_code"],
+    }
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+# Override the default OpenAPI schema generator
+app.openapi = custom_openapi
 
 
 if __name__ == "__main__":

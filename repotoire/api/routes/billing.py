@@ -36,44 +36,110 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 
 
 class CheckoutRequest(BaseModel):
-    """Request to create a checkout session."""
+    """Request to create a Stripe checkout session."""
 
-    tier: PlanTier
-    seats: int = Field(default=1, ge=1, le=100, description="Number of seats to purchase")
+    tier: PlanTier = Field(
+        ...,
+        description="Subscription tier to upgrade to (pro or enterprise)",
+    )
+    seats: int = Field(
+        default=1,
+        ge=1,
+        le=100,
+        description="Number of seats to purchase (determines usage limits)",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "tier": "pro",
+                "seats": 5,
+            }
+        }
+    }
 
 
 class CheckoutResponse(BaseModel):
-    """Response with checkout URL."""
+    """Response with Stripe checkout URL."""
 
-    checkout_url: str
+    checkout_url: str = Field(
+        ...,
+        description="URL to redirect user to Stripe's hosted checkout page",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "checkout_url": "https://checkout.stripe.com/c/pay/cs_test_..."
+            }
+        }
+    }
 
 
 class PortalResponse(BaseModel):
-    """Response with customer portal URL."""
+    """Response with Stripe customer portal URL."""
 
-    portal_url: str
+    portal_url: str = Field(
+        ...,
+        description="URL to redirect user to Stripe's customer portal",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "portal_url": "https://billing.stripe.com/session/..."
+            }
+        }
+    }
 
 
 class UsageInfo(BaseModel):
-    """Current usage information."""
+    """Current usage information for the organization."""
 
-    repos: int
-    analyses: int
-    limits: dict[str, int]  # {"repos": 10, "analyses": -1}
+    repos: int = Field(..., description="Number of repositories connected", ge=0)
+    analyses: int = Field(..., description="Number of analyses run this billing period", ge=0)
+    limits: dict[str, int] = Field(
+        ...,
+        description="Usage limits (-1 means unlimited)",
+        json_schema_extra={"example": {"repos": 10, "analyses": 100}},
+    )
 
 
 class SubscriptionResponse(BaseModel):
     """Response with subscription details and usage."""
 
-    tier: PlanTier
-    status: SubscriptionStatus
-    seats: int
-    current_period_end: datetime | None
-    cancel_at_period_end: bool
-    usage: UsageInfo
-    monthly_cost_cents: int
+    tier: PlanTier = Field(..., description="Current subscription tier (free, pro, enterprise)")
+    status: SubscriptionStatus = Field(..., description="Subscription status (active, canceled, past_due)")
+    seats: int = Field(..., description="Number of purchased seats", ge=1)
+    current_period_end: datetime | None = Field(
+        None,
+        description="When the current billing period ends",
+    )
+    cancel_at_period_end: bool = Field(
+        ...,
+        description="Whether subscription will cancel at period end",
+    )
+    usage: UsageInfo = Field(..., description="Current usage metrics")
+    monthly_cost_cents: int = Field(..., description="Monthly cost in cents", ge=0)
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True,
+        "json_schema_extra": {
+            "example": {
+                "tier": "pro",
+                "status": "active",
+                "seats": 5,
+                "current_period_end": "2025-02-15T00:00:00Z",
+                "cancel_at_period_end": False,
+                "usage": {
+                    "repos": 8,
+                    "analyses": 45,
+                    "limits": {"repos": 50, "analyses": 500},
+                },
+                "monthly_cost_cents": 4900,
+            }
+        },
+    }
 
 
 class PlanInfo(BaseModel):
@@ -180,16 +246,32 @@ async def get_org_by_slug(db: AsyncSession, slug: str) -> Organization:
 # ============================================================================
 
 
-@router.get("/subscription", response_model=SubscriptionResponse)
+@router.get(
+    "/subscription",
+    response_model=SubscriptionResponse,
+    summary="Get subscription details",
+    description="""
+Get current subscription and usage information for the organization.
+
+Returns:
+- Current tier and subscription status
+- Number of purchased seats
+- Billing period end date
+- Current usage (repos, analyses) vs limits
+- Monthly cost
+
+**Note:** Works without an organization - returns free tier defaults for
+users not yet in an organization.
+    """,
+    responses={
+        200: {"description": "Subscription details retrieved successfully"},
+    },
+)
 async def get_subscription(
     user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> SubscriptionResponse:
-    """Get current subscription and usage for the organization.
-
-    Returns subscription status, plan tier, seat count, and current usage metrics.
-    Works without an organization - returns free tier defaults.
-    """
+    """Get current subscription and usage for the organization."""
     # Default values for users without an organization
     tier = PlanTier.FREE
     seats = 1
@@ -249,17 +331,46 @@ async def get_subscription(
     )
 
 
-@router.post("/checkout", response_model=CheckoutResponse)
+@router.post(
+    "/checkout",
+    response_model=CheckoutResponse,
+    summary="Create checkout session",
+    description="""
+Create a Stripe Checkout session for subscription upgrade.
+
+**Process:**
+1. Creates or retrieves Stripe customer for the organization
+2. Generates a Stripe Checkout session URL
+3. Returns URL for redirecting user to Stripe's hosted checkout
+
+**After Checkout:**
+- Stripe sends webhook to `/webhooks/stripe`
+- Subscription is activated automatically
+- User is redirected to success URL
+
+**Pricing:**
+- Pro: $29/month base + $10/seat
+- Enterprise: Custom pricing (contact sales)
+    """,
+    responses={
+        200: {"description": "Checkout session created"},
+        400: {
+            "description": "Invalid request or user email required",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Organization slug required"}
+                }
+            },
+        },
+        500: {"description": "Failed to create checkout session"},
+    },
+)
 async def create_checkout(
     request: CheckoutRequest,
     user: ClerkUser = Depends(require_org),
     db: AsyncSession = Depends(get_db),
 ) -> CheckoutResponse:
-    """Create a Stripe Checkout session for subscription upgrade.
-
-    Creates or retrieves a Stripe customer for the organization,
-    then creates a checkout session for the requested plan tier and seats.
-    """
+    """Create a Stripe Checkout session for subscription upgrade."""
     if not user.org_slug:
         raise HTTPException(status_code=400, detail="Organization slug required")
 
@@ -310,16 +421,41 @@ async def create_checkout(
     return CheckoutResponse(checkout_url=checkout_url)
 
 
-@router.post("/portal", response_model=PortalResponse)
+@router.post(
+    "/portal",
+    response_model=PortalResponse,
+    summary="Access customer portal",
+    description="""
+Create a Stripe Customer Portal session for self-service billing management.
+
+**Portal Capabilities:**
+- View and download invoices
+- Update payment methods
+- Change subscription plan
+- Cancel subscription
+- Update billing information
+
+**Requirements:**
+- Organization must have an existing Stripe customer (created during first checkout)
+    """,
+    responses={
+        200: {"description": "Portal session created"},
+        400: {
+            "description": "No billing account found",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "No billing account found. Please subscribe to a plan first."}
+                }
+            },
+        },
+        404: {"description": "Organization not found"},
+    },
+)
 async def create_portal(
     user: ClerkUser = Depends(require_org),
     db: AsyncSession = Depends(get_db),
 ) -> PortalResponse:
-    """Create a Stripe Customer Portal session for self-service billing.
-
-    Allows users to manage their payment methods, view invoices,
-    and cancel subscriptions.
-    """
+    """Create a Stripe Customer Portal session for self-service billing."""
     if not user.org_slug:
         raise HTTPException(status_code=400, detail="Organization slug required")
 
@@ -340,16 +476,33 @@ async def create_portal(
     return PortalResponse(portal_url=portal_url)
 
 
-@router.get("/plans", response_model=PlansResponse)
+@router.get(
+    "/plans",
+    response_model=PlansResponse,
+    summary="Get available plans",
+    description="""
+Get all available subscription plans with pricing and limits.
+
+Returns detailed information about each plan including:
+- Base price and per-seat pricing
+- Repository and analysis limits per seat
+- Feature list
+- Current tier and seats for comparison
+
+**Available Plans:**
+- **Free**: 0/month, 2 repos, 10 analyses/month
+- **Pro**: $29/month base + $10/seat, 10 repos/seat, 100 analyses/seat
+- **Enterprise**: Custom pricing, unlimited repos and analyses
+    """,
+    responses={
+        200: {"description": "Plans retrieved successfully"},
+    },
+)
 async def get_plans(
     user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PlansResponse:
-    """Get available subscription plans and current tier.
-
-    Returns all available plans with their per-seat pricing and limits.
-    Works without an organization - defaults to free tier.
-    """
+    """Get all available subscription plans with pricing and limits."""
     current_tier = PlanTier.FREE
     current_seats = 1
 
@@ -387,15 +540,32 @@ async def get_plans(
     )
 
 
-@router.post("/calculate-price", response_model=PriceCalculationResponse)
+@router.post(
+    "/calculate-price",
+    response_model=PriceCalculationResponse,
+    summary="Calculate price",
+    description="""
+Calculate the total monthly price for a given tier and seat count.
+
+Useful for displaying dynamic pricing in the UI before checkout.
+
+**Calculation:**
+- Base price (includes minimum seats)
+- Additional seats at per-seat rate
+- Total = base + (additional_seats * per_seat_rate)
+
+Returns the calculated limits (repos, analyses) based on seats.
+    """,
+    responses={
+        200: {"description": "Price calculated successfully"},
+        400: {"description": "Invalid tier or seat count exceeds maximum"},
+    },
+)
 async def calculate_price(
     request: PriceCalculationRequest,
     user: ClerkUser = Depends(get_current_user),
 ) -> PriceCalculationResponse:
-    """Calculate the price for a given tier and seat count.
-
-    Useful for displaying dynamic pricing in the UI.
-    """
+    """Calculate the total monthly price for a tier and seat count."""
     limits = PLAN_LIMITS.get(request.tier)
     if not limits:
         raise HTTPException(status_code=400, detail=f"Unknown tier: {request.tier.value}")
