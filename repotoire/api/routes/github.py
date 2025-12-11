@@ -40,6 +40,24 @@ router = APIRouter(prefix="/github", tags=["github"])
 # =============================================================================
 
 
+class QualityGatesConfig(BaseModel):
+    """Quality gates configuration for a repository."""
+
+    enabled: bool = Field(True, description="Whether quality gates are enabled")
+    block_on_critical: bool = Field(
+        True, description="Block PR merges when critical issues are found"
+    )
+    block_on_high: bool = Field(
+        False, description="Block PR merges when high severity issues are found"
+    )
+    min_health_score: Optional[int] = Field(
+        None, ge=0, le=100, description="Minimum health score required to pass"
+    )
+    max_new_issues: Optional[int] = Field(
+        None, ge=0, description="Maximum number of new issues allowed"
+    )
+
+
 class GitHubRepoResponse(BaseModel):
     """Response model for a GitHub repository."""
 
@@ -51,6 +69,13 @@ class GitHubRepoResponse(BaseModel):
     auto_analyze: bool = Field(
         default=True,
         description="Whether to auto-analyze on push events (requires enabled=True and pro/enterprise tier)",
+    )
+    pr_analysis_enabled: bool = Field(
+        default=True,
+        description="Whether to analyze pull requests",
+    )
+    quality_gates: Optional[QualityGatesConfig] = Field(
+        None, description="Quality gate configuration for blocking PR merges"
     )
     last_analyzed_at: Optional[datetime] = Field(
         None, description="When the repository was last analyzed"
@@ -1167,3 +1192,118 @@ async def analyze_repo(
         status="queued",
         message=f"Analysis queued for {github_repo.full_name}",
     )
+
+
+# =============================================================================
+# Quality Gates Configuration
+# =============================================================================
+
+
+@router.get("/repos/{repo_id}/quality-gates")
+async def get_quality_gates(
+    repo_id: UUID,
+    user: ClerkUser = Depends(require_org),
+    db: AsyncSession = Depends(get_db),
+) -> QualityGatesConfig:
+    """Get quality gate configuration for a repository.
+
+    Args:
+        repo_id: UUID of the GitHubRepository record
+        user: Authenticated user (must be in an organization)
+        db: Database session
+
+    Returns:
+        Quality gates configuration
+    """
+    # Get organization
+    org = await get_org_by_clerk_id(db, user.org_id, user.org_slug)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found",
+        )
+
+    # Find repo and verify ownership
+    result = await db.execute(
+        select(GitHubRepository)
+        .join(GitHubInstallation, GitHubRepository.installation_id == GitHubInstallation.id)
+        .where(GitHubRepository.id == repo_id)
+        .where(GitHubInstallation.organization_id == org.id)
+    )
+    repo = result.scalar_one_or_none()
+
+    if not repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Repository not found",
+        )
+
+    # Return quality gates or defaults
+    from repotoire.services.quality_gates import format_gates_for_response
+
+    gates = format_gates_for_response(repo.quality_gates)
+    return QualityGatesConfig(**gates)
+
+
+@router.patch("/repos/{repo_id}/quality-gates")
+async def update_quality_gates(
+    repo_id: UUID,
+    config: QualityGatesConfig,
+    user: ClerkUser = Depends(require_org),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Update quality gate configuration for a repository.
+
+    Quality gates can block PR merges when configured as required status
+    checks in GitHub branch protection rules.
+
+    Args:
+        repo_id: UUID of the GitHubRepository record
+        config: New quality gates configuration
+        user: Authenticated user (must be in an organization)
+        db: Database session
+
+    Returns:
+        Updated quality gates configuration
+    """
+    # Get organization
+    org = await get_org_by_clerk_id(db, user.org_id, user.org_slug)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found",
+        )
+
+    # Find repo and verify ownership
+    result = await db.execute(
+        select(GitHubRepository)
+        .join(GitHubInstallation, GitHubRepository.installation_id == GitHubInstallation.id)
+        .where(GitHubRepository.id == repo_id)
+        .where(GitHubInstallation.organization_id == org.id)
+    )
+    repo = result.scalar_one_or_none()
+
+    if not repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Repository not found",
+        )
+
+    # Update quality gates
+    repo.quality_gates = config.model_dump()
+    await db.commit()
+
+    logger.info(
+        f"Quality gates updated for {repo.full_name}",
+        extra={
+            "repo_id": str(repo_id),
+            "repo_full_name": repo.full_name,
+            "quality_gates": repo.quality_gates,
+            "user_id": user.user_id,
+        },
+    )
+
+    return {
+        "status": "updated",
+        "quality_gates": repo.quality_gates,
+    }
