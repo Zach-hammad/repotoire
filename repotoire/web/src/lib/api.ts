@@ -52,7 +52,9 @@ export function setAuthTokenGetter(getter: () => Promise<string | null>) {
   getAuthToken = getter;
 }
 
-async function request<T>(
+export { API_BASE_URL };
+
+export async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {

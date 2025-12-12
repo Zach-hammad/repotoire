@@ -24,7 +24,7 @@ import {
   Subscription,
   TrendDataPoint,
 } from '@/types';
-import { analyticsApi, billingApi, findingsApi, fixesApi, repositoriesApi, RepositoryInfo } from './api';
+import { analyticsApi, billingApi, findingsApi, fixesApi, repositoriesApi, RepositoryInfo, request } from './api';
 import { useApiAuth } from '@/components/providers/api-auth-provider';
 
 // Generic fetcher for SWR
@@ -319,13 +319,7 @@ export function useAnalysisStatus(runId: string | null) {
 
   return useSWR<AnalysisRunStatus>(
     isAuthReady && runId ? ['analysis-status', runId] : null,
-    async () => {
-      const response = await fetch(`/api/v1/analysis/${runId}/status`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch analysis status');
-      }
-      return response.json();
-    },
+    () => request<AnalysisRunStatus>(`/analysis/${runId}/status`),
     {
       // Poll every 3 seconds while analysis is active
       refreshInterval: (data) => {
@@ -351,16 +345,12 @@ export function useAnalysisHistory(repositoryId?: string, limit: number = 20) {
 
   return useSWR<AnalysisRunStatus[]>(
     isAuthReady ? ['analysis-history', repositoryId, limit] : null,
-    async () => {
+    () => {
       const params = new URLSearchParams({ limit: limit.toString() });
       if (repositoryId) {
         params.set('repository_id', repositoryId);
       }
-      const response = await fetch(`/api/v1/analysis/history?${params}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch analysis history');
-      }
-      return response.json();
+      return request<AnalysisRunStatus[]>(`/analysis/history?${params}`);
     }
   );
 }
@@ -432,11 +422,7 @@ export function useRepository(id: string | null) {
   const { isAuthReady } = useApiAuth();
   return useSWR<Repository>(
     isAuthReady && id ? ['repository', id] : null,
-    async () => {
-      const response = await fetch(`/api/v1/repositories/${id}`);
-      if (!response.ok) throw new Error('Failed to fetch repository');
-      return response.json();
-    }
+    () => request<Repository>(`/github/repos/${id}`)
   );
 }
 
@@ -447,11 +433,7 @@ export function useGitHubInstallations() {
   const { isAuthReady } = useApiAuth();
   return useSWR<GitHubInstallation[]>(
     isAuthReady ? 'github-installations' : null,
-    async () => {
-      const response = await fetch('/api/v1/github/installations');
-      if (!response.ok) throw new Error('Failed to fetch installations');
-      return response.json();
-    }
+    () => request<GitHubInstallation[]>('/github/installations')
   );
 }
 
@@ -462,11 +444,7 @@ export function useAvailableRepos(installationUuid: string | null) {
   const { isAuthReady } = useApiAuth();
   return useSWR<GitHubAvailableRepo[]>(
     isAuthReady && installationUuid ? ['available-repos', installationUuid] : null,
-    async () => {
-      const response = await fetch(`/api/v1/github/installations/${installationUuid}/available-repos`);
-      if (!response.ok) throw new Error('Failed to fetch available repos');
-      return response.json();
-    }
+    () => request<GitHubAvailableRepo[]>(`/github/installations/${installationUuid}/available-repos`)
   );
 }
 
@@ -477,16 +455,10 @@ export function useConnectRepos() {
   return useSWRMutation(
     'connect-repos',
     async (_key, { arg }: { arg: { installation_uuid: string; repo_ids: number[] } }) => {
-      const response = await fetch('/api/v1/github/connect', {
+      return request('/github/connect', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(arg),
       });
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-        throw new Error(error.detail || 'Failed to connect repos');
-      }
-      return response.json();
     }
   );
 }
@@ -498,14 +470,9 @@ export function useDisconnectRepo() {
   return useSWRMutation(
     'disconnect-repo',
     async (_key, { arg }: { arg: { repository_id: string } }) => {
-      const response = await fetch(`/api/v1/repositories/${arg.repository_id}`, {
+      return request(`/github/repos/${arg.repository_id}`, {
         method: 'DELETE',
       });
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-        throw new Error(error.detail || 'Failed to disconnect repo');
-      }
-      return response.json();
     }
   );
 }
@@ -522,15 +489,10 @@ export function useTriggerAnalysisById() {
   >(
     'trigger-analysis-by-id',
     async (_key, { arg }) => {
-      const response = await fetch(`/api/v1/repositories/${arg.repository_id}/analyze`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-        throw new Error(error.detail || 'Failed to trigger analysis');
-      }
-      return response.json();
+      return request<{ analysis_run_id: string; repository_id: string; status: string; message: string }>(
+        `/github/repos/${arg.repository_id}/analyze`,
+        { method: 'POST' }
+      );
     }
   );
 }
@@ -544,12 +506,15 @@ export function useRepositoryAnalysisStatus(repositoryId: string | null) {
   return useSWR<AnalysisRunStatus | null>(
     isAuthReady && repositoryId ? ['repository-analysis-status', repositoryId] : null,
     async () => {
-      const response = await fetch(`/api/v1/repositories/${repositoryId}/analysis-status`);
-      if (!response.ok) {
-        if (response.status === 404) return null;
-        throw new Error('Failed to fetch analysis status');
+      try {
+        return await request<AnalysisRunStatus>(`/github/repos/${repositoryId}/analysis-status`);
+      } catch (error) {
+        // Return null for 404 (no analysis yet)
+        if (error instanceof Error && error.message.includes('404')) {
+          return null;
+        }
+        throw error;
       }
-      return response.json();
     },
     {
       refreshInterval: (data) => {

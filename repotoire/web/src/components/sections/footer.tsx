@@ -27,6 +27,7 @@ const footerLinks = {
     { label: "About", href: "/about" },
     { label: "Blog", href: "/blog" },
     { label: "Contact", href: "/contact" },
+    { label: "Status", href: "/status" },
   ],
   Legal: [
     { label: "Privacy", href: "/privacy" },

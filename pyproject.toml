@@ -56,6 +56,8 @@ dev = [
     "pytest-asyncio>=0.23.0",  # Async test support
     "pytest-timeout>=2.2.0",  # Test timeout support
     "hypothesis>=6.100.0",  # Property-based testing for differential tests
+    "factory-boy>=3.3.0",  # Test data factories for SQLAlchemy models
+    "httpx>=0.27.0",  # Async HTTP client for API tests
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.7.0",
@@ -95,6 +97,8 @@ saas = [
     "sentry-sdk[fastapi,celery,sqlalchemy]>=2.0.0",  # Error tracking (REPO-271)
     "resend>=0.5.0",  # Email service for notifications
     "email-validator>=2.0.0",  # Pydantic email validation
+    "python-slugify>=8.0.0",  # Slug generation for changelog URLs
+    "bleach>=6.0.0",  # HTML sanitization for markdown content
 ]
 
 graphiti = [
