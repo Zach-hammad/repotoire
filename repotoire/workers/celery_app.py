@@ -22,6 +22,7 @@ import os
 
 import sentry_sdk
 from celery import Celery
+from celery.schedules import crontab
 from kombu import Queue
 from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
@@ -64,6 +65,8 @@ celery_app = Celery(
         "repotoire.workers.hooks",
         "repotoire.workers.audit_tasks",
         "repotoire.workers.webhook_delivery",
+        "repotoire.workers.health_checks",
+        "repotoire.workers.changelog",
     ],
 )
 
@@ -102,6 +105,7 @@ celery_app.conf.update(
         },
         "repotoire.workers.hooks.*": {"queue": "default"},
         "repotoire.workers.webhook_delivery.*": {"queue": "default"},
+        "repotoire.workers.health_checks.*": {"queue": "default"},
     },
     # Beat schedule - for periodic tasks
     beat_schedule={
@@ -115,6 +119,42 @@ celery_app.conf.update(
         "retry-failed-webhooks": {
             "task": "repotoire.workers.webhook_delivery.retry_failed_deliveries",
             "schedule": 300,  # Every 5 minutes (in seconds)
+            "options": {"queue": "default"},
+        },
+        # Status page health checks - runs every 30 seconds
+        "check-component-health": {
+            "task": "repotoire.workers.health_checks.check_all_components",
+            "schedule": 30,  # Every 30 seconds
+            "options": {"queue": "default"},
+        },
+        # Uptime percentage calculation - runs every 5 minutes
+        "calculate-uptime-percentages": {
+            "task": "repotoire.workers.health_checks.calculate_uptime_percentages",
+            "schedule": 300,  # Every 5 minutes
+            "options": {"queue": "default"},
+        },
+        # Clean up old uptime data - runs daily
+        "cleanup-uptime-data-daily": {
+            "task": "repotoire.workers.health_checks.cleanup_old_uptime_data",
+            "schedule": 86400,  # Every 24 hours
+            "options": {"queue": "default"},
+        },
+        # Changelog: Auto-publish scheduled entries - runs every 5 minutes
+        "publish-scheduled-changelog": {
+            "task": "repotoire.workers.changelog.publish_scheduled_entries",
+            "schedule": 300,  # Every 5 minutes
+            "options": {"queue": "default"},
+        },
+        # Changelog: Weekly digest - runs Mondays at 9 AM UTC
+        "send-weekly-changelog-digest": {
+            "task": "repotoire.workers.changelog.send_weekly_digest",
+            "schedule": crontab(hour=9, minute=0, day_of_week=1),  # Monday 9 AM UTC
+            "options": {"queue": "default"},
+        },
+        # Changelog: Monthly digest - runs 1st of month at 9 AM UTC
+        "send-monthly-changelog-digest": {
+            "task": "repotoire.workers.changelog.send_monthly_digest",
+            "schedule": crontab(hour=9, minute=0, day_of_month=1),  # 1st of month 9 AM UTC
             "options": {"queue": "default"},
         },
     },
