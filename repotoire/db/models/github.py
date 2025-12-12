@@ -16,6 +16,7 @@ from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin, generate_repr
 
 if TYPE_CHECKING:
     from .organization import Organization
+    from .repository import Repository
 
 
 class GitHubInstallation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -159,10 +160,22 @@ class GitHubRepository(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         nullable=True,
     )
 
+    # Link to canonical Repository for analysis data
+    repository_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("repositories.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Link to canonical Repository for analysis runs and findings",
+    )
+
     # Relationships
     installation: Mapped["GitHubInstallation"] = relationship(
         "GitHubInstallation",
         back_populates="repositories",
+    )
+    repository: Mapped["Repository | None"] = relationship(
+        "Repository",
+        foreign_keys=[repository_id],
+        lazy="joined",
     )
 
     __table_args__ = (

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin, generate_repr
 
 if TYPE_CHECKING:
+    from .changelog import ChangelogEntry
     from .email import EmailPreferences
     from .gdpr import ConsentRecord, DataExport
     from .organization import OrganizationMembership
@@ -95,6 +96,10 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         back_populates="user",
         uselist=False,
         cascade="all, delete-orphan",
+    )
+    changelog_entries: Mapped[List["ChangelogEntry"]] = relationship(
+        "ChangelogEntry",
+        back_populates="author",
     )
 
     __table_args__ = (

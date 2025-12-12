@@ -9,6 +9,7 @@ SaaS application, including:
 - Repository: GitHub repositories connected for analysis
 - AnalysisRun: Code health analysis job tracking
 - GitHubInstallation: GitHub App installation management
+- APIDeprecation: API endpoint deprecation tracking
 
 Usage:
     from repotoire.db.models import User, Organization, Repository
@@ -22,6 +23,7 @@ Usage:
 """
 
 from .analysis import AnalysisRun, AnalysisStatus
+from .api_deprecation import APIDeprecation, DeprecationStatus
 from .audit import AuditLog, AuditStatus, EventSource
 from .finding import Finding, FindingSeverity
 from .fix import Fix, FixComment, FixConfidence, FixStatus, FixType
@@ -47,6 +49,24 @@ from .organization import (
     PlanTier,
 )
 from .repository import Repository
+from .changelog import (
+    ChangelogCategory,
+    ChangelogEntry,
+    ChangelogSubscriber,
+    DigestFrequency,
+    UserChangelogRead,
+)
+from .status import (
+    ComponentStatus,
+    Incident,
+    IncidentSeverity,
+    IncidentStatus,
+    IncidentUpdate,
+    ScheduledMaintenance,
+    StatusComponent,
+    StatusSubscriber,
+)
+from .uptime import UptimeRecord
 from .user import User
 from .webhook import DeliveryStatus, Webhook, WebhookDelivery, WebhookEvent
 
@@ -62,6 +82,7 @@ __all__ = [
     "OrganizationInvite",
     "Repository",
     "AnalysisRun",
+    "APIDeprecation",
     "AuditLog",
     "GitHubInstallation",
     "GitHubRepository",
@@ -78,6 +99,7 @@ __all__ = [
     "InviteStatus",
     "AnalysisStatus",
     "AuditStatus",
+    "DeprecationStatus",
     "EventSource",
     "Finding",
     "FindingSeverity",
@@ -97,4 +119,20 @@ __all__ = [
     "WebhookDelivery",
     "WebhookEvent",
     "DeliveryStatus",
+    # Status page models
+    "StatusComponent",
+    "ComponentStatus",
+    "Incident",
+    "IncidentStatus",
+    "IncidentSeverity",
+    "IncidentUpdate",
+    "ScheduledMaintenance",
+    "StatusSubscriber",
+    "UptimeRecord",
+    # Changelog models
+    "ChangelogCategory",
+    "ChangelogEntry",
+    "ChangelogSubscriber",
+    "DigestFrequency",
+    "UserChangelogRead",
 ]

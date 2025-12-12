@@ -31,6 +31,26 @@ class PlanTier(str, enum.Enum):
     ENTERPRISE = "enterprise"
 
 
+class DomainStatus(str, enum.Enum):
+    """Status of custom domain verification."""
+
+    PENDING = "pending"  # Awaiting DNS verification
+    VERIFYING = "verifying"  # DNS check in progress
+    VERIFIED = "verified"  # DNS verified, awaiting SSL
+    PROVISIONING = "provisioning"  # SSL certificate being provisioned
+    ACTIVE = "active"  # Fully operational
+    ERROR = "error"  # Verification or SSL failed
+    EXPIRED = "expired"  # SSL certificate expired
+
+
+class SSOEnforcement(str, enum.Enum):
+    """SSO enforcement level for organization members."""
+
+    OPTIONAL = "optional"  # Users can use SSO or password
+    REQUIRED = "required"  # All users must use SSO
+    ADMIN_BYPASS = "admin_bypass"  # Required except for admins
+
+
 class MemberRole(str, enum.Enum):
     """Roles for organization members."""
 
