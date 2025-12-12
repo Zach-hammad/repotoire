@@ -1,4 +1,14 @@
-"""FastAPI application for Repotoire RAG API."""
+"""FastAPI application for Repotoire RAG API.
+
+This module provides the main FastAPI application with versioned sub-apps:
+- /api/v1/ - Stable API (v1_app)
+- /api/v2/ - Preview API (v2_app)
+- / - Root endpoints (health checks, version info)
+
+Each version has its own OpenAPI documentation:
+- /api/v1/docs - v1 Swagger UI
+- /api/v2/docs - v2 Swagger UI
+"""
 
 import os
 import uuid
@@ -16,27 +26,9 @@ from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from repotoire.api.models import ErrorResponse
-from repotoire.api.routes import (
-    account,
-    analysis,
-    analytics,
-    audit,
-    billing,
-    cli_auth,
-    code,
-    customer_webhooks,
-    findings,
-    fixes,
-    github,
-    historical,
-    notifications,
-    organizations,
-    sandbox,
-    team,
-    usage,
-    webhooks,
-)
-from repotoire.api.routes.admin import overrides as admin_overrides
+from repotoire.api.shared.middleware import DeprecationMiddleware, VersionMiddleware
+from repotoire.api.v1 import v1_app
+from repotoire.api.v2 import v2_app
 from repotoire.logging_config import clear_context, get_logger, set_context
 
 logger = get_logger(__name__)
@@ -123,116 +115,21 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Repotoire RAG API")
 
 
-# OpenAPI tag metadata for endpoint categorization
-OPENAPI_TAGS = [
-    {
-        "name": "analysis",
-        "description": "Trigger and monitor repository code analysis. Supports incremental analysis, "
-        "real-time progress streaming via SSE, and concurrent analysis management.",
-    },
-    {
-        "name": "repositories",
-        "description": "Repository connection and management. Connect GitHub repositories, "
-        "manage quality gates, and configure analysis settings.",
-    },
-    {
-        "name": "findings",
-        "description": "Code health findings from analysis. Query, filter, and aggregate findings "
-        "by severity, detector type, or file location.",
-    },
-    {
-        "name": "fixes",
-        "description": "AI-generated fix suggestions. Preview fixes in sandboxed environments, "
-        "approve/reject proposals, and apply changes to repositories.",
-    },
-    {
-        "name": "analytics",
-        "description": "Dashboards and metrics. Health scores, trend analysis, and repository-level "
-        "statistics for tracking code quality over time.",
-    },
-    {
-        "name": "billing",
-        "description": "Subscription and usage management. Manage plans, create checkout sessions, "
-        "and access the customer portal via Stripe integration.",
-    },
-    {
-        "name": "organizations",
-        "description": "Organization and team management. Create and manage organizations, "
-        "invite team members, and configure organization settings.",
-    },
-    {
-        "name": "webhooks",
-        "description": "Webhook configuration and delivery. Configure endpoints to receive "
-        "event notifications for analysis completions, findings, and more.",
-    },
-    {
-        "name": "customer-webhooks",
-        "description": "Customer webhook endpoints for event notifications. Manage webhook "
-        "subscriptions, test deliveries, and rotate secrets.",
-    },
-    {
-        "name": "code",
-        "description": "Code search and RAG Q&A. Semantic code search using vector embeddings "
-        "and graph traversal, plus LLM-powered question answering.",
-    },
-    {
-        "name": "account",
-        "description": "User account and GDPR operations. Export personal data, manage consent "
-        "preferences, and handle account deletion.",
-    },
-    {
-        "name": "audit",
-        "description": "Audit logs for compliance. Track API access, data changes, and "
-        "administrative actions for security and compliance purposes.",
-    },
-    {
-        "name": "github",
-        "description": "GitHub App integration. Handle GitHub OAuth, manage installations, "
-        "configure quality gates, and process webhooks.",
-    },
+# OpenAPI tag metadata for root app endpoints (health checks, versioning info)
+ROOT_OPENAPI_TAGS = [
     {
         "name": "health",
         "description": "Service health checks. Liveness and readiness probes for load balancers "
         "and orchestration systems.",
     },
     {
-        "name": "historical",
-        "description": "Git history and temporal analysis. Ingest commit history, query code "
-        "evolution, and generate entity timelines.",
-    },
-    {
-        "name": "sandbox",
-        "description": "E2B sandbox metrics and management. Monitor sandbox usage, costs, "
-        "and execution statistics for secure code testing.",
-    },
-    {
-        "name": "notifications",
-        "description": "Notification management. Configure and manage user notifications "
-        "for analysis events and system alerts.",
-    },
-    {
-        "name": "team",
-        "description": "Team member management. Invite users, manage roles, and configure "
-        "team-level permissions and settings.",
-    },
-    {
-        "name": "usage",
-        "description": "Usage tracking and analytics. Monitor API usage, analysis counts, "
-        "and resource consumption across the organization.",
-    },
-    {
-        "name": "cli-auth",
-        "description": "CLI authentication flows. OAuth device flow for CLI tool authentication "
-        "and token management.",
-    },
-    {
-        "name": "admin",
-        "description": "Administrative endpoints. Internal operations for quota overrides "
-        "and system management.",
+        "name": "versioning",
+        "description": "API version information. Available versions, deprecation notices, "
+        "and migration guides.",
     },
 ]
 
-# Create FastAPI app
+# Create root FastAPI app (hosts versioned sub-apps)
 app = FastAPI(
     title="Repotoire API",
     description="""
@@ -240,84 +137,28 @@ app = FastAPI(
 
 Graph-powered code health analysis platform with AI-assisted fixes.
 
-## Overview
+## API Versions
 
-Repotoire analyzes codebases using Neo4j knowledge graphs to detect code smells,
-architectural issues, and technical debt. Unlike traditional linters that examine
-files in isolation, Repotoire builds a graph combining structural analysis (AST),
-semantic understanding (NLP + AI), and relational patterns (graph algorithms).
+This API uses URL-based versioning. Available versions:
 
-## Authentication
+| Version | Status | Docs | Description |
+|---------|--------|------|-------------|
+| v1 | **Stable** | [/api/v1/docs](/api/v1/docs) | Production API |
+| v2 | Preview | [/api/v2/docs](/api/v2/docs) | Breaking changes preview |
 
-All API requests require authentication via one of:
+## Version Headers
 
-### Bearer Token (Clerk JWT)
-```
-Authorization: Bearer <your-clerk-token>
-```
+All responses include the `X-API-Version` header indicating the version used.
 
-Obtain tokens through the web dashboard or CLI authentication flow.
+Deprecated endpoints include additional headers:
+- `X-Deprecation-Notice`: Human-readable deprecation message
+- `X-Deprecation-Date`: When deprecation was announced
+- `X-Sunset-Date`: When endpoint will be removed
+- `Link`: URL to successor endpoint
 
-### API Key (for CI/CD)
-```
-X-API-Key: <your-api-key>
-```
+## Getting Started
 
-Generate API keys in Settings > API Keys. Recommended for automated pipelines.
-
-## Rate Limits
-
-| Tier | Analyses/Hour | API Calls/Min |
-|------|---------------|---------------|
-| Free | 2 | 60 |
-| Pro | 20 | 300 |
-| Enterprise | Unlimited | 1000 |
-
-Rate limit headers are included in responses:
-- `X-RateLimit-Limit`: Maximum requests allowed
-- `X-RateLimit-Remaining`: Requests remaining in window
-- `X-RateLimit-Reset`: Unix timestamp when limit resets
-
-## Webhooks
-
-Subscribe to events via Settings > Webhooks:
-
-| Event | Description |
-|-------|-------------|
-| `analysis.started` | Analysis job has begun processing |
-| `analysis.completed` | Analysis finished successfully |
-| `analysis.failed` | Analysis encountered an error |
-| `health_score.changed` | Repository health score changed |
-| `finding.new` | New code issue detected |
-| `finding.resolved` | Previously detected issue resolved |
-
-Webhook payloads are signed with HMAC-SHA256. Verify using the `X-Repotoire-Signature` header.
-
-## Error Responses
-
-All errors follow this format:
-
-```json
-{
-  "error": "error_type",
-  "detail": "Human-readable message",
-  "error_code": "MACHINE_READABLE_CODE"
-}
-```
-
-Common error codes:
-- `UNAUTHORIZED` - Missing or invalid authentication
-- `FORBIDDEN` - Insufficient permissions
-- `NOT_FOUND` - Resource does not exist
-- `RATE_LIMIT_EXCEEDED` - Too many requests
-- `VALIDATION_ERROR` - Invalid request parameters
-- `INTERNAL_ERROR` - Unexpected server error
-
-## SDKs & Tools
-
-- **CLI**: `pip install repotoire` - Command-line interface
-- **GitHub Action**: `repotoire/analyze-action@v1` - CI/CD integration
-- **VS Code Extension**: Coming soon
+For full API documentation, visit `/api/v1/docs` or `/api/v2/docs`.
 
 ## Support
 
@@ -329,7 +170,7 @@ Common error codes:
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
-    openapi_tags=OPENAPI_TAGS,
+    openapi_tags=ROOT_OPENAPI_TAGS,
     contact={
         "name": "Repotoire Support",
         "email": "support@repotoire.io",
@@ -349,6 +190,12 @@ Common error codes:
 # Add correlation ID middleware first (before CORS)
 app.add_middleware(CorrelationIdMiddleware)
 
+# Add version detection middleware
+app.add_middleware(VersionMiddleware)
+
+# Add deprecation header middleware
+app.add_middleware(DeprecationMiddleware)
+
 # CORS middleware for web clients - use configured origins
 app.add_middleware(
     CORSMiddleware,
@@ -358,78 +205,61 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# Include routers
-app.include_router(account.router, prefix="/api/v1")
-app.include_router(analysis.router, prefix="/api/v1")
-app.include_router(cli_auth.router, prefix="/api/v1")
-app.include_router(code.router, prefix="/api/v1")
-app.include_router(historical.router, prefix="/api/v1")
-app.include_router(fixes.router, prefix="/api/v1")
-app.include_router(findings.router, prefix="/api/v1")
-app.include_router(analytics.router, prefix="/api/v1")
-app.include_router(github.router, prefix="/api/v1")
-app.include_router(billing.router, prefix="/api/v1")
-app.include_router(webhooks.router, prefix="/api/v1")
-app.include_router(sandbox.router, prefix="/api/v1")
-app.include_router(notifications.router, prefix="/api/v1")
-app.include_router(team.router, prefix="/api/v1")
-app.include_router(organizations.router, prefix="/api/v1")
-app.include_router(usage.router, prefix="/api/v1")
-app.include_router(admin_overrides.router, prefix="/api/v1")
-app.include_router(audit.router, prefix="/api/v1")
-app.include_router(customer_webhooks.router, prefix="/api/v1")
+# Mount versioned sub-applications
+# Each sub-app has its own OpenAPI docs at /api/{version}/docs
+app.mount("/api/v1", v1_app)
+app.mount("/api/v2", v2_app)
 
 
-@app.get("/", tags=["Root"])
+@app.get("/", tags=["versioning"])
 async def root():
-    """Root endpoint with API information."""
+    """Root endpoint with API version information.
+
+    Returns available API versions and their documentation URLs.
+    Clients should use this endpoint to discover available versions.
+    """
     return {
-        "name": "Repotoire RAG API",
-        "version": "0.1.0",
-        "description": "Graph-powered code intelligence with RAG",
-        "docs": "/docs",
-        "endpoints": {
-            "search": "POST /api/v1/code/search",
-            "ask": "POST /api/v1/code/ask",
-            "embeddings_status": "GET /api/v1/code/embeddings/status",
-            "analysis_trigger": "POST /api/v1/analysis/trigger",
-            "analysis_status": "GET /api/v1/analysis/{id}/status",
-            "analysis_progress": "GET /api/v1/analysis/{id}/progress",
-            "analysis_history": "GET /api/v1/analysis/history",
-            "analysis_concurrency": "GET /api/v1/analysis/concurrency",
-            "ingest_git": "POST /api/v1/historical/ingest-git",
-            "query_history": "POST /api/v1/historical/query",
-            "entity_timeline": "POST /api/v1/historical/timeline",
-            "fixes": "GET /api/v1/fixes",
-            "analytics": "GET /api/v1/analytics/summary",
-            "billing_subscription": "GET /api/v1/billing/subscription",
-            "billing_checkout": "POST /api/v1/billing/checkout",
-            "billing_portal": "POST /api/v1/billing/portal",
-            "billing_plans": "GET /api/v1/billing/plans",
-            "stripe_webhook": "POST /api/v1/webhooks/stripe",
-            "clerk_webhook": "POST /api/v1/webhooks/clerk",
-            "sandbox_metrics": "GET /api/v1/sandbox/metrics",
-            "sandbox_costs": "GET /api/v1/sandbox/metrics/costs",
-            "sandbox_usage": "GET /api/v1/sandbox/metrics/usage",
-            "sandbox_admin_metrics": "GET /api/v1/sandbox/admin/metrics",
-            "account_status": "GET /api/v1/account/status",
-            "account_export": "POST /api/v1/account/export",
-            "account_delete": "DELETE /api/v1/account",
-            "account_cancel_deletion": "POST /api/v1/account/cancel-deletion",
-            "account_consent": "GET /api/v1/account/consent",
-            "account_consent_update": "PUT /api/v1/account/consent"
-        }
+        "name": "Repotoire API",
+        "description": "Graph-powered code intelligence platform",
+        "versions": {
+            "v1": {
+                "status": "stable",
+                "docs": "/api/v1/docs",
+                "redoc": "/api/v1/redoc",
+                "openapi": "/api/v1/openapi.json",
+            },
+            "v2": {
+                "status": "preview",
+                "docs": "/api/v2/docs",
+                "redoc": "/api/v2/redoc",
+                "openapi": "/api/v2/openapi.json",
+            },
+        },
+        "current_version": "v1",
+        "deprecations": "/api/deprecations",
     }
 
 
-@app.get("/health", tags=["Health"])
+@app.get("/api/deprecations", tags=["versioning"])
+async def list_deprecations():
+    """List all registered API deprecations.
+
+    Returns information about deprecated endpoints including sunset dates
+    and replacement URLs. Useful for client migration planning.
+    """
+    return {
+        "deprecations": DeprecationMiddleware.get_all_deprecations(),
+        "total": len(DeprecationMiddleware.DEPRECATED_ENDPOINTS),
+    }
+
+
+@app.get("/health", tags=["health"])
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy"}
 
 
-@app.get("/health/ready", tags=["Health"])
+@app.get("/health/ready", tags=["health"])
 async def readiness_check():
     """Readiness check verifying all backend dependencies.
 
