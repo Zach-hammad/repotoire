@@ -132,8 +132,8 @@ export function RepoCard({ repo, installationId, onUpdate }: RepoCardProps) {
           )}
         </div>
 
-        {repo.analysis_status === 'running' && (
-          <AnalysisProgress repositoryId={repo.id} />
+        {repo.analysis_status === 'running' && repo.repository_id && (
+          <AnalysisProgress repositoryId={repo.repository_id} />
         )}
       </CardContent>
     </Card>

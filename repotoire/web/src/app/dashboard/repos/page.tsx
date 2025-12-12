@@ -150,6 +150,7 @@ export default function RepositoriesPage() {
     default_branch: repo.default_branch,
     created_at: repo.created_at,
     updated_at: repo.updated_at,
+    repository_id: null, // Linked Repository UUID populated after analysis
   });
 
   return (

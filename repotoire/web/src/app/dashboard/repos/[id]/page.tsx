@@ -158,12 +158,15 @@ export default function RepoDetailPage({ params }: RepoDetailPageProps) {
   const [generatingFixesId, setGeneratingFixesId] = useState<string | null>(null);
 
   const handleAnalyze = async () => {
-    if (!repo) return;
+    if (!repo || !repo.repository_id) return;
     try {
-      await triggerAnalysis({ repository_id: repo.id });
+      await triggerAnalysis({ repository_id: repo.repository_id });
       toast.success(`Analysis started for ${repo.full_name}`);
+      // Cache keys must match hook cache keys exactly:
+      // useRepository uses ['repository', id]
+      // useAnalysisHistory uses ['analysis-history', repositoryId, limit]
       mutate(['repository', id]);
-      mutate(['analysis-history', id]);
+      mutate(['analysis-history', repo.repository_id, 10]);
     } catch (error: any) {
       toast.error('Failed to start analysis', {
         description: error?.message || 'Unknown error',
@@ -258,13 +261,13 @@ export default function RepoDetailPage({ params }: RepoDetailPageProps) {
       )}
 
       {/* Analysis Progress (if running) */}
-      {repo.analysis_status === 'running' && (
+      {repo.analysis_status === 'running' && repo.repository_id && (
         <Card>
           <CardHeader>
             <CardTitle>Analysis in Progress</CardTitle>
           </CardHeader>
           <CardContent>
-            <AnalysisProgress repositoryId={repo.id} />
+            <AnalysisProgress repositoryId={repo.repository_id} />
           </CardContent>
         </Card>
       )}

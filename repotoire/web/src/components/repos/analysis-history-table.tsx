@@ -157,10 +157,10 @@ export function AnalysisHistoryTable({
                       )}
                     </Button>
                   )}
-                  {run.commit_sha && (
+                  {run.commit_sha && run.full_name && (
                     <Button variant="ghost" size="sm" asChild>
                       <a
-                        href={`https://github.com/${run.repository_id}/commit/${run.commit_sha}`}
+                        href={`https://github.com/${run.full_name}/commit/${run.commit_sha}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         title="View commit on GitHub"

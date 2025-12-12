@@ -114,6 +114,7 @@ class AnalysisStatusResponse(BaseModel):
 
     id: UUID = Field(..., description="Unique identifier for this analysis run")
     repository_id: UUID = Field(..., description="Repository being analyzed")
+    full_name: str | None = Field(None, description="Repository full name (owner/repo) for GitHub URLs")
     commit_sha: str = Field(..., description="Git commit SHA being analyzed")
     branch: str = Field(..., description="Git branch name")
     status: str = Field(
@@ -703,9 +704,9 @@ async def get_analysis_history(
             detail="Organization not found",
         )
 
-    # Build query
+    # Build query - select both AnalysisRun and Repository to get full_name
     query = (
-        select(AnalysisRun)
+        select(AnalysisRun, Repository.full_name)
         .join(Repository, Repository.id == AnalysisRun.repository_id)
         .where(Repository.organization_id == org.id)
     )
@@ -716,12 +717,13 @@ async def get_analysis_history(
     query = query.order_by(AnalysisRun.created_at.desc()).limit(limit)
 
     result = await session.execute(query)
-    runs = result.scalars().all()
+    rows = result.all()
 
     return [
         AnalysisStatusResponse(
             id=run.id,
             repository_id=run.repository_id,
+            full_name=full_name,  # Include for GitHub commit URLs
             commit_sha=run.commit_sha,
             branch=run.branch,
             status=run.status.value,
@@ -738,7 +740,7 @@ async def get_analysis_history(
             completed_at=run.completed_at,
             created_at=run.created_at,
         )
-        for run in runs
+        for run, full_name in rows
     ]
 
 

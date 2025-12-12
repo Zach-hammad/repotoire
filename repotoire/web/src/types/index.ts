@@ -125,14 +125,14 @@ export interface FileHotspot {
 
 // Health score response
 export interface HealthScore {
-  score: number;
-  grade: 'A' | 'B' | 'C' | 'D' | 'F';
-  trend: 'improving' | 'declining' | 'stable';
+  score: number | null;  // null indicates not analyzed
+  grade: 'A' | 'B' | 'C' | 'D' | 'F' | null;  // null indicates not analyzed
+  trend: 'improving' | 'declining' | 'stable' | 'unknown';
   categories: {
     structure: number;
     quality: number;
     architecture: number;
-  };
+  } | null;  // null indicates not analyzed
 }
 
 // API response wrapper
@@ -321,6 +321,7 @@ export interface GitHubAvailableRepo {
 export interface AnalysisRunStatus {
   id: string;
   repository_id: string;
+  full_name: string | null;  // Repository full name (owner/repo) for GitHub URLs
   commit_sha: string;
   branch: string;
   status: AnalysisStatus;

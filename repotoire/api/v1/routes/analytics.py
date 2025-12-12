@@ -61,10 +61,10 @@ class FileHotspot(BaseModel):
 
 class HealthScoreResponse(BaseModel):
     """Overall health score for dashboard."""
-    score: int
-    grade: str
-    trend: str  # "improving", "declining", "stable"
-    categories: Dict[str, int]
+    score: Optional[int] = None  # None indicates not analyzed
+    grade: Optional[str] = None  # None indicates not analyzed
+    trend: str = "unknown"  # "improving", "declining", "stable", "unknown"
+    categories: Optional[Dict[str, int]] = None  # None indicates not analyzed
 
 
 async def _get_user_org(session: AsyncSession, user: ClerkUser) -> Organization | None:
@@ -202,58 +202,107 @@ async def get_trends(
     limit: int = Query(30, ge=1, le=90),
     repository_id: Optional[UUID] = Query(None, description="Filter by repository"),
 ) -> List[TrendDataPoint]:
-    """Get trend data for charts based on findings by date."""
+    """Get cumulative trend data for charts based on findings.
+
+    Shows the running total of findings from the latest analysis run per repo,
+    as of each day. This provides a meaningful trend line that doesn't drop to 0
+    on days without new analysis runs.
+    """
     org = await _get_user_org(session, user)
     if not org:
         return []
 
-    # Get findings from the last `limit` days
+    # Get the current total findings from latest analysis runs (same as summary)
+    latest_run_ids = await _get_latest_analysis_run_ids(session, org, repository_id)
+
+    if not latest_run_ids:
+        # No analysis runs - return empty trend with 0s
+        today = datetime.utcnow().date()
+        trends = []
+        for i in range(limit - 1, -1, -1):
+            date = today - timedelta(days=i)
+            trends.append(
+                TrendDataPoint(
+                    date=date.isoformat(),
+                    critical=0,
+                    high=0,
+                    medium=0,
+                    low=0,
+                    info=0,
+                    total=0,
+                )
+            )
+        return trends
+
+    # Get the current severity counts from latest runs
+    severity_query = (
+        select(Finding.severity, func.count(Finding.id).label("count"))
+        .where(Finding.analysis_run_id.in_(latest_run_ids))
+        .group_by(Finding.severity)
+    )
+    severity_result = await session.execute(severity_query)
+    severity_rows = severity_result.all()
+
+    current_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+    for severity, count in severity_rows:
+        current_counts[severity.value] = count
+
+    # Get historical analysis runs to track when findings changed
     today = datetime.utcnow().date()
     start_date = today - timedelta(days=limit)
 
-    # Query findings with their dates
-    query = (
+    # Query all completed analysis runs in the time period with their finding counts
+    history_query = (
         select(
-            func.date(Finding.created_at).label("date"),
+            func.date(AnalysisRun.completed_at).label("date"),
             Finding.severity,
             func.count(Finding.id).label("count"),
         )
-        .join(AnalysisRun, Finding.analysis_run_id == AnalysisRun.id)
+        .join(Finding, Finding.analysis_run_id == AnalysisRun.id)
         .join(Repository, AnalysisRun.repository_id == Repository.id)
         .where(Repository.organization_id == org.id)
-        .where(Finding.created_at >= start_date)
+        .where(AnalysisRun.status == "completed")
+        .where(AnalysisRun.completed_at >= start_date)
     )
 
     if repository_id:
-        query = query.where(AnalysisRun.repository_id == repository_id)
+        history_query = history_query.where(AnalysisRun.repository_id == repository_id)
 
-    query = query.group_by(func.date(Finding.created_at), Finding.severity)
-    result = await session.execute(query)
+    history_query = history_query.group_by(func.date(AnalysisRun.completed_at), Finding.severity)
+    result = await session.execute(history_query)
     rows = result.all()
 
-    # Build a lookup for counts by date and severity
-    date_severity_counts: Dict[str, Dict[str, int]] = {}
+    # Build lookup of counts by date when analysis ran
+    date_counts: Dict[str, Dict[str, int]] = {}
     for date_val, severity, count in rows:
         date_str = date_val.isoformat() if hasattr(date_val, "isoformat") else str(date_val)
-        if date_str not in date_severity_counts:
-            date_severity_counts[date_str] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
-        date_severity_counts[date_str][severity.value] = count
+        if date_str not in date_counts:
+            date_counts[date_str] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+        date_counts[date_str][severity.value] = count
 
-    # Generate trend data for each day in the range
+    # Generate trend data - use current counts and show them consistently
+    # For a cleaner chart, show the latest known counts for each day
+    # (findings persist until next analysis replaces them)
     trends = []
+    last_known_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+
     for i in range(limit - 1, -1, -1):
         date = today - timedelta(days=i)
         date_str = date.isoformat()
-        counts = date_severity_counts.get(date_str, {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0})
-        total = sum(counts.values())
+
+        # If there was an analysis on this day, update the counts
+        if date_str in date_counts:
+            last_known_counts = date_counts[date_str].copy()
+
+        total = sum(last_known_counts.values())
         trends.append(
             TrendDataPoint(
                 date=date_str,
-                critical=counts["critical"],
-                high=counts["high"],
-                medium=counts["medium"],
-                low=counts["low"],
-                info=counts["info"],
+                critical=last_known_counts["critical"],
+                high=last_known_counts["high"],
+                medium=last_known_counts["medium"],
+                low=last_known_counts["low"],
+                info=last_known_counts["info"],
                 total=total,
             )
         )
@@ -416,12 +465,8 @@ async def get_health_score(
     """
     org = await _get_user_org(session, user)
     if not org:
-        return HealthScoreResponse(
-            score=100,
-            grade="A",
-            trend="stable",
-            categories={"structure": 100, "quality": 100, "architecture": 100},
-        )
+        # No org - return "not analyzed" state
+        return HealthScoreResponse()
 
     # Get the latest analysis run for the repository (or org-wide)
     query = (
@@ -439,12 +484,8 @@ async def get_health_score(
     latest_run = result.scalar_one_or_none()
 
     if not latest_run or latest_run.health_score is None:
-        return HealthScoreResponse(
-            score=100,
-            grade="A",
-            trend="stable",
-            categories={"structure": 100, "quality": 100, "architecture": 100},
-        )
+        # No analysis data - return "not analyzed" state instead of fake 100/A
+        return HealthScoreResponse()
 
     score = int(latest_run.health_score)
     grade = _calculate_grade(score)
@@ -511,6 +552,8 @@ async def get_fix_statistics(
     """Get fix statistics for the dashboard.
 
     Returns counts of fixes by status (pending, approved, applied, rejected, failed).
+    Only counts fixes from the latest completed analysis run per repository
+    to avoid duplicating counts when re-running analysis.
     """
     org = await _get_user_org(session, user)
     if not org:
@@ -524,18 +567,25 @@ async def get_fix_statistics(
             by_status={},
         )
 
-    # Build query for fix counts by status
+    # Get latest analysis run IDs to avoid counting duplicates
+    latest_run_ids = await _get_latest_analysis_run_ids(session, org, repository_id)
+    if not latest_run_ids:
+        return FixStatistics(
+            total=0,
+            pending=0,
+            approved=0,
+            applied=0,
+            rejected=0,
+            failed=0,
+            by_status={},
+        )
+
+    # Build query for fix counts by status - only from latest runs
     query = (
         select(Fix.status, func.count(Fix.id).label("count"))
-        .join(AnalysisRun, Fix.analysis_run_id == AnalysisRun.id)
-        .join(Repository, AnalysisRun.repository_id == Repository.id)
-        .where(Repository.organization_id == org.id)
+        .where(Fix.analysis_run_id.in_(latest_run_ids))
+        .group_by(Fix.status)
     )
-
-    if repository_id:
-        query = query.where(AnalysisRun.repository_id == repository_id)
-
-    query = query.group_by(Fix.status)
     result = await session.execute(query)
     rows = result.all()
 

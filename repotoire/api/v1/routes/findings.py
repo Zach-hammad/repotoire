@@ -459,6 +459,19 @@ async def get_findings_summary(
 
     # Determine which run IDs to use
     if analysis_run_id:
+        # Verify the analysis run belongs to this org before using it
+        run_query = (
+            select(AnalysisRun.id)
+            .join(Repository, AnalysisRun.repository_id == Repository.id)
+            .where(AnalysisRun.id == analysis_run_id)
+            .where(Repository.organization_id == org.id)
+        )
+        run_result = await session.execute(run_query)
+        if not run_result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this analysis run",
+            )
         run_ids = [analysis_run_id]
     else:
         run_ids = await _get_latest_analysis_run_ids(session, org, repository_id)
@@ -539,6 +552,19 @@ async def get_findings_by_detector(
 
     # Determine which run IDs to use
     if analysis_run_id:
+        # Verify the analysis run belongs to this org before using it
+        run_query = (
+            select(AnalysisRun.id)
+            .join(Repository, AnalysisRun.repository_id == Repository.id)
+            .where(AnalysisRun.id == analysis_run_id)
+            .where(Repository.organization_id == org.id)
+        )
+        run_result = await session.execute(run_query)
+        if not run_result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this analysis run",
+            )
         run_ids = [analysis_run_id]
     else:
         run_ids = await _get_latest_analysis_run_ids(session, org, repository_id)

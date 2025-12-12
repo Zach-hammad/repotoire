@@ -215,7 +215,8 @@ function StatCard({
 }
 
 function TrendsChart({ loading }: { loading?: boolean }) {
-  const { data: trends } = useTrends('week', 14);
+  // Use 'day' period for daily granularity over 14 days (last 2 weeks)
+  const { data: trends } = useTrends('day', 14);
 
   if (loading || !trends) {
     return <Skeleton className="h-[300px] w-full" />;
