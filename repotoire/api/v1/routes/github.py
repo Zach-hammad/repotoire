@@ -99,6 +99,8 @@ class RepositoryDetailResponse(BaseModel):
     default_branch: str = Field(..., description="Default branch name")
     created_at: datetime
     updated_at: datetime
+    # Linked Repository ID for analysis data (findings, etc.)
+    repository_id: Optional[str] = Field(None, description="Linked Repository UUID for analysis data")
 
 
 class GitHubInstallationResponse(BaseModel):
@@ -956,6 +958,7 @@ async def get_repo_by_id(
         default_branch=repo.default_branch,
         created_at=repo.created_at,
         updated_at=repo.updated_at,
+        repository_id=str(repo.repository_id) if repo.repository_id else None,
     )
 
 

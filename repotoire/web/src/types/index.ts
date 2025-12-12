@@ -291,6 +291,8 @@ export interface Repository {
   default_branch: string;
   created_at: string;
   updated_at: string;
+  // Linked Repository UUID for analysis data (findings, etc.)
+  repository_id: string | null;
 }
 
 // GitHub App installation

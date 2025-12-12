@@ -64,7 +64,8 @@ interface FindingsOverviewProps {
 }
 
 function FindingsOverview({ repositoryId }: FindingsOverviewProps) {
-  const { data: summary, isLoading } = useFindingsSummary(undefined, repositoryId);
+  // repositoryId here is the linked Repository UUID (from repositories table), not GitHubRepository
+  const { data: summary, isLoading } = useFindingsSummary(undefined, repositoryId || undefined);
 
   if (isLoading) {
     return (
@@ -150,7 +151,8 @@ export default function RepoDetailPage({ params }: RepoDetailPageProps) {
   const { id } = use(params);
   const router = useRouter();
   const { data: repo, isLoading, error } = useRepository(id);
-  const { data: history, isLoading: historyLoading } = useAnalysisHistory(id, 10);
+  // Use linked repository_id for analysis data, which is the canonical Repository UUID
+  const { data: history, isLoading: historyLoading } = useAnalysisHistory(repo?.repository_id || undefined, 10);
   const { trigger: triggerAnalysis, isMutating: isAnalyzing } = useTriggerAnalysisById();
   const { trigger: generateFixes, isMutating: isGeneratingFixes } = useGenerateFixes();
   const [generatingFixesId, setGeneratingFixesId] = useState<string | null>(null);
@@ -284,7 +286,14 @@ export default function RepoDetailPage({ params }: RepoDetailPageProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <FindingsOverview repositoryId={repo.id} />
+              {repo.repository_id ? (
+                <FindingsOverview repositoryId={repo.repository_id} />
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <CheckCircle2 className="mx-auto h-12 w-12 text-gray-400 mb-3" />
+                  <p>No analysis data yet. Run your first analysis to see findings.</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
