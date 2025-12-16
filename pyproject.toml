@@ -99,6 +99,7 @@ saas = [
     "email-validator>=2.0.0",  # Pydantic email validation
     "python-slugify>=8.0.0",  # Slug generation for changelog URLs
     "bleach>=6.0.0",  # HTML sanitization for markdown content
+    "slowapi>=0.1.9",  # Rate limiting for FastAPI endpoints (REPO-359)
 ]
 
 graphiti = [

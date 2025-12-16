@@ -338,3 +338,48 @@ export interface AnalysisRunStatus {
   completed_at: string | null;
   created_at: string;
 }
+
+// ==========================================
+// API Keys Types
+// ==========================================
+
+// Available scopes for API keys
+export type ApiKeyScope =
+  | 'read:analysis'
+  | 'write:analysis'
+  | 'read:findings'
+  | 'write:findings'
+  | 'read:fixes'
+  | 'write:fixes'
+  | 'read:repositories'
+  | 'write:repositories';
+
+// An API key (without the secret - used for listing)
+export interface ApiKey {
+  id: string;
+  name: string;
+  key_prefix: string;  // First 8 chars of key for identification
+  key_suffix: string;  // Last 4 chars of key
+  scopes: ApiKeyScope[];
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+  created_by: string;  // User ID who created the key
+}
+
+// Response when creating a new API key (includes full secret once)
+export interface ApiKeyCreateResponse {
+  id: string;
+  name: string;
+  key: string;  // Full key - only shown once on creation
+  scopes: ApiKeyScope[];
+  created_at: string;
+  expires_at: string | null;
+}
+
+// Request to create a new API key
+export interface ApiKeyCreateRequest {
+  name: string;
+  scopes: ApiKeyScope[];
+  expires_in_days?: number;  // Optional expiration
+}

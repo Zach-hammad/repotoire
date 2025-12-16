@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 import time
 from datetime import datetime
 from typing import List, Optional, TYPE_CHECKING
@@ -46,6 +48,11 @@ router = APIRouter(prefix="/fixes", tags=["fixes"])
 # In-memory storage for legacy FixProposal objects (Best-of-N)
 _fixes_store: dict[str, FixProposal] = {}
 _comments_store: dict[str, list] = {}
+
+# Thread-safe locks for global state access
+# Required because async handlers may access these concurrently
+_fixes_lock = asyncio.Lock()
+_comments_lock = asyncio.Lock()
 
 
 async def _get_db_user(db: AsyncSession, clerk_user_id: str) -> Optional[User]:
@@ -452,15 +459,16 @@ async def reject_fix(
     else:
         # Fallback to in-memory if user not found in DB
         logger.warning(f"User {user.user_id} not found in DB, storing comment in memory")
-        if fix_id not in _comments_store:
-            _comments_store[fix_id] = []
-        _comments_store[fix_id].append({
-            "id": f"reject-{fix_id}-{datetime.utcnow().timestamp()}",
-            "fix_id": fix_id,
-            "author": user.user_id,
-            "content": f"Rejected: {request.reason}",
-            "created_at": datetime.utcnow().isoformat(),
-        })
+        async with _comments_lock:
+            if fix_id not in _comments_store:
+                _comments_store[fix_id] = []
+            _comments_store[fix_id].append({
+                "id": f"reject-{fix_id}-{datetime.utcnow().timestamp()}",
+                "fix_id": fix_id,
+                "author": user.user_id,
+                "content": f"Rejected: {request.reason}",
+                "created_at": datetime.utcnow().isoformat(),
+            })
 
     return {"data": _fix_to_dict(fix), "success": True}
 
@@ -535,10 +543,38 @@ async def apply_fix(
 
     # If repository_path provided, actually apply the fix to filesystem
     if request and request.repository_path:
-        repository_path = Path(request.repository_path)
+        # Security: Get allowed base directory from environment (with safe default)
+        allowed_base = Path(
+            os.getenv("ALLOWED_REPO_BASE", str(Path.cwd()))
+        ).resolve()
 
+        # Security: Resolve user-provided path to canonical form (handles .. and symlinks)
+        try:
+            repository_path = Path(request.repository_path).resolve()
+        except (OSError, ValueError):
+            logger.warning(f"Invalid path format in apply_fix: user={user.user_id}")
+            raise HTTPException(status_code=400, detail="Invalid repository path")
+
+        # Security check 1: Path must exist
         if not repository_path.exists():
-            raise HTTPException(status_code=400, detail=f"Repository path does not exist: {repository_path}")
+            raise HTTPException(status_code=400, detail="Repository path not found")
+
+        # Security check 2: Reject symlinks (defense in depth - prevents symlink bypass)
+        if Path(request.repository_path).is_symlink():
+            logger.warning(
+                f"Path traversal attempt (symlink) blocked: user={user.user_id}"
+            )
+            raise HTTPException(status_code=400, detail="Invalid repository path")
+
+        # Security check 3: Must be within allowed base directory (prevents path traversal)
+        try:
+            repository_path.relative_to(allowed_base)
+        except ValueError:
+            logger.warning(
+                f"Path traversal attempt blocked: user={user.user_id}, "
+                f"attempted_path={request.repository_path}"
+            )
+            raise HTTPException(status_code=400, detail="Invalid repository path")
 
         # Convert DB Fix to autofix FixProposal
         proposal = AutofixProposal(
@@ -599,6 +635,7 @@ async def apply_fix(
 
 # In-memory cache for preview results
 _preview_cache: dict[str, tuple[PreviewResult, str]] = {}  # fix_id -> (result, fix_hash)
+_preview_cache_lock = asyncio.Lock()
 
 
 def _get_fix_hash(fix: FixProposal) -> str:
@@ -655,10 +692,11 @@ async def preview_fix(
     cache: "PreviewCache" = Depends(_get_preview_cache),
 ) -> PreviewResult:
     """Run fix preview in sandbox to validate before approving."""
-    if fix_id not in _fixes_store:
+    async with _fixes_lock:
+        fix = _fixes_store.get(fix_id)
+    if fix is None:
         raise HTTPException(status_code=404, detail="Fix not found")
 
-    fix = _fixes_store[fix_id]
     fix_hash = _get_fix_hash(fix)
 
     # Check Redis cache first (with hash validation)
@@ -668,12 +706,13 @@ async def preview_fix(
         return cached_result
 
     # Fallback to in-memory cache
-    if fix_id in _preview_cache:
-        cached_result, cached_hash = _preview_cache[fix_id]
-        if cached_hash == fix_hash:
-            # Return cached result with timestamp
-            logger.info(f"Returning in-memory cached preview for fix {fix_id}")
-            return cached_result
+    async with _preview_cache_lock:
+        if fix_id in _preview_cache:
+            cached_result, cached_hash = _preview_cache[fix_id]
+            if cached_hash == fix_hash:
+                # Return cached result with timestamp
+                logger.info(f"Returning in-memory cached preview for fix {fix_id}")
+                return cached_result
 
     start_time = time.time()
     checks: List[PreviewCheck] = []
@@ -760,7 +799,8 @@ async def preview_fix(
             await cache.set_preview(fix_id, cached_result)
 
             # Also store in in-memory cache as fallback
-            _preview_cache[fix_id] = (cached_result, fix_hash)
+            async with _preview_cache_lock:
+                _preview_cache[fix_id] = (cached_result, fix_hash)
 
             return result
 
@@ -854,7 +894,8 @@ async def preview_fix(
         await cache.set_preview(fix_id, cached_result)
 
         # Also store in in-memory cache as fallback
-        _preview_cache[fix_id] = (cached_result, fix_hash)
+        async with _preview_cache_lock:
+            _preview_cache[fix_id] = (cached_result, fix_hash)
 
         logger.info(f"Preview completed for fix {fix_id}: success={success}")
         return result
@@ -887,7 +928,9 @@ async def preview_fix(
 @router.post("/{fix_id}/comment")
 async def add_comment(fix_id: str, request: CommentCreate, user: ClerkUser = Depends(get_current_user)) -> dict:
     """Add a comment to a fix."""
-    if fix_id not in _fixes_store:
+    async with _fixes_lock:
+        fix_exists = fix_id in _fixes_store
+    if not fix_exists:
         raise HTTPException(status_code=404, detail="Fix not found")
 
     comment_id = f"comment-{fix_id}-{datetime.utcnow().timestamp()}"
@@ -899,9 +942,10 @@ async def add_comment(fix_id: str, request: CommentCreate, user: ClerkUser = Dep
         "created_at": datetime.utcnow().isoformat(),
     }
 
-    if fix_id not in _comments_store:
-        _comments_store[fix_id] = []
-    _comments_store[fix_id].append(comment)
+    async with _comments_lock:
+        if fix_id not in _comments_store:
+            _comments_store[fix_id] = []
+        _comments_store[fix_id].append(comment)
 
     return {"data": comment, "success": True}
 
@@ -944,12 +988,13 @@ async def get_comments(
 async def batch_approve(request: BatchRequest, user: ClerkUser = Depends(get_current_user)) -> dict:
     """Batch approve multiple fixes."""
     approved = 0
-    for fix_id in request.ids:
-        if fix_id in _fixes_store:
-            fix = _fixes_store[fix_id]
-            if fix.status == FixStatus.PENDING:
-                fix.status = FixStatus.APPROVED
-                approved += 1
+    async with _fixes_lock:
+        for fix_id in request.ids:
+            if fix_id in _fixes_store:
+                fix = _fixes_store[fix_id]
+                if fix.status == FixStatus.PENDING:
+                    fix.status = FixStatus.APPROVED
+                    approved += 1
 
     return {"data": {"approved": approved}, "success": True}
 
@@ -958,23 +1003,26 @@ async def batch_approve(request: BatchRequest, user: ClerkUser = Depends(get_cur
 async def batch_reject(request: BatchRejectRequest, user: ClerkUser = Depends(get_current_user)) -> dict:
     """Batch reject multiple fixes."""
     rejected = 0
-    for fix_id in request.ids:
-        if fix_id in _fixes_store:
-            fix = _fixes_store[fix_id]
-            if fix.status == FixStatus.PENDING:
-                fix.status = FixStatus.REJECTED
-                rejected += 1
-                # Add rejection comment
-                comment_id = f"reject-{fix_id}-{datetime.utcnow().timestamp()}"
-                if fix_id not in _comments_store:
-                    _comments_store[fix_id] = []
-                _comments_store[fix_id].append({
-                    "id": comment_id,
-                    "fix_id": fix_id,
-                    "author": "System",
-                    "content": f"Batch rejected: {request.reason}",
-                    "created_at": datetime.utcnow().isoformat(),
-                })
+    # Acquire locks in consistent order to prevent deadlocks
+    async with _fixes_lock:
+        async with _comments_lock:
+            for fix_id in request.ids:
+                if fix_id in _fixes_store:
+                    fix = _fixes_store[fix_id]
+                    if fix.status == FixStatus.PENDING:
+                        fix.status = FixStatus.REJECTED
+                        rejected += 1
+                        # Add rejection comment
+                        comment_id = f"reject-{fix_id}-{datetime.utcnow().timestamp()}"
+                        if fix_id not in _comments_store:
+                            _comments_store[fix_id] = []
+                        _comments_store[fix_id].append({
+                            "id": comment_id,
+                            "fix_id": fix_id,
+                            "author": "System",
+                            "content": f"Batch rejected: {request.reason}",
+                            "created_at": datetime.utcnow().isoformat(),
+                        })
 
     return {"data": {"rejected": rejected}, "success": True}
 
@@ -1124,10 +1172,11 @@ async def generate_best_of_n_fix(
     try:
         # Get the finding from store (in production, from database)
         finding = None
-        for fix in _fixes_store.values():
-            if hasattr(fix.finding, "id") and fix.finding.id == request.finding_id:
-                finding = fix.finding
-                break
+        async with _fixes_lock:
+            for fix in _fixes_store.values():
+                if hasattr(fix.finding, "id") and fix.finding.id == request.finding_id:
+                    finding = fix.finding
+                    break
 
         if finding is None:
             raise HTTPException(
@@ -1143,8 +1192,9 @@ async def generate_best_of_n_fix(
         )
 
         # Store generated fixes
-        for ranked in result.ranked_fixes:
-            _fixes_store[ranked.fix.id] = ranked.fix
+        async with _fixes_lock:
+            for ranked in result.ranked_fixes:
+                _fixes_store[ranked.fix.id] = ranked.fix
 
         return BestOfNFixResponse(
             ranked_fixes=[rf.to_dict() for rf in result.ranked_fixes],
@@ -1195,39 +1245,44 @@ async def select_best_of_n_fix(
     Returns:
         Selected fix details
     """
-    if fix_id not in _fixes_store:
-        raise HTTPException(status_code=404, detail="Fix not found")
+    async with _fixes_lock:
+        if fix_id not in _fixes_store:
+            raise HTTPException(status_code=404, detail="Fix not found")
 
-    fix = _fixes_store[fix_id]
+        fix = _fixes_store[fix_id]
 
-    # Find related candidates (same base ID)
-    base_id = fix_id.rsplit("_candidate_", 1)[0]
-    related_ids = [
-        fid for fid in _fixes_store.keys()
-        if fid.startswith(base_id) and fid != fix_id
-    ]
+        # Find related candidates (same base ID)
+        base_id = fix_id.rsplit("_candidate_", 1)[0]
+        related_ids = [
+            fid for fid in _fixes_store.keys()
+            if fid.startswith(base_id) and fid != fix_id
+        ]
 
-    # Approve selected fix
-    fix.status = FixStatus.APPROVED
+        # Approve selected fix
+        fix.status = FixStatus.APPROVED
 
-    # Reject other candidates
-    for other_id in related_ids:
-        other_fix = _fixes_store.get(other_id)
-        if other_fix and other_fix.status == FixStatus.PENDING:
-            other_fix.status = FixStatus.REJECTED
+        # Reject other candidates
+        for other_id in related_ids:
+            other_fix = _fixes_store.get(other_id)
+            if other_fix and other_fix.status == FixStatus.PENDING:
+                other_fix.status = FixStatus.REJECTED
+
+        # Copy data for response outside the lock
+        fix_data = fix.to_dict()
+        rejected_count = len(related_ids)
 
     logger.info(
         f"Selected Best-of-N fix {fix_id}",
         extra={
             "user_id": user.user_id,
-            "rejected_count": len(related_ids),
+            "rejected_count": rejected_count,
         },
     )
 
     return {
-        "data": fix.to_dict(),
+        "data": fix_data,
         "success": True,
-        "rejected_count": len(related_ids),
+        "rejected_count": rejected_count,
     }
 
 

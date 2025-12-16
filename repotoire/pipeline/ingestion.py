@@ -1368,15 +1368,17 @@ class IngestionPipeline:
                     # Extract file path from qualified name: /full/path/file.py::Entity:line
                     file_path = qn.split("::")[0]
                     # Convert absolute path to module-like path
-                    # /home/user/code/repotoire/repotoire/mcp/models.py -> repotoire.mcp.models
-                    # Note: path has TWO "repotoire/" - the repo dir and the package dir
-                    if "/code/repotoire/" in file_path:
-                        rel_path = file_path.split("/code/repotoire/", 1)[-1]  # Get path relative to repo root
+                    # /home/user/project/repotoire/mcp/models.py -> repotoire.mcp.models
+                    try:
+                        rel_path = str(Path(file_path).relative_to(self.repo_path))
                         if rel_path.endswith(".py"):
                             rel_path = rel_path[:-3]  # Remove .py
                         # rel_path is now like "repotoire/mcp/models" - convert to module path
                         module_path = rel_path.replace("/", ".")
                         module_to_file[module_path] = file_path
+                    except ValueError:
+                        # Path is not within repo_path, skip this entity
+                        pass
 
             logger.debug(f"Built import map for {len(file_import_modules)} files, {len(module_to_file)} module mappings")
 
@@ -1415,19 +1417,13 @@ class IngestionPipeline:
                 caller_file_abs = caller_qn.split("::")[0] if "::" in caller_qn else None
                 caller_file_rel = None
                 if caller_file_abs:
-                    # Convert /home/user/code/repotoire/x/y.py to x/y.py (relative to repo root)
+                    # Convert absolute path to relative path (relative to repo root)
                     # File.filePath uses relative paths like "tests/unit/file.py" or "repotoire/models.py"
-                    if "/code/repotoire/" in caller_file_abs:
-                        caller_file_rel = caller_file_abs.split("/code/repotoire/", 1)[-1]
-                    elif "repotoire/" in caller_file_abs:
-                        # Fallback: find last repotoire/ and keep everything after the repo root
-                        parts = caller_file_abs.split("repotoire/")
-                        if len(parts) >= 2:
-                            # Could be tests/, repotoire/, alembic/, etc.
-                            caller_file_rel = parts[-1]
-                            # Check if this looks like a submodule path (repotoire/x/y.py)
-                            if not caller_file_rel.endswith(".py"):
-                                caller_file_rel = None
+                    try:
+                        caller_file_rel = str(Path(caller_file_abs).relative_to(self.repo_path))
+                    except ValueError:
+                        # Path is not within repo_path, leave as None
+                        pass
 
                 # Priority 0: Type inference resolution (highest accuracy)
                 if caller_qn in type_inferred_calls:
@@ -1466,9 +1462,9 @@ class IngestionPipeline:
                         if "::" in cand_qn:
                             cand_file_abs = cand_qn.split("::")[0]
                             # Convert candidate's file to module path
-                            # /home/user/code/repotoire/repotoire/mcp/models.py -> repotoire.mcp.models
-                            if "/code/repotoire/" in cand_file_abs:
-                                cand_rel = cand_file_abs.split("/code/repotoire/", 1)[-1]
+                            # /home/user/project/repotoire/mcp/models.py -> repotoire.mcp.models
+                            try:
+                                cand_rel = str(Path(cand_file_abs).relative_to(self.repo_path))
                                 if cand_rel.endswith(".py"):
                                     cand_rel = cand_rel[:-3]
                                 # cand_rel is like "repotoire/mcp/models" - convert directly
@@ -1479,6 +1475,9 @@ class IngestionPipeline:
                                 if cand_module in imported_modules or entity_full in imported_modules:
                                     best_match = candidate
                                     break
+                            except ValueError:
+                                # Path is not within repo_path, skip this candidate
+                                continue
 
                 # Priority 3: Check if it's a method call on a class we use (via USES relationship)
                 # This handles cases like: obj = SomeClass(); obj.method()

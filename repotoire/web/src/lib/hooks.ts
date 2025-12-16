@@ -528,3 +528,68 @@ export function useRepositoryAnalysisStatus(repositoryId: string | null) {
     }
   );
 }
+
+// ==========================================
+// API Keys Hooks
+// ==========================================
+
+import type { ApiKey, ApiKeyCreateRequest, ApiKeyCreateResponse } from '@/types';
+
+/**
+ * Hook to fetch all API keys for the current organization.
+ */
+export function useApiKeys() {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR<ApiKey[]>(
+    isAuthReady ? 'api-keys' : null,
+    async () => {
+      const response = await fetch('/api/api-keys');
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Failed to fetch API keys' }));
+        throw new Error(error.detail || 'Failed to fetch API keys');
+      }
+      return response.json();
+    }
+  );
+}
+
+/**
+ * Hook to create a new API key.
+ * Returns the full key only once - it cannot be retrieved again.
+ */
+export function useCreateApiKey() {
+  return useSWRMutation<ApiKeyCreateResponse, Error, string, ApiKeyCreateRequest>(
+    'api-keys',
+    async (_key, { arg }) => {
+      const response = await fetch('/api/api-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(arg),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Failed to create API key' }));
+        throw new Error(error.detail || 'Failed to create API key');
+      }
+      return response.json();
+    }
+  );
+}
+
+/**
+ * Hook to revoke (delete) an API key.
+ */
+export function useRevokeApiKey() {
+  return useSWRMutation<void, Error, string, { keyId: string }>(
+    'api-keys',
+    async (_key, { arg }) => {
+      const response = await fetch(`/api/api-keys/${arg.keyId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Failed to revoke API key' }));
+        throw new Error(error.detail || 'Failed to revoke API key');
+      }
+    }
+  );
+}

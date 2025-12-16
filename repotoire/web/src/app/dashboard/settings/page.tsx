@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { useTheme } from 'next-themes';
-import { Moon, Sun, Monitor, Shield, ChevronRight } from 'lucide-react';
+import { Moon, Sun, Monitor, Shield, ChevronRight, Key } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
@@ -207,6 +207,33 @@ export default function SettingsPage() {
               </div>
               <Switch defaultChecked />
             </div>
+          </CardContent>
+        </Card>
+
+        {/* API Keys */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5" />
+              API Keys
+            </CardTitle>
+            <CardDescription>
+              Manage API keys for programmatic access to Repotoire
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              href="/dashboard/settings/api-keys"
+              className="flex items-center justify-between p-4 -m-4 rounded-lg hover:bg-muted/50 transition-colors"
+            >
+              <div>
+                <p className="font-medium">Manage API Keys</p>
+                <p className="text-sm text-muted-foreground">
+                  Create, view, and revoke API keys for CI/CD and integrations
+                </p>
+              </div>
+              <ChevronRight className="h-5 w-5 text-muted-foreground" />
+            </Link>
           </CardContent>
         </Card>
 

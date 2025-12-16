@@ -135,34 +135,38 @@ function HealthScoreGauge({ loading }: { loading?: boolean }) {
             <span className="text-4xl font-bold font-display text-gradient">{score}</span>
             <span className="text-lg text-muted-foreground">/100</span>
           </div>
-          <Badge
-            className="text-white text-xs px-2 py-0.5"
-            style={{ backgroundColor: gradeColors[grade] }}
-          >
-            Grade {grade}
-          </Badge>
+          {grade && (
+            <Badge
+              className="text-white text-xs px-2 py-0.5"
+              style={{ backgroundColor: gradeColors[grade] }}
+            >
+              Grade {grade}
+            </Badge>
+          )}
         </div>
 
         {/* Category Breakdown - Stacked Bars */}
-        <div className="space-y-2">
-          {Object.entries(categories).map(([key, value]) => (
-            <div key={key} className="space-y-1">
-              <div className="flex items-center justify-between text-xs">
-                <span className="capitalize font-medium">{key}</span>
-                <span className="text-muted-foreground tabular-nums">{value}%</span>
+        {categories && (
+          <div className="space-y-2">
+            {Object.entries(categories).map(([key, value]) => (
+              <div key={key} className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="capitalize font-medium">{key}</span>
+                  <span className="text-muted-foreground tabular-nums">{value}%</span>
+                </div>
+                <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      width: `${value}%`,
+                      backgroundColor: categoryColors[key] || '#6366f1',
+                    }}
+                  />
+                </div>
               </div>
-              <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{
-                    width: `${value}%`,
-                    backgroundColor: categoryColors[key] || '#6366f1',
-                  }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

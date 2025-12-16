@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Play, Loader2, CheckCircle2, XCircle, ChevronDown, GitBranch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -76,10 +76,31 @@ export function QuickAnalysisButton() {
     }
   };
 
-  const pollAnalysisStatus = async (analysisRunId: string, repoName: string) => {
+  // Cleanup ref to cancel polling on unmount or new analysis
+  const pollCleanupRef = useRef<(() => void) | null>(null);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      pollCleanupRef.current?.();
+    };
+  }, []);
+
+  const pollAnalysisStatus = useCallback((analysisRunId: string, repoName: string) => {
+    const MAX_RETRIES = 10;
+    const controller = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
+
     const poll = async () => {
+      // Early exit if aborted (component unmounted)
+      if (controller.signal.aborted) return;
+
       try {
         const status = await api.get<AnalysisStatus>(`/analysis/${analysisRunId}/status`);
+
+        // Check again after async - component may have unmounted
+        if (controller.signal.aborted) return;
 
         if (status.status === 'completed') {
           toast.success(
@@ -99,19 +120,48 @@ export function QuickAnalysisButton() {
           return;
         }
 
-        // Continue polling
-        setTimeout(poll, 3000);
+        // Reset retry count on successful poll
+        retryCount = 0;
+        // Continue polling - store timeout ID for cleanup
+        timeoutId = setTimeout(poll, 3000);
       } catch (error) {
+        // Don't update state if aborted
+        if (controller.signal.aborted) return;
+
         console.error('Failed to poll analysis status:', error);
-        setAnalyzing(null);
+
+        if (++retryCount < MAX_RETRIES) {
+          // Exponential backoff: 3s, 6s, 9s (capped at 9s)
+          const delay = 3000 * Math.min(retryCount, 3);
+          timeoutId = setTimeout(poll, delay);
+        } else {
+          // Max retries exceeded - stop polling with error
+          toast.error(
+            `Analysis status check failed for ${repoName}`,
+            { description: 'Unable to get status after multiple retries' }
+          );
+          setAnalyzing(null);
+        }
       }
     };
 
+    // Start polling
     poll();
-  };
+
+    // Return cleanup function
+    return () => {
+      controller.abort();
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [api]);
 
   const handleAnalyze = async (repo: Repository) => {
     if (analyzing) return;
+
+    // Cancel any existing polling before starting new analysis
+    pollCleanupRef.current?.();
 
     setAnalyzing(repo.id);
 
@@ -127,7 +177,8 @@ export function QuickAnalysisButton() {
       });
 
       toast.success(`Analysis started for ${repo.full_name}`);
-      pollAnalysisStatus(response.analysis_run_id, repo.full_name);
+      // Store cleanup function for cancellation
+      pollCleanupRef.current = pollAnalysisStatus(response.analysis_run_id, repo.full_name);
     } catch (error: any) {
       console.error('Failed to start analysis:', error);
       toast.error(

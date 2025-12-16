@@ -23,6 +23,9 @@ from fastapi.responses import JSONResponse
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from repotoire.api.models import ErrorResponse
@@ -80,6 +83,14 @@ CORS_ORIGINS = os.getenv(
     "CORS_ORIGINS",
     "http://localhost:3000,http://localhost:3001"
 ).split(",")
+
+
+# Rate limiter for sensitive endpoints (account deletion, data export)
+# Uses Redis for distributed rate limiting in production, memory for development
+limiter = Limiter(
+    key_func=get_remote_address,
+    storage_uri=os.getenv("REDIS_URL", "memory://"),
+)
 
 
 class CorrelationIdMiddleware(BaseHTTPMiddleware):
@@ -197,13 +208,57 @@ app.add_middleware(VersionMiddleware)
 app.add_middleware(DeprecationMiddleware)
 
 # CORS middleware for web clients - use configured origins
+# Explicit methods/headers to reduce attack surface (wildcards with credentials
+# could allow XST attacks via TRACE or header injection vectors)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID"],
 )
+
+# Configure rate limiter on app state for use in routes
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    """Handle rate limit exceeded errors with proper 429 response."""
+    # Log rate limit violation for security monitoring
+    client_ip = get_remote_address(request)
+    logger.warning(
+        f"Rate limit exceeded for {request.url.path}",
+        extra={
+            "client_ip": client_ip,
+            "path": request.url.path,
+            "method": request.method,
+            "limit": str(exc.detail),
+        }
+    )
+
+    # Capture in Sentry for abuse pattern detection
+    sentry_sdk.capture_message(
+        f"Rate limit exceeded: {request.url.path}",
+        level="warning",
+        extras={
+            "client_ip": client_ip,
+            "path": request.url.path,
+            "method": request.method,
+        }
+    )
+
+    # Return 429 with Retry-After header
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content=ErrorResponse(
+            error="Rate limit exceeded",
+            detail=f"Too many requests. {exc.detail}",
+            error_code="RATE_LIMIT_EXCEEDED",
+        ).model_dump(),
+        headers={"Retry-After": str(60 * 60)},  # 1 hour for account endpoints
+    )
+
 
 # Mount versioned sub-applications
 # Each sub-app has its own OpenAPI docs at /api/{version}/docs

@@ -15,6 +15,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from repotoire.api.app import limiter
 from repotoire.api.auth import ClerkUser, get_clerk_client, get_current_user
 from repotoire.api.services.cloud_storage import (
     is_storage_configured,
@@ -237,7 +238,9 @@ async def get_account_status(
 
 
 @router.post("/export", response_model=DataExportResponse)
+@limiter.limit("3/hour")
 async def request_data_export(
+    request: Request,  # Required for slowapi rate limiting
     background_tasks: BackgroundTasks,
     user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -332,7 +335,9 @@ async def list_exports(
 
 
 @router.delete("", response_model=DeletionScheduledResponse)
+@limiter.limit("3/hour")
 async def delete_account(
+    request: Request,  # Required for slowapi rate limiting
     confirmation: DeleteConfirmation,
     background_tasks: BackgroundTasks,
     user: ClerkUser = Depends(get_current_user),
@@ -404,7 +409,9 @@ async def get_deletion_status(
 
 
 @router.post("/cancel-deletion", response_model=CancelDeletionResponse)
+@limiter.limit("5/hour")
 async def cancel_account_deletion(
+    request: Request,  # Required for slowapi rate limiting
     background_tasks: BackgroundTasks,
     user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
