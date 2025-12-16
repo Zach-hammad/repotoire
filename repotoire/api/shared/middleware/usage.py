@@ -4,6 +4,8 @@ This module provides FastAPI dependencies for enforcing subscription
 plan limits on API endpoints.
 """
 
+import asyncio
+
 from fastapi import Depends, HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from repotoire.api.shared.auth import ClerkUser, get_current_user_or_api_key, require_org
 from repotoire.api.shared.services.billing import check_usage_limit, has_feature
 from repotoire.db.models import Organization
-from repotoire.db.session import get_db
+from repotoire.db.session import get_db, sync_session_factory
 
 
 async def get_org_from_user_flexible(
@@ -216,6 +218,9 @@ def enforce_feature_for_api(feature: str):
     Works with both JWT authentication and API key authentication.
     For API keys, looks up organization by clerk_org_id instead of slug.
 
+    Uses sync database operations in a thread to avoid async context issues
+    when combined with the sync Clerk SDK.
+
     Args:
         feature: The feature key to require (e.g., "api_access", "auto_fix")
 
@@ -230,11 +235,40 @@ def enforce_feature_for_api(feature: str):
             ...
     """
 
+    def _get_org_sync(org_id: str | None, org_slug: str | None) -> Organization | None:
+        """Sync database lookup for org - runs in thread pool."""
+        with sync_session_factory() as session:
+            conditions = []
+            if org_slug:
+                conditions.append(Organization.slug == org_slug)
+            if org_id:
+                conditions.append(Organization.clerk_org_id == org_id)
+
+            if not conditions:
+                return None
+
+            result = session.execute(
+                select(Organization).where(or_(*conditions))
+            )
+            return result.scalar_one_or_none()
+
     async def _enforce(
         user: ClerkUser = Depends(get_current_user_or_api_key),
-        db: AsyncSession = Depends(get_db),
     ) -> Organization:
-        org = await get_org_from_user_flexible(user, db)
+        if not user.org_id and not user.org_slug:
+            raise HTTPException(
+                status_code=403,
+                detail="Organization context required. Use an org-scoped API key or select an organization.",
+            )
+
+        # Run sync database lookup in thread to avoid greenlet issues
+        org = await asyncio.to_thread(_get_org_sync, user.org_id, user.org_slug)
+
+        if not org:
+            raise HTTPException(
+                status_code=404,
+                detail="Organization not found. Please ensure your organization is registered.",
+            )
 
         if not has_feature(org, feature):
             raise HTTPException(
