@@ -3,6 +3,7 @@
 This module provides JWT verification using Clerk's official Python SDK.
 """
 
+import asyncio
 import os
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -214,7 +215,10 @@ async def get_current_user_or_api_key(
     if x_api_key:
         try:
             # Verify API key with Clerk (v4.2.0+)
-            api_key_data = clerk.api_keys.verify_api_key(secret=x_api_key)
+            # Run in thread to avoid blocking event loop (sync SDK)
+            api_key_data = await asyncio.to_thread(
+                clerk.api_keys.verify_api_key, secret=x_api_key
+            )
 
             # Extract org_id from subject if org-scoped key
             subject = api_key_data.subject  # e.g., "user_xxx" or "org_xxx"
