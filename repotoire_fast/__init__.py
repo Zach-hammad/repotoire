@@ -38,6 +38,13 @@ from .repotoire_fast import (
     find_duplicates_batch,            # Batch duplicate detection
     tokenize_source,                  # Tokenize source code
     PyDuplicateBlock,                 # Duplicate block result class
+    # Link prediction for call resolution
+    graph_validate_calls,             # Validate calls by community
+    graph_rank_call_candidates,       # Rank call candidates
+    graph_batch_jaccard,              # Batch Jaccard similarity
+    # Type inference for call graph resolution (PyCG-style)
+    infer_types,                      # Infer types from source files
+    resolve_method_call,              # Resolve method calls
 )
 
 __all__ = [
@@ -79,4 +86,11 @@ __all__ = [
     "find_duplicates_batch",            # Batch duplicate detection
     "tokenize_source",                  # Tokenize source code
     "PyDuplicateBlock",                 # Duplicate block result class
+    # Link prediction for call resolution
+    "graph_validate_calls",             # Validate calls by community
+    "graph_rank_call_candidates",       # Rank call candidates
+    "graph_batch_jaccard",              # Batch Jaccard similarity
+    # Type inference for call graph resolution (PyCG-style)
+    "infer_types",                      # Infer types from source files
+    "resolve_method_call",              # Resolve method calls
 ]

@@ -926,6 +926,214 @@ fn leiden_impl(
 }
 
 // ============================================================================
+// LINK PREDICTION FOR CALL RESOLUTION
+// ============================================================================
+//
+// Uses graph structure to improve call resolution accuracy:
+// 1. Community membership: Calls within same community are more likely correct
+// 2. Jaccard similarity: Nodes with similar neighbors are likely related
+// 3. Common neighbors: Shared connections indicate relatedness
+//
+// These provide probabilistic signals to disambiguate method calls.
+// ============================================================================
+
+/// Calculate Jaccard similarity between two nodes based on shared neighbors.
+///
+/// Jaccard(A, B) = |neighbors(A) ∩ neighbors(B)| / |neighbors(A) ∪ neighbors(B)|
+///
+/// High similarity means nodes are called by similar functions and likely related.
+pub fn jaccard_similarity(
+    node_a: usize,
+    node_b: usize,
+    neighbors: &[Vec<u32>],
+) -> f64 {
+    if node_a >= neighbors.len() || node_b >= neighbors.len() {
+        return 0.0;
+    }
+
+    let set_a: rustc_hash::FxHashSet<u32> = neighbors[node_a].iter().copied().collect();
+    let set_b: rustc_hash::FxHashSet<u32> = neighbors[node_b].iter().copied().collect();
+
+    if set_a.is_empty() && set_b.is_empty() {
+        return 0.0;
+    }
+
+    let intersection = set_a.intersection(&set_b).count();
+    let union = set_a.union(&set_b).count();
+
+    if union == 0 {
+        0.0
+    } else {
+        intersection as f64 / union as f64
+    }
+}
+
+/// Validate call resolutions using community membership.
+///
+/// Returns confidence scores for each (caller_idx, callee_idx) pair:
+/// - 1.0: Same community (high confidence)
+/// - 0.5: Adjacent communities (medium confidence)
+/// - 0.2: Different communities (low confidence, may be wrong)
+///
+/// # Arguments
+/// * `calls` - List of (caller_node_idx, callee_node_idx) pairs
+/// * `communities` - Community assignment for each node (from Leiden)
+/// * `edges` - Graph edges for adjacency checking
+/// * `num_nodes` - Total nodes in graph
+///
+/// # Returns
+/// List of confidence scores (same order as input calls)
+pub fn validate_calls_by_community(
+    calls: &[(u32, u32)],
+    communities: &[u32],
+    edges: &[(u32, u32)],
+    num_nodes: usize,
+) -> Vec<f64> {
+    if communities.is_empty() || num_nodes == 0 {
+        return vec![0.5; calls.len()];  // Neutral confidence
+    }
+
+    // Build neighbor set for each community
+    let mut community_neighbors: FxHashMap<u32, rustc_hash::FxHashSet<u32>> = FxHashMap::default();
+    for &(src, dst) in edges {
+        if (src as usize) < communities.len() && (dst as usize) < communities.len() {
+            let src_comm = communities[src as usize];
+            let dst_comm = communities[dst as usize];
+            if src_comm != dst_comm {
+                community_neighbors.entry(src_comm).or_default().insert(dst_comm);
+                community_neighbors.entry(dst_comm).or_default().insert(src_comm);
+            }
+        }
+    }
+
+    calls.iter().map(|&(caller, callee)| {
+        let caller = caller as usize;
+        let callee = callee as usize;
+
+        if caller >= communities.len() || callee >= communities.len() {
+            return 0.5;  // Unknown nodes
+        }
+
+        let caller_comm = communities[caller];
+        let callee_comm = communities[callee];
+
+        if caller_comm == callee_comm {
+            1.0  // Same community - high confidence
+        } else if community_neighbors.get(&caller_comm)
+            .map(|n| n.contains(&callee_comm))
+            .unwrap_or(false)
+        {
+            0.5  // Adjacent communities - medium confidence
+        } else {
+            0.2  // Distant communities - low confidence
+        }
+    }).collect()
+}
+
+/// For a given caller, rank candidate callees by graph-based likelihood.
+///
+/// Uses multiple signals:
+/// 1. Community membership (same community = higher score)
+/// 2. Jaccard similarity with caller (shared neighbors = higher score)
+/// 3. PageRank of callee (more "important" functions preferred)
+///
+/// # Arguments
+/// * `caller` - Index of the calling function
+/// * `candidates` - List of candidate callee indices
+/// * `communities` - Community assignment for each node
+/// * `pagerank_scores` - PageRank scores for each node
+/// * `neighbors` - Adjacency list (bidirectional)
+///
+/// # Returns
+/// Candidates sorted by score (highest first), with scores
+pub fn rank_call_candidates(
+    caller: u32,
+    candidates: &[u32],
+    communities: &[u32],
+    pagerank_scores: &[f64],
+    neighbors: &[Vec<u32>],
+) -> Vec<(u32, f64)> {
+    let caller = caller as usize;
+
+    let mut scored: Vec<(u32, f64)> = candidates.iter().map(|&candidate| {
+        let cand = candidate as usize;
+        let mut score = 0.0;
+
+        // Factor 1: Community membership (weight: 0.4)
+        if caller < communities.len() && cand < communities.len() {
+            if communities[caller] == communities[cand] {
+                score += 0.4;
+            }
+        }
+
+        // Factor 2: Jaccard similarity (weight: 0.3)
+        let jaccard = jaccard_similarity(caller, cand, neighbors);
+        score += 0.3 * jaccard;
+
+        // Factor 3: PageRank importance (weight: 0.3)
+        if cand < pagerank_scores.len() {
+            // Normalize to [0, 1] - assume max pagerank is ~0.1
+            let pr_normalized = (pagerank_scores[cand] * 10.0).min(1.0);
+            score += 0.3 * pr_normalized;
+        }
+
+        (candidate, score)
+    }).collect();
+
+    // Sort by score descending
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    scored
+}
+
+/// Batch compute Jaccard similarities between all pairs of nodes.
+///
+/// Useful for finding related functions that might be confused in call resolution.
+/// Returns sparse matrix of similarities (only pairs > threshold).
+///
+/// # Arguments
+/// * `edges` - Graph edges (bidirectional recommended)
+/// * `num_nodes` - Total nodes
+/// * `threshold` - Minimum similarity to include (0.0-1.0)
+///
+/// # Returns
+/// List of (node_a, node_b, similarity) tuples
+pub fn batch_jaccard_similarity(
+    edges: &[(u32, u32)],
+    num_nodes: usize,
+    threshold: f64,
+) -> Result<Vec<(u32, u32, f64)>, GraphError> {
+    if num_nodes == 0 {
+        return Ok(vec![]);
+    }
+
+    validate_edges(edges, num_nodes as u32)?;
+
+    // Build adjacency list
+    let mut neighbors: Vec<Vec<u32>> = vec![vec![]; num_nodes];
+    for &(src, dst) in edges {
+        neighbors[src as usize].push(dst);
+        neighbors[dst as usize].push(src);
+    }
+
+    // Compute pairwise similarities in parallel
+    let results: Vec<(u32, u32, f64)> = (0..num_nodes)
+        .into_par_iter()
+        .flat_map(|i| {
+            let mut pairs = Vec::new();
+            for j in (i + 1)..num_nodes {
+                let sim = jaccard_similarity(i, j, &neighbors);
+                if sim >= threshold {
+                    pairs.push((i as u32, j as u32, sim));
+                }
+            }
+            pairs
+        })
+        .collect();
+
+    Ok(results)
+}
+
+// ============================================================================
 // UNIT TESTS (REPO-218)
 // Comprehensive tests covering:
 // - Edge cases (empty, single node, self-loops, duplicates)

@@ -4,6 +4,7 @@ use pyo3::conversion::IntoPyObject;
 use walkdir::WalkDir;
 use globset::{Glob, GlobSetBuilder};
 use rayon::prelude::*;
+use std::collections::HashMap;
 mod hashing;
 use std::path::Path;
 mod complexity;
@@ -14,6 +15,7 @@ mod pylint_rules;
 pub mod graph_algo;
 mod errors;
 pub mod duplicate;
+pub mod type_inference;
 
 // Convert GraphError to Python ValueError (REPO-227)
 impl From<errors::GraphError> for PyErr {
@@ -73,8 +75,6 @@ fn batch_hash_files(py: Python<'_>, paths: Vec<String>) -> PyResult<Vec<(String,
     // Detach Python thread state during parallel file hashing
     Ok(py.detach(|| hashing::batch_hash_files(paths)))
 }
-
-use std::collections::HashMap;
 
 #[pyfunction]
 fn calculate_complexity_fast(source: String) -> PyResult<Option<u32>> {
@@ -671,6 +671,94 @@ fn graph_harmonic_centrality(
 }
 
 // ============================================================================
+// LINK PREDICTION FOR CALL RESOLUTION
+// Uses graph structure to improve call resolution accuracy
+// ============================================================================
+
+/// Validate call resolutions using Leiden community membership.
+///
+/// Returns confidence scores for each (caller_idx, callee_idx) pair:
+/// - 1.0: Same community (high confidence)
+/// - 0.5: Adjacent communities (medium confidence)
+/// - 0.2: Distant communities (low confidence, may be incorrect)
+///
+/// # Arguments
+/// * `calls` - List of (caller_node_idx, callee_node_idx) pairs
+/// * `communities` - Community assignment from graph_leiden()
+/// * `edges` - Graph edges
+/// * `num_nodes` - Total nodes in graph
+#[pyfunction]
+#[pyo3(signature = (calls, communities, edges, num_nodes))]
+fn graph_validate_calls(
+    py: Python<'_>,
+    calls: Vec<(u32, u32)>,
+    communities: Vec<u32>,
+    edges: Vec<(u32, u32)>,
+    num_nodes: usize,
+) -> Vec<f64> {
+    py.detach(|| graph_algo::validate_calls_by_community(&calls, &communities, &edges, num_nodes))
+}
+
+/// Rank candidate callees for a caller using graph-based signals.
+///
+/// Uses community membership (40%), Jaccard similarity (30%), and PageRank (30%)
+/// to score candidates and return them sorted by likelihood.
+///
+/// # Arguments
+/// * `caller` - Index of the calling function
+/// * `candidates` - List of candidate callee indices
+/// * `communities` - Community assignment from graph_leiden()
+/// * `pagerank_scores` - PageRank scores from graph_pagerank()
+/// * `edges` - Graph edges (bidirectional recommended)
+/// * `num_nodes` - Total nodes in graph
+#[pyfunction]
+#[pyo3(signature = (caller, candidates, communities, pagerank_scores, edges, num_nodes))]
+fn graph_rank_call_candidates(
+    py: Python<'_>,
+    caller: u32,
+    candidates: Vec<u32>,
+    communities: Vec<u32>,
+    pagerank_scores: Vec<f64>,
+    edges: Vec<(u32, u32)>,
+    num_nodes: usize,
+) -> Vec<(u32, f64)> {
+    // Build adjacency list
+    let neighbors: Vec<Vec<u32>> = py.detach(|| {
+        let mut adj: Vec<Vec<u32>> = vec![vec![]; num_nodes];
+        for &(src, dst) in &edges {
+            if (src as usize) < num_nodes && (dst as usize) < num_nodes {
+                adj[src as usize].push(dst);
+                adj[dst as usize].push(src);
+            }
+        }
+        adj
+    });
+
+    graph_algo::rank_call_candidates(caller, &candidates, &communities, &pagerank_scores, &neighbors)
+}
+
+/// Batch compute Jaccard similarities between all node pairs.
+///
+/// Returns sparse similarity matrix (only pairs above threshold).
+/// Useful for finding related functions that might be confused.
+///
+/// # Arguments
+/// * `edges` - Graph edges
+/// * `num_nodes` - Total nodes
+/// * `threshold` - Minimum similarity to include (0.0-1.0)
+#[pyfunction]
+#[pyo3(signature = (edges, num_nodes, threshold=0.1))]
+fn graph_batch_jaccard(
+    py: Python<'_>,
+    edges: Vec<(u32, u32)>,
+    num_nodes: usize,
+    threshold: f64,
+) -> PyResult<Vec<(u32, u32, f64)>> {
+    py.detach(|| graph_algo::batch_jaccard_similarity(&edges, num_nodes, threshold))
+        .map_err(|e| e.into())
+}
+
+// ============================================================================
 // DUPLICATE CODE DETECTION (REPO-166)
 // Uses Rabin-Karp rolling hash for 5-10x speedup over jscpd
 // ============================================================================
@@ -835,6 +923,71 @@ fn find_duplicates_batch(
     Ok(results)
 }
 
+// Type inference for call graph resolution
+#[pyfunction]
+fn infer_types(
+    py: Python<'_>,
+    files: Vec<(String, String)>,  // (file_path, source_code)
+    _max_iterations: usize,
+) -> PyResult<PyObject> {
+    let (ti, _exports, stats) = py.detach(|| {
+        type_inference::process_files_with_stats(&files)
+    });
+
+    // Convert call graph to Python dict
+    let call_graph: HashMap<String, Vec<String>> = ti.get_call_graph()
+        .iter()
+        .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
+        .collect();
+
+    // Convert definitions to Python dict (simplified - just return counts and call graph)
+    let num_definitions = ti.definitions.len();
+    let num_classes = ti.classes.len();
+    let num_calls: usize = ti.call_graph.values().map(|v| v.len()).sum();
+
+    // Build result dict
+    let result = pyo3::types::PyDict::new(py);
+    result.set_item("call_graph", call_graph.into_pyobject(py)?)?;
+    result.set_item("num_definitions", num_definitions)?;
+    result.set_item("num_classes", num_classes)?;
+    result.set_item("num_calls", num_calls)?;
+
+    // Add statistics from REPO-333
+    result.set_item("type_inferred_count", stats.type_inferred_count)?;
+    result.set_item("random_fallback_count", stats.random_fallback_count)?;
+    result.set_item("unresolved_count", stats.unresolved_count)?;
+    result.set_item("external_count", stats.external_count)?;
+    result.set_item("type_inference_time", stats.type_inference_time)?;
+    result.set_item("mro_computed_count", stats.mro_computed_count)?;
+    result.set_item("assignments_tracked", stats.assignments_tracked)?;
+    result.set_item("functions_with_returns", stats.functions_with_returns)?;
+    result.set_item("fallback_percentage", stats.fallback_percentage())?;
+    result.set_item("meets_targets", stats.meets_targets())?;
+
+    Ok(result.into())
+}
+
+/// Resolve method calls given type information
+#[pyfunction]
+fn resolve_method_call(
+    receiver_type: String,
+    method_name: String,
+    class_mro: HashMap<String, Vec<String>>,  // class_ns -> MRO
+    class_methods: HashMap<String, Vec<String>>,  // class_ns -> method names
+) -> Option<String> {
+    // Get MRO for receiver type
+    if let Some(mro) = class_mro.get(&receiver_type) {
+        for base_ns in mro {
+            if let Some(methods) = class_methods.get(base_ns) {
+                if methods.contains(&method_name) {
+                    return Some(format!("{}.{}", base_ns, method_name));
+                }
+            }
+        }
+    }
+    None
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -870,11 +1023,18 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(graph_leiden, n)?)?;
     n.add_function(wrap_pyfunction!(graph_leiden_parallel, n)?)?;  // REPO-215
     n.add_function(wrap_pyfunction!(graph_harmonic_centrality, n)?)?;
+    // Link prediction for call resolution
+    n.add_function(wrap_pyfunction!(graph_validate_calls, n)?)?;
+    n.add_function(wrap_pyfunction!(graph_rank_call_candidates, n)?)?;
+    n.add_function(wrap_pyfunction!(graph_batch_jaccard, n)?)?;
     // Duplicate code detection (REPO-166)
     n.add_class::<PyDuplicateBlock>()?;
     n.add_function(wrap_pyfunction!(find_duplicates, n)?)?;
     n.add_function(wrap_pyfunction!(find_duplicates_batch, n)?)?;
     n.add_function(wrap_pyfunction!(tokenize_source, n)?)?;
+    // Type inference for call graph resolution (PyCG-style)
+    n.add_function(wrap_pyfunction!(infer_types, n)?)?;
+    n.add_function(wrap_pyfunction!(resolve_method_call, n)?)?;
     Ok(())
 }
 
