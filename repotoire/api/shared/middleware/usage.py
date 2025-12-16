@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from repotoire.api.shared.auth import ClerkUser, get_current_user_or_api_key, require_org
 from repotoire.api.shared.services.billing import check_usage_limit, has_feature
 from repotoire.db.models import Organization
-from repotoire.db.session import get_db, get_sync_session
+from repotoire.db.session import async_session_factory, get_db
 
 
 async def get_org_from_user_flexible(
@@ -235,9 +235,9 @@ def enforce_feature_for_api(feature: str):
             ...
     """
 
-    def _get_org_sync(org_id: str | None, org_slug: str | None) -> Organization | None:
-        """Sync database lookup for org - runs in thread pool."""
-        with get_sync_session() as session:
+    async def _get_org_async(org_id: str | None, org_slug: str | None) -> Organization | None:
+        """Async database lookup for org."""
+        async with async_session_factory() as session:
             conditions = []
             if org_slug:
                 conditions.append(Organization.slug == org_slug)
@@ -247,7 +247,7 @@ def enforce_feature_for_api(feature: str):
             if not conditions:
                 return None
 
-            result = session.execute(
+            result = await session.execute(
                 select(Organization).where(or_(*conditions))
             )
             return result.scalar_one_or_none()
@@ -261,8 +261,8 @@ def enforce_feature_for_api(feature: str):
                 detail="Organization context required. Use an org-scoped API key or select an organization.",
             )
 
-        # Look up organization in database (sync operation in thread pool)
-        org = await asyncio.to_thread(_get_org_sync, user.org_id, user.org_slug)
+        # Look up organization in database
+        org = await _get_org_async(user.org_id, user.org_slug)
 
         if not org:
             raise HTTPException(
