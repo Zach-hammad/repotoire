@@ -16,8 +16,10 @@ from .deprecation import (
 from .usage import (
     enforce_analysis_limit,
     enforce_feature,
+    enforce_feature_for_api,
     enforce_repo_limit,
     get_org_from_user,
+    get_org_from_user_flexible,
 )
 from .version import (
     DEFAULT_API_VERSION,
@@ -31,7 +33,9 @@ __all__ = [
     "enforce_repo_limit",
     "enforce_analysis_limit",
     "enforce_feature",
+    "enforce_feature_for_api",
     "get_org_from_user",
+    "get_org_from_user_flexible",
     # Version middleware
     "DEFAULT_API_VERSION",
     "SUPPORTED_VERSIONS",

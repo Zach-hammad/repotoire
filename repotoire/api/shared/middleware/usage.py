@@ -5,13 +5,58 @@ plan limits on API endpoints.
 """
 
 from fastapi import Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from repotoire.api.shared.auth import ClerkUser, require_org
+from repotoire.api.shared.auth import ClerkUser, get_current_user_or_api_key, require_org
 from repotoire.api.shared.services.billing import check_usage_limit, has_feature
 from repotoire.db.models import Organization
 from repotoire.db.session import get_db
+
+
+async def get_org_from_user_flexible(
+    user: ClerkUser,
+    db: AsyncSession,
+) -> Organization:
+    """Get the organization for an authenticated user (JWT or API key).
+
+    Supports lookup by either org_slug (JWT) or org_id (API key).
+
+    Args:
+        user: Authenticated Clerk user
+        db: Database session
+
+    Returns:
+        Organization instance
+
+    Raises:
+        HTTPException: If organization not found or user has no org context
+    """
+    if not user.org_id and not user.org_slug:
+        raise HTTPException(
+            status_code=403,
+            detail="Organization context required. Use an org-scoped API key or select an organization.",
+        )
+
+    # Build query to find org by either ID or slug
+    conditions = []
+    if user.org_slug:
+        conditions.append(Organization.slug == user.org_slug)
+    if user.org_id:
+        conditions.append(Organization.clerk_org_id == user.org_id)
+
+    result = await db.execute(
+        select(Organization).where(or_(*conditions))
+    )
+    org = result.scalar_one_or_none()
+
+    if not org:
+        raise HTTPException(
+            status_code=404,
+            detail="Organization not found. Please ensure your organization is registered.",
+        )
+
+    return org
 
 
 async def get_org_from_user(
@@ -157,6 +202,48 @@ def enforce_feature(feature: str):
                     "message": f"Feature '{feature}' is not available on your plan.",
                     "feature": feature,
                     "upgrade_url": "/dashboard/billing/upgrade",
+                },
+            )
+
+        return org
+
+    return _enforce
+
+
+def enforce_feature_for_api(feature: str):
+    """Create a dependency that enforces feature access for API routes.
+
+    Works with both JWT authentication and API key authentication.
+    For API keys, looks up organization by clerk_org_id instead of slug.
+
+    Args:
+        feature: The feature key to require (e.g., "api_access", "auto_fix")
+
+    Returns:
+        A FastAPI dependency function
+
+    Example:
+        @router.post("/search")
+        async def search_code(
+            org: Organization = Depends(enforce_feature_for_api("api_access")),
+        ):
+            ...
+    """
+
+    async def _enforce(
+        user: ClerkUser = Depends(get_current_user_or_api_key),
+        db: AsyncSession = Depends(get_db),
+    ) -> Organization:
+        org = await get_org_from_user_flexible(user, db)
+
+        if not has_feature(org, feature):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "FEATURE_NOT_AVAILABLE",
+                    "message": f"Feature '{feature}' requires a Pro or Enterprise subscription.",
+                    "feature": feature,
+                    "upgrade_url": "https://repotoire.com/pricing",
                 },
             )
 

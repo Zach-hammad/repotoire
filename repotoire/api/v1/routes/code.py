@@ -14,9 +14,11 @@ from repotoire.api.models import (
     CodeEntity,
     ErrorResponse
 )
-from repotoire.api.shared.auth import ClerkUser, get_current_user
+from repotoire.api.shared.auth import ClerkUser, get_current_user_or_api_key
+from repotoire.api.shared.middleware.usage import enforce_feature_for_api
 from repotoire.ai.retrieval import GraphRAGRetriever, RetrievalResult
 from repotoire.ai.embeddings import CodeEmbedder
+from repotoire.db.models import Organization
 from repotoire.graph.client import Neo4jClient
 from repotoire.logging_config import get_logger
 
@@ -72,16 +74,17 @@ def _retrieval_result_to_code_entity(result: RetrievalResult) -> CodeEntity:
     "/search",
     response_model=CodeSearchResponse,
     summary="Search codebase semantically",
-    description="Search for code entities using hybrid vector + graph search",
+    description="Search for code entities using hybrid vector + graph search. Requires Pro or Enterprise subscription.",
     responses={
         200: {"description": "Search results returned successfully"},
         400: {"model": ErrorResponse, "description": "Invalid request parameters"},
+        403: {"model": ErrorResponse, "description": "Feature not available on current plan"},
         500: {"model": ErrorResponse, "description": "Internal server error"}
     }
 )
 async def search_code(
     request: CodeSearchRequest,
-    user: ClerkUser = Depends(get_current_user),
+    org: Organization = Depends(enforce_feature_for_api("api_access")),
     retriever: GraphRAGRetriever = Depends(get_retriever)
 ) -> CodeSearchResponse:
     """
@@ -135,16 +138,17 @@ async def search_code(
     "/ask",
     response_model=CodeAskResponse,
     summary="Ask questions about codebase",
-    description="Get AI-powered answers to questions about the codebase using RAG",
+    description="Get AI-powered answers to questions about the codebase using RAG. Requires Pro or Enterprise subscription.",
     responses={
         200: {"description": "Answer generated successfully"},
         400: {"model": ErrorResponse, "description": "Invalid request parameters"},
+        403: {"model": ErrorResponse, "description": "Feature not available on current plan"},
         500: {"model": ErrorResponse, "description": "Internal server error"}
     }
 )
 async def ask_code_question(
     request: CodeAskRequest,
-    user: ClerkUser = Depends(get_current_user),
+    org: Organization = Depends(enforce_feature_for_api("api_access")),
     retriever: GraphRAGRetriever = Depends(get_retriever)
 ) -> CodeAskResponse:
     """
@@ -297,14 +301,15 @@ async def ask_code_question(
     "/embeddings/status",
     response_model=EmbeddingsStatusResponse,
     summary="Get embeddings status",
-    description="Check how many entities have vector embeddings",
+    description="Check how many entities have vector embeddings. Requires Pro or Enterprise subscription.",
     responses={
         200: {"description": "Status retrieved successfully"},
+        403: {"model": ErrorResponse, "description": "Feature not available on current plan"},
         500: {"model": ErrorResponse, "description": "Internal server error"}
     }
 )
 async def get_embeddings_status(
-    user: ClerkUser = Depends(get_current_user),
+    org: Organization = Depends(enforce_feature_for_api("api_access")),
     client: Neo4jClient = Depends(get_neo4j_client)
 ) -> EmbeddingsStatusResponse:
     """
