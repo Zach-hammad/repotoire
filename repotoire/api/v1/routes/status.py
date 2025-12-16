@@ -17,6 +17,10 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from repotoire.api.services.status_emails import (
+    create_verification_email,
+    send_email,
+)
 from repotoire.db.models.status import (
     ComponentStatus,
     Incident,
@@ -655,7 +659,12 @@ async def subscribe_to_updates(
             # Resend verification email
             existing.verification_token = secrets.token_urlsafe(32)
             await db.commit()
-            # TODO: Send verification email
+            # Send verification email
+            email_msg = create_verification_email(
+                email=request.email,
+                verification_token=existing.verification_token,
+            )
+            await send_email(email_msg)
             logger.info(f"Resending verification email to {request.email}")
             return SubscribeResponse(
                 message="A verification email has been sent. Please check your inbox.",
@@ -670,7 +679,12 @@ async def subscribe_to_updates(
     db.add(subscriber)
     await db.commit()
 
-    # TODO: Send verification email
+    # Send verification email
+    email_msg = create_verification_email(
+        email=request.email,
+        verification_token=subscriber.verification_token,
+    )
+    await send_email(email_msg)
     logger.info(f"New status page subscriber: {request.email}")
 
     return SubscribeResponse(

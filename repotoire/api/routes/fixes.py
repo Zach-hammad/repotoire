@@ -979,23 +979,6 @@ async def batch_reject(request: BatchRejectRequest, user: ClerkUser = Depends(ge
     return {"data": {"rejected": rejected}, "success": True}
 
 
-# Helper function to add fixes from the engine
-def add_fix_to_store(fix: FixProposal) -> None:
-    """Add a fix to the in-memory store."""
-    _fixes_store[fix.id] = fix
-
-
-def get_all_fixes() -> List[FixProposal]:
-    """Get all fixes from the store."""
-    return list(_fixes_store.values())
-
-
-def clear_fixes_store() -> None:
-    """Clear the fixes store (for testing)."""
-    _fixes_store.clear()
-    _comments_store.clear()
-
-
 # =============================================================================
 # Best-of-N Endpoints
 # =============================================================================

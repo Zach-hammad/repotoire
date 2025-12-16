@@ -16,6 +16,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from repotoire.api.auth import ClerkUser, get_clerk_client, get_current_user
+from repotoire.api.services.cloud_storage import (
+    is_storage_configured,
+    upload_export_with_url,
+)
 from repotoire.api.services.gdpr import (
     GRACE_PERIOD_DAYS,
     cancel_deletion,
@@ -512,22 +516,29 @@ async def _generate_export_background(export_id: UUID, user_id: UUID) -> None:
             # Generate export data
             export_data = await generate_export_data(db, user_id)
 
-            # TODO: Upload to S3/R2 and get presigned URL
-            # For now, we'll just mark as completed without a download URL
-            # In production, you'd upload the JSON to cloud storage
-
             import json
             export_json = json.dumps(export_data.to_dict(), indent=2, default=str)
             file_size = len(export_json.encode("utf-8"))
 
-            # TODO: Replace with actual cloud storage upload
-            # download_url = await upload_to_storage(export_json, f"exports/{export_id}.json")
+            # Upload to cloud storage if configured
+            download_url = None
+            if is_storage_configured():
+                try:
+                    download_url = await upload_export_with_url(
+                        content=export_json,
+                        export_id=str(export_id),
+                    )
+                    logger.info(f"Export {export_id} uploaded to cloud storage")
+                except Exception as e:
+                    logger.warning(f"Cloud storage upload failed, continuing without URL: {e}")
+            else:
+                logger.info("Cloud storage not configured, export completed without download URL")
 
             await update_export_status(
                 db,
                 export_id,
                 ExportStatus.COMPLETED,
-                download_url=None,  # TODO: Set actual download URL
+                download_url=download_url,
                 file_size_bytes=file_size,
             )
             await db.commit()

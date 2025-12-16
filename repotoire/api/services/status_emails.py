@@ -123,7 +123,7 @@ def _base_template(content: str, title: str) -> str:
 
 
 def create_verification_email(email: str, verification_token: str) -> EmailMessage:
-    """Create email verification message."""
+    """Create status page email verification message."""
     verify_url = f"{API_URL}/api/v1/status/verify?token={verification_token}"
 
     html_content = f"""
@@ -150,6 +150,42 @@ If you didn't request this, you can safely ignore this email.
     return EmailMessage(
         to=email,
         subject="Verify your Repotoire Status subscription",
+        html=_base_template(html_content, "Verify Email"),
+        text=text_content,
+    )
+
+
+def create_changelog_verification_email(email: str, verification_token: str) -> EmailMessage:
+    """Create changelog subscription verification email."""
+    verify_url = f"{API_URL}/api/v1/changelog/subscribe/verify?token={verification_token}"
+
+    html_content = f"""
+    <h2>Verify your email address</h2>
+    <p>Thank you for subscribing to Repotoire changelog updates!</p>
+    <p>Stay informed about new features, improvements, and bug fixes.</p>
+    <p>Please click the button below to verify your email address:</p>
+    <p><a href="{verify_url}" class="button">Verify Email</a></p>
+    <p>Or copy and paste this link into your browser:</p>
+    <p style="word-break: break-all;">{verify_url}</p>
+    <p>If you didn't request this, you can safely ignore this email.</p>
+    """
+
+    text_content = f"""
+Verify your email address
+
+Thank you for subscribing to Repotoire changelog updates!
+
+Stay informed about new features, improvements, and bug fixes.
+
+Please click the link below to verify your email address:
+{verify_url}
+
+If you didn't request this, you can safely ignore this email.
+    """
+
+    return EmailMessage(
+        to=email,
+        subject="Verify your Repotoire Changelog subscription",
         html=_base_template(html_content, "Verify Email"),
         text=text_content,
     )

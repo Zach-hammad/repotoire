@@ -346,15 +346,13 @@ async def get_failure_rate(
 
 @router.get("/admin/metrics", response_model=CostSummary)
 async def admin_get_all_metrics(
-    user: ClerkUser = Depends(get_current_user),
+    user: ClerkUser = Depends(require_org_admin),
     days: int = Query(30, ge=1, le=365, description="Number of days to look back"),
 ) -> CostSummary:
     """Get sandbox metrics summary for all customers (admin only).
 
     Requires admin privileges. Returns aggregate metrics across all customers.
     """
-    # TODO: Add proper admin check
-    # For now, just return overall metrics
     collector = SandboxMetricsCollector()
     try:
         await collector.connect()
@@ -374,7 +372,7 @@ async def admin_get_all_metrics(
 
 @router.get("/admin/metrics/customers", response_model=List[CustomerCost])
 async def admin_get_customer_costs(
-    user: ClerkUser = Depends(get_current_user),
+    user: ClerkUser = Depends(require_org_admin),
     days: int = Query(30, ge=1, le=365, description="Number of days to look back"),
     limit: int = Query(10, ge=1, le=100, description="Number of top customers to return"),
 ) -> List[CustomerCost]:
@@ -382,7 +380,6 @@ async def admin_get_customer_costs(
 
     Requires admin privileges. Returns top N customers by sandbox cost.
     """
-    # TODO: Add proper admin check
     collector = SandboxMetricsCollector()
     try:
         await collector.connect()
@@ -403,7 +400,7 @@ async def admin_get_customer_costs(
 
 @router.get("/admin/metrics/slow", response_model=List[SlowOperation])
 async def admin_get_slow_operations(
-    user: ClerkUser = Depends(get_current_user),
+    user: ClerkUser = Depends(require_org_admin),
     threshold_ms: int = Query(10000, ge=1000, description="Threshold in milliseconds"),
     limit: int = Query(20, ge=1, le=100, description="Number of operations to return"),
 ) -> List[SlowOperation]:
@@ -411,7 +408,6 @@ async def admin_get_slow_operations(
 
     Requires admin privileges. Returns operations exceeding the threshold.
     """
-    # TODO: Add proper admin check
     collector = SandboxMetricsCollector()
     try:
         await collector.connect()
@@ -431,14 +427,13 @@ async def admin_get_slow_operations(
 
 @router.get("/admin/metrics/failures", response_model=List[FailedOperation])
 async def admin_get_recent_failures(
-    user: ClerkUser = Depends(get_current_user),
+    user: ClerkUser = Depends(require_org_admin),
     limit: int = Query(20, ge=1, le=100, description="Number of failures to return"),
 ) -> List[FailedOperation]:
     """Get recent failed operations across all customers (admin only).
 
     Requires admin privileges. Returns recent failures for debugging.
     """
-    # TODO: Add proper admin check
     collector = SandboxMetricsCollector()
     try:
         await collector.connect()

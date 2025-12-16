@@ -21,6 +21,10 @@ from repotoire.api.services.changelog import (
     generate_rss_feed,
     render_markdown_safe,
 )
+from repotoire.api.services.status_emails import (
+    create_changelog_verification_email,
+    send_email,
+)
 from repotoire.api.shared.auth import ClerkUser, get_current_user, get_optional_user
 from repotoire.db.models.changelog import (
     ChangelogCategory,
@@ -346,7 +350,12 @@ async def subscribe_to_changelog(
             existing.verification_token = secrets.token_urlsafe(32)
             existing.digest_frequency = request.digest_frequency
             await db.commit()
-            # TODO: Send verification email via email service
+            # Send verification email
+            email_msg = create_changelog_verification_email(
+                email=request.email,
+                verification_token=existing.verification_token,
+            )
+            await send_email(email_msg)
             logger.info(f"Resending changelog verification email to {request.email}")
             return SubscribeResponse(
                 message="A verification email has been sent. Please check your inbox.",
@@ -362,7 +371,12 @@ async def subscribe_to_changelog(
     db.add(subscriber)
     await db.commit()
 
-    # TODO: Send verification email via email service
+    # Send verification email
+    email_msg = create_changelog_verification_email(
+        email=request.email,
+        verification_token=subscriber.verification_token,
+    )
+    await send_email(email_msg)
     logger.info(f"New changelog subscriber: {request.email}")
 
     return SubscribeResponse(
