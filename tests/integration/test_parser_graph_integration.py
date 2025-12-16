@@ -4,6 +4,7 @@ Tests verify that parsed entities and relationships are correctly stored in Neo4
 with proper properties and structure.
 """
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -19,9 +20,9 @@ def test_neo4j_client():
     """Create a test Neo4j client. Requires Neo4j running on test port."""
     try:
         client = Neo4jClient(
-            uri="bolt://localhost:7688",
+            uri=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
             username="neo4j",
-            password="falkor-password"
+            password=os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
         )
         # Clear any existing data
         client.clear_graph()

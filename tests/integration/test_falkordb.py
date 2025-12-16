@@ -43,9 +43,9 @@ FALKORDB_HOST = os.environ.get("REPOTOIRE_FALKORDB_HOST", "localhost")
 FALKORDB_PASSWORD = os.environ.get("REPOTOIRE_FALKORDB_PASSWORD", None)
 
 # Neo4j connection settings (standard test port)
-NEO4J_PORT = 7688
-NEO4J_URI = f"bolt://localhost:{NEO4J_PORT}"
-NEO4J_PASSWORD = os.environ.get("REPOTOIRE_NEO4J_PASSWORD", "falkor-password")
+NEO4J_PORT = int(os.environ.get("REPOTOIRE_NEO4J_PORT", "7687"))
+NEO4J_URI = os.environ.get("REPOTOIRE_NEO4J_URI", f"bolt://localhost:{NEO4J_PORT}")
+NEO4J_PASSWORD = os.environ.get("REPOTOIRE_NEO4J_PASSWORD", "password")
 
 
 def is_docker_available() -> bool:

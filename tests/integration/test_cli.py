@@ -110,9 +110,9 @@ class TestIngestCommand:
 
     def test_ingest_command_basic(self, runner, temp_repo, mock_neo4j_client):
         """Test basic ingest command execution."""
-        with patch('falkor.cli.validate_neo4j_connection'), \
-             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
-             patch('falkor.cli.IngestionPipeline') as mock_pipeline:
+        with patch('repotoire.cli.validate_neo4j_connection'), \
+             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.IngestionPipeline') as mock_pipeline:
 
             mock_pipeline_instance = Mock()
             mock_pipeline_instance.skipped_files = []
@@ -139,9 +139,9 @@ class TestIngestCommand:
 
     def test_ingest_with_custom_pattern(self, runner, temp_repo, mock_neo4j_client):
         """Test ingest with custom file patterns."""
-        with patch('falkor.cli.validate_neo4j_connection'), \
-             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
-             patch('falkor.cli.IngestionPipeline') as mock_pipeline:
+        with patch('repotoire.cli.validate_neo4j_connection'), \
+             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.IngestionPipeline') as mock_pipeline:
 
             mock_pipeline_instance = Mock()
             mock_pipeline_instance.skipped_files = []
@@ -166,9 +166,9 @@ class TestIngestCommand:
 
     def test_ingest_with_custom_neo4j_uri(self, runner, temp_repo, mock_neo4j_client):
         """Test ingest with custom Neo4j URI."""
-        with patch('falkor.cli.validate_neo4j_connection'), \
-             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client) as mock_client_class, \
-             patch('falkor.cli.IngestionPipeline'):
+        with patch('repotoire.cli.validate_neo4j_connection'), \
+             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client) as mock_client_class, \
+             patch('repotoire.cli.IngestionPipeline'):
 
             result = runner.invoke(cli, [
                 'ingest',
@@ -192,9 +192,9 @@ class TestIngestCommand:
 
     def test_ingest_displays_stats_table(self, runner, temp_repo, mock_neo4j_client):
         """Test ingest displays stats table."""
-        with patch('falkor.cli.validate_neo4j_connection'), \
-             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
-             patch('falkor.cli.IngestionPipeline'):
+        with patch('repotoire.cli.validate_neo4j_connection'), \
+             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.IngestionPipeline'):
 
             result = runner.invoke(cli, [
                 'ingest',
@@ -225,9 +225,9 @@ class TestAnalyzeCommand:
 
     def test_analyze_command_basic(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
         """Test basic analyze command execution."""
-        with patch('falkor.cli.validate_neo4j_connection'), \
-             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
-             patch('falkor.cli.AnalysisEngine') as mock_engine:
+        with patch('repotoire.cli.validate_neo4j_connection'), \
+             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
             mock_engine_instance.analyze.return_value = sample_health_report
@@ -252,9 +252,9 @@ class TestAnalyzeCommand:
 
     def test_analyze_displays_grade(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
         """Test analyze displays overall grade."""
-        with patch('falkor.cli.validate_neo4j_connection'), \
-             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
-             patch('falkor.cli.AnalysisEngine') as mock_engine:
+        with patch('repotoire.cli.validate_neo4j_connection'), \
+             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
             mock_engine_instance.analyze.return_value = sample_health_report
@@ -274,9 +274,9 @@ class TestAnalyzeCommand:
 
     def test_analyze_displays_category_scores(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
         """Test analyze displays category scores."""
-        with patch('falkor.cli.validate_neo4j_connection'), \
-             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
-             patch('falkor.cli.AnalysisEngine') as mock_engine:
+        with patch('repotoire.cli.validate_neo4j_connection'), \
+             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
             mock_engine_instance.analyze.return_value = sample_health_report
@@ -296,9 +296,9 @@ class TestAnalyzeCommand:
 
     def test_analyze_displays_metrics(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
         """Test analyze displays key metrics."""
-        with patch('falkor.cli.validate_neo4j_connection'), \
-             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
-             patch('falkor.cli.AnalysisEngine') as mock_engine:
+        with patch('repotoire.cli.validate_neo4j_connection'), \
+             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
             mock_engine_instance.analyze.return_value = sample_health_report
@@ -318,9 +318,9 @@ class TestAnalyzeCommand:
 
     def test_analyze_displays_findings(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
         """Test analyze displays findings summary."""
-        with patch('falkor.cli.validate_neo4j_connection'), \
-             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
-             patch('falkor.cli.AnalysisEngine') as mock_engine:
+        with patch('repotoire.cli.validate_neo4j_connection'), \
+             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
             mock_engine_instance.analyze.return_value = sample_health_report
@@ -340,9 +340,9 @@ class TestAnalyzeCommand:
 
     def test_analyze_with_json_output(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
         """Test analyze with JSON output file."""
-        with patch('falkor.cli.validate_neo4j_connection'), \
-             patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
-             patch('falkor.cli.AnalysisEngine') as mock_engine:
+        with patch('repotoire.cli.validate_neo4j_connection'), \
+             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
             mock_engine_instance.analyze.return_value = sample_health_report
@@ -516,7 +516,7 @@ class TestErrorHandling:
 
     def test_ingest_handles_connection_error(self, runner, temp_repo):
         """Test ingest handles Neo4j connection errors gracefully."""
-        with patch('falkor.cli.Neo4jClient') as mock_client:
+        with patch('repotoire.cli.Neo4jClient') as mock_client:
             mock_client.side_effect = Exception("Connection failed")
 
             result = runner.invoke(cli, [
@@ -530,8 +530,8 @@ class TestErrorHandling:
 
     def test_analyze_handles_analysis_error(self, runner, temp_repo, mock_neo4j_client):
         """Test analyze handles analysis errors gracefully."""
-        with patch('falkor.cli.Neo4jClient', return_value=mock_neo4j_client), \
-             patch('falkor.cli.AnalysisEngine') as mock_engine:
+        with patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
             mock_engine_instance.analyze.side_effect = Exception("Analysis failed")

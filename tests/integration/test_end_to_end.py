@@ -1,5 +1,6 @@
 """Integration tests for end-to-end workflow."""
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -15,9 +16,9 @@ def test_neo4j_client():
     """Create a test Neo4j client. Requires Neo4j running on default ports."""
     try:
         client = Neo4jClient(
-            uri="bolt://localhost:7688",  # Test database
+            uri=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
             username="neo4j",
-            password="falkor-password"
+            password=os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
         )
         # Clear any existing data
         client.clear_graph()

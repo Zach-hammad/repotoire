@@ -1,6 +1,7 @@
 """Integration tests for incremental ingestion functionality."""
 
 import hashlib
+import os
 
 import pytest
 
@@ -21,9 +22,9 @@ def neo4j_client():
     """Create a Neo4j client for testing."""
     try:
         client = Neo4jClient(
-            uri="bolt://localhost:7688",
+            uri=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
             username="neo4j",
-            password="falkor-password"
+            password=os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
         )
         # Clear graph before each test
         client.clear_graph()

@@ -3,6 +3,8 @@
 Tests the PatternDetector against a real Neo4j database with ingested code.
 """
 
+import os
+
 import pytest
 from repotoire.graph import Neo4jClient
 from repotoire.mcp import PatternDetector
@@ -24,9 +26,9 @@ def test_neo4j_client():
     """
     try:
         client = Neo4jClient(
-            uri="bolt://localhost:7688",  # Test database
+            uri=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
             username="neo4j",
-            password="falkor-password"
+            password=os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
         )
         # Note: We don't clear the graph - we use the existing ingested codebase
         yield client

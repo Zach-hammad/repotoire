@@ -1,6 +1,7 @@
 """Integration tests for incremental analysis feature."""
 
 import hashlib
+import os
 import tempfile
 from pathlib import Path
 from textwrap import dedent
@@ -14,7 +15,10 @@ from repotoire.pipeline.ingestion import IngestionPipeline
 @pytest.fixture(scope="module")
 def test_neo4j_client():
     """Create a test Neo4j client."""
-    client = Neo4jClient(uri="bolt://localhost:7688", password="falkor-password")
+    client = Neo4jClient(
+        uri=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
+        password=os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
+    )
     client.clear_graph()
     yield client
     client.close()

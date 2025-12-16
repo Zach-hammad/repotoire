@@ -10,6 +10,9 @@ from pathlib import Path
 import sys
 import os
 
+# Skip if graphiti not installed (optional dependency)
+pytest.importorskip("graphiti_core")
+
 # Add mcp_server to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../mcp_server'))
 

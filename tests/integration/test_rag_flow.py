@@ -29,9 +29,9 @@ def test_neo4j_client():
         from repotoire.graph.schema import GraphSchema
 
         client = Neo4jClient(
-            uri="bolt://localhost:7688",
+            uri=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
             username="neo4j",
-            password="falkor-password"
+            password=os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
         )
         # Clear any existing data
         client.clear_graph()

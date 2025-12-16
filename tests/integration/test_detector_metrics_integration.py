@@ -4,6 +4,7 @@ Tests verify that detector findings correctly feed into metrics calculation
 and health scoring.
 """
 
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -21,9 +22,9 @@ def test_neo4j_client():
     """Create a test Neo4j client. Requires Neo4j running on test port."""
     try:
         client = Neo4jClient(
-            uri="bolt://localhost:7688",
+            uri=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
             username="neo4j",
-            password="falkor-password"
+            password=os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
         )
         yield client
         client.close()
