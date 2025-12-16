@@ -5,12 +5,12 @@ This module provides JWT verification using Clerk's official Python SDK.
 
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 import httpx
 import sentry_sdk
 from clerk_backend_api import AuthenticateRequestOptions, Clerk
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from repotoire.logging_config import get_logger
@@ -190,3 +190,138 @@ def require_org_admin(user: ClerkUser = Depends(get_current_user)) -> ClerkUser:
             detail="Organization admin role required",
         )
     return user
+
+
+async def get_current_user_or_api_key(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+) -> ClerkUser:
+    """
+    Authenticate via Clerk API Key OR Clerk JWT.
+
+    API keys take precedence if X-API-Key header is provided.
+    Falls back to JWT authentication if no API key.
+
+    Usage:
+        @router.get("/protected")
+        async def route(user: ClerkUser = Depends(get_current_user_or_api_key)):
+            return {"user_id": user.user_id, "org_id": user.org_id}
+    """
+    clerk = get_clerk_client()
+
+    # Check for API key first
+    if x_api_key:
+        try:
+            # Verify API key with Clerk (v4.2.0+)
+            api_key_data = clerk.api_keys.verify_api_key(secret=x_api_key)
+
+            # Extract org_id from subject if org-scoped key
+            subject = api_key_data.subject  # e.g., "user_xxx" or "org_xxx"
+            org_id = None
+            user_id = subject
+
+            if subject.startswith("org_"):
+                org_id = subject
+                # For org-scoped keys, user_id might be in claims or we use the org
+                user_id = api_key_data.claims.get("created_by") or subject
+            elif hasattr(api_key_data, "org_id") and api_key_data.org_id:
+                org_id = api_key_data.org_id
+
+            logger.debug(f"API key authenticated: subject={subject}, org_id={org_id}")
+
+            # Set Sentry context
+            sentry_sdk.set_user({"id": user_id})
+            if org_id:
+                sentry_sdk.set_tag("org_id", org_id)
+            sentry_sdk.set_tag("auth_method", "api_key")
+
+            return ClerkUser(
+                user_id=user_id,
+                session_id=None,  # No session for API keys
+                org_id=org_id,
+                org_role=None,  # Could derive from scopes if needed
+                org_slug=None,
+                claims={
+                    "scopes": api_key_data.scopes or [],
+                    "api_key_id": str(api_key_data.id),
+                    "auth_method": "api_key",
+                },
+            )
+
+        except Exception as e:
+            logger.warning(f"API key verification failed: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired API key",
+            )
+
+    # Fall back to JWT authentication
+    if credentials:
+        return await get_current_user(request, credentials)
+
+    # No authentication provided
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required. Provide X-API-Key header or Bearer token.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+async def get_optional_user_or_api_key(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+) -> Optional[ClerkUser]:
+    """
+    Optionally authenticate via Clerk API Key OR Clerk JWT.
+
+    Returns None if no authentication provided.
+    For public endpoints that behave differently for authenticated users.
+
+    Usage:
+        @router.get("/public")
+        async def route(user: Optional[ClerkUser] = Depends(get_optional_user_or_api_key)):
+            if user:
+                return {"message": f"Hello {user.user_id}"}
+            return {"message": "Hello anonymous"}
+    """
+    if not credentials and not x_api_key:
+        return None
+
+    try:
+        return await get_current_user_or_api_key(request, credentials, x_api_key)
+    except HTTPException:
+        return None
+
+
+def require_scope(required_scope: str) -> Callable:
+    """
+    Dependency factory that requires a specific scope for API key authentication.
+
+    JWT users (non-API-key) bypass scope check - they have full access.
+    API key users must have the required scope in their scopes list.
+
+    Usage:
+        @router.post("/analysis")
+        async def create_analysis(
+            user: ClerkUser = Depends(get_current_user_or_api_key),
+            _: None = Depends(require_scope("write:analysis")),
+        ):
+            ...
+    """
+
+    def check_scope(user: ClerkUser = Depends(get_current_user_or_api_key)) -> None:
+        scopes = user.claims.get("scopes", []) if user.claims else []
+
+        # JWT users (non-API-key) bypass scope check - they have full access
+        if user.claims and user.claims.get("auth_method") != "api_key":
+            return
+
+        if required_scope not in scopes:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Missing required scope: {required_scope}",
+            )
+
+    return check_scope

@@ -549,6 +549,16 @@ def ingest(
         console.print(f"[cyan]🔮 Vector Embeddings: Enabled ({resolved_backend})[/cyan]")
         if final_embedding_backend == "auto":
             console.print(f"[dim]   {reason}[/dim]")
+    else:
+        # KG-3 Fix: Warn users that RAG features won't work without embeddings
+        console.print(
+            "[yellow]⚠️  Embeddings disabled. RAG features (semantic search, 'ask' command) "
+            "will not work.[/yellow]"
+        )
+        console.print(
+            "[dim]   Add --generate-embeddings to enable. "
+            "Use --embedding-backend=local for free local embeddings.[/dim]"
+        )
     console.print()
 
     try:
@@ -5642,6 +5652,10 @@ cli.add_command(graph)
 # Register auth commands (REPO-267)
 from .auth_commands import auth_group
 cli.add_command(auth_group)
+
+# Register API key management commands (REPO-324)
+from .api_keys import api_keys
+cli.add_command(api_keys, name="api-keys")
 
 
 @cli.command()

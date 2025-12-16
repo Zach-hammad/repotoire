@@ -202,6 +202,48 @@ repotoire analyze /path/to/repo -o report.html --format html
 repotoire validate
 ```
 
+### MCP Server (Claude Code Integration)
+
+Repotoire provides an MCP server for use with Claude Code, Cursor, and other MCP-compatible AI assistants. The server follows an **Open Core** model:
+
+| Tier | Features | Requirements |
+|------|----------|--------------|
+| **Free** | Graph analysis, detectors, Cypher queries | Local Neo4j |
+| **Pro** | AI search, RAG Q&A, embeddings | `REPOTOIRE_API_KEY` |
+
+**Start the MCP server:**
+```bash
+repotoire-mcp
+```
+
+**Configure in Claude Code** (`~/.claude.json`):
+```json
+{
+  "mcpServers": {
+    "repotoire": {
+      "type": "stdio",
+      "command": "repotoire-mcp",
+      "env": {
+        "REPOTOIRE_NEO4J_URI": "bolt://localhost:7688",
+        "REPOTOIRE_NEO4J_PASSWORD": "your-password",
+        "REPOTOIRE_API_KEY": "${REPOTOIRE_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+**Available tools:**
+- `health_check` - [FREE] Check system status
+- `analyze_codebase` - [FREE] Run code health analysis
+- `query_graph` - [FREE] Execute Cypher queries
+- `get_codebase_stats` - [FREE] Get codebase statistics
+- `search_code` - [PRO] Semantic code search
+- `ask_code_question` - [PRO] RAG-powered Q&A
+- `get_embeddings_status` - [PRO] Check embeddings coverage
+
+See [docs/guides/mcp-server.md](docs/guides/mcp-server.md) for complete documentation.
+
 ## Architecture
 
 ### Core Pipeline Flow

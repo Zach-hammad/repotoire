@@ -12,9 +12,12 @@ from repotoire.api.shared.auth.clerk import (
     ClerkUser,
     get_clerk_client,
     get_current_user,
+    get_current_user_or_api_key,
     get_optional_user,
+    get_optional_user_or_api_key,
     require_org,
     require_org_admin,
+    require_scope,
 )
 
 # Re-export state store utilities
@@ -31,9 +34,12 @@ __all__ = [
     "ClerkUser",
     "get_clerk_client",
     "get_current_user",
+    "get_current_user_or_api_key",
     "get_optional_user",
+    "get_optional_user_or_api_key",
     "require_org",
     "require_org_admin",
+    "require_scope",
     # State store
     "StateTokenStore",
     "StateStoreError",
