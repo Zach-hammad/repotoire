@@ -224,7 +224,8 @@ async def get_current_user_or_api_key(
             if subject.startswith("org_"):
                 org_id = subject
                 # For org-scoped keys, user_id might be in claims or we use the org
-                user_id = api_key_data.claims.get("created_by") or subject
+                claims = api_key_data.claims or {}
+                user_id = claims.get("created_by") or subject
             elif hasattr(api_key_data, "org_id") and api_key_data.org_id:
                 org_id = api_key_data.org_id
 
