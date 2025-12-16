@@ -257,24 +257,34 @@ class Neo4jClient:
     def create_relationship(self, rel: Relationship) -> None:
         """Create a relationship between nodes.
 
+        KG-1 Fix: External nodes now get proper labels
+        KG-2 Fix: Uses MERGE to prevent duplicate relationships
+
         Args:
             rel: Relationship to create
         """
+        from repotoire.graph.external_labels import get_external_node_label
+
         # SECURITY: rel.rel_type.value is from RelationshipType enum - safe for f-string
         assert isinstance(rel.rel_type, RelationshipType), "rel_type must be RelationshipType enum"
 
+        # Extract target name from qualified name (e.g., "os.path" -> "path")
+        target_name = rel.target_id.split(".")[-1] if "." in rel.target_id else rel.target_id
+        # KG-1 Fix: Determine proper label for external nodes
+        external_label = get_external_node_label(target_name, rel.target_id)
+
         # Try to find source by elementId, target by elementId or qualifiedName
+        # KG-1 Fix: Create external nodes with proper label
+        # KG-2 Fix: Use MERGE for relationships
         query = f"""
         MATCH (source)
         WHERE elementId(source) = $source_id
-        MERGE (target {{qualifiedName: $target_qualified_name}})
+        MERGE (target:{external_label} {{qualifiedName: $target_qualified_name}})
         ON CREATE SET target.name = $target_name, target.external = true
-        CREATE (source)-[r:{rel.rel_type.value}]->(target)
-        SET r = $properties
+        MERGE (source)-[r:{rel.rel_type.value}]->(target)
+        ON CREATE SET r = $properties
+        ON MATCH SET r += $properties
         """
-
-        # Extract target name from qualified name (e.g., "os.path" -> "path")
-        target_name = rel.target_id.split(".")[-1] if "." in rel.target_id else rel.target_id
 
         self.execute_query(
             query,
@@ -410,12 +420,17 @@ class Neo4jClient:
         Will match existing nodes by qualifiedName, and create external nodes
         for targets that don't exist (e.g., external imports).
 
+        KG-1 Fix: External nodes now get proper labels (BuiltinFunction, ExternalFunction, ExternalClass)
+        KG-2 Fix: Uses MERGE instead of CREATE to prevent duplicate relationships
+
         Args:
             relationships: List of relationships to create
 
         Returns:
             Number of relationships created
         """
+        from repotoire.graph.external_labels import get_external_node_label
+
         if not relationships:
             return 0
 
@@ -432,40 +447,54 @@ class Neo4jClient:
         total_created = 0
 
         for rel_type, rels_of_type in by_type.items():
-            # Build list of relationship data
-            rel_data = [
-                {
+            # KG-1 Fix: Group by external label for proper node creation
+            # We need to create external nodes with specific labels in separate batches
+            by_external_label: Dict[str, List[Dict]] = {
+                "BuiltinFunction": [],
+                "ExternalFunction": [],
+                "ExternalClass": [],
+            }
+
+            for r in rels_of_type:
+                target_name = r.target_id.split(".")[-1] if "." in r.target_id else r.target_id.split("::")[-1]
+                # Determine proper label for external nodes (KG-1 fix)
+                external_label = get_external_node_label(target_name, r.target_id)
+                by_external_label[external_label].append({
                     "source_id": r.source_id,
                     "target_id": r.target_id,
-                    "target_name": r.target_id.split(".")[-1] if "." in r.target_id else r.target_id.split("::")[-1],
+                    "target_name": target_name,
                     "properties": r.properties,
-                }
-                for r in rels_of_type
-            ]
+                })
 
-            # SECURITY: rel_type validated above via assertion
-            # Match source by qualifiedName (can be File path, Class/Function qualified name)
-            # MERGE target by qualifiedName (create if external import/reference)
-            query = f"""
-            UNWIND $rels AS rel
-            MATCH (source {{qualifiedName: rel.source_id}})
-            MERGE (target {{qualifiedName: rel.target_id}})
-            ON CREATE SET target.name = rel.target_name, target.external = true
-            CREATE (source)-[r:{rel_type}]->(target)
-            SET r = rel.properties
-            """
+            # Process each external label group with proper MERGE
+            for external_label, rel_data in by_external_label.items():
+                if not rel_data:
+                    continue
 
-            # Use write transaction for batch relationship creation
-            def _create_batch(tx, q: str, params: Dict):
-                result = tx.run(q, params)
-                return result.consume().counters.relationships_created
+                # SECURITY: rel_type and external_label are validated/computed internally
+                # KG-1 Fix: MERGE with specific label for external nodes
+                # KG-2 Fix: Use MERGE for relationships to prevent duplicates
+                query = f"""
+                UNWIND $rels AS rel
+                MATCH (source {{qualifiedName: rel.source_id}})
+                MERGE (target:{external_label} {{qualifiedName: rel.target_id}})
+                ON CREATE SET target.name = rel.target_name, target.external = true
+                MERGE (source)-[r:{rel_type}]->(target)
+                ON CREATE SET r = rel.properties
+                ON MATCH SET r += rel.properties
+                """
 
-            def _execute_write():
-                with self.driver.session() as session:
-                    return session.execute_write(_create_batch, query, {"rels": rel_data})
+                # Use write transaction for batch relationship creation
+                def _create_batch(tx, q: str, params: Dict):
+                    result = tx.run(q, params)
+                    return result.consume().counters.relationships_created
 
-            created_count = self._retry_operation(_execute_write, operation_name="batch_create_relationships")
-            total_created += len(rels_of_type)
+                def _execute_write():
+                    with self.driver.session() as session:
+                        return session.execute_write(_create_batch, query, {"rels": rel_data})
+
+                self._retry_operation(_execute_write, operation_name="batch_create_relationships")
+                total_created += len(rel_data)
 
         logger.info(f"Batch created {total_created} relationships")
         return total_created

@@ -193,19 +193,28 @@ class FalkorDBClient(DatabaseClient):
     def create_relationship(self, rel: Relationship) -> None:
         """Create a relationship between nodes.
 
+        KG-1 Fix: External nodes now get proper labels
+        KG-2 Fix: Uses MERGE to prevent duplicate relationships
+
         Args:
             rel: Relationship to create
         """
+        from repotoire.graph.external_labels import get_external_node_label
+
         assert isinstance(rel.rel_type, RelationshipType), "rel_type must be RelationshipType enum"
 
+        target_name = rel.target_id.split(".")[-1] if "." in rel.target_id else rel.target_id
+        # KG-1 Fix: Determine proper label for external nodes
+        external_label = get_external_node_label(target_name, rel.target_id)
+
+        # KG-1 Fix: Create external nodes with proper label
+        # KG-2 Fix: Use MERGE for relationships
         query = f"""
         MATCH (source {{qualifiedName: $source_id}})
-        MERGE (target {{qualifiedName: $target_qualified_name}})
+        MERGE (target:{external_label} {{qualifiedName: $target_qualified_name}})
         ON CREATE SET target.name = $target_name, target.external = true
-        CREATE (source)-[r:{rel.rel_type.value}]->(target)
+        MERGE (source)-[r:{rel.rel_type.value}]->(target)
         """
-
-        target_name = rel.target_id.split(".")[-1] if "." in rel.target_id else rel.target_id
 
         self.execute_query(
             query,
@@ -293,12 +302,17 @@ class FalkorDBClient(DatabaseClient):
     def batch_create_relationships(self, relationships: List[Relationship]) -> int:
         """Create multiple relationships.
 
+        KG-1 Fix: External nodes now get proper labels (BuiltinFunction, ExternalFunction, ExternalClass)
+        KG-2 Fix: Uses MERGE instead of CREATE to prevent duplicate relationships
+
         Args:
             relationships: List of relationships to create
 
         Returns:
             Number of relationships created
         """
+        from repotoire.graph.external_labels import get_external_node_label
+
         if not relationships:
             return 0
 
@@ -313,25 +327,41 @@ class FalkorDBClient(DatabaseClient):
         total_created = 0
 
         for rel_type, rels_of_type in by_type.items():
+            # KG-1 Fix: Group by external label for proper node creation
+            by_external_label: Dict[str, List[Relationship]] = {
+                "BuiltinFunction": [],
+                "ExternalFunction": [],
+                "ExternalClass": [],
+            }
+
             for r in rels_of_type:
                 target_name = r.target_id.split(".")[-1] if "." in r.target_id else r.target_id.split("::")[-1]
+                external_label = get_external_node_label(target_name, r.target_id)
+                by_external_label[external_label].append(r)
 
-                query = f"""
-                MATCH (source {{qualifiedName: $source_id}})
-                MERGE (target {{qualifiedName: $target_id}})
-                ON CREATE SET target.name = $target_name, target.external = true
-                CREATE (source)-[r:{rel_type}]->(target)
-                """
+            # Process each external label group
+            for external_label, rels in by_external_label.items():
+                for r in rels:
+                    target_name = r.target_id.split(".")[-1] if "." in r.target_id else r.target_id.split("::")[-1]
 
-                try:
-                    self.execute_query(query, {
-                        "source_id": r.source_id,
-                        "target_id": r.target_id,
-                        "target_name": target_name,
-                    })
-                    total_created += 1
-                except Exception as e:
-                    logger.warning(f"Failed to create relationship: {e}")
+                    # KG-1 Fix: MERGE with specific label for external nodes
+                    # KG-2 Fix: Use MERGE for relationships to prevent duplicates
+                    query = f"""
+                    MATCH (source {{qualifiedName: $source_id}})
+                    MERGE (target:{external_label} {{qualifiedName: $target_id}})
+                    ON CREATE SET target.name = $target_name, target.external = true
+                    MERGE (source)-[r:{rel_type}]->(target)
+                    """
+
+                    try:
+                        self.execute_query(query, {
+                            "source_id": r.source_id,
+                            "target_id": r.target_id,
+                            "target_name": target_name,
+                        })
+                        total_created += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to create relationship: {e}")
 
         logger.info(f"Created {total_created} relationships")
         return total_created
