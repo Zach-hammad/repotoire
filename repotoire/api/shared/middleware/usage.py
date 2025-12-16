@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from repotoire.api.shared.auth import ClerkUser, get_current_user_or_api_key, require_org
 from repotoire.api.shared.services.billing import check_usage_limit, has_feature
 from repotoire.db.models import Organization
-from repotoire.db.session import get_db, sync_session_factory
+from repotoire.db.session import get_db, get_sync_session
 
 
 async def get_org_from_user_flexible(
@@ -237,7 +237,7 @@ def enforce_feature_for_api(feature: str):
 
     def _get_org_sync(org_id: str | None, org_slug: str | None) -> Organization | None:
         """Sync database lookup for org - runs in thread pool."""
-        with sync_session_factory() as session:
+        with get_sync_session() as session:
             conditions = []
             if org_slug:
                 conditions.append(Organization.slug == org_slug)
