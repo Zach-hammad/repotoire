@@ -58,6 +58,9 @@ class NodeType(str, Enum):
         IMPORT: Import statement
         VARIABLE: Variable or parameter
         ATTRIBUTE: Class or instance attribute
+        BUILTIN_FUNCTION: Python builtin function (len, str, print, etc.)
+        EXTERNAL_FUNCTION: External/third-party function reference
+        EXTERNAL_CLASS: External/third-party class reference
 
     Example:
         >>> entity.node_type == NodeType.CLASS
@@ -75,6 +78,10 @@ class NodeType(str, Enum):
     IMPORT = "Import"
     VARIABLE = "Variable"
     ATTRIBUTE = "Attribute"
+    # External reference types (KG-1 fix: prevents unlabeled nodes)
+    BUILTIN_FUNCTION = "BuiltinFunction"
+    EXTERNAL_FUNCTION = "ExternalFunction"
+    EXTERNAL_CLASS = "ExternalClass"
 
 
 class RelationshipType(str, Enum):

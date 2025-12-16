@@ -19,6 +19,8 @@ The combined 138-dimensional feature vector is fed to a RandomForest classifier
 trained on historical bug-fix data extracted from git history.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple

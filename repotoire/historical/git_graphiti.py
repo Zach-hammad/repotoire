@@ -14,11 +14,19 @@ import re
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
 import git
-from graphiti_core import Graphiti
-from graphiti_core.nodes import EpisodeType
+
+# Graphiti is an optional dependency
+try:
+    from graphiti_core import Graphiti
+    from graphiti_core.nodes import EpisodeType
+    GRAPHITI_AVAILABLE = True
+except ImportError:
+    GRAPHITI_AVAILABLE = False
+    Graphiti = None  # type: ignore
+    EpisodeType = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +34,7 @@ logger = logging.getLogger(__name__)
 class GitGraphitiIntegration:
     """Integrate git repository history with Graphiti temporal knowledge graph."""
 
-    def __init__(self, repo_path: str | Path, graphiti: Graphiti):
+    def __init__(self, repo_path: str | Path, graphiti: "Graphiti"):
         """Initialize Git-Graphiti integration.
 
         Args:
@@ -34,8 +42,14 @@ class GitGraphitiIntegration:
             graphiti: Initialized Graphiti instance
 
         Raises:
+            ImportError: If graphiti_core is not installed
             git.exc.InvalidGitRepositoryError: If repo_path is not a git repository
         """
+        if not GRAPHITI_AVAILABLE:
+            raise ImportError(
+                "graphiti_core is required for Git history integration. "
+                "Install with: pip install repotoire[graphiti]"
+            )
         self.repo_path = Path(repo_path)
         self.repo = git.Repo(repo_path)
         self.graphiti = graphiti
