@@ -9,6 +9,7 @@ import asyncio
 from fastapi import Depends, HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from repotoire.api.shared.auth import ClerkUser, get_current_user_or_api_key, require_org
 from repotoire.api.shared.services.billing import check_usage_limit, has_feature
@@ -250,8 +251,11 @@ def enforce_feature_for_api(feature: str):
             if not conditions:
                 return None
 
+            # Eagerly load subscription to avoid lazy loading after session closes
             result = await session.execute(
-                select(Organization).where(or_(*conditions))
+                select(Organization)
+                .options(selectinload(Organization.subscription))
+                .where(or_(*conditions))
             )
             return result.scalar_one_or_none()
 
