@@ -1,5 +1,6 @@
 """API routes for code Q&A and search."""
 
+import os
 import time
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -30,11 +31,9 @@ router = APIRouter(prefix="/code", tags=["code"])
 # Dependency injection for Neo4j client
 def get_neo4j_client() -> Neo4jClient:
     """Get Neo4j client instance."""
-    # TODO: Read from config
-    return Neo4jClient(
-        uri="bolt://localhost:7688",
-        password="falkor-password"
-    )
+    uri = os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7688")
+    password = os.getenv("REPOTOIRE_NEO4J_PASSWORD", "falkor-password")
+    return Neo4jClient(uri=uri, password=password)
 
 
 def get_embedder() -> CodeEmbedder:
