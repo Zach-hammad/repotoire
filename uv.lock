@@ -779,7 +779,7 @@ wheels = [
 
 [[package]]
 name = "clerk-backend-api"
-version = "4.0.0"
+version = "4.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
@@ -788,9 +788,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyjwt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3f/9f/d95ce5694bb9b606d33590490b179c9a875fde4c6cefa9b93a2604d2640c/clerk_backend_api-4.0.0.tar.gz", hash = "sha256:29a29a1cf4c5584fb9c18fdb23b7311276ea9f1ff3d4a263628d28d9041e8b22", size = 197311, upload-time = "2025-11-10T21:22:00.635Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/58/60/c08464d19b849a38860dd1adb5acc54bf5047e9fc740a6e85d84af14a39f/clerk_backend_api-4.2.0.tar.gz", hash = "sha256:e253f4dcde2fd62280e8f04d76db256be76e7142312d85ac2142cced7b8919e6", size = 216448, upload-time = "2025-12-11T20:20:39.079Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/70/93/6532a0485f0711b5304b78397b0952519e2575836345ca73c9ca09dae3eb/clerk_backend_api-4.0.0-py3-none-any.whl", hash = "sha256:9f9031f493ceb98efc8e94e20ca215b029cc67afd37cea4ec075e28ec0dd8aa7", size = 400398, upload-time = "2025-11-10T21:21:59.102Z" },
+    { url = "https://files.pythonhosted.org/packages/82/1b/9444f4d406b0076d5a12a347fdfd5832f0f743e927391f35177e593ecfc6/clerk_backend_api-4.2.0-py3-none-any.whl", hash = "sha256:777a63a2821cb8965db81003b9d23a34443eaeb4cbedb4f6d98eb0037b934164", size = 441620, upload-time = "2025-12-11T20:20:37.916Z" },
 ]
 
 [[package]]
@@ -4664,7 +4664,7 @@ requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "bleach", marker = "extra == 'saas'", specifier = ">=6.0.0" },
     { name = "celery", marker = "extra == 'saas'", specifier = ">=5.3.0" },
-    { name = "clerk-backend-api", specifier = ">=1.0.0" },
+    { name = "clerk-backend-api", specifier = ">=4.2.0" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "cryptography", specifier = ">=41.0.0" },
     { name = "cyclonedx-bom", marker = "extra == 'security'", specifier = ">=4.0.0" },

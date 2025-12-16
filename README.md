@@ -76,7 +76,7 @@ repotoire analyze /path/to/your/repo
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/repotoire.git
+git clone https://github.com/repotoire/repotoire.git
 cd repotoire
 
 # Install with all dependencies
@@ -671,7 +671,7 @@ Repotoire is in early development. Contributions are welcome!
 
 ```bash
 # Clone and install
-git clone https://github.com/yourusername/repotoire.git
+git clone https://github.com/repotoire/repotoire.git
 cd repotoire
 pip install -e ".[dev]"
 
@@ -705,9 +705,9 @@ See existing detectors for examples.
 
 - **Documentation**: [CONFIG.md](CONFIG.md), [CLAUDE.md](CLAUDE.md)
 - **Examples**: [examples/notebooks/](examples/notebooks/)
-- **Issue Tracker**: [GitHub Issues](https://github.com/yourusername/repotoire/issues)
+- **Issue Tracker**: [GitHub Issues](https://github.com/repotoire/repotoire/issues)
 - **Neo4j Docs**: [neo4j.com/docs](https://neo4j.com/docs/)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/repotoire/discussions)
+- **Discussions**: [GitHub Discussions](https://github.com/repotoire/repotoire/discussions)
 
 ## License
 
