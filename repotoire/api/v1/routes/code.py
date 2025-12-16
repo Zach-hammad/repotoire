@@ -24,7 +24,7 @@ from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/api/v1/code", tags=["Code Q&A"])
+router = APIRouter(prefix="/code", tags=["code"])
 
 
 # Dependency injection for Neo4j client
