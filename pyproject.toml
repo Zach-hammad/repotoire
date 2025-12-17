@@ -63,6 +63,8 @@ dev = [
     "mypy>=1.7.0",
     "pyyaml>=6.0",  # For YAML config support in tests
     "tomli>=2.0.0",  # For TOML support on Python <3.11
+    "tenacity>=8.2.0",  # Retry logic for flaky tests (REPO-366)
+    "redis>=5.0.0",  # Redis client for FalkorDB readiness checks
 ]
 
 config = [
@@ -96,6 +98,7 @@ saas = [
     "structlog>=24.0.0",  # Structured logging for workers
     "sentry-sdk[fastapi,celery,sqlalchemy]>=2.0.0",  # Error tracking (REPO-271)
     "resend>=0.5.0",  # Email service for notifications
+    "aioboto3>=13.0.0",  # Async AWS SES client for non-blocking email sending (REPO-376)
     "email-validator>=2.0.0",  # Pydantic email validation
     "python-slugify>=8.0.0",  # Slug generation for changelog URLs
     "bleach>=6.0.0",  # HTML sanitization for markdown content
