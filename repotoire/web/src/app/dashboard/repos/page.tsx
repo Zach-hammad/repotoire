@@ -111,24 +111,43 @@ export default function RepositoriesPage() {
     setLoading(true);
     setError(null);
     try {
-      // Load installations first
+      // Load installations first (must complete before fetching repos)
       const installationsData = await api.get<GitHubInstallation[]>('/github/installations');
       setInstallations(installationsData);
 
-      // Load repos from all installations
-      const allRepos: GitHubRepo[] = [];
-      for (const installation of installationsData) {
-        try {
-          const reposData = await api.get<GitHubRepo[]>(`/github/installations/${installation.id}/repos`);
+      // Early return if no installations
+      if (installationsData.length === 0) {
+        setRepos([]);
+        return;
+      }
+
+      // Fetch repos from all installations in parallel (REPO-365)
+      // Using Promise.allSettled for graceful partial failure handling
+      const results = await Promise.allSettled(
+        installationsData.map(async (installation) => {
+          const reposData = await api.get<GitHubRepo[]>(
+            `/github/installations/${installation.id}/repos`
+          );
           // Only include enabled repos, and tag them with installation_id
-          const enabledRepos = reposData
+          return reposData
             .filter(r => r.enabled)
             .map(r => ({ ...r, installation_id: installation.id }));
-          allRepos.push(...enabledRepos);
-        } catch (err) {
-          console.error(`Failed to load repos for installation ${installation.id}:`, err);
+        })
+      );
+
+      // Process results: flatten successful fetches, log failures
+      const allRepos: GitHubRepo[] = [];
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          allRepos.push(...result.value);
+        } else {
+          console.error(
+            `Failed to load repos for installation ${installationsData[index].id}:`,
+            result.reason
+          );
         }
-      }
+      });
+
       setRepos(allRepos);
     } catch (err) {
       console.error('Failed to load data:', err);
