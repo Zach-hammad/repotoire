@@ -1,12 +1,14 @@
 """Integration tests for MCP pattern detection.
 
 Tests the PatternDetector against a real Neo4j database with ingested code.
+
+REPO-367: Uses shared conftest.py fixtures.
+NOTE: Tests marked with @pytest.mark.preserve_graph to keep existing graph data.
 """
 
 import os
 
 import pytest
-from repotoire.graph import Neo4jClient
 from repotoire.mcp import PatternDetector
 from repotoire.mcp.models import (
     PatternType,
@@ -17,28 +19,17 @@ from repotoire.mcp.models import (
 )
 from repotoire.pipeline.ingestion import IngestionPipeline
 
+# Note: test_neo4j_client fixture is provided by tests/integration/conftest.py
+# This file uses @pytest.mark.preserve_graph to skip automatic graph clearing
+# because tests rely on existing ingested codebase data
 
-@pytest.fixture(scope="module")
-def test_neo4j_client():
-    """Create a test Neo4j client with ingested codebase.
 
-    Uses the existing Neo4j database with the Repotoire codebase already ingested.
-    """
-    try:
-        client = Neo4jClient(
-            uri=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
-            username="neo4j",
-            password=os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
-        )
-        # Note: We don't clear the graph - we use the existing ingested codebase
-        yield client
-        client.close()
-    except Exception as e:
-        pytest.skip(f"Neo4j test database not available: {e}")
+# Mark all tests in this module to preserve graph data
+pytestmark = pytest.mark.preserve_graph
 
 
 @pytest.fixture
-def pattern_detector(test_neo4j_client: Neo4jClient) -> PatternDetector:
+def pattern_detector(test_neo4j_client) -> PatternDetector:
     """Create pattern detector with test Neo4j client."""
     return PatternDetector(test_neo4j_client)
 

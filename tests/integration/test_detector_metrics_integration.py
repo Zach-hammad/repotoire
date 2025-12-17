@@ -2,6 +2,8 @@
 
 Tests verify that detector findings correctly feed into metrics calculation
 and health scoring.
+
+REPO-367: Uses shared conftest.py fixtures with autouse cleanup for test isolation.
 """
 
 import os
@@ -11,25 +13,12 @@ from pathlib import Path
 
 import pytest
 
-from repotoire.graph import Neo4jClient
 from repotoire.pipeline.ingestion import IngestionPipeline
 from repotoire.detectors.engine import AnalysisEngine
 from repotoire.models import Severity
 
-
-@pytest.fixture(scope="module")
-def test_neo4j_client():
-    """Create a test Neo4j client. Requires Neo4j running on test port."""
-    try:
-        client = Neo4jClient(
-            uri=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
-            username="neo4j",
-            password=os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
-        )
-        yield client
-        client.close()
-    except Exception as e:
-        pytest.skip(f"Neo4j test database not available: {e}")
+# Note: test_neo4j_client fixture is provided by tests/integration/conftest.py
+# Graph is automatically cleared before each test by isolate_graph_test autouse fixture
 
 
 class TestCircularDependencyMetrics:
@@ -37,8 +26,6 @@ class TestCircularDependencyMetrics:
 
     def test_circular_dependency_count_in_metrics(self, test_neo4j_client):
         """Verify circular dependency findings update circular_dependencies metric."""
-        test_neo4j_client.clear_graph()
-
         # Create codebase with circular dependency
         temp_dir = tempfile.mkdtemp()
         temp_path = Path(temp_dir)
@@ -81,8 +68,6 @@ def func_b():
 
     def test_circular_dependency_severity_affects_structure_score(self, test_neo4j_client):
         """Verify circular dependencies reduce structure score."""
-        test_neo4j_client.clear_graph()
-
         # Create codebase with circular dependency
         temp_dir = tempfile.mkdtemp()
         temp_path = Path(temp_dir)
@@ -113,8 +98,6 @@ class TestDeadCodeMetrics:
 
     def test_dead_code_percentage_in_metrics(self, test_neo4j_client):
         """Verify dead code findings update dead_code_percentage metric."""
-        test_neo4j_client.clear_graph()
-
         # Create codebase with dead code
         temp_dir = tempfile.mkdtemp()
         temp_path = Path(temp_dir)
@@ -161,8 +144,6 @@ if __name__ == '__main__':
 
     def test_dead_code_affects_quality_score(self, test_neo4j_client):
         """Verify dead code reduces quality score."""
-        test_neo4j_client.clear_graph()
-
         # Create codebase with lots of dead code
         temp_dir = tempfile.mkdtemp()
         temp_path = Path(temp_dir)
@@ -203,8 +184,6 @@ class TestGodClassMetrics:
 
     def test_god_class_count_in_metrics(self, test_neo4j_client):
         """Verify god class findings update god_class_count metric."""
-        test_neo4j_client.clear_graph()
-
         # Create codebase with god class
         temp_dir = tempfile.mkdtemp()
         temp_path = Path(temp_dir)
@@ -258,8 +237,6 @@ class GodClass:
 
     def test_god_class_affects_quality_score(self, test_neo4j_client):
         """Verify god classes reduce quality score."""
-        test_neo4j_client.clear_graph()
-
         # Create multiple god classes
         temp_dir = tempfile.mkdtemp()
         temp_path = Path(temp_dir)
@@ -294,8 +271,6 @@ class TestFindingsSeverityAggregation:
 
     def test_findings_summary_counts_by_severity(self, test_neo4j_client):
         """Verify FindingsSummary correctly counts findings by severity."""
-        test_neo4j_client.clear_graph()
-
         # Create codebase with various issues
         temp_dir = tempfile.mkdtemp()
         temp_path = Path(temp_dir)
@@ -348,8 +323,6 @@ if __name__ == '__main__':
 
     def test_empty_codebase_has_zero_findings(self, test_neo4j_client):
         """Verify empty codebase results in zero findings."""
-        test_neo4j_client.clear_graph()
-
         temp_dir = tempfile.mkdtemp()
 
         pipeline = IngestionPipeline(temp_dir, test_neo4j_client)
@@ -373,8 +346,6 @@ class TestHealthScoreCalculation:
 
     def test_perfect_codebase_scores_high(self, test_neo4j_client):
         """Verify clean codebase with no issues scores high."""
-        test_neo4j_client.clear_graph()
-
         # Create clean codebase
         temp_dir = tempfile.mkdtemp()
         temp_path = Path(temp_dir)
@@ -414,8 +385,6 @@ if __name__ == '__main__':
 
     def test_problematic_codebase_scores_low(self, test_neo4j_client):
         """Verify codebase with multiple issues scores lower."""
-        test_neo4j_client.clear_graph()
-
         # Create problematic codebase
         temp_dir = tempfile.mkdtemp()
         temp_path = Path(temp_dir)
@@ -455,8 +424,6 @@ def dead5(): pass
 
     def test_overall_score_is_weighted_average(self, test_neo4j_client):
         """Verify overall score is correct weighted average of component scores."""
-        test_neo4j_client.clear_graph()
-
         # Create any codebase
         temp_dir = tempfile.mkdtemp()
         temp_path = Path(temp_dir)
@@ -488,8 +455,6 @@ class TestClass:
 
     def test_grade_matches_score_thresholds(self, test_neo4j_client):
         """Verify letter grade matches score thresholds."""
-        test_neo4j_client.clear_graph()
-
         # Create codebase
         temp_dir = tempfile.mkdtemp()
         temp_path = Path(temp_dir)
@@ -525,8 +490,6 @@ class TestMetricsBreakdownConsistency:
 
     def test_metrics_reflect_all_detector_findings(self, test_neo4j_client):
         """Verify all detector findings are reflected in metrics."""
-        test_neo4j_client.clear_graph()
-
         # Create diverse codebase
         temp_dir = tempfile.mkdtemp()
         temp_path = Path(temp_dir)
@@ -576,8 +539,6 @@ if __name__ == '__main__':
 
     def test_metrics_update_on_repeated_analysis(self, test_neo4j_client):
         """Verify metrics stay consistent on repeated analysis."""
-        test_neo4j_client.clear_graph()
-
         # Create codebase
         temp_dir = tempfile.mkdtemp()
         temp_path = Path(temp_dir)

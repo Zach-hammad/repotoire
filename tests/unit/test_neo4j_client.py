@@ -29,7 +29,7 @@ def mock_driver():
 @pytest.fixture
 def client(mock_driver):
     """Create a Neo4jClient with mocked driver."""
-    with patch('falkor.graph.client.GraphDatabase') as mock_gd:
+    with patch('repotoire.graph.client.GraphDatabase') as mock_gd:
         mock_gd.driver.return_value = mock_driver
         client = Neo4jClient(
             uri="bolt://localhost:7687",
@@ -45,7 +45,7 @@ class TestConnection:
 
     def test_client_initialization(self, mock_driver):
         """Test client initializes with correct parameters."""
-        with patch('falkor.graph.client.GraphDatabase') as mock_gd:
+        with patch('repotoire.graph.client.GraphDatabase') as mock_gd:
             mock_gd.driver.return_value = mock_driver
 
             client = Neo4jClient(
@@ -62,7 +62,7 @@ class TestConnection:
 
     def test_context_manager(self, mock_driver):
         """Test client works as context manager."""
-        with patch('falkor.graph.client.GraphDatabase') as mock_gd:
+        with patch('repotoire.graph.client.GraphDatabase') as mock_gd:
             mock_gd.driver.return_value = mock_driver
 
             with Neo4jClient() as client:
@@ -326,14 +326,15 @@ class TestUtilityMethods:
         """Test getting database statistics."""
         mock_session = mock_driver.session.return_value.__enter__.return_value
 
-        # get_stats runs 5 queries, each returning [{"count": X}]
+        # get_stats runs 6 queries, each returning [{"count": X}]
         # Setup side_effect to return different results for each query
         mock_results = [
             MagicMock(__iter__=lambda self: iter([{"count": 1000}])),  # total_nodes
             MagicMock(__iter__=lambda self: iter([{"count": 50}])),    # total_files
             MagicMock(__iter__=lambda self: iter([{"count": 200}])),   # total_classes
             MagicMock(__iter__=lambda self: iter([{"count": 750}])),   # total_functions
-            MagicMock(__iter__=lambda self: iter([{"count": 1500}]))   # total_relationships
+            MagicMock(__iter__=lambda self: iter([{"count": 1500}])),  # total_relationships
+            MagicMock(__iter__=lambda self: iter([{"count": 100}])),   # embeddings_count
         ]
         mock_session.run.side_effect = mock_results
 
@@ -344,7 +345,8 @@ class TestUtilityMethods:
         assert stats["total_classes"] == 200
         assert stats["total_functions"] == 750
         assert stats["total_relationships"] == 1500
-        assert mock_session.run.call_count == 5
+        assert stats["embeddings_count"] == 100
+        assert mock_session.run.call_count == 6
 
 
 class TestErrorHandling:
@@ -352,7 +354,7 @@ class TestErrorHandling:
 
     def test_connection_error_handling(self, mock_driver):
         """Test handling connection errors."""
-        with patch('falkor.graph.client.GraphDatabase') as mock_gd:
+        with patch('repotoire.graph.client.GraphDatabase') as mock_gd:
             mock_gd.driver.side_effect = Exception("Connection failed")
 
             with pytest.raises(Exception) as exc_info:
@@ -375,7 +377,7 @@ class TestRetryLogic:
 
     def test_connection_retry_succeeds_on_second_attempt(self):
         """Test connection succeeds after initial failure."""
-        with patch('falkor.graph.client.GraphDatabase') as mock_gd:
+        with patch('repotoire.graph.client.GraphDatabase') as mock_gd:
             mock_driver = MagicMock()
             mock_gd.driver.return_value = mock_driver
             
@@ -404,7 +406,7 @@ class TestRetryLogic:
 
     def test_connection_retry_fails_after_max_retries(self):
         """Test connection fails after exhausting retries."""
-        with patch('falkor.graph.client.GraphDatabase') as mock_gd:
+        with patch('repotoire.graph.client.GraphDatabase') as mock_gd:
             mock_driver = MagicMock()
             mock_gd.driver.return_value = mock_driver
             
@@ -426,7 +428,7 @@ class TestRetryLogic:
 
     def test_connection_retry_exponential_backoff(self):
         """Test exponential backoff delay calculation."""
-        with patch('falkor.graph.client.GraphDatabase') as mock_gd, \
+        with patch('repotoire.graph.client.GraphDatabase') as mock_gd, \
              patch('time.sleep') as mock_sleep:
             mock_driver = MagicMock()
             mock_gd.driver.return_value = mock_driver
@@ -457,7 +459,7 @@ class TestRetryLogic:
 
     def test_query_retry_on_session_expired(self):
         """Test query retries on SessionExpired error."""
-        with patch('falkor.graph.client.GraphDatabase') as mock_gd:
+        with patch('repotoire.graph.client.GraphDatabase') as mock_gd:
             mock_driver = MagicMock()
             mock_session = MagicMock()
             mock_result = MagicMock()
@@ -491,7 +493,7 @@ class TestRetryLogic:
 
     def test_query_retry_fails_on_non_transient_error(self):
         """Test query fails immediately on non-transient errors."""
-        with patch('falkor.graph.client.GraphDatabase') as mock_gd, \
+        with patch('repotoire.graph.client.GraphDatabase') as mock_gd, \
              patch('time.sleep') as mock_sleep:
             mock_driver = MagicMock()
             mock_session = MagicMock()
@@ -523,7 +525,7 @@ class TestRetryLogic:
 
     def test_configurable_retry_parameters(self):
         """Test that retry parameters can be configured."""
-        with patch('falkor.graph.client.GraphDatabase') as mock_gd:
+        with patch('repotoire.graph.client.GraphDatabase') as mock_gd:
             mock_driver = MagicMock()
             mock_gd.driver.return_value = mock_driver
             mock_driver.verify_connectivity.return_value = None

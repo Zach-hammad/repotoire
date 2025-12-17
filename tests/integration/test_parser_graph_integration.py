@@ -2,6 +2,8 @@
 
 Tests verify that parsed entities and relationships are correctly stored in Neo4j
 with proper properties and structure.
+
+REPO-367: Uses shared conftest.py fixtures with autouse cleanup for test isolation.
 """
 
 import os
@@ -10,26 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from repotoire.graph import Neo4jClient
 from repotoire.parsers.python_parser import PythonParser
 from repotoire.models import NodeType
 
-
-@pytest.fixture(scope="module")
-def test_neo4j_client():
-    """Create a test Neo4j client. Requires Neo4j running on test port."""
-    try:
-        client = Neo4jClient(
-            uri=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
-            username="neo4j",
-            password=os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
-        )
-        # Clear any existing data
-        client.clear_graph()
-        yield client
-        client.close()
-    except Exception as e:
-        pytest.skip(f"Neo4j test database not available: {e}")
+# Note: test_neo4j_client fixture is provided by tests/integration/conftest.py
+# Graph is automatically cleared before each test by isolate_graph_test autouse fixture
 
 
 @pytest.fixture
@@ -204,7 +191,7 @@ def my_function(arg1, arg2):
         assert func_node["lineEnd"] > func_node["lineStart"]
 
     def test_method_contained_in_class(self, test_neo4j_client, parser, sample_python_file):
-        """Verify methods have CONTAINS relationship from file."""
+        """Verify methods have CONTAINS relationship from their class."""
         sample_python_file.write("""
 class Container:
     def my_method(self):
@@ -218,14 +205,13 @@ class Container:
         id_mapping = test_neo4j_client.batch_create_nodes(entities)
         test_neo4j_client.batch_create_relationships(relationships)
 
-        # Query for CONTAINS relationship from File
-        # Note: Currently parser creates File->Method, not Class->Method
+        # Query for CONTAINS relationship from Class to Method
+        # Methods are contained in their class, not directly in the file
         query = """
-        MATCH (f:File)-[r:CONTAINS]->(fn:Function {name: 'my_method'})
-        WHERE f.filePath = $file_path
+        MATCH (c:Class {name: 'Container'})-[r:CONTAINS]->(fn:Function {name: 'my_method'})
         RETURN count(r) as count
         """
-        result = test_neo4j_client.execute_query(query, {"file_path": sample_python_file.name})
+        result = test_neo4j_client.execute_query(query)
 
         assert result[0]["count"] >= 1
 
@@ -418,14 +404,12 @@ class Outer:
         result1 = test_neo4j_client.execute_query(query1, {"file_path": sample_python_file.name})
         assert result1[0]["count"] >= 1
 
-        # Verify File contains Method
-        # Note: Currently parser creates File->Method, not Class->Method
+        # Verify Class contains Method (methods are contained in their class)
         query2 = """
-        MATCH (f:File)-[:CONTAINS]->(m:Function {name: 'outer_method'})
-        WHERE f.filePath = $file_path
+        MATCH (c:Class {name: 'Outer'})-[:CONTAINS]->(m:Function {name: 'outer_method'})
         RETURN count(m) as count
         """
-        result2 = test_neo4j_client.execute_query(query2, {"file_path": sample_python_file.name})
+        result2 = test_neo4j_client.execute_query(query2)
         assert result2[0]["count"] >= 1
 
     def test_multiple_files_create_connected_graph(self, test_neo4j_client, parser):

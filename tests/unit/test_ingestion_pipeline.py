@@ -354,7 +354,7 @@ class TestBatchProcessing:
         for i in range(15):
             (temp_repo / f"file_{i}.py").write_text(f"# File {i}")
 
-        with patch('falkor.pipeline.ingestion.GraphSchema'):
+        with patch('repotoire.pipeline.ingestion.GraphSchema'):
             pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
             pipeline.ingest()
 
@@ -368,7 +368,7 @@ class TestBatchProcessing:
         for i in range(3):
             (temp_repo / f"file_{i}.py").write_text(f"# File {i}")
 
-        with patch('falkor.pipeline.ingestion.GraphSchema'):
+        with patch('repotoire.pipeline.ingestion.GraphSchema'):
             pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
             pipeline.ingest()
 
@@ -385,7 +385,7 @@ class TestErrorHandling:
         (temp_repo / "good.py").write_text("def foo(): pass")
         (temp_repo / "bad.py").write_text("def bad(): pass")
 
-        with patch('falkor.pipeline.ingestion.GraphSchema'):
+        with patch('repotoire.pipeline.ingestion.GraphSchema'):
             pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
 
             # Mock parser to fail on bad.py
@@ -409,7 +409,7 @@ class TestErrorHandling:
         temp_dir = tempfile.mkdtemp()
 
         try:
-            with patch('falkor.pipeline.ingestion.GraphSchema'):
+            with patch('repotoire.pipeline.ingestion.GraphSchema'):
                 pipeline = IngestionPipeline(temp_dir, mock_neo4j_client)
 
                 # Should not crash
@@ -423,7 +423,7 @@ class TestErrorHandling:
 
     def test_ingest_initializes_schema(self, mock_neo4j_client, temp_repo):
         """Test that ingest initializes graph schema."""
-        with patch('falkor.pipeline.ingestion.GraphSchema') as mock_schema_class:
+        with patch('repotoire.pipeline.ingestion.GraphSchema') as mock_schema_class:
             mock_schema = MagicMock()
             mock_schema_class.return_value = mock_schema
 
@@ -438,7 +438,7 @@ class TestErrorHandling:
         """Test that ingest calls get_stats at the end."""
         (temp_repo / "test.py").write_text("# Test")
 
-        with patch('falkor.pipeline.ingestion.GraphSchema'):
+        with patch('repotoire.pipeline.ingestion.GraphSchema'):
             pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
             pipeline.ingest()
 
@@ -455,7 +455,7 @@ class TestCustomPatterns:
         (temp_repo / "test.py").write_text("# Python")
         (temp_repo / "README.md").write_text("# Markdown")
 
-        with patch('falkor.pipeline.ingestion.GraphSchema'):
+        with patch('repotoire.pipeline.ingestion.GraphSchema'):
             pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
 
             # Ingest only markdown files

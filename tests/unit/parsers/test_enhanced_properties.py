@@ -17,7 +17,7 @@ class TestEnhancedProperties:
         """Test FileEntity.module_path extraction."""
         parser = TreeSitterPythonParser()
 
-        test_file = tmp_path / "falkor" / "parsers" / "base.py"
+        test_file = tmp_path / "repotoire" / "parsers" / "base.py"
         test_file.parent.mkdir(parents=True)
         test_file.write_text("# Empty file")
 
@@ -28,7 +28,7 @@ class TestEnhancedProperties:
 
         # module_path should be path with dots instead of slashes
         assert file_entity.module_path is not None
-        assert "falkor.parsers.base" in file_entity.module_path
+        assert "repotoire.parsers.base" in file_entity.module_path
         assert "/" not in file_entity.module_path
         assert "\\" not in file_entity.module_path
 

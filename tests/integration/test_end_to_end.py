@@ -1,4 +1,7 @@
-"""Integration tests for end-to-end workflow."""
+"""Integration tests for end-to-end workflow.
+
+REPO-367: Uses shared conftest.py fixtures with autouse cleanup for test isolation.
+"""
 
 import os
 import tempfile
@@ -6,26 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from repotoire.graph import Neo4jClient
 from repotoire.pipeline.ingestion import IngestionPipeline
 from repotoire.detectors.engine import AnalysisEngine
 
-
-@pytest.fixture(scope="module")
-def test_neo4j_client():
-    """Create a test Neo4j client. Requires Neo4j running on default ports."""
-    try:
-        client = Neo4jClient(
-            uri=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
-            username="neo4j",
-            password=os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
-        )
-        # Clear any existing data
-        client.clear_graph()
-        yield client
-        client.close()
-    except Exception as e:
-        pytest.skip(f"Neo4j test database not available: {e}")
+# Note: test_neo4j_client fixture is provided by tests/integration/conftest.py
+# Graph is automatically cleared before each test by isolate_graph_test autouse fixture
 
 
 @pytest.fixture
@@ -181,8 +169,6 @@ class TestEndToEndWorkflow:
 
     def test_metrics_calculation(self, test_neo4j_client, sample_codebase):
         """Test that metrics are calculated correctly."""
-        test_neo4j_client.clear_graph()  # Clear any previous test data
-
         # Ingest and analyze
         pipeline = IngestionPipeline(str(sample_codebase), test_neo4j_client)
         pipeline.ingest(patterns=["**/*.py"])
@@ -262,8 +248,6 @@ def broken_function(
 
     def test_handles_empty_codebase(self, test_neo4j_client):
         """Test handling of empty directory."""
-        test_neo4j_client.clear_graph()  # Clear any previous test data
-
         temp_dir = tempfile.mkdtemp()
 
         pipeline = IngestionPipeline(temp_dir, test_neo4j_client)

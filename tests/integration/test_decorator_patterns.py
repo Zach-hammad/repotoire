@@ -1,7 +1,8 @@
 """Integration tests for decorator pattern handling (REPO-118).
 
 Tests that decorator patterns don't cause false positives in dead code detection.
-Requires Neo4j running on test port.
+
+REPO-367: Uses shared conftest.py fixtures with autouse cleanup for test isolation.
 """
 
 import os
@@ -10,25 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from repotoire.graph import Neo4jClient
 from repotoire.parsers.python_parser import PythonParser
 from repotoire.detectors.dead_code import DeadCodeDetector
 from repotoire.models import NodeType, RelationshipType
 
-
-@pytest.fixture(scope="module")
-def test_neo4j_client():
-    """Create a test Neo4j client. Requires Neo4j running on test port."""
-    try:
-        client = Neo4jClient(
-            uri=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
-            username="neo4j",
-            password=os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
-        )
-        yield client
-        client.close()
-    except Exception as e:
-        pytest.skip(f"Neo4j test database not available: {e}")
+# Note: test_neo4j_client fixture is provided by tests/integration/conftest.py
+# Graph is automatically cleared before each test by isolate_graph_test autouse fixture
 
 
 @pytest.fixture
@@ -39,10 +27,12 @@ def parser():
 
 @pytest.fixture
 def clean_db(test_neo4j_client):
-    """Clear the database before each test."""
-    test_neo4j_client.clear_graph()
+    """Provide a clean database client for tests.
+
+    Graph clearing is handled automatically by isolate_graph_test autouse fixture.
+    This fixture provides the client with a friendly name for decorator tests.
+    """
     yield test_neo4j_client
-    test_neo4j_client.clear_graph()
 
 
 @pytest.fixture

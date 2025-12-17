@@ -29,9 +29,9 @@ def mock_neo4j_client():
 @pytest.fixture
 def engine(mock_neo4j_client):
     """Create an AnalysisEngine instance."""
-    with patch('falkor.detectors.engine.CircularDependencyDetector'), \
-         patch('falkor.detectors.engine.DeadCodeDetector'), \
-         patch('falkor.detectors.engine.GodClassDetector'):
+    with patch('repotoire.detectors.engine.CircularDependencyDetector'), \
+         patch('repotoire.detectors.engine.DeadCodeDetector'), \
+         patch('repotoire.detectors.engine.GodClassDetector'):
         return AnalysisEngine(mock_neo4j_client)
 
 
@@ -378,9 +378,9 @@ class TestMetricsCalculation:
 
     def test_calculate_metrics_counts_findings(self, mock_neo4j_client):
         """Test that metrics calculation counts findings by detector."""
-        with patch('falkor.detectors.engine.CircularDependencyDetector'), \
-             patch('falkor.detectors.engine.DeadCodeDetector'), \
-             patch('falkor.detectors.engine.GodClassDetector'):
+        with patch('repotoire.detectors.engine.CircularDependencyDetector'), \
+             patch('repotoire.detectors.engine.DeadCodeDetector'), \
+             patch('repotoire.detectors.engine.GodClassDetector'):
 
             engine = AnalysisEngine(mock_neo4j_client)
 
@@ -421,9 +421,9 @@ class TestMetricsCalculation:
             "total_functions": 60
         }
 
-        with patch('falkor.detectors.engine.CircularDependencyDetector'), \
-             patch('falkor.detectors.engine.DeadCodeDetector'), \
-             patch('falkor.detectors.engine.GodClassDetector'):
+        with patch('repotoire.detectors.engine.CircularDependencyDetector'), \
+             patch('repotoire.detectors.engine.DeadCodeDetector'), \
+             patch('repotoire.detectors.engine.GodClassDetector'):
 
             engine = AnalysisEngine(mock_neo4j_client)
 
@@ -449,9 +449,9 @@ class TestMetricsCalculation:
             "total_functions": 0
         }
 
-        with patch('falkor.detectors.engine.CircularDependencyDetector'), \
-             patch('falkor.detectors.engine.DeadCodeDetector'), \
-             patch('falkor.detectors.engine.GodClassDetector'):
+        with patch('repotoire.detectors.engine.CircularDependencyDetector'), \
+             patch('repotoire.detectors.engine.DeadCodeDetector'), \
+             patch('repotoire.detectors.engine.GodClassDetector'):
 
             engine = AnalysisEngine(mock_neo4j_client)
 

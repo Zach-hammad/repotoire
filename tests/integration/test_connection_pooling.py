@@ -13,7 +13,7 @@ class TestConnectionPooling:
 
     def test_client_initialization_with_pool_settings(self):
         """Test client initializes with custom pool settings."""
-        with patch('falkor.graph.client.GraphDatabase.driver') as mock_driver_class:
+        with patch('repotoire.graph.client.GraphDatabase.driver') as mock_driver_class:
             mock_driver = Mock()
             mock_driver.verify_connectivity = Mock()
             mock_driver_class.return_value = mock_driver
@@ -42,7 +42,7 @@ class TestConnectionPooling:
 
     def test_default_pool_settings(self):
         """Test client uses sensible defaults for pool settings."""
-        with patch('falkor.graph.client.GraphDatabase.driver') as mock_driver_class:
+        with patch('repotoire.graph.client.GraphDatabase.driver') as mock_driver_class:
             mock_driver = Mock()
             mock_driver.verify_connectivity = Mock()
             mock_driver_class.return_value = mock_driver
@@ -60,7 +60,7 @@ class TestConnectionPooling:
 
     def test_query_timeout_enforcement(self):
         """Test execute_query enforces timeout."""
-        with patch('falkor.graph.client.GraphDatabase.driver') as mock_driver_class:
+        with patch('repotoire.graph.client.GraphDatabase.driver') as mock_driver_class:
             mock_session = MagicMock()
             mock_result = Mock()
             mock_result.__iter__ = Mock(return_value=iter([{"count": 5}]))
@@ -82,7 +82,7 @@ class TestConnectionPooling:
 
     def test_custom_query_timeout_override(self):
         """Test execute_query can override default timeout."""
-        with patch('falkor.graph.client.GraphDatabase.driver') as mock_driver_class:
+        with patch('repotoire.graph.client.GraphDatabase.driver') as mock_driver_class:
             mock_session = MagicMock()
             mock_result = Mock()
             mock_result.__iter__ = Mock(return_value=iter([{"count": 5}]))
@@ -104,7 +104,7 @@ class TestConnectionPooling:
 
     def test_get_pool_metrics(self):
         """Test get_pool_metrics returns configuration."""
-        with patch('falkor.graph.client.GraphDatabase.driver') as mock_driver_class:
+        with patch('repotoire.graph.client.GraphDatabase.driver') as mock_driver_class:
             mock_pool = Mock()
             mock_pool.in_use_connection_count = 3
             mock_pool.idle_count = 7
@@ -138,7 +138,7 @@ class TestWriteTransactions:
 
     def test_batch_create_nodes_uses_write_transaction(self):
         """Test batch_create_nodes uses session.execute_write."""
-        with patch('falkor.graph.client.GraphDatabase.driver') as mock_driver_class:
+        with patch('repotoire.graph.client.GraphDatabase.driver') as mock_driver_class:
             mock_session = MagicMock()
             mock_session.execute_write = Mock(return_value=[
                 {"id": "elem-1", "qualifiedName": "test.py"}
@@ -171,7 +171,7 @@ class TestWriteTransactions:
 
     def test_batch_create_relationships_uses_write_transaction(self):
         """Test batch_create_relationships uses session.execute_write."""
-        with patch('falkor.graph.client.GraphDatabase.driver') as mock_driver_class:
+        with patch('repotoire.graph.client.GraphDatabase.driver') as mock_driver_class:
             mock_session = MagicMock()
             mock_consume_result = Mock()
             mock_consume_result.counters.relationships_created = 2
@@ -223,8 +223,8 @@ class TestRetryLogic:
 
     def test_connection_retry_with_exponential_backoff(self):
         """Test connection retries with exponential backoff."""
-        with patch('falkor.graph.client.GraphDatabase.driver') as mock_driver_class:
-            with patch('falkor.graph.client.time.sleep') as mock_sleep:
+        with patch('repotoire.graph.client.GraphDatabase.driver') as mock_driver_class:
+            with patch('repotoire.graph.client.time.sleep') as mock_sleep:
                 # Fail first 2 attempts, succeed on 3rd
                 mock_driver = Mock()
                 mock_driver.verify_connectivity.side_effect = [
@@ -248,8 +248,8 @@ class TestRetryLogic:
 
     def test_connection_fails_after_max_retries(self):
         """Test connection raises error after max retries."""
-        with patch('falkor.graph.client.GraphDatabase.driver') as mock_driver_class:
-            with patch('falkor.graph.client.time.sleep'):
+        with patch('repotoire.graph.client.GraphDatabase.driver') as mock_driver_class:
+            with patch('repotoire.graph.client.time.sleep'):
                 mock_driver = Mock()
                 mock_driver.verify_connectivity.side_effect = ServiceUnavailable("Connection refused")
                 mock_driver_class.return_value = mock_driver
@@ -259,8 +259,8 @@ class TestRetryLogic:
 
     def test_query_retry_on_transient_error(self):
         """Test queries are retried on transient errors."""
-        with patch('falkor.graph.client.GraphDatabase.driver') as mock_driver_class:
-            with patch('falkor.graph.client.time.sleep') as mock_sleep:
+        with patch('repotoire.graph.client.GraphDatabase.driver') as mock_driver_class:
+            with patch('repotoire.graph.client.time.sleep') as mock_sleep:
                 mock_session = MagicMock()
 
                 # Fail first attempt, succeed on second
@@ -293,7 +293,7 @@ class TestConcurrentConnections:
 
     def test_concurrent_queries_share_pool(self):
         """Test multiple queries can run concurrently using pool."""
-        with patch('falkor.graph.client.GraphDatabase.driver') as mock_driver_class:
+        with patch('repotoire.graph.client.GraphDatabase.driver') as mock_driver_class:
             mock_sessions = []
 
             for i in range(5):

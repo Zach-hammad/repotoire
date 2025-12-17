@@ -16,14 +16,24 @@ The tests cover:
 5. Performance benchmarks vs Neo4j (optional)
 """
 
+import logging
 import os
 import subprocess
 import tempfile
-import time
 from pathlib import Path
-from typing import Optional
 
 import pytest
+import redis
+from tenacity import (
+    retry,
+    stop_after_delay,
+    wait_exponential,
+    before_sleep_log,
+    retry_if_exception_type,
+    RetryError,
+)
+
+logger = logging.getLogger(__name__)
 
 from repotoire.graph import Neo4jClient, FalkorDBClient, create_client
 from repotoire.pipeline.ingestion import IngestionPipeline
@@ -64,6 +74,49 @@ def is_port_in_use(port: int) -> bool:
         return s.connect_ex(("localhost", port)) == 0
 
 
+@retry(
+    stop=stop_after_delay(60),  # Max 60 seconds total
+    wait=wait_exponential(multiplier=0.5, min=0.5, max=10),  # 0.5s, 1s, 2s, 4s, 8s, 10s...
+    before_sleep=before_sleep_log(logger, logging.INFO),  # Log retry attempts
+    retry=retry_if_exception_type((
+        redis.ConnectionError,
+        redis.TimeoutError,
+        ConnectionRefusedError,
+        OSError,
+    ))
+)
+def wait_for_falkordb_ready(host: str = "localhost", port: int = FALKORDB_REDIS_PORT) -> bool:
+    """Wait for FalkorDB to be ready using actual Redis PING.
+
+    Uses exponential backoff with tenacity to verify FalkorDB is actually
+    accepting connections, not just that the port is bound.
+
+    Args:
+        host: FalkorDB host (default: localhost)
+        port: FalkorDB Redis port (default: FALKORDB_REDIS_PORT)
+
+    Returns:
+        True if FalkorDB is ready
+
+    Raises:
+        RetryError: If FalkorDB doesn't become ready within 60 seconds
+    """
+    client = redis.Redis(
+        host=host,
+        port=port,
+        socket_connect_timeout=2,
+        socket_timeout=2,
+    )
+    try:
+        response = client.ping()
+        if response:
+            logger.info(f"FalkorDB is ready on {host}:{port}")
+            return True
+        raise redis.ConnectionError("PING returned False")
+    finally:
+        client.close()
+
+
 def start_falkordb_container() -> bool:
     """Start FalkorDB container for testing.
 
@@ -72,7 +125,12 @@ def start_falkordb_container() -> bool:
     """
     # First check if the port is already in use (container may already be running)
     if is_port_in_use(FALKORDB_REDIS_PORT):
-        return True
+        # Port is in use, verify FalkorDB is actually ready
+        try:
+            return wait_for_falkordb_ready(host=FALKORDB_HOST, port=FALKORDB_REDIS_PORT)
+        except RetryError:
+            logger.warning("Port in use but FalkorDB not responding")
+            return False
 
     container_name = "repotoire-test-falkordb"
 
@@ -83,7 +141,11 @@ def start_falkordb_container() -> bool:
         text=True
     )
     if container_name in result.stdout:
-        return True
+        try:
+            return wait_for_falkordb_ready(host=FALKORDB_HOST, port=FALKORDB_REDIS_PORT)
+        except RetryError:
+            logger.warning(f"Container {container_name} running but not responding")
+            return False
 
     # Also check for repotoire-falkordb container
     result = subprocess.run(
@@ -92,7 +154,11 @@ def start_falkordb_container() -> bool:
         text=True
     )
     if "repotoire-falkordb" in result.stdout:
-        return True
+        try:
+            return wait_for_falkordb_ready(host=FALKORDB_HOST, port=FALKORDB_REDIS_PORT)
+        except RetryError:
+            logger.warning("Container repotoire-falkordb running but not responding")
+            return False
 
     # Remove existing stopped container
     subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
@@ -108,20 +174,15 @@ def start_falkordb_container() -> bool:
     ], capture_output=True)
 
     if result.returncode != 0:
-        print(f"Failed to start FalkorDB: {result.stderr.decode()}")
+        logger.error(f"Failed to start FalkorDB: {result.stderr.decode()}")
         return False
 
-    # Wait for FalkorDB to be ready (check Redis port)
-    max_retries = 30
-    for i in range(max_retries):
-        if is_port_in_use(FALKORDB_REDIS_PORT):
-            # Additional wait for server to initialize
-            time.sleep(2)
-            return True
-        time.sleep(1)
-
-    print("FalkorDB container failed to start in time")
-    return False
+    # Wait for FalkorDB to be ready using proper retry logic (REPO-366)
+    try:
+        return wait_for_falkordb_ready(host=FALKORDB_HOST, port=FALKORDB_REDIS_PORT)
+    except RetryError as e:
+        logger.error(f"FalkorDB did not become ready after 60s: {e.last_attempt.exception()}")
+        return False
 
 
 def stop_falkordb_container():
@@ -154,8 +215,7 @@ def falkordb_client():
             max_retries=5,
             retry_base_delay=2.0,
         )
-        # Clear any existing data
-        client.clear_graph()
+        # Graph clearing handled by isolate_graph_test autouse fixture (REPO-367)
         yield client
         client.close()
     except Exception as e:
@@ -174,7 +234,7 @@ def neo4j_client():
             username="neo4j",
             password=NEO4J_PASSWORD,
         )
-        client.clear_graph()
+        # Graph clearing handled by isolate_graph_test autouse fixture (REPO-367)
         yield client
         client.close()
     except Exception as e:
@@ -338,8 +398,7 @@ class TestFalkorDBIngestion:
 
     def test_ingestion_creates_relationships(self, falkordb_client, sample_codebase):
         """Test that relationships are created correctly."""
-        # First ingest
-        falkordb_client.clear_graph()
+        # Ingest (graph cleared automatically by isolate_graph_test)
         pipeline = IngestionPipeline(str(sample_codebase), falkordb_client)
         pipeline.ingest(patterns=["**/*.py"])
 
@@ -363,8 +422,10 @@ class TestFalkorDBRustAlgorithms:
 
     @pytest.fixture(autouse=True)
     def setup_graph_data(self, falkordb_client, sample_codebase):
-        """Ensure graph has data before running algorithm tests."""
-        falkordb_client.clear_graph()
+        """Ensure graph has data before running algorithm tests.
+
+        Graph is cleared automatically by isolate_graph_test autouse fixture.
+        """
         pipeline = IngestionPipeline(str(sample_codebase), falkordb_client)
         pipeline.ingest(patterns=["**/*.py"])
 
@@ -462,8 +523,7 @@ class TestFalkorDBAnalysisEngine:
 
     def test_analysis_engine_works(self, falkordb_client, sample_codebase):
         """Test that AnalysisEngine works with FalkorDB."""
-        # Ingest first
-        falkordb_client.clear_graph()
+        # Ingest (graph cleared automatically by isolate_graph_test)
         pipeline = IngestionPipeline(str(sample_codebase), falkordb_client)
         pipeline.ingest(patterns=["**/*.py"])
 
@@ -479,7 +539,7 @@ class TestFalkorDBAnalysisEngine:
 
     def test_detectors_produce_findings(self, falkordb_client, sample_codebase):
         """Test that detectors produce findings."""
-        falkordb_client.clear_graph()
+        # Ingest (graph cleared automatically by isolate_graph_test)
         pipeline = IngestionPipeline(str(sample_codebase), falkordb_client)
         pipeline.ingest(patterns=["**/*.py"])
 
@@ -770,11 +830,13 @@ class TestPerformanceComparison:
 
     @pytest.mark.skip(reason="Performance tests disabled by default")
     def test_bulk_insert_performance(self, falkordb_client, neo4j_client, large_graph_data):
-        """Compare bulk insert performance."""
+        """Compare bulk insert performance.
+
+        Both graphs are cleared automatically by isolate_graph_test before each test.
+        """
         import time
 
-        # FalkorDB
-        falkordb_client.clear_graph()
+        # FalkorDB (graph already cleared by autouse fixture)
         start = time.time()
         for f in large_graph_data["files"]:
             falkordb_client.execute_query(
@@ -783,7 +845,7 @@ class TestPerformanceComparison:
             )
         falkordb_time = time.time() - start
 
-        # Neo4j
+        # Neo4j - need to clear since we're using both in same test
         neo4j_client.clear_graph()
         start = time.time()
         for f in large_graph_data["files"]:
@@ -800,12 +862,14 @@ class TestPerformanceComparison:
 
     @pytest.mark.skip(reason="Performance tests disabled by default")
     def test_query_performance(self, falkordb_client, neo4j_client, large_graph_data):
-        """Compare query performance."""
+        """Compare query performance.
+
+        Both graphs are cleared automatically by isolate_graph_test before each test.
+        """
         import time
 
-        # Setup data in both databases
+        # Setup data in both databases (already cleared by autouse fixture)
         for client in [falkordb_client, neo4j_client]:
-            client.clear_graph()
             for f in large_graph_data["files"]:
                 client.execute_query(
                     "CREATE (n:File {name: $name, path: $path})",

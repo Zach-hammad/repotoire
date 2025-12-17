@@ -1,4 +1,7 @@
-"""Integration tests for RAG (Retrieval-Augmented Generation) flow."""
+"""Integration tests for RAG (Retrieval-Augmented Generation) flow.
+
+REPO-367: Uses shared conftest.py fixtures with autouse cleanup for test isolation.
+"""
 
 import os
 import tempfile
@@ -8,7 +11,6 @@ from unittest.mock import Mock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from repotoire.graph import Neo4jClient
 from repotoire.pipeline.ingestion import IngestionPipeline
 from repotoire.ai import CodeEmbedder
 from repotoire.ai.retrieval import GraphRAGRetriever
@@ -21,29 +23,23 @@ requires_openai = pytest.mark.skipif(
     reason="OPENAI_API_KEY environment variable not set"
 )
 
+# Note: test_neo4j_client fixture is provided by tests/integration/conftest.py
+# Graph is automatically cleared before each test by isolate_graph_test autouse fixture
+
 
 @pytest.fixture(scope="module")
-def test_neo4j_client():
-    """Create a test Neo4j client. Requires Neo4j running on default ports."""
+def rag_schema_initialized(neo4j_client):
+    """Initialize schema with vector indexes for RAG tests.
+
+    Module-scoped fixture that ensures vector indexes exist.
+    """
     try:
         from repotoire.graph.schema import GraphSchema
-
-        client = Neo4jClient(
-            uri=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
-            username="neo4j",
-            password=os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
-        )
-        # Clear any existing data
-        client.clear_graph()
-
-        # Initialize schema with vector indexes for RAG tests
-        schema = GraphSchema(client)
+        schema = GraphSchema(neo4j_client)
         schema.initialize(enable_vector_search=True)
-
-        yield client
-        client.close()
-    except Exception as e:
-        pytest.skip(f"Neo4j test database not available: {e}")
+        return True
+    except Exception:
+        return False
 
 
 @pytest.fixture
@@ -244,10 +240,11 @@ def login(username: str, password: str, db: DatabaseConnection = Depends(get_db)
 
 
 @pytest.fixture
-def ingested_rag_codebase(test_neo4j_client, sample_codebase_for_rag):
-    """Ingest sample codebase with embeddings for RAG testing."""
-    test_neo4j_client.clear_graph()
+def ingested_rag_codebase(test_neo4j_client, sample_codebase_for_rag, rag_schema_initialized):
+    """Ingest sample codebase with embeddings for RAG testing.
 
+    Graph is automatically cleared before each test by isolate_graph_test.
+    """
     # Ingest with embedding generation enabled
     pipeline = IngestionPipeline(
         str(sample_codebase_for_rag),
@@ -263,10 +260,8 @@ def ingested_rag_codebase(test_neo4j_client, sample_codebase_for_rag):
 class TestIngestionWithEmbeddings:
     """Test ingestion pipeline with embedding generation."""
 
-    def test_embeddings_generated_during_ingestion(self, test_neo4j_client, sample_codebase_for_rag):
+    def test_embeddings_generated_during_ingestion(self, test_neo4j_client, sample_codebase_for_rag, rag_schema_initialized):
         """Test that embeddings are generated when flag is enabled."""
-        test_neo4j_client.clear_graph()
-
         # Ingest with embeddings
         pipeline = IngestionPipeline(
             str(sample_codebase_for_rag),
@@ -300,8 +295,6 @@ class TestIngestionWithEmbeddings:
 
     def test_ingestion_without_embeddings(self, test_neo4j_client, sample_codebase_for_rag):
         """Test that ingestion works without embedding generation."""
-        test_neo4j_client.clear_graph()
-
         # Ingest without embeddings
         pipeline = IngestionPipeline(
             str(sample_codebase_for_rag),
@@ -325,10 +318,8 @@ class TestIngestionWithEmbeddings:
 
         assert embedded_count == 0, "Embeddings should not be generated when flag is False"
 
-    def test_idempotent_embedding_generation(self, test_neo4j_client, sample_codebase_for_rag):
+    def test_idempotent_embedding_generation(self, test_neo4j_client, sample_codebase_for_rag, rag_schema_initialized):
         """Test that running embedding generation twice doesn't duplicate."""
-        test_neo4j_client.clear_graph()
-
         # First ingestion with embeddings
         pipeline = IngestionPipeline(
             str(sample_codebase_for_rag),
@@ -608,11 +599,9 @@ class TestAPIEndpoints:
 class TestRAGPerformance:
     """Performance benchmarks for RAG operations."""
 
-    def test_embedding_generation_performance(self, test_neo4j_client, sample_codebase_for_rag):
+    def test_embedding_generation_performance(self, test_neo4j_client, sample_codebase_for_rag, rag_schema_initialized):
         """Benchmark embedding generation speed."""
         import time
-
-        test_neo4j_client.clear_graph()
 
         # Ingest without embeddings first
         pipeline = IngestionPipeline(

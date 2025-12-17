@@ -1,4 +1,7 @@
-"""Integration tests for incremental analysis feature."""
+"""Integration tests for incremental analysis feature.
+
+REPO-367: Uses shared conftest.py fixtures with autouse cleanup for test isolation.
+"""
 
 import hashlib
 import os
@@ -8,20 +11,10 @@ from textwrap import dedent
 
 import pytest
 
-from repotoire.graph import Neo4jClient
 from repotoire.pipeline.ingestion import IngestionPipeline
 
-
-@pytest.fixture(scope="module")
-def test_neo4j_client():
-    """Create a test Neo4j client."""
-    client = Neo4jClient(
-        uri=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
-        password=os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
-    )
-    client.clear_graph()
-    yield client
-    client.close()
+# Note: test_neo4j_client fixture is provided by tests/integration/conftest.py
+# Graph is automatically cleared before each test by isolate_graph_test autouse fixture
 
 
 class TestIncrementalAnalysis:
@@ -68,8 +61,6 @@ class TestIncrementalAnalysis:
 
     def test_incremental_detects_changed_files(self, test_neo4j_client, tmp_path):
         """Test that changed files are detected and re-ingested."""
-        test_neo4j_client.clear_graph()
-
         # Create initial file
         test_file = tmp_path / "calculator.py"
         test_file.write_text(dedent("""
@@ -116,8 +107,6 @@ class TestIncrementalAnalysis:
 
     def test_incremental_handles_deleted_files(self, test_neo4j_client, tmp_path):
         """Test that deleted files are removed from graph."""
-        test_neo4j_client.clear_graph()
-
         # Create two files
         file1 = tmp_path / "module1.py"
         file2 = tmp_path / "module2.py"
@@ -153,8 +142,6 @@ class TestIncrementalAnalysis:
 
     def test_incremental_handles_new_files(self, test_neo4j_client, tmp_path):
         """Test that new files are added during incremental analysis."""
-        test_neo4j_client.clear_graph()
-
         # Create initial file
         file1 = tmp_path / "existing.py"
         file1.write_text("def existing(): pass")
@@ -187,8 +174,6 @@ class TestIncrementalAnalysis:
 
     def test_dependency_aware_incremental(self, test_neo4j_client, tmp_path):
         """Test that _find_dependent_files works correctly."""
-        test_neo4j_client.clear_graph()
-
         # Create base module
         base = tmp_path / "base.py"
         base.write_text(dedent("""
@@ -250,8 +235,6 @@ class TestIncrementalAnalysis:
 
     def test_force_full_overrides_incremental(self, test_neo4j_client, tmp_path):
         """Test that force_full flag bypasses incremental analysis."""
-        test_neo4j_client.clear_graph()
-
         # Create file
         test_file = tmp_path / "module.py"
         test_file.write_text("def func(): pass")
@@ -285,8 +268,6 @@ class TestIncrementalPerformance:
 
     def test_incremental_faster_than_full(self, test_neo4j_client, tmp_path):
         """Verify incremental analysis processes fewer files than full re-analysis."""
-        test_neo4j_client.clear_graph()
-
         # Create 20 files with import relationships
         for i in range(20):
             file = tmp_path / f"module{i}.py"
