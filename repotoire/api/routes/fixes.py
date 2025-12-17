@@ -47,6 +47,7 @@ router = APIRouter(prefix="/fixes", tags=["fixes"])
 
 # In-memory storage for legacy FixProposal objects (Best-of-N)
 _fixes_store: dict[str, FixProposal] = {}
+_finding_to_fix_index: dict[str, str] = {}  # finding_id -> fix_id for O(1) lookup
 _comments_store: dict[str, list] = {}
 
 # Thread-safe locks for global state access
@@ -1170,13 +1171,14 @@ async def generate_best_of_n_fix(
     )
 
     try:
-        # Get the finding from store (in production, from database)
+        # Get the finding from store via index (O(1) lookup instead of O(n) scan)
         finding = None
         async with _fixes_lock:
-            for fix in _fixes_store.values():
-                if hasattr(fix.finding, "id") and fix.finding.id == request.finding_id:
+            fix_id = _finding_to_fix_index.get(request.finding_id)
+            if fix_id:
+                fix = _fixes_store.get(fix_id)
+                if fix:
                     finding = fix.finding
-                    break
 
         if finding is None:
             raise HTTPException(
@@ -1191,10 +1193,13 @@ async def generate_best_of_n_fix(
             test_command=request.test_command,
         )
 
-        # Store generated fixes
+        # Store generated fixes and update index
         async with _fixes_lock:
             for ranked in result.ranked_fixes:
                 _fixes_store[ranked.fix.id] = ranked.fix
+                # Update secondary index for O(1) finding lookup
+                if hasattr(ranked.fix.finding, "id") and ranked.fix.finding.id:
+                    _finding_to_fix_index[ranked.fix.finding.id] = ranked.fix.id
 
         return BestOfNFixResponse(
             ranked_fixes=[rf.to_dict() for rf in result.ranked_fixes],
