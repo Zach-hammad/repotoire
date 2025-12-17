@@ -112,6 +112,14 @@ class MiddleManDetector(CodeSmellDetector):
                     f"to '{result['target_name']}'. Consider whether this indirection adds value."
                 )
 
+            # Estimate effort - removing a middle man is usually straightforward
+            if severity == Severity.HIGH:
+                estimated_effort = "Medium (1-2 hours)"
+            elif severity == Severity.MEDIUM:
+                estimated_effort = "Small (30-60 minutes)"
+            else:
+                estimated_effort = "Small (15-30 minutes)"
+
             finding = Finding(
                 id=f"middle_man_{result['middle_man']}",
                 detector=self.__class__.__name__,
@@ -129,6 +137,7 @@ class MiddleManDetector(CodeSmellDetector):
                 line_start=result.get("line_start"),
                 line_end=result.get("line_end"),
                 suggested_fix=suggestion,
+                estimated_effort=estimated_effort,
                 metadata={k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v for k, v in {
                     "delegation_count": result["delegation_count"],
                     "total_methods": result["total_methods"],

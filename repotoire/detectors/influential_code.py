@@ -263,6 +263,12 @@ class InfluentialCodeDetector(CodeSmellDetector):
                 "8. **Use feature flags**: De-risk changes with gradual rollout"
             )
 
+        # Estimate effort based on complexity - core infrastructure requires careful changes
+        if complexity >= self.HIGH_COMPLEXITY_THRESHOLD:
+            estimated_effort = "Large (4-8 hours)"
+        else:
+            estimated_effort = "Medium (1-2 hours)"
+
         finding = Finding(
             id=f"influential_code_{hash(qualified_name) % 100000}",
             detector="InfluentialCodeDetector",
@@ -272,6 +278,7 @@ class InfluentialCodeDetector(CodeSmellDetector):
             affected_nodes=[qualified_name],
             affected_files=[file_path],
             suggested_fix=suggested_fix,
+            estimated_effort=estimated_effort,
             graph_context={
                 "pagerank": pagerank,
                 "percentile": percentile,
@@ -349,6 +356,14 @@ class InfluentialCodeDetector(CodeSmellDetector):
             "5. **Add tests first**: Before refactoring, ensure test coverage"
         )
 
+        # Bloated code with few dependents is easier to refactor
+        if severity == Severity.HIGH:
+            estimated_effort = "Medium (2-4 hours)"
+        elif severity == Severity.MEDIUM:
+            estimated_effort = "Medium (1-2 hours)"
+        else:
+            estimated_effort = "Small (30-60 minutes)"
+
         finding = Finding(
             id=f"bloated_code_{hash(qualified_name) % 100000}",
             detector="InfluentialCodeDetector",
@@ -358,6 +373,7 @@ class InfluentialCodeDetector(CodeSmellDetector):
             affected_nodes=[qualified_name],
             affected_files=[file_path],
             suggested_fix=suggested_fix,
+            estimated_effort=estimated_effort,
             graph_context={
                 "pagerank": pagerank,
                 "median_pagerank": median_pr,

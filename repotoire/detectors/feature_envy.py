@@ -173,6 +173,16 @@ class FeatureEnvyDetector(CodeSmellDetector):
                     f"This feature envy is likely a symptom - refactor the god class first."
                 )
 
+            # Estimate effort based on severity and external dependencies
+            if severity == Severity.CRITICAL:
+                estimated_effort = "Large (2-4 hours)"
+            elif severity == Severity.HIGH:
+                estimated_effort = "Medium (1-2 hours)"
+            elif severity == Severity.MEDIUM:
+                estimated_effort = "Small (30-60 minutes)"
+            else:
+                estimated_effort = "Small (15-30 minutes)"
+
             finding = Finding(
                 id=f"feature_envy_{result['method']}",
                 detector=self.__class__.__name__,
@@ -188,6 +198,7 @@ class FeatureEnvyDetector(CodeSmellDetector):
                 line_start=result.get("line_start"),
                 line_end=result.get("line_end"),
                 suggested_fix=suggestion,
+                estimated_effort=estimated_effort,
                 graph_context={
                     "internal_uses": result["internal_uses"],
                     "external_uses": result["external_uses"],

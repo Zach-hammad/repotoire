@@ -170,6 +170,14 @@ class CoreUtilityDetector(CodeSmellDetector):
             "   - Event-driven design to reduce coupling"
         )
 
+        # Estimate effort based on complexity and caller count
+        if complexity > self.HIGH_COMPLEXITY_THRESHOLD * 2 or caller_count > 20:
+            estimated_effort = "Large (2-4 hours)"
+        elif complexity > self.HIGH_COMPLEXITY_THRESHOLD or caller_count > 10:
+            estimated_effort = "Medium (1-2 hours)"
+        else:
+            estimated_effort = "Small (30-60 minutes)"
+
         finding = Finding(
             id=f"central_coordinator_{hash(qualified_name) % 100000}",
             detector="CoreUtilityDetector",
@@ -179,6 +187,7 @@ class CoreUtilityDetector(CodeSmellDetector):
             affected_nodes=[qualified_name],
             affected_files=[file_path],
             suggested_fix=suggested_fix,
+            estimated_effort=estimated_effort,
             graph_context={
                 "harmonic_score": harmonic,
                 "percentile": percentile,
@@ -257,6 +266,9 @@ class CoreUtilityDetector(CodeSmellDetector):
             "5. **Consider integration**: If needed, integrate properly with the codebase"
         )
 
+        # Isolated code is usually easy to remove or integrate
+        estimated_effort = "Small (15-30 minutes)" if loc and loc < 50 else "Small (30-60 minutes)"
+
         finding = Finding(
             id=f"isolated_code_{hash(qualified_name) % 100000}",
             detector="CoreUtilityDetector",
@@ -266,6 +278,7 @@ class CoreUtilityDetector(CodeSmellDetector):
             affected_nodes=[qualified_name],
             affected_files=[file_path],
             suggested_fix=suggested_fix,
+            estimated_effort=estimated_effort,
             graph_context={
                 "harmonic_score": harmonic,
                 "percentile": percentile,

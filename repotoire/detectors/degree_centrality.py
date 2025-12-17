@@ -202,6 +202,14 @@ class DegreeCentralityDetector(CodeSmellDetector):
             "5. **Prioritize test coverage**: High-risk code needs safety net"
         )
 
+        # God classes require significant refactoring effort
+        if severity == Severity.CRITICAL:
+            estimated_effort = "Large (1-2 days)"
+        elif severity == Severity.HIGH:
+            estimated_effort = "Large (4-8 hours)"
+        else:
+            estimated_effort = "Medium (2-4 hours)"
+
         finding = Finding(
             id=f"god_class_{hash(qualified_name) % 100000}",
             detector="DegreeCentralityDetector",
@@ -211,6 +219,7 @@ class DegreeCentralityDetector(CodeSmellDetector):
             affected_nodes=[qualified_name],
             affected_files=[file_path],
             suggested_fix=suggested_fix,
+            estimated_effort=estimated_effort,
             graph_context={
                 "in_degree": in_degree,
                 "out_degree": out_degree,
@@ -285,6 +294,14 @@ class DegreeCentralityDetector(CodeSmellDetector):
             "5. **Apply facade pattern**: If orchestration is needed, make it explicit"
         )
 
+        # Feature envy requires moving or refactoring code
+        if severity == Severity.HIGH:
+            estimated_effort = "Medium (2-4 hours)"
+        elif severity == Severity.MEDIUM:
+            estimated_effort = "Medium (1-2 hours)"
+        else:
+            estimated_effort = "Small (30-60 minutes)"
+
         finding = Finding(
             id=f"feature_envy_{hash(qualified_name) % 100000}",
             detector="DegreeCentralityDetector",
@@ -294,6 +311,7 @@ class DegreeCentralityDetector(CodeSmellDetector):
             affected_nodes=[qualified_name],
             affected_files=[file_path],
             suggested_fix=suggested_fix,
+            estimated_effort=estimated_effort,
             graph_context={
                 "out_degree": out_degree,
                 "in_degree": in_degree,
@@ -369,6 +387,9 @@ class DegreeCentralityDetector(CodeSmellDetector):
             "5. **Consider strangler pattern**: Gradually replace with better design"
         )
 
+        # Coupling hotspots are critical architectural issues requiring significant effort
+        estimated_effort = "Large (1-2 days)" if severity == Severity.CRITICAL else "Large (4-8 hours)"
+
         finding = Finding(
             id=f"coupling_hotspot_{hash(qualified_name) % 100000}",
             detector="DegreeCentralityDetector",
@@ -378,6 +399,7 @@ class DegreeCentralityDetector(CodeSmellDetector):
             affected_nodes=[qualified_name],
             affected_files=[file_path],
             suggested_fix=suggested_fix,
+            estimated_effort=estimated_effort,
             graph_context={
                 "in_degree": in_degree,
                 "out_degree": out_degree,

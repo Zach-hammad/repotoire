@@ -104,6 +104,14 @@ class ShotgunSurgeryDetector(CodeSmellDetector):
                     f"  - Using the Strategy or Bridge pattern to reduce coupling"
                 )
 
+            # Estimate effort based on number of affected files
+            if severity == Severity.CRITICAL:
+                estimated_effort = "Large (1-2 days)"
+            elif severity == Severity.HIGH:
+                estimated_effort = "Large (4-8 hours)"
+            else:
+                estimated_effort = "Medium (2-4 hours)"
+
             finding = Finding(
                 id=f"shotgun_surgery_{result['class_name']}",
                 detector=self.__class__.__name__,
@@ -120,6 +128,7 @@ class ShotgunSurgeryDetector(CodeSmellDetector):
                 line_start=result.get("line_start"),
                 line_end=result.get("line_end"),
                 suggested_fix=suggestion,
+                estimated_effort=estimated_effort,
                 graph_context={
                     "caller_count": caller_count,
                     "files_affected": files_affected,

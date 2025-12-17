@@ -115,6 +115,14 @@ class InappropriateIntimacyDetector(CodeSmellDetector):
             same_file = result["file1"] == result["file2"]
             same_file_note = " (same file)" if same_file else " (different files)"
 
+            # Estimate effort based on coupling severity
+            if severity == Severity.HIGH:
+                estimated_effort = "Large (4-8 hours)"
+            elif severity == Severity.MEDIUM:
+                estimated_effort = "Medium (2-4 hours)"
+            else:
+                estimated_effort = "Medium (1-2 hours)"
+
             finding = Finding(
                 id=f"inappropriate_intimacy_{result['class1']}_{result['class2']}",
                 detector=self.__class__.__name__,
@@ -131,6 +139,7 @@ class InappropriateIntimacyDetector(CodeSmellDetector):
                 affected_nodes=[result["class1"], result["class2"]],
                 affected_files=[result["file1"], result["file2"]],
                 suggested_fix=suggestion,
+                estimated_effort=estimated_effort,
                 graph_context={
                     "class1": result["class1"],
                     "class2": result["class2"],

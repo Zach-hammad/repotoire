@@ -219,6 +219,7 @@ class LazyClassDetector(CodeSmellDetector):
             line_start=line_start,
             line_end=line_end,
             suggested_fix=recommendation,
+            estimated_effort="Small (15-30 minutes)",
             graph_context={
                 "method_count": method_count,
                 "total_loc": total_loc,

@@ -143,6 +143,9 @@ class ModuleCohesionDetector(CodeSmellDetector):
             "domains (DDD approach)"
         )
 
+        # Poor modularity is a significant architectural issue requiring sustained effort
+        estimated_effort = "Large (1-2 weeks)" if severity == Severity.HIGH else "Large (3-5 days)"
+
         finding = Finding(
             id="modularity_poor_global",
             detector="ModuleCohesionDetector",
@@ -152,6 +155,7 @@ class ModuleCohesionDetector(CodeSmellDetector):
             affected_nodes=[],
             affected_files=[],
             suggested_fix=suggested_fix,
+            estimated_effort=estimated_effort,
             graph_context={
                 "modularity_score": self.modularity_score,
                 "community_count": self.community_count,
@@ -203,6 +207,9 @@ class ModuleCohesionDetector(CodeSmellDetector):
             "compatibility"
         )
 
+        # God modules require significant refactoring effort
+        estimated_effort = "Large (1-2 days)" if severity == Severity.HIGH else "Large (4-8 hours)"
+
         finding = Finding(
             id=f"modularity_god_module_{community_id}",
             detector="ModuleCohesionDetector",
@@ -212,6 +219,7 @@ class ModuleCohesionDetector(CodeSmellDetector):
             affected_nodes=[],
             affected_files=[],
             suggested_fix=suggested_fix,
+            estimated_effort=estimated_effort,
             graph_context={
                 "community_id": community_id,
                 "community_size": size,
@@ -262,6 +270,9 @@ class ModuleCohesionDetector(CodeSmellDetector):
             "splitting responsibilities"
         )
 
+        # Moving a misplaced file is relatively straightforward
+        estimated_effort = "Small (30-60 minutes)" if severity == Severity.LOW else "Medium (1-2 hours)"
+
         finding = Finding(
             id=f"modularity_misplaced_{hash(qualified_name) % 10000}",
             detector="ModuleCohesionDetector",
@@ -271,6 +282,7 @@ class ModuleCohesionDetector(CodeSmellDetector):
             affected_nodes=[qualified_name],
             affected_files=[file_path],
             suggested_fix=suggested_fix,
+            estimated_effort=estimated_effort,
             graph_context={
                 "current_community": current_community,
                 "same_community_imports": same_imports,
@@ -327,6 +339,7 @@ class ModuleCohesionDetector(CodeSmellDetector):
             affected_nodes=[],
             affected_files=[],
             suggested_fix=suggested_fix,
+            estimated_effort="Large (2-4 days)",
             graph_context={
                 "total_cross_edges": total_cross_edges,
                 "top_coupled_pairs": [

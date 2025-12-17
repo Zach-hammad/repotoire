@@ -114,6 +114,9 @@ class TrulyUnusedImportsDetector(CodeSmellDetector):
             if len(suggestions) > 5:
                 suggestion_text += f"\n... and {len(suggestions) - 5} more"
 
+            # Removing unused imports is quick
+            estimated_effort = "Small (5-15 minutes)"
+
             finding = Finding(
                 id=f"truly_unused_imports_{file_path.replace('/', '_')}",
                 detector=self.__class__.__name__,
@@ -130,6 +133,7 @@ class TrulyUnusedImportsDetector(CodeSmellDetector):
                 affected_nodes=[imp["qualified_name"] for imp in unused_imports_list],
                 affected_files=[file_path],
                 suggested_fix=suggestion_text,
+                estimated_effort=estimated_effort,
                 graph_context={
                     "unused_imports": unused_imports_list,
                     "count": count,

@@ -200,6 +200,14 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
                     f"- Alert on anomalies"
                 )
 
+                # Estimate effort based on severity - bottlenecks require careful refactoring
+                if severity == Severity.CRITICAL:
+                    estimated_effort = "Large (1-2 days)"
+                elif severity == Severity.HIGH:
+                    estimated_effort = "Large (4-8 hours)"
+                else:
+                    estimated_effort = "Medium (2-4 hours)"
+
                 finding = Finding(
                     id=f"architectural_bottleneck_{qualified_name}",
                     detector="ArchitecturalBottleneckDetector",
@@ -209,6 +217,7 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
                     affected_nodes=[qualified_name],
                     affected_files=[file_path],
                     suggested_fix=suggested_fix,
+                    estimated_effort=estimated_effort,
                     graph_context={
                         "betweenness_score": betweenness,
                         "complexity": complexity,

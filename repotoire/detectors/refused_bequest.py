@@ -229,6 +229,14 @@ class RefusedBequestDetector(CodeSmellDetector):
             "Benefits: Looser coupling, clearer intent, easier testing"
         )
 
+        # Estimate effort based on severity - changing inheritance to composition takes time
+        if severity == Severity.HIGH:
+            estimated_effort = "Medium (2-4 hours)"
+        elif severity == Severity.MEDIUM:
+            estimated_effort = "Medium (1-2 hours)"
+        else:
+            estimated_effort = "Small (30-60 minutes)"
+
         finding = Finding(
             id=f"refused_bequest_{child_name}",
             detector="RefusedBequestDetector",
@@ -240,6 +248,7 @@ class RefusedBequestDetector(CodeSmellDetector):
             line_start=line_start,
             line_end=line_end,
             suggested_fix=recommendation,
+            estimated_effort=estimated_effort,
             graph_context={
                 "parent_class": parent_name,
                 "total_overrides": total_overrides,
