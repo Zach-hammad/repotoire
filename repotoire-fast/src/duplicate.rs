@@ -85,13 +85,13 @@ struct TokenLocation {
 
 /// Characters that act as token separators
 const SEPARATORS: &[char] = &[
-    ' ', '\t', '\n', '\r',           // Whitespace
-    '(', ')', '[', ']', '{', '}',    // Brackets
-    ',', ';', ':', '.', '!', '?',    // Punctuation
-    '+', '-', '*', '/', '%', '=',    // Operators
-    '<', '>', '&', '|', '^', '~',    // More operators
-    '@', '#', '$', '`', '\\',        // Special
-    '"', '\'',                       // Quotes
+    ' ', '\t', '\n', '\r', // Whitespace
+    '(', ')', '[', ']', '{', '}', // Brackets
+    ',', ';', ':', '.', '!', '?', // Punctuation
+    '+', '-', '*', '/', '%', '=', // Operators
+    '<', '>', '&', '|', '^', '~', // More operators
+    '@', '#', '$', '`', '\\', // Special
+    '"', '\'', // Quotes
 ];
 
 /// Tokenize a line of source code into normalized tokens.
@@ -139,12 +139,10 @@ pub fn tokenize(source: &str) -> Vec<Token> {
         .lines()
         .enumerate()
         .flat_map(|(line_no, line)| {
-            tokenize_line(line)
-                .into_iter()
-                .map(move |value| Token {
-                    value,
-                    line: line_no + 1, // 1-indexed
-                })
+            tokenize_line(line).into_iter().map(move |value| Token {
+                value,
+                line: line_no + 1, // 1-indexed
+            })
         })
         .collect()
 }
@@ -293,7 +291,81 @@ fn jaccard_similarity(tokens1: &[Token], tokens2: &[Token]) -> f64 {
     }
 }
 
+/// Threshold for using grouped comparison optimization.
+/// Below this, simple O(n²) is faster due to lower overhead.
+const GROUPING_THRESHOLD: usize = 25;
+
+/// Compare two locations and return a DuplicateBlock if they match.
+#[inline]
+fn compare_locations(
+    loc1: &TokenLocation,
+    loc2: &TokenLocation,
+    file_tokens: &[(String, Vec<Token>)],
+    min_tokens: usize,
+    min_lines: usize,
+    min_similarity: f64,
+) -> Option<DuplicateBlock> {
+    let (path1, tokens1) = &file_tokens[loc1.file_idx];
+    let (path2, tokens2) = &file_tokens[loc2.file_idx];
+
+    // Verify the match is real (not just hash collision)
+    if !verify_match(tokens1, loc1.token_idx, tokens2, loc2.token_idx, min_tokens) {
+        return None;
+    }
+
+    // Extend match to find full duplicate region
+    let token_length = extend_match(tokens1, loc1.token_idx, tokens2, loc2.token_idx, min_tokens);
+
+    // Check minimum token length
+    if token_length < min_tokens {
+        return None;
+    }
+
+    // Calculate line span
+    let line_length1 = line_span(tokens1, loc1.token_idx, token_length);
+    let line_length2 = line_span(tokens2, loc2.token_idx, token_length);
+    let line_length = line_length1.max(line_length2);
+
+    // Check minimum line length
+    if line_length < min_lines {
+        return None;
+    }
+
+    // Check similarity threshold
+    if min_similarity > 0.0 {
+        let end1 = (loc1.token_idx + token_length).min(tokens1.len());
+        let end2 = (loc2.token_idx + token_length).min(tokens2.len());
+        let similarity = jaccard_similarity(
+            &tokens1[loc1.token_idx..end1],
+            &tokens2[loc2.token_idx..end2],
+        );
+        if similarity < min_similarity {
+            return None;
+        }
+    }
+
+    Some(DuplicateBlock {
+        file1: path1.clone(),
+        start1: loc1.start_line,
+        file2: path2.clone(),
+        start2: loc2.start_line,
+        token_length,
+        line_length,
+    })
+}
+
+/// Check if two same-file locations overlap.
+#[inline]
+fn locations_overlap(loc1: &TokenLocation, loc2: &TokenLocation, min_tokens: usize) -> bool {
+    if loc1.token_idx <= loc2.token_idx {
+        loc1.token_idx + min_tokens > loc2.token_idx
+    } else {
+        loc2.token_idx + min_tokens > loc1.token_idx
+    }
+}
+
 /// Find duplicate pairs from hash collisions.
+/// Uses simple O(n²) for small inputs, grouped comparison for larger inputs.
 fn find_duplicate_pairs(
     locations: &[TokenLocation],
     file_tokens: &[(String, Vec<Token>)],
@@ -303,71 +375,64 @@ fn find_duplicate_pairs(
 ) -> Vec<DuplicateBlock> {
     let mut duplicates = Vec::new();
 
-    // Compare all pairs of locations with the same hash
-    for i in 0..locations.len() {
-        for j in (i + 1)..locations.len() {
-            let loc1 = &locations[i];
-            let loc2 = &locations[j];
+    // For small inputs, use simple O(n²) - lower overhead wins
+    if locations.len() < GROUPING_THRESHOLD {
+        for i in 0..locations.len() {
+            for j in (i + 1)..locations.len() {
+                let loc1 = &locations[i];
+                let loc2 = &locations[j];
 
-            // Skip self-comparisons (same file, overlapping regions)
-            if loc1.file_idx == loc2.file_idx {
-                let overlap = if loc1.token_idx <= loc2.token_idx {
-                    loc1.token_idx + min_tokens > loc2.token_idx
-                } else {
-                    loc2.token_idx + min_tokens > loc1.token_idx
-                };
-                if overlap {
+                // Skip same-file overlapping regions
+                if loc1.file_idx == loc2.file_idx && locations_overlap(loc1, loc2, min_tokens) {
                     continue;
                 }
-            }
 
-            let (path1, tokens1) = &file_tokens[loc1.file_idx];
-            let (path2, tokens2) = &file_tokens[loc2.file_idx];
-
-            // Verify the match is real (not just hash collision)
-            if !verify_match(tokens1, loc1.token_idx, tokens2, loc2.token_idx, min_tokens) {
-                continue;
-            }
-
-            // Extend match to find full duplicate region
-            let token_length = extend_match(tokens1, loc1.token_idx, tokens2, loc2.token_idx, min_tokens);
-
-            // Check minimum token length
-            if token_length < min_tokens {
-                continue;
-            }
-
-            // Calculate line span
-            let line_length1 = line_span(tokens1, loc1.token_idx, token_length);
-            let line_length2 = line_span(tokens2, loc2.token_idx, token_length);
-            let line_length = line_length1.max(line_length2);
-
-            // Check minimum line length
-            if line_length < min_lines {
-                continue;
-            }
-
-            // Check similarity threshold
-            if min_similarity > 0.0 {
-                let end1 = (loc1.token_idx + token_length).min(tokens1.len());
-                let end2 = (loc2.token_idx + token_length).min(tokens2.len());
-                let similarity = jaccard_similarity(
-                    &tokens1[loc1.token_idx..end1],
-                    &tokens2[loc2.token_idx..end2],
-                );
-                if similarity < min_similarity {
-                    continue;
+                if let Some(dup) = compare_locations(loc1, loc2, file_tokens, min_tokens, min_lines, min_similarity) {
+                    duplicates.push(dup);
                 }
             }
+        }
+        return duplicates;
+    }
 
-            duplicates.push(DuplicateBlock {
-                file1: path1.clone(),
-                start1: loc1.start_line,
-                file2: path2.clone(),
-                start2: loc2.start_line,
-                token_length,
-                line_length,
-            });
+    // For larger inputs, group by file to optimize same-file vs cross-file comparisons
+    let mut by_file: FxHashMap<usize, Vec<&TokenLocation>> = FxHashMap::default();
+    for loc in locations {
+        by_file.entry(loc.file_idx).or_default().push(loc);
+    }
+
+    // Same-file comparisons: need overlap check
+    for (_file_idx, locs) in &by_file {
+        for i in 0..locs.len() {
+            for j in (i + 1)..locs.len() {
+                let loc1 = locs[i];
+                let loc2 = locs[j];
+
+                if locations_overlap(loc1, loc2, min_tokens) {
+                    continue;
+                }
+
+                if let Some(dup) = compare_locations(loc1, loc2, file_tokens, min_tokens, min_lines, min_similarity) {
+                    duplicates.push(dup);
+                }
+            }
+        }
+    }
+
+    // Cross-file comparisons: no overlap check needed
+    let file_indices: Vec<_> = by_file.keys().collect();
+    for i in 0..file_indices.len() {
+        for j in (i + 1)..file_indices.len() {
+            let locs1 = &by_file[file_indices[i]];
+            let locs2 = &by_file[file_indices[j]];
+
+            for loc1 in locs1.iter() {
+                for loc2 in locs2.iter() {
+                    if let Some(dup) = compare_locations(loc1, loc2, file_tokens, min_tokens, min_lines, min_similarity) {
+                        duplicates.push(dup);
+                    }
+                }
+            }
         }
     }
 
@@ -382,8 +447,7 @@ fn merge_overlapping(mut duplicates: Vec<DuplicateBlock>) -> Vec<DuplicateBlock>
 
     // Sort by file pair and start positions
     duplicates.sort_by(|a, b| {
-        (&a.file1, &a.file2, a.start1, a.start2)
-            .cmp(&(&b.file1, &b.file2, b.start1, b.start2))
+        (&a.file1, &a.file2, a.start1, a.start2).cmp(&(&b.file1, &b.file2, b.start1, b.start2))
     });
 
     let mut merged: Vec<DuplicateBlock> = Vec::new();
@@ -475,7 +539,13 @@ pub fn find_duplicates(
     let duplicates: Vec<DuplicateBlock> = collision_entries
         .into_par_iter()
         .flat_map(|(_, locations)| {
-            find_duplicate_pairs(&locations, &file_tokens, min_tokens, min_lines, min_similarity)
+            find_duplicate_pairs(
+                &locations,
+                &file_tokens,
+                min_tokens,
+                min_lines,
+                min_similarity,
+            )
         })
         .collect();
 
@@ -543,8 +613,14 @@ mod tests {
     #[test]
     fn test_rolling_hash_too_short() {
         let tokens = vec![
-            Token { value: "a".to_string(), line: 1 },
-            Token { value: "b".to_string(), line: 1 },
+            Token {
+                value: "a".to_string(),
+                line: 1,
+            },
+            Token {
+                value: "b".to_string(),
+                line: 1,
+            },
         ];
         let hashes = rolling_hash(&tokens, 5);
         assert!(hashes.is_empty());
@@ -553,9 +629,18 @@ mod tests {
     #[test]
     fn test_rolling_hash_exact_size() {
         let tokens = vec![
-            Token { value: "a".to_string(), line: 1 },
-            Token { value: "b".to_string(), line: 1 },
-            Token { value: "c".to_string(), line: 1 },
+            Token {
+                value: "a".to_string(),
+                line: 1,
+            },
+            Token {
+                value: "b".to_string(),
+                line: 1,
+            },
+            Token {
+                value: "c".to_string(),
+                line: 1,
+            },
         ];
         let hashes = rolling_hash(&tokens, 3);
         assert_eq!(hashes.len(), 1);
@@ -566,11 +651,26 @@ mod tests {
     #[test]
     fn test_rolling_hash_multiple_windows() {
         let tokens = vec![
-            Token { value: "a".to_string(), line: 1 },
-            Token { value: "b".to_string(), line: 1 },
-            Token { value: "c".to_string(), line: 2 },
-            Token { value: "d".to_string(), line: 2 },
-            Token { value: "e".to_string(), line: 3 },
+            Token {
+                value: "a".to_string(),
+                line: 1,
+            },
+            Token {
+                value: "b".to_string(),
+                line: 1,
+            },
+            Token {
+                value: "c".to_string(),
+                line: 2,
+            },
+            Token {
+                value: "d".to_string(),
+                line: 2,
+            },
+            Token {
+                value: "e".to_string(),
+                line: 3,
+            },
         ];
         let hashes = rolling_hash(&tokens, 3);
         assert_eq!(hashes.len(), 3); // Windows: abc, bcd, cde
@@ -579,12 +679,24 @@ mod tests {
     #[test]
     fn test_rolling_hash_same_content_same_hash() {
         let tokens1 = vec![
-            Token { value: "def".to_string(), line: 1 },
-            Token { value: "foo".to_string(), line: 1 },
+            Token {
+                value: "def".to_string(),
+                line: 1,
+            },
+            Token {
+                value: "foo".to_string(),
+                line: 1,
+            },
         ];
         let tokens2 = vec![
-            Token { value: "def".to_string(), line: 5 },
-            Token { value: "foo".to_string(), line: 5 },
+            Token {
+                value: "def".to_string(),
+                line: 5,
+            },
+            Token {
+                value: "foo".to_string(),
+                line: 5,
+            },
         ];
         let hash1 = rolling_hash(&tokens1, 2);
         let hash2 = rolling_hash(&tokens2, 2);
@@ -604,9 +716,7 @@ mod tests {
 
     #[test]
     fn test_find_duplicates_single_file() {
-        let files = vec![
-            ("a.py".to_string(), "def foo():\n    return 1".to_string()),
-        ];
+        let files = vec![("a.py".to_string(), "def foo():\n    return 1".to_string())];
         let duplicates = find_duplicates(files, 5, 2, 0.0);
         assert!(duplicates.is_empty()); // No duplicates in single file
     }
@@ -619,14 +729,23 @@ mod tests {
             ("b.py".to_string(), code),
         ];
         let duplicates = find_duplicates(files, 5, 2, 0.0);
-        assert!(!duplicates.is_empty(), "Should find duplicates in identical files");
+        assert!(
+            !duplicates.is_empty(),
+            "Should find duplicates in identical files"
+        );
     }
 
     #[test]
     fn test_find_duplicates_partial_match() {
         let files = vec![
-            ("a.py".to_string(), "def foo():\n    return 1\n\ndef unique_a():\n    pass".to_string()),
-            ("b.py".to_string(), "def foo():\n    return 1\n\ndef unique_b():\n    pass".to_string()),
+            (
+                "a.py".to_string(),
+                "def foo():\n    return 1\n\ndef unique_a():\n    pass".to_string(),
+            ),
+            (
+                "b.py".to_string(),
+                "def foo():\n    return 1\n\ndef unique_b():\n    pass".to_string(),
+            ),
         ];
         let duplicates = find_duplicates(files, 5, 2, 0.0);
         assert!(!duplicates.is_empty(), "Should find partial duplicates");
@@ -639,7 +758,10 @@ mod tests {
             ("b.py".to_string(), "def bar(): return 2".to_string()),
         ];
         let duplicates = find_duplicates(files, 5, 2, 0.0);
-        assert!(duplicates.is_empty(), "Should not find duplicates in different code");
+        assert!(
+            duplicates.is_empty(),
+            "Should not find duplicates in different code"
+        );
     }
 
     #[test]
@@ -653,8 +775,14 @@ mod tests {
         let with_low_threshold = find_duplicates(files.clone(), 2, 1, 0.0);
         let with_high_threshold = find_duplicates(files, 100, 1, 0.0);
 
-        assert!(!with_low_threshold.is_empty(), "Should find with low threshold");
-        assert!(with_high_threshold.is_empty(), "Should not find with high threshold");
+        assert!(
+            !with_low_threshold.is_empty(),
+            "Should find with low threshold"
+        );
+        assert!(
+            with_high_threshold.is_empty(),
+            "Should not find with high threshold"
+        );
     }
 
     #[test]
@@ -676,9 +804,7 @@ mod tests {
     fn test_find_duplicates_same_file_different_locations() {
         // Duplicate code within the same file
         let code = "def foo():\n    return 1\n\ndef bar():\n    return 1".to_string();
-        let files = vec![
-            ("a.py".to_string(), code),
-        ];
+        let files = vec![("a.py".to_string(), code)];
         // This should potentially find internal duplicates if not filtered
         let duplicates = find_duplicates(files, 3, 1, 0.0);
         // We filter self-comparisons that overlap, so this depends on implementation
@@ -696,7 +822,10 @@ mod tests {
         ];
         let duplicates = find_duplicates(files, 5, 2, 0.0);
         // Should find duplicates between all pairs: (a,b), (a,c), (b,c)
-        assert!(duplicates.len() >= 1, "Should find duplicates across 3 files");
+        assert!(
+            duplicates.len() >= 1,
+            "Should find duplicates across 3 files"
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -780,12 +909,24 @@ mod tests {
     #[test]
     fn test_jaccard_identical() {
         let tokens1 = vec![
-            Token { value: "a".to_string(), line: 1 },
-            Token { value: "b".to_string(), line: 1 },
+            Token {
+                value: "a".to_string(),
+                line: 1,
+            },
+            Token {
+                value: "b".to_string(),
+                line: 1,
+            },
         ];
         let tokens2 = vec![
-            Token { value: "a".to_string(), line: 1 },
-            Token { value: "b".to_string(), line: 1 },
+            Token {
+                value: "a".to_string(),
+                line: 1,
+            },
+            Token {
+                value: "b".to_string(),
+                line: 1,
+            },
         ];
         let sim = jaccard_similarity(&tokens1, &tokens2);
         assert!((sim - 1.0).abs() < 0.001);
@@ -794,12 +935,24 @@ mod tests {
     #[test]
     fn test_jaccard_disjoint() {
         let tokens1 = vec![
-            Token { value: "a".to_string(), line: 1 },
-            Token { value: "b".to_string(), line: 1 },
+            Token {
+                value: "a".to_string(),
+                line: 1,
+            },
+            Token {
+                value: "b".to_string(),
+                line: 1,
+            },
         ];
         let tokens2 = vec![
-            Token { value: "c".to_string(), line: 1 },
-            Token { value: "d".to_string(), line: 1 },
+            Token {
+                value: "c".to_string(),
+                line: 1,
+            },
+            Token {
+                value: "d".to_string(),
+                line: 1,
+            },
         ];
         let sim = jaccard_similarity(&tokens1, &tokens2);
         assert!((sim - 0.0).abs() < 0.001);
@@ -808,12 +961,24 @@ mod tests {
     #[test]
     fn test_jaccard_partial() {
         let tokens1 = vec![
-            Token { value: "a".to_string(), line: 1 },
-            Token { value: "b".to_string(), line: 1 },
+            Token {
+                value: "a".to_string(),
+                line: 1,
+            },
+            Token {
+                value: "b".to_string(),
+                line: 1,
+            },
         ];
         let tokens2 = vec![
-            Token { value: "a".to_string(), line: 1 },
-            Token { value: "c".to_string(), line: 1 },
+            Token {
+                value: "a".to_string(),
+                line: 1,
+            },
+            Token {
+                value: "c".to_string(),
+                line: 1,
+            },
         ];
         let sim = jaccard_similarity(&tokens1, &tokens2);
         // Intersection: {a}, Union: {a, b, c} => 1/3
