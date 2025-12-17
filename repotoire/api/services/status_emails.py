@@ -9,6 +9,7 @@ This module provides email templates and sending logic for:
 
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import dataclass
 from datetime import datetime
@@ -23,6 +24,16 @@ BASE_URL = os.environ.get("STATUS_PAGE_URL", "https://status.repotoire.io")
 API_URL = os.environ.get("API_URL", "https://api.repotoire.io")
 FROM_EMAIL = os.environ.get("STATUS_EMAIL_FROM", "status@repotoire.io")
 FROM_NAME = os.environ.get("STATUS_EMAIL_FROM_NAME", "Repotoire Status")
+
+# Email sending configuration
+# Max concurrent emails (SendGrid: 100/s, SES: 14/s default, adjust per provider)
+EMAIL_MAX_CONCURRENCY = int(os.environ.get("EMAIL_MAX_CONCURRENCY", "10"))
+# Max retries for transient failures
+EMAIL_MAX_RETRIES = int(os.environ.get("EMAIL_MAX_RETRIES", "3"))
+# Base delay for exponential backoff (seconds)
+EMAIL_RETRY_BASE_DELAY = float(os.environ.get("EMAIL_RETRY_BASE_DELAY", "1.0"))
+# Batch size for processing large subscriber lists (0 = no batching)
+EMAIL_BATCH_SIZE = int(os.environ.get("EMAIL_BATCH_SIZE", "100"))
 
 
 @dataclass
@@ -444,7 +455,7 @@ async def _send_via_sendgrid(message: EmailMessage, api_key: str) -> bool:
 
 
 async def _send_via_ses(message: EmailMessage, region: str) -> bool:
-    """Send email via AWS SES.
+    """Send email via AWS SES (async).
 
     Args:
         message: EmailMessage to send
@@ -454,22 +465,32 @@ async def _send_via_ses(message: EmailMessage, region: str) -> bool:
         True if sent successfully
     """
     try:
-        import boto3
-
-        ses = boto3.client("ses", region_name=region)
-        response = ses.send_email(
-            Source=f"{FROM_NAME} <{FROM_EMAIL}>",
-            Destination={"ToAddresses": [message.to]},
-            Message={
-                "Subject": {"Data": message.subject},
-                "Body": {
-                    "Text": {"Data": message.text},
-                    "Html": {"Data": message.html},
-                },
-            },
+        import aioboto3
+    except ImportError:
+        logger.error(
+            "aioboto3 not installed. Install with: pip install repotoire[saas]"
         )
+        return False
 
-        logger.info(f"Email sent via SES to {message.to}", extra={"message_id": response["MessageId"]})
+    try:
+        session = aioboto3.Session()
+        async with session.client("ses", region_name=region) as ses:
+            response = await ses.send_email(
+                Source=f"{FROM_NAME} <{FROM_EMAIL}>",
+                Destination={"ToAddresses": [message.to]},
+                Message={
+                    "Subject": {"Data": message.subject},
+                    "Body": {
+                        "Text": {"Data": message.text},
+                        "Html": {"Data": message.html},
+                    },
+                },
+            )
+
+        logger.info(
+            f"Email sent via SES to {message.to}",
+            extra={"message_id": response["MessageId"]}
+        )
         return True
 
     except Exception as e:
@@ -492,6 +513,15 @@ async def notify_subscribers_incident_created(
 ) -> dict[str, int]:
     """Send incident created notifications to all subscribers.
 
+    Sends emails concurrently with bounded parallelism, retry logic,
+    and batched processing for large subscriber lists.
+
+    Configuration via environment variables:
+        EMAIL_MAX_CONCURRENCY: Max concurrent emails (default: 10)
+        EMAIL_MAX_RETRIES: Max retries per email (default: 3)
+        EMAIL_RETRY_BASE_DELAY: Base delay for backoff in seconds (default: 1.0)
+        EMAIL_BATCH_SIZE: Batch size for large lists (default: 100, 0=disabled)
+
     Args:
         subscribers: List of subscriber dicts with email and unsubscribe_token
         incident_title: Title of the incident
@@ -503,23 +533,83 @@ async def notify_subscribers_incident_created(
     Returns:
         Dict with sent and failed counts
     """
-    sent = 0
-    failed = 0
+    if not subscribers:
+        return {"sent": 0, "failed": 0}
 
-    for subscriber in subscribers:
-        message = create_incident_created_email(
-            email=subscriber["email"],
-            unsubscribe_token=subscriber["unsubscribe_token"],
-            incident_title=incident_title,
-            incident_severity=incident_severity,
-            incident_message=incident_message,
-            affected_components=affected_components,
-            started_at=started_at,
+    semaphore = asyncio.Semaphore(EMAIL_MAX_CONCURRENCY)
+
+    async def send_one_with_retry(subscriber: dict[str, Any]) -> bool:
+        """Send email to one subscriber with bounded concurrency and retries."""
+        email = subscriber.get("email", "unknown")
+
+        for attempt in range(EMAIL_MAX_RETRIES):
+            try:
+                async with semaphore:
+                    message = create_incident_created_email(
+                        email=subscriber["email"],
+                        unsubscribe_token=subscriber["unsubscribe_token"],
+                        incident_title=incident_title,
+                        incident_severity=incident_severity,
+                        incident_message=incident_message,
+                        affected_components=affected_components,
+                        started_at=started_at,
+                    )
+                    result = await send_email(message)
+                    if result:
+                        return True
+                    # send_email returned False (non-exception failure)
+                    logger.warning(
+                        f"Email send returned False for {email} "
+                        f"(attempt {attempt + 1}/{EMAIL_MAX_RETRIES})"
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"Email send failed for {email} "
+                    f"(attempt {attempt + 1}/{EMAIL_MAX_RETRIES}): {e}"
+                )
+
+            # Exponential backoff before retry (except on last attempt)
+            if attempt < EMAIL_MAX_RETRIES - 1:
+                delay = EMAIL_RETRY_BASE_DELAY * (2 ** attempt)
+                await asyncio.sleep(delay)
+
+        # All retries exhausted
+        logger.error(f"Email send failed permanently for {email} after {EMAIL_MAX_RETRIES} attempts")
+        return False
+
+    async def process_batch(batch: list[dict[str, Any]]) -> list[bool]:
+        """Process a batch of subscribers concurrently."""
+        results = await asyncio.gather(
+            *[send_one_with_retry(sub) for sub in batch],
+            return_exceptions=True,
         )
+        # Convert exceptions to False
+        return [r if r is True else False for r in results]
 
-        if await send_email(message):
-            sent += 1
-        else:
-            failed += 1
+    # Process in batches to avoid memory issues with very large lists
+    all_results: list[bool] = []
+
+    if EMAIL_BATCH_SIZE > 0 and len(subscribers) > EMAIL_BATCH_SIZE:
+        logger.info(
+            f"Processing {len(subscribers)} subscribers in batches of {EMAIL_BATCH_SIZE}"
+        )
+        for i in range(0, len(subscribers), EMAIL_BATCH_SIZE):
+            batch = subscribers[i : i + EMAIL_BATCH_SIZE]
+            batch_results = await process_batch(batch)
+            all_results.extend(batch_results)
+            logger.debug(
+                f"Batch {i // EMAIL_BATCH_SIZE + 1} complete: "
+                f"{sum(batch_results)}/{len(batch_results)} sent"
+            )
+    else:
+        all_results = await process_batch(subscribers)
+
+    sent = sum(1 for r in all_results if r is True)
+    failed = len(all_results) - sent
+
+    logger.info(
+        f"Email notification complete: {sent} sent, {failed} failed "
+        f"out of {len(subscribers)} subscribers"
+    )
 
     return {"sent": sent, "failed": failed}
