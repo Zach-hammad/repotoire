@@ -1,10 +1,11 @@
 """Main ingestion pipeline for processing codebases."""
 
+import hashlib
 import os
 import re
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable, Tuple
 
 from repotoire_fast import scan_files as rust_scan_files
 
@@ -100,6 +101,10 @@ class IngestionPipeline:
         # Track skipped files for reporting
         self.skipped_files: List[Dict[str, str]] = []
 
+        # Cache for file content and hash to avoid redundant reads
+        # Key: Path, Value: (content_bytes, md5_hash)
+        self._file_cache: Dict[Path, Tuple[bytes, str]] = {}
+
         # Callbacks to run after ingestion completes (e.g., cache invalidation)
         self._on_ingest_complete_callbacks: List[Callable[[], None]] = []
 
@@ -184,6 +189,44 @@ class IngestionPipeline:
             raise ValueError(f"Repository must be a directory: {self.repo_path}")
 
         logger.info(f"Repository path validated: {self.repo_path}")
+
+    def _get_file_content_and_hash(self, file_path: Path) -> Tuple[bytes, str]:
+        """Read file once, cache content and hash.
+
+        Reads the file in binary mode, computes MD5 hash, and caches both.
+        Subsequent calls for the same path return cached values.
+
+        Args:
+            file_path: Path to the file to read
+
+        Returns:
+            Tuple of (content_bytes, md5_hash)
+
+        Raises:
+            OSError: If file cannot be read
+        """
+        # Normalize path for consistent cache keys
+        normalized_path = file_path.resolve()
+
+        if normalized_path in self._file_cache:
+            return self._file_cache[normalized_path]
+
+        with open(normalized_path, "rb") as f:
+            content = f.read()
+        file_hash = hashlib.md5(content).hexdigest()
+
+        self._file_cache[normalized_path] = (content, file_hash)
+        return content, file_hash
+
+    def _clear_file_cache(self) -> None:
+        """Clear the file content cache to free memory.
+
+        Should be called after ingestion batch completes to prevent memory bloat.
+        """
+        cache_size = len(self._file_cache)
+        self._file_cache.clear()
+        if cache_size > 0:
+            logger.debug(f"Cleared file cache ({cache_size} entries)")
 
     def register_parser(self, language: str, parser: CodeParser) -> None:
         """Register a language parser.
@@ -394,6 +437,14 @@ class IngestionPipeline:
         parser = self.parsers[language]
 
         try:
+            # Populate file cache if not already cached (for new files)
+            # This ensures each file is read at most once during ingestion
+            content, file_hash = self._get_file_content_and_hash(file_path)
+
+            # Inject cached content into parser to avoid redundant reads
+            if hasattr(parser, 'set_cached_content'):
+                parser.set_cached_content(str(file_path), content, file_hash)
+
             entities, relationships = parser.process_file(str(file_path))
 
             # Convert all entity file paths to relative paths for security
@@ -813,6 +864,7 @@ class IngestionPipeline:
 
         if not files:
             logger.warning("No files found to process")
+            self._clear_file_cache()  # Clear cache on early return
             if self.skipped_files:
                 self._report_skipped_files()
             return
@@ -835,10 +887,8 @@ class IngestionPipeline:
                     files_new += 1
                 else:
                     # File exists in database, compare hashes
-                    # Need to compute current hash
-                    import hashlib
-                    with open(file_path, "rb") as f:
-                        current_hash = hashlib.md5(f.read()).hexdigest()
+                    # Use cached hash (will read file once, cache for later use by parser)
+                    _, current_hash = self._get_file_content_and_hash(file_path)
 
                     if current_hash == metadata["hash"]:
                         # File unchanged, skip
@@ -894,6 +944,7 @@ class IngestionPipeline:
 
         if not files_to_process:
             logger.info("No files to process (all files unchanged)")
+            self._clear_file_cache()  # Clear cache on early return
             return
 
         # Process each file
@@ -1017,6 +1068,9 @@ class IngestionPipeline:
 
         logger.info("Ingestion complete", extra=log_extra)
 
+        # Clear file content cache to free memory
+        self._clear_file_cache()
+
         # Report skipped files if any
         if self.skipped_files:
             self._report_skipped_files()
@@ -1100,6 +1154,25 @@ class IngestionPipeline:
 
             logger.debug(f"Detected {len(package_dirs)} package directories")
 
+            # Pre-compute file lookup table for O(1) path matching - O(m) construction
+            # Index by all suffix paths so we can match absolute paths against relative paths
+            file_lookup: Dict[str, dict] = {}
+            for f in files_result:
+                fp = f["path"]
+                fp_norm = os.path.normpath(fp)
+                # Store normalized path on the dict for later use
+                f["_normalized_path"] = fp_norm
+
+                # Index by all suffixes: full path, then progressively shorter
+                # e.g., "repotoire/models.py" → keys: "repotoire/models.py", "models.py"
+                parts = fp_norm.split(os.sep)
+                for i in range(len(parts)):
+                    suffix = os.sep.join(parts[i:])
+                    if suffix not in file_lookup:  # First match wins (matches original behavior)
+                        file_lookup[suffix] = f
+
+            logger.debug(f"Built file lookup table with {len(file_lookup)} suffix entries for {len(files_result)} files")
+
             # Build mapping: (file_module, entity_path) -> graph_qn
             # e.g., ("repotoire.models", "Finding.__init__") -> "/path/repotoire/models.py::Finding.__init__:45"
             ti_ns_to_graph_qn: Dict[str, str] = {}
@@ -1123,15 +1196,20 @@ class IngestionPipeline:
 
                 # Find the relative path from files_result that matches this absolute path
                 # Graph QN has absolute path, files_result has relative paths
-                # Normalize paths for cross-platform compatibility
+                # Use pre-computed lookup table for O(1) matching instead of O(m) inner loop
                 file_part_norm = os.path.normpath(file_part)
+
+                # Try suffixes of file_part_norm until we find a match
+                # e.g., "/home/user/project/repotoire/models.py" tries:
+                #   "home/user/project/repotoire/models.py", "user/project/repotoire/models.py", ...
+                #   until it matches "repotoire/models.py" in the lookup table
                 relative_file_path = None
-                for f in files_result:
-                    fp = f["path"]
-                    fp_norm = os.path.normpath(fp)
-                    # Check if the absolute file_part ends with the relative path
-                    if file_part_norm.endswith(os.sep + fp_norm) or file_part_norm == fp_norm:
-                        relative_file_path = fp_norm
+                parts = file_part_norm.split(os.sep)
+                for i in range(len(parts)):
+                    suffix = os.sep.join(parts[i:])
+                    matched_file = file_lookup.get(suffix)
+                    if matched_file:
+                        relative_file_path = matched_file["_normalized_path"]
                         break
 
                 if relative_file_path:
@@ -1400,6 +1478,8 @@ class IngestionPipeline:
             logger.debug(f"Found {len(external_calls)} external calls to potentially resolve")
 
             # Step 3: For each external call, try to resolve to internal entity
+            # Collect all resolutions for batch processing (performance optimization)
+            resolutions = []  # List of dicts with resolution data
             fallback_count = 0
             community_guided_fallback = 0
             for call in external_calls:
@@ -1518,29 +1598,57 @@ class IngestionPipeline:
                     fallback_count += 1
 
                 if best_match:
-                    # Step 4: Create new relationship to internal entity
-                    # Delete old relationship and create new one
-                    resolve_query = """
-                    MATCH (caller:Function {qualifiedName: $caller_qn})-[r:CALLS]->(old_target {qualifiedName: $old_target_qn})
-                    MATCH (new_target {qualifiedName: $new_target_qn})
-                    DELETE r
-                    MERGE (caller)-[r2:CALLS]->(new_target)
-                    ON CREATE SET r2.line = $line, r2.call_name = $call_name, r2.is_self_call = $is_self_call, r2.resolved = true
-                    RETURN count(r2) as created
-                    """
-                    try:
-                        result = self.db.execute_query(resolve_query, {
-                            "caller_qn": caller_qn,
-                            "old_target_qn": call["target_qn"],
-                            "new_target_qn": best_match["qualified_name"],
-                            "line": call.get("line"),
-                            "call_name": call.get("call_name"),
-                            "is_self_call": call.get("is_self_call", False),
-                        })
+                    # Collect resolution data for batch processing
+                    resolutions.append({
+                        "caller_qn": caller_qn,
+                        "old_target_qn": call["target_qn"],
+                        "new_target_qn": best_match["qualified_name"],
+                        "line": call.get("line"),
+                        "call_name": call.get("call_name"),
+                        "is_self_call": call.get("is_self_call", False),
+                    })
+
+            # Step 4: Execute batch resolution query
+            # Using UNWIND for efficient bulk processing instead of per-call queries
+            if resolutions:
+                BATCH_SIZE = 10000  # Chunk to avoid memory issues with huge batches
+                resolve_query = """
+                UNWIND $resolutions AS res
+                MATCH (caller:Function {qualifiedName: res.caller_qn})-[r:CALLS]->(old_target {qualifiedName: res.old_target_qn})
+                MATCH (new_target {qualifiedName: res.new_target_qn})
+                DELETE r
+                MERGE (caller)-[r2:CALLS]->(new_target)
+                ON CREATE SET r2.line = res.line, r2.call_name = res.call_name, r2.is_self_call = res.is_self_call, r2.resolved = true
+                RETURN count(r2) as created
+                """
+                try:
+                    for i in range(0, len(resolutions), BATCH_SIZE):
+                        chunk = resolutions[i:i + BATCH_SIZE]
+                        if len(resolutions) > BATCH_SIZE:
+                            logger.debug(f"Processing resolution batch {i // BATCH_SIZE + 1}: {len(chunk)} calls")
+                        result = self.db.execute_query(resolve_query, {"resolutions": chunk})
                         if result and result[0]["created"] > 0:
-                            calls_resolved += 1
-                    except Exception as e:
-                        logger.debug(f"Failed to resolve call from {caller_qn} to {target_name}: {e}")
+                            calls_resolved += result[0]["created"]
+                    logger.info(f"Batch resolved {calls_resolved} calls to internal entities")
+                except Exception as e:
+                    logger.warning(f"Batch call resolution failed: {e}")
+                    # Fall back to individual queries for debugging
+                    logger.debug("Attempting individual call resolution for debugging...")
+                    for res in resolutions[:10]:  # Try first 10 to diagnose
+                        try:
+                            single_query = """
+                            MATCH (caller:Function {qualifiedName: $caller_qn})-[r:CALLS]->(old_target {qualifiedName: $old_target_qn})
+                            MATCH (new_target {qualifiedName: $new_target_qn})
+                            DELETE r
+                            MERGE (caller)-[r2:CALLS]->(new_target)
+                            ON CREATE SET r2.line = $line, r2.call_name = $call_name, r2.is_self_call = $is_self_call, r2.resolved = true
+                            RETURN count(r2) as created
+                            """
+                            single_result = self.db.execute_query(single_query, res)
+                            if single_result and single_result[0]["created"] > 0:
+                                calls_resolved += 1
+                        except Exception as inner_e:
+                            logger.debug(f"Individual resolution failed for {res['caller_qn']}: {inner_e}")
 
             # Log resolution quality metrics
             if calls_resolved > 0:
