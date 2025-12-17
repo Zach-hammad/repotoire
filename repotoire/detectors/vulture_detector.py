@@ -169,12 +169,17 @@ class VultureDetector(CodeSmellDetector):
                 cmd.extend(["--exclude", pattern])
 
             # Run vulture
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=self.repository_path
-            )
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=self.repository_path,
+                    timeout=60  # Dead code detection is fast, 60s is generous
+                )
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Vulture timed out after 60s on {self.repository_path}")
+                return []
 
             # Parse output (vulture outputs to stdout)
             # Format: <file>:<line>: unused <type> '<name>' (confidence%)

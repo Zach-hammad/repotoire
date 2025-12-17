@@ -162,12 +162,17 @@ class SemgrepDetector(CodeSmellDetector):
             cmd.append(str(self.repository_path))
 
             # Run Semgrep
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=self.repository_path
-            )
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=self.repository_path,
+                    timeout=180  # Pattern matching, allow 3 minutes
+                )
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Semgrep timed out after 180s on {self.repository_path}")
+                return []
 
             # Parse JSON output
             if not result.stdout:

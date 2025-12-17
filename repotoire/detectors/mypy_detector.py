@@ -140,12 +140,17 @@ class MypyDetector(CodeSmellDetector):
             cmd.append(str(self.repository_path))
 
             # Run mypy
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=self.repository_path
-            )
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=self.repository_path,
+                    timeout=300  # Type checking can be slow on large codebases
+                )
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Mypy timed out after 300s on {self.repository_path}")
+                return []
 
             # Parse JSON output (one JSON object per line)
             violations = []

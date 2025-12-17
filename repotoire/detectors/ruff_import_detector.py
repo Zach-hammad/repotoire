@@ -167,17 +167,22 @@ class RuffImportDetector(CodeSmellDetector):
         """
         try:
             # Run ruff with JSON output
-            result = subprocess.run(
-                [
-                    "ruff", "check",
-                    "--select", "F401",  # Unused imports only
-                    "--output-format", "json",
-                    str(self.repository_path),
-                ],
-                capture_output=True,
-                text=True,
-                check=False,  # Don't raise on non-zero exit (expected for findings)
-            )
+            try:
+                result = subprocess.run(
+                    [
+                        "ruff", "check",
+                        "--select", "F401",  # Unused imports only
+                        "--output-format", "json",
+                        str(self.repository_path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,  # Don't raise on non-zero exit (expected for findings)
+                    timeout=60,  # Ruff is fast (Rust-based), 60s is generous
+                )
+            except subprocess.TimeoutExpired:
+                self.logger.warning(f"Ruff import check timed out after 60s on {self.repository_path}")
+                return []
 
             # Parse JSON output
             if result.stdout:

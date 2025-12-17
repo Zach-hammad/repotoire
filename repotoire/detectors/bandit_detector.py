@@ -124,12 +124,17 @@ class BanditDetector(CodeSmellDetector):
             cmd.append(str(self.repository_path))
 
             # Run bandit
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=self.repository_path
-            )
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=self.repository_path,
+                    timeout=120  # Security scanning, allow 2 minutes
+                )
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Bandit timed out after 120s on {self.repository_path}")
+                return []
 
             # Parse JSON output
             output = json.loads(result.stdout) if result.stdout else {}

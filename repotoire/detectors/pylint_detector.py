@@ -399,12 +399,17 @@ class PylintDetector(CodeSmellDetector):
             cmd.append(str(self.repository_path))
 
             # Run pylint
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=self.repository_path
-            )
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=self.repository_path,
+                    timeout=300  # Pylint is comprehensive, allow 5 minutes
+                )
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Pylint timed out after 300s on {self.repository_path}")
+                return []
 
             # Parse JSON output
             violations = json.loads(result.stdout) if result.stdout else []

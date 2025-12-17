@@ -130,12 +130,17 @@ class RadonDetector(CodeSmellDetector):
             ]
 
             # Run radon
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=self.repository_path
-            )
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=self.repository_path,
+                    timeout=60  # Radon is fast, 60s is generous
+                )
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Radon cc timed out after 60s on {self.repository_path}")
+                return []
 
             # Parse JSON output
             output = json.loads(result.stdout) if result.stdout else {}
@@ -175,12 +180,17 @@ class RadonDetector(CodeSmellDetector):
             ]
 
             # Run radon
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=self.repository_path
-            )
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=self.repository_path,
+                    timeout=60  # Radon is fast, 60s is generous
+                )
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Radon mi timed out after 60s on {self.repository_path}")
+                return []
 
             # Parse JSON output
             output = json.loads(result.stdout) if result.stdout else {}

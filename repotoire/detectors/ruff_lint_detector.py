@@ -149,12 +149,17 @@ class RuffLintDetector(CodeSmellDetector):
             cmd.append(str(self.repository_path))
 
             # Run ruff
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=self.repository_path
-            )
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=self.repository_path,
+                    timeout=60  # Ruff is fast (Rust-based), 60s is generous
+                )
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Ruff timed out after 60s on {self.repository_path}")
+                return []
 
             # Parse JSON output
             violations = json.loads(result.stdout) if result.stdout else []

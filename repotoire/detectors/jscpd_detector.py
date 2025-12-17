@@ -151,12 +151,17 @@ class JscpdDetector(CodeSmellDetector):
                     cmd.append(str(self.repository_path))
 
                 # Run jscpd (suppress terminal output)
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    cwd=self.repository_path
-                )
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        cwd=self.repository_path,
+                        timeout=120  # Duplicate detection, allow 2 minutes
+                    )
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"jscpd timed out after 120s on {self.repository_path}")
+                    return []
 
                 # Read JSON output
                 report_path = Path(temp_dir) / "jscpd-report.json"
