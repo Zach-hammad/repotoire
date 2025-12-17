@@ -473,12 +473,24 @@ class Neo4jClient:
 
                 # SECURITY: rel_type and external_label are validated/computed internally
                 # KG-1 Fix: MERGE with specific label for external nodes
-                # KG-2 Fix: Use MERGE for relationships to prevent duplicates
+                # KG-2 Fix: Uses MERGE instead of CREATE to prevent duplicate relationships
+                # KG-3 Fix: First check for existing nodes before creating external nodes
+                #           to avoid creating duplicate ExternalFunction nodes when
+                #           Function nodes already exist with the same qualifiedName
                 query = f"""
                 UNWIND $rels AS rel
                 MATCH (source {{qualifiedName: rel.source_id}})
-                MERGE (target:{external_label} {{qualifiedName: rel.target_id}})
-                ON CREATE SET target.name = rel.target_name, target.external = true
+                // First try to find existing target node with any label
+                OPTIONAL MATCH (existingTarget {{qualifiedName: rel.target_id}})
+                WITH source, rel, existingTarget
+                // Only create external node if no existing target found
+                FOREACH (_ IN CASE WHEN existingTarget IS NULL THEN [1] ELSE [] END |
+                    MERGE (ext:{external_label} {{qualifiedName: rel.target_id}})
+                    ON CREATE SET ext.name = rel.target_name, ext.external = true
+                )
+                // Now match the target (existing or newly created)
+                WITH source, rel
+                MATCH (target {{qualifiedName: rel.target_id}})
                 MERGE (source)-[r:{rel_type}]->(target)
                 ON CREATE SET r = rel.properties
                 ON MATCH SET r += rel.properties
