@@ -45,6 +45,12 @@ from .repotoire_fast import (
     # Type inference for call graph resolution (PyCG-style)
     infer_types,                      # Infer types from source files
     resolve_method_call,              # Resolve method calls
+    # Diff parsing for ML training data (REPO-244)
+    parse_diff_changed_lines,         # Parse unified diff for changed lines
+    parse_diff_changed_lines_batch,   # Batch parse diffs in parallel
+    # Feature extraction for bug prediction (REPO-248)
+    combine_features_batch,           # Combine embeddings + metrics in parallel
+    normalize_features_batch,         # Z-score normalization in parallel
 )
 
 __all__ = [
@@ -93,4 +99,10 @@ __all__ = [
     # Type inference for call graph resolution (PyCG-style)
     "infer_types",                      # Infer types from source files
     "resolve_method_call",              # Resolve method calls
+    # Diff parsing for ML training data (REPO-244)
+    "parse_diff_changed_lines",         # Parse unified diff for changed lines
+    "parse_diff_changed_lines_batch",   # Batch parse diffs in parallel
+    # Feature extraction for bug prediction (REPO-248)
+    "combine_features_batch",           # Combine embeddings + metrics in parallel
+    "normalize_features_batch",         # Z-score normalization in parallel
 ]

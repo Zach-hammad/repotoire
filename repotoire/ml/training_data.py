@@ -25,6 +25,13 @@ import re
 from git import Repo, Commit, Diff
 from pydantic import BaseModel, Field
 
+# Try to use Rust implementation for ~5x speedup on diff parsing (REPO-244)
+try:
+    from repotoire_fast import parse_diff_changed_lines as _rust_parse_diff
+    HAS_RUST_DIFF_PARSER = True
+except ImportError:
+    HAS_RUST_DIFF_PARSER = False
+
 # Bug-fix commit keywords (case-insensitive matching)
 DEFAULT_BUG_KEYWORDS = [
     "fix",
@@ -237,6 +244,11 @@ class GitBugLabelExtractor:
         except (AttributeError, UnicodeDecodeError):
             return changed_lines
 
+        # Use Rust implementation if available (~5x faster) - REPO-244
+        if HAS_RUST_DIFF_PARSER:
+            return set(_rust_parse_diff(diff_text))
+
+        # Fallback to Python implementation
         # Match diff hunks: @@ -start,count +start,count @@
         hunk_pattern = re.compile(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 

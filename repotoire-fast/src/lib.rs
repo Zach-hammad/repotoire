@@ -971,6 +971,171 @@ fn infer_types(
     Ok(result.into())
 }
 
+// ============================================================================
+// DIFF PARSING FOR ML TRAINING DATA (REPO-244)
+// Fast extraction of changed line numbers from unified diffs
+// ============================================================================
+
+/// Parse unified diff text and extract line numbers of added/modified lines.
+///
+/// This is used by GitBugLabelExtractor to identify which functions were
+/// changed in bug-fix commits. The Rust implementation provides ~5-10x speedup
+/// over Python regex for large diffs.
+///
+/// # Arguments
+/// * `diff_text` - Unified diff string (output of `git diff`)
+///
+/// # Returns
+/// Vec<u32> - Line numbers in the NEW file that were added or modified
+///
+/// # Format
+/// Unified diff format:
+/// ```text
+/// --- a/file.py
+/// +++ b/file.py
+/// @@ -10,5 +12,7 @@     <- Hunk header: old starts at 10, new starts at 12
+///  context line          <- Space prefix = unchanged, exists in both
+/// -deleted line          <- Minus = removed from old file
+/// +added line            <- Plus = added in new file
+/// ```
+///
+/// # Algorithm
+/// 1. Find hunk headers with regex: `@@ -old,count +new,count @@`
+/// 2. Extract `new` start line from header
+/// 3. Iterate lines, tracking position in new file:
+///    - `+` (not `+++`): record line number, increment position
+///    - `-` (not `---`): record line number (for overlap detection), DON'T increment
+///    - space/context: just increment position
+///
+/// # Example
+/// ```python
+/// from repotoire_fast import parse_diff_changed_lines
+///
+/// diff = '''@@ -1,3 +1,4 @@
+///  unchanged
+/// +added line
+///  more context'''
+///
+/// lines = parse_diff_changed_lines(diff)
+/// # Returns [2] - line 2 was added
+/// ```
+/// Parse hunk header manually (faster than regex for simple pattern)
+/// Returns the NEW file start line number, or None if not a hunk header
+#[inline]
+fn parse_hunk_header(line: &str) -> Option<u32> {
+    // Hunk headers look like: @@ -10,5 +12,7 @@ optional context
+    // We need to extract the "12" (new file start line)
+    if !line.starts_with("@@ -") {
+        return None;
+    }
+
+    // Find the +N part after the first space
+    let rest = &line[4..]; // Skip "@@ -"
+    let plus_pos = rest.find(" +")?;
+    let after_plus = &rest[plus_pos + 2..]; // Skip " +"
+
+    // Parse until we hit comma, space, or @
+    let end_pos = after_plus.find(|c| c == ',' || c == ' ' || c == '@').unwrap_or(after_plus.len());
+    after_plus[..end_pos].parse().ok()
+}
+
+#[pyfunction]
+fn parse_diff_changed_lines(diff_text: &str) -> Vec<u32> {
+    use rustc_hash::FxHashSet;
+
+    let mut changed_lines: FxHashSet<u32> = FxHashSet::default();
+    let mut current_line: u32 = 0;
+
+    for line in diff_text.lines() {
+        // Check for hunk header first (manual parsing, faster than regex)
+        if let Some(start) = parse_hunk_header(line) {
+            current_line = start;
+            continue;
+        }
+
+        // Only process lines after we've seen a hunk header
+        if current_line > 0 {
+            let first_byte = line.as_bytes().first().copied().unwrap_or(0);
+            match first_byte {
+                b'+' if !line.starts_with("+++") => {
+                    // Added line - record and increment
+                    changed_lines.insert(current_line);
+                    current_line += 1;
+                }
+                b'-' if !line.starts_with("---") => {
+                    // Deleted line - record position but DON'T increment
+                    changed_lines.insert(current_line);
+                }
+                b'\\' => {
+                    // "\ No newline at end of file" - skip
+                }
+                _ => {
+                    // Context line - just increment
+                    current_line += 1;
+                }
+            }
+        }
+    }
+
+    // Convert to sorted Vec for deterministic output
+    let mut result: Vec<u32> = changed_lines.into_iter().collect();
+    result.sort_unstable();
+    result
+}
+
+/// Batch parse multiple diffs in parallel.
+///
+/// More efficient when processing many commits at once.
+///
+/// # Arguments
+/// * `diffs` - List of diff texts
+///
+/// # Returns
+/// List of line number vectors (one per input diff)
+#[pyfunction]
+fn parse_diff_changed_lines_batch(py: Python<'_>, diffs: Vec<String>) -> Vec<Vec<u32>> {
+    use rustc_hash::FxHashSet;
+
+    // Uses manual hunk parsing (faster than regex)
+    py.detach(|| {
+        diffs
+            .into_par_iter()
+            .map(|diff_text| {
+                let mut changed_lines: FxHashSet<u32> = FxHashSet::default();
+                let mut current_line: u32 = 0;
+
+                for line in diff_text.lines() {
+                    if let Some(start) = parse_hunk_header(line) {
+                        current_line = start;
+                        continue;
+                    }
+
+                    if current_line > 0 {
+                        let first_byte = line.as_bytes().first().copied().unwrap_or(0);
+                        match first_byte {
+                            b'+' if !line.starts_with("+++") => {
+                                changed_lines.insert(current_line);
+                                current_line += 1;
+                            }
+                            b'-' if !line.starts_with("---") => {
+                                changed_lines.insert(current_line);
+                            }
+                            b'\\' => {}
+                            _ => {
+                                current_line += 1;
+                            }
+                        }
+                    }
+                }
+
+                let mut result: Vec<u32> = changed_lines.into_iter().collect();
+                result.sort_unstable();
+                result
+            })
+            .collect()
+    })
+}
+
 /// Resolve method calls given type information
 #[pyfunction]
 fn resolve_method_call(
@@ -990,6 +1155,413 @@ fn resolve_method_call(
         }
     }
     None
+}
+
+// ============================================================================
+// FEATURE EXTRACTION FOR BUG PREDICTION (REPO-248)
+// Parallel feature vector combination and Z-score normalization
+// ============================================================================
+
+/// Combine embedding vectors with metric vectors in parallel.
+///
+/// Concatenates each row of embeddings (n×embedding_dim) with the corresponding
+/// row of metrics (n×metrics_dim) to produce combined feature vectors (n×(embedding_dim+metrics_dim)).
+///
+/// # Arguments
+/// * `embeddings` - 2D array of embedding vectors (n rows × embedding_dim columns)
+/// * `metrics` - 2D array of metric vectors (n rows × metrics_dim columns)
+///
+/// # Returns
+/// Combined feature matrix as numpy array (n rows × (embedding_dim + metrics_dim) columns)
+///
+/// # Errors
+/// Returns ValueError if:
+/// - Input arrays are empty
+/// - Row counts don't match between embeddings and metrics
+///
+/// # Example
+/// ```python
+/// from repotoire_fast import combine_features_batch
+/// import numpy as np
+///
+/// embeddings = np.array([[0.1, 0.2], [0.3, 0.4]], dtype=np.float32)
+/// metrics = np.array([[5.0, 10.0], [8.0, 20.0]], dtype=np.float32)
+/// combined = combine_features_batch(embeddings, metrics)
+/// # Returns numpy array: [[0.1, 0.2, 5.0, 10.0], [0.3, 0.4, 8.0, 20.0]]
+/// ```
+#[pyfunction]
+fn combine_features_batch<'py>(
+    py: Python<'py>,
+    embeddings: PyReadonlyArray2<'py, f32>,
+    metrics: PyReadonlyArray2<'py, f32>,
+) -> PyResult<Bound<'py, numpy::PyArray2<f32>>> {
+    use numpy::{PyArray2, IntoPyArray, ndarray::Array2};
+
+    let emb_view = embeddings.as_array();
+    let met_view = metrics.as_array();
+
+    let n_rows = emb_view.nrows();
+    let met_rows = met_view.nrows();
+
+    if n_rows == 0 || met_rows == 0 {
+        return Err(PyValueError::new_err("Input arrays must not be empty"));
+    }
+
+    if n_rows != met_rows {
+        return Err(PyValueError::new_err(format!(
+            "Row count mismatch: embeddings has {} rows, metrics has {} rows",
+            n_rows, met_rows
+        )));
+    }
+
+    let emb_cols = emb_view.ncols();
+    let met_cols = met_view.ncols();
+    let total_cols = emb_cols + met_cols;
+
+    // Allocate output array as flat buffer
+    let mut result = vec![0.0f32; n_rows * total_cols];
+
+    // Process rows in parallel - write directly to output buffer
+    result
+        .par_chunks_mut(total_cols)
+        .enumerate()
+        .for_each(|(row_idx, out_row)| {
+            // Copy embedding columns
+            for col in 0..emb_cols {
+                out_row[col] = emb_view[[row_idx, col]];
+            }
+            // Copy metric columns
+            for col in 0..met_cols {
+                out_row[emb_cols + col] = met_view[[row_idx, col]];
+            }
+        });
+
+    // Create ndarray from flat buffer, then convert to numpy array
+    let array = Array2::from_shape_vec((n_rows, total_cols), result)
+        .map_err(|e| PyValueError::new_err(format!("Failed to create array: {}", e)))?;
+    Ok(array.into_pyarray(py))
+}
+
+/// Apply Z-score normalization to feature vectors in parallel.
+///
+/// Normalizes each column independently by subtracting the mean and dividing by
+/// the standard deviation. For columns with std=0 (constant values), returns 0.0
+/// for all rows in that column.
+///
+/// Formula: z = (x - mean) / std
+///
+/// # Arguments
+/// * `features` - 2D array of feature vectors (n rows × m columns)
+///
+/// # Returns
+/// Normalized feature matrix as numpy array with mean=0, std=1 per column
+///
+/// # Errors
+/// Returns ValueError if features array is empty
+///
+/// # Edge Cases
+/// - Single row: Returns zeros (std=0 for all columns)
+/// - Constant column: Returns zeros for that column
+///
+/// # Example
+/// ```python
+/// from repotoire_fast import normalize_features_batch
+/// import numpy as np
+///
+/// features = np.array([[1.0, 10.0], [2.0, 20.0], [3.0, 30.0]], dtype=np.float32)
+/// normalized = normalize_features_batch(features)
+/// # Column 0: mean=2.0, std=0.816 → [-1.22, 0.0, 1.22]
+/// # Column 1: mean=20.0, std=8.165 → [-1.22, 0.0, 1.22]
+/// ```
+#[pyfunction]
+fn normalize_features_batch<'py>(
+    py: Python<'py>,
+    features: PyReadonlyArray2<'py, f32>,
+) -> PyResult<Bound<'py, numpy::PyArray2<f32>>> {
+    use numpy::{IntoPyArray, ndarray::Array2};
+
+    let feat_view = features.as_array();
+    let n_rows = feat_view.nrows();
+    let n_cols = feat_view.ncols();
+
+    if n_rows == 0 {
+        return Err(PyValueError::new_err("Features array must not be empty"));
+    }
+
+    // First pass: compute mean and std for each column in parallel
+    let stats: Vec<(f64, f64)> = (0..n_cols)
+        .into_par_iter()
+        .map(|col_idx| {
+            // Compute mean
+            let sum: f64 = (0..n_rows).map(|r| feat_view[[r, col_idx]] as f64).sum();
+            let mean = sum / n_rows as f64;
+
+            // Compute variance
+            let variance: f64 = (0..n_rows)
+                .map(|r| {
+                    let diff = feat_view[[r, col_idx]] as f64 - mean;
+                    diff * diff
+                })
+                .sum::<f64>()
+                / n_rows as f64;
+
+            (mean, variance.sqrt())
+        })
+        .collect();
+
+    // Allocate output array as flat buffer
+    let mut result = vec![0.0f32; n_rows * n_cols];
+
+    // Second pass: normalize in parallel, writing directly to output buffer
+    result
+        .par_chunks_mut(n_cols)
+        .enumerate()
+        .for_each(|(row_idx, out_row)| {
+            for col_idx in 0..n_cols {
+                let (mean, std) = stats[col_idx];
+                let val = feat_view[[row_idx, col_idx]] as f64;
+                out_row[col_idx] = if std < 1e-10 {
+                    0.0f32
+                } else {
+                    ((val - mean) / std) as f32
+                };
+            }
+        });
+
+    // Create ndarray from flat buffer, then convert to numpy array
+    let array = Array2::from_shape_vec((n_rows, n_cols), result)
+        .map_err(|e| PyValueError::new_err(format!("Failed to create array: {}", e)))?;
+    Ok(array.into_pyarray(py))
+}
+
+// ============================================================================
+// FUNCTION BOUNDARY DETECTION (REPO-245)
+// Fast extraction of function start/end lines for ML training data
+// ============================================================================
+
+/// Extract function boundaries from Python source code.
+///
+/// Returns a list of (function_name, line_start, line_end) tuples for all
+/// functions in the source, including:
+/// - Top-level functions (def foo():)
+/// - Async functions (async def foo():)
+/// - Class methods (class Foo: def bar(self):)
+/// - Nested functions (functions inside functions)
+///
+/// Line numbers are 1-indexed to match Python conventions.
+///
+/// # Arguments
+/// * `source` - Python source code to parse
+///
+/// # Returns
+/// Vec of (name, start_line, end_line) tuples
+///
+/// # Example
+/// ```python
+/// from repotoire_fast import extract_function_boundaries
+///
+/// source = '''
+/// def hello():
+///     return "hello"
+///
+/// class Greeter:
+///     def greet(self):
+///         return "hi"
+/// '''
+///
+/// boundaries = extract_function_boundaries(source)
+/// # Returns [("hello", 2, 3), ("greet", 6, 7)]
+/// ```
+#[pyfunction]
+fn extract_function_boundaries(source: &str) -> Vec<(String, u32, u32)> {
+    use rustpython_parser::ast::{Stmt, Suite};
+    use rustpython_parser::Parse;
+    use line_numbers::LinePositions;
+
+    let ast = match Suite::parse(source, "<string>") {
+        Ok(ast) => ast,
+        Err(_) => return vec![], // Return empty on parse error (graceful degradation)
+    };
+
+    let line_positions = LinePositions::from(source);
+    let mut boundaries = Vec::new();
+
+    // Recursive helper to extract functions from statements
+    fn extract_from_stmts(
+        stmts: &[Stmt],
+        line_positions: &LinePositions,
+        boundaries: &mut Vec<(String, u32, u32)>,
+    ) {
+        for stmt in stmts {
+            match stmt {
+                Stmt::FunctionDef(f) => {
+                    let start = line_positions.from_offset(f.range.start().into()).as_usize() + 1;
+                    let end = line_positions.from_offset(f.range.end().into()).as_usize() + 1;
+                    boundaries.push((f.name.to_string(), start as u32, end as u32));
+                    // Recurse into function body for nested functions
+                    extract_from_stmts(&f.body, line_positions, boundaries);
+                }
+                Stmt::AsyncFunctionDef(f) => {
+                    let start = line_positions.from_offset(f.range.start().into()).as_usize() + 1;
+                    let end = line_positions.from_offset(f.range.end().into()).as_usize() + 1;
+                    boundaries.push((f.name.to_string(), start as u32, end as u32));
+                    // Recurse into function body for nested functions
+                    extract_from_stmts(&f.body, line_positions, boundaries);
+                }
+                Stmt::ClassDef(c) => {
+                    // Extract methods from class body
+                    extract_from_stmts(&c.body, line_positions, boundaries);
+                }
+                Stmt::If(if_stmt) => {
+                    // Handle functions defined inside if blocks
+                    extract_from_stmts(&if_stmt.body, line_positions, boundaries);
+                    extract_from_stmts(&if_stmt.orelse, line_positions, boundaries);
+                }
+                Stmt::While(w) => {
+                    extract_from_stmts(&w.body, line_positions, boundaries);
+                    extract_from_stmts(&w.orelse, line_positions, boundaries);
+                }
+                Stmt::For(f) => {
+                    extract_from_stmts(&f.body, line_positions, boundaries);
+                    extract_from_stmts(&f.orelse, line_positions, boundaries);
+                }
+                Stmt::AsyncFor(f) => {
+                    extract_from_stmts(&f.body, line_positions, boundaries);
+                    extract_from_stmts(&f.orelse, line_positions, boundaries);
+                }
+                Stmt::With(w) => {
+                    extract_from_stmts(&w.body, line_positions, boundaries);
+                }
+                Stmt::AsyncWith(w) => {
+                    extract_from_stmts(&w.body, line_positions, boundaries);
+                }
+                Stmt::Try(t) => {
+                    extract_from_stmts(&t.body, line_positions, boundaries);
+                    for handler in &t.handlers {
+                        let rustpython_parser::ast::ExceptHandler::ExceptHandler(e) = handler;
+                        extract_from_stmts(&e.body, line_positions, boundaries);
+                    }
+                    extract_from_stmts(&t.orelse, line_positions, boundaries);
+                    extract_from_stmts(&t.finalbody, line_positions, boundaries);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    extract_from_stmts(&ast, &line_positions, &mut boundaries);
+    boundaries
+}
+
+/// Batch extract function boundaries from multiple files in parallel.
+///
+/// More efficient than calling extract_function_boundaries() repeatedly
+/// when processing many files (e.g., during training data extraction).
+///
+/// # Arguments
+/// * `files` - List of (file_path, source_code) tuples
+///
+/// # Returns
+/// List of (file_path, [(function_name, start_line, end_line)]) tuples
+///
+/// # Example
+/// ```python
+/// from repotoire_fast import extract_function_boundaries_batch
+///
+/// files = [
+///     ("src/a.py", open("src/a.py").read()),
+///     ("src/b.py", open("src/b.py").read()),
+/// ]
+/// results = extract_function_boundaries_batch(files)
+/// for path, boundaries in results:
+///     print(f"{path}: {len(boundaries)} functions")
+/// ```
+#[pyfunction]
+fn extract_function_boundaries_batch(
+    py: Python<'_>,
+    files: Vec<(String, String)>,
+) -> Vec<(String, Vec<(String, u32, u32)>)> {
+    use rustpython_parser::ast::{Stmt, Suite};
+    use rustpython_parser::Parse;
+    use line_numbers::LinePositions;
+
+    // Recursive helper (same as single-file version)
+    fn extract_from_stmts(
+        stmts: &[Stmt],
+        line_positions: &LinePositions,
+        boundaries: &mut Vec<(String, u32, u32)>,
+    ) {
+        for stmt in stmts {
+            match stmt {
+                Stmt::FunctionDef(f) => {
+                    let start = line_positions.from_offset(f.range.start().into()).as_usize() + 1;
+                    let end = line_positions.from_offset(f.range.end().into()).as_usize() + 1;
+                    boundaries.push((f.name.to_string(), start as u32, end as u32));
+                    extract_from_stmts(&f.body, line_positions, boundaries);
+                }
+                Stmt::AsyncFunctionDef(f) => {
+                    let start = line_positions.from_offset(f.range.start().into()).as_usize() + 1;
+                    let end = line_positions.from_offset(f.range.end().into()).as_usize() + 1;
+                    boundaries.push((f.name.to_string(), start as u32, end as u32));
+                    extract_from_stmts(&f.body, line_positions, boundaries);
+                }
+                Stmt::ClassDef(c) => {
+                    extract_from_stmts(&c.body, line_positions, boundaries);
+                }
+                Stmt::If(if_stmt) => {
+                    extract_from_stmts(&if_stmt.body, line_positions, boundaries);
+                    extract_from_stmts(&if_stmt.orelse, line_positions, boundaries);
+                }
+                Stmt::While(w) => {
+                    extract_from_stmts(&w.body, line_positions, boundaries);
+                    extract_from_stmts(&w.orelse, line_positions, boundaries);
+                }
+                Stmt::For(f) => {
+                    extract_from_stmts(&f.body, line_positions, boundaries);
+                    extract_from_stmts(&f.orelse, line_positions, boundaries);
+                }
+                Stmt::AsyncFor(f) => {
+                    extract_from_stmts(&f.body, line_positions, boundaries);
+                    extract_from_stmts(&f.orelse, line_positions, boundaries);
+                }
+                Stmt::With(w) => {
+                    extract_from_stmts(&w.body, line_positions, boundaries);
+                }
+                Stmt::AsyncWith(w) => {
+                    extract_from_stmts(&w.body, line_positions, boundaries);
+                }
+                Stmt::Try(t) => {
+                    extract_from_stmts(&t.body, line_positions, boundaries);
+                    for handler in &t.handlers {
+                        let rustpython_parser::ast::ExceptHandler::ExceptHandler(e) = handler;
+                        extract_from_stmts(&e.body, line_positions, boundaries);
+                    }
+                    extract_from_stmts(&t.orelse, line_positions, boundaries);
+                    extract_from_stmts(&t.finalbody, line_positions, boundaries);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Detach Python thread state during parallel processing
+    py.detach(|| {
+        files
+            .into_par_iter()
+            .map(|(path, source)| {
+                let ast = match Suite::parse(&source, "<string>") {
+                    Ok(ast) => ast,
+                    Err(_) => return (path, vec![]),
+                };
+
+                let line_positions = LinePositions::from(source.as_str());
+                let mut boundaries = Vec::new();
+                extract_from_stmts(&ast, &line_positions, &mut boundaries);
+
+                (path, boundaries)
+            })
+            .collect()
+    })
 }
 
 #[pymodule]
@@ -1039,6 +1611,12 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     // Type inference for call graph resolution (PyCG-style)
     n.add_function(wrap_pyfunction!(infer_types, n)?)?;
     n.add_function(wrap_pyfunction!(resolve_method_call, n)?)?;
+    // Diff parsing for ML training data (REPO-244)
+    n.add_function(wrap_pyfunction!(parse_diff_changed_lines, n)?)?;
+    n.add_function(wrap_pyfunction!(parse_diff_changed_lines_batch, n)?)?;
+    // Feature extraction for bug prediction (REPO-248)
+    n.add_function(wrap_pyfunction!(combine_features_batch, n)?)?;
+    n.add_function(wrap_pyfunction!(normalize_features_batch, n)?)?;
     Ok(())
 }
 

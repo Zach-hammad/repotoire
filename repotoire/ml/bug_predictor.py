@@ -53,6 +53,14 @@ except ImportError:
 from repotoire.graph.client import Neo4jClient
 from repotoire.ml.training_data import TrainingDataset, TrainingExample
 
+# Try to import Rust accelerated functions (REPO-248)
+try:
+    from repotoire_fast import combine_features_batch as _rust_combine_features
+    from repotoire_fast import normalize_features_batch as _rust_normalize_features
+    HAS_RUST_FEATURES = True
+except ImportError:
+    HAS_RUST_FEATURES = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -331,6 +339,68 @@ class FeatureExtractor:
             fan_in + fan_out,
             complexity / max(loc, 1),
         ])
+
+    @staticmethod
+    def combine_features(
+        embeddings: np.ndarray,
+        metrics: np.ndarray,
+    ) -> np.ndarray:
+        """Combine embedding vectors with metric vectors.
+
+        Uses Rust implementation for ~2x speedup when available,
+        with numpy fallback.
+
+        Args:
+            embeddings: 2D array of embeddings (n × embedding_dim)
+            metrics: 2D array of metrics (n × metrics_dim)
+
+        Returns:
+            Combined feature matrix (n × (embedding_dim + metrics_dim))
+        """
+        if HAS_RUST_FEATURES and len(embeddings) > 0:
+            try:
+                # Rust expects f32 arrays, returns numpy array directly
+                emb_f32 = embeddings.astype(np.float32)
+                met_f32 = metrics.astype(np.float32)
+                return _rust_combine_features(emb_f32, met_f32)
+            except Exception as e:
+                logger.debug(f"Rust combine_features failed, using numpy: {e}")
+
+        # Numpy fallback
+        return np.hstack([embeddings, metrics])
+
+    @staticmethod
+    def normalize_features(
+        features: np.ndarray,
+    ) -> np.ndarray:
+        """Apply Z-score normalization to features.
+
+        Uses Rust implementation for ~2x speedup when available,
+        with numpy fallback.
+
+        Args:
+            features: 2D array of features (n × m)
+
+        Returns:
+            Normalized features with mean=0, std=1 per column
+        """
+        if HAS_RUST_FEATURES and len(features) > 0:
+            try:
+                # Rust expects f32 arrays, returns numpy array directly
+                feat_f32 = features.astype(np.float32)
+                return _rust_normalize_features(feat_f32)
+            except Exception as e:
+                logger.debug(f"Rust normalize_features failed, using numpy: {e}")
+
+        # Numpy fallback
+        if len(features) == 0:
+            return features
+
+        mean = np.mean(features, axis=0)
+        std = np.std(features, axis=0)
+        # Avoid division by zero
+        std = np.where(std < 1e-10, 1.0, std)
+        return (features - mean) / std
 
 
 class BugPredictor:
