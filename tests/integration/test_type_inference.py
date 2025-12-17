@@ -362,6 +362,71 @@ class TestRepotoireCodebase:
         assert result['mro_computed_count'] > 0, \
             "Expected some MROs to be computed"
 
+    def test_repotoire_meets_targets(self):
+        """Validate that repotoire codebase meets type inference targets.
+
+        REPO-333: Strict validation of target metrics:
+        - Type-inferred calls: 1000+
+        - Random fallback percentage: <10%
+        """
+        # Use full repo path (including tests/) to get enough files
+        repo_path = Path(__file__).parent.parent.parent
+
+        if not repo_path.exists():
+            pytest.skip("repotoire directory not found")
+
+        # Include ALL Python files (including tests) for full coverage
+        files = collect_python_files(repo_path)
+
+        if len(files) < 100:
+            pytest.skip(f"Not enough files found: {len(files)}")
+
+        result = repotoire_fast.infer_types(files, 10)
+
+        # Strict target validation
+        assert result['meets_targets'], (
+            f"Failed to meet targets: "
+            f"type_inferred={result['type_inferred_count']} (need 1000+), "
+            f"fallback_pct={result['fallback_percentage']:.1f}% (need <10%)"
+        )
+        assert result['type_inferred_count'] >= 1000, (
+            f"Expected 1000+ type-inferred calls, got {result['type_inferred_count']}"
+        )
+        assert result['fallback_percentage'] < 10.0, (
+            f"Expected <10% fallback, got {result['fallback_percentage']:.1f}%"
+        )
+
+    def test_incremental_analysis_consistency(self):
+        """Test that re-analyzing gives consistent results."""
+        repo_path = Path(__file__).parent.parent.parent / "repotoire"
+
+        if not repo_path.exists():
+            pytest.skip("repotoire directory not found")
+
+        # Collect a subset of files
+        files = []
+        for path in (repo_path / "detectors").rglob('*.py'):
+            try:
+                content = path.read_text(encoding='utf-8')
+                files.append((str(path), content))
+            except (UnicodeDecodeError, PermissionError):
+                continue
+
+        if len(files) < 5:
+            pytest.skip(f"Not enough detector files found: {len(files)}")
+
+        # Run analysis twice
+        result1 = repotoire_fast.infer_types(files, 10)
+        result2 = repotoire_fast.infer_types(files, 10)
+
+        # Results should be identical
+        assert result1['type_inferred_count'] == result2['type_inferred_count'], \
+            "Type-inferred count should be consistent across runs"
+        assert result1['random_fallback_count'] == result2['random_fallback_count'], \
+            "Fallback count should be consistent across runs"
+        assert result1['num_classes'] == result2['num_classes'], \
+            "Class count should be consistent across runs"
+
 
 @skip_no_rust
 class TestRegressions:
@@ -398,4 +463,135 @@ class Émoji:
         files = [("unicode.py", source)]
         result = repotoire_fast.infer_types(files, 10)
 
+        assert result['num_classes'] >= 1
+
+    def test_chained_method_calls(self):
+        """Test method chaining like client.query().fetch()."""
+        source = '''
+class Query:
+    def fetch(self):
+        return []
+
+class Client:
+    def query(self, sql):
+        return Query()
+
+c = Client()
+result = c.query("SELECT *").fetch()
+'''
+        files = [("test.py", source)]
+        result = repotoire_fast.infer_types(files, 10)
+
+        # Should track both classes
+        assert result['num_classes'] >= 2
+        # Should have some type-inferred calls
+        assert result['type_inferred_count'] >= 1
+
+    def test_factory_pattern(self):
+        """Test factory functions returning different types."""
+        source = '''
+class Handler:
+    def handle(self):
+        pass
+
+class DefaultHandler(Handler):
+    pass
+
+class CustomHandler(Handler):
+    pass
+
+def create_handler(type_name):
+    if type_name == "custom":
+        return CustomHandler()
+    return DefaultHandler()
+
+h = create_handler("custom")
+h.handle()
+'''
+        files = [("test.py", source)]
+        result = repotoire_fast.infer_types(files, 10)
+
+        # Should track 3 classes
+        assert result['num_classes'] >= 3
+        # Function should have tracked return types
+        assert result['functions_with_returns'] >= 1
+
+    def test_self_method_chaining(self):
+        """Test builder pattern with self returns."""
+        source = '''
+class Builder:
+    def set_name(self, name):
+        self.name = name
+        return self
+
+    def set_value(self, value):
+        self.value = value
+        return self
+
+    def build(self):
+        return self
+
+b = Builder()
+result = b.set_name("test").set_value(42).build()
+'''
+        files = [("test.py", source)]
+        result = repotoire_fast.infer_types(files, 10)
+
+        # Should track Builder class
+        assert result['num_classes'] >= 1
+
+    def test_async_methods(self):
+        """Test async method resolution."""
+        source = '''
+class AsyncClient:
+    async def fetch(self):
+        return []
+
+    async def process(self):
+        data = await self.fetch()
+        return data
+'''
+        files = [("test.py", source)]
+        result = repotoire_fast.infer_types(files, 10)
+
+        # Should handle async methods
+        assert result['num_classes'] >= 1
+
+    def test_property_decorator(self):
+        """Test property methods."""
+        source = '''
+class Config:
+    @property
+    def value(self):
+        return self._value
+
+    @value.setter
+    def value(self, v):
+        self._value = v
+'''
+        files = [("test.py", source)]
+        result = repotoire_fast.infer_types(files, 10)
+
+        # Should track the class
+        assert result['num_classes'] >= 1
+
+    def test_classmethod_staticmethod(self):
+        """Test class and static methods."""
+        source = '''
+class Factory:
+    @classmethod
+    def create(cls):
+        return cls()
+
+    @staticmethod
+    def default():
+        return Factory()
+
+f = Factory.create()
+f2 = Factory.default()
+'''
+        files = [("test.py", source)]
+        result = repotoire_fast.infer_types(files, 10)
+
+        # Should track Factory class
         assert result['num_classes'] >= 1
