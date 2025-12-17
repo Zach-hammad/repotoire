@@ -2283,7 +2283,12 @@ impl TypeInference {
         source_module: &str,
         exports: &ModuleExports,
     ) {
-        let name = raw_import.name.as_ref().unwrap(); // Safe: not a module import
+        // Safety: Caller checks is_module_import() which is false iff name.is_some() || is_star.
+        // Since is_star is also checked first, name must be Some. But handle gracefully anyway.
+        let Some(name) = raw_import.name.as_ref() else {
+            // Invariant violated - caller should have routed to resolve_module_import instead
+            return;
+        };
         let local_name = raw_import.local_name();
         let has_alias = raw_import.alias.is_some();
         let is_relative = raw_import.is_relative();
@@ -2367,11 +2372,10 @@ impl TypeInference {
                 let ext_key = if resolved.import_type == ImportType::External {
                     // External imports use external:X format in resolved_imports
                     // but ext.X format in original bindings
-                    if resolved.definition_ns.starts_with("external:") {
-                        let without_prefix = resolved.definition_ns.strip_prefix("external:").unwrap();
+                    if let Some(without_prefix) = resolved.definition_ns.strip_prefix("external:") {
                         format!("ext.{}", without_prefix)
                     } else {
-                        continue; // Skip non-external with weird prefix
+                        continue; // Skip non-external with unexpected prefix
                     }
                 } else {
                     // Project imports: we need to find the original ext.X binding
@@ -2454,10 +2458,9 @@ impl TypeInference {
                     // Try to resolve ext.X patterns
                     if let Some(resolved) = ext_to_resolved.get(&callee) {
                         resolved.clone()
-                    } else if callee.starts_with("ext.") {
+                    } else if let Some(without_ext) = callee.strip_prefix("ext.") {
                         // Try partial matches for submodule patterns
                         // e.g., ext.api.routes.account.router -> repotoire.api.routes.account.router
-                        let without_ext = callee.strip_prefix("ext.").unwrap();
 
                         // Check if this looks like a repotoire module path
                         // by checking if any export matches the pattern

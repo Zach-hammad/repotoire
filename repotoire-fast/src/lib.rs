@@ -791,15 +791,19 @@ impl PyDuplicateBlock {
     }
 
     /// Convert to dictionary for easy Python interop
-    fn to_dict(&self, py: Python<'_>) -> HashMap<String, Py<PyAny>> {
-        let mut dict = HashMap::new();
-        dict.insert("file1".to_string(), self.file1.clone().into_pyobject(py).unwrap().into_any().unbind());
-        dict.insert("start1".to_string(), self.start1.into_pyobject(py).unwrap().into_any().unbind());
-        dict.insert("file2".to_string(), self.file2.clone().into_pyobject(py).unwrap().into_any().unbind());
-        dict.insert("start2".to_string(), self.start2.into_pyobject(py).unwrap().into_any().unbind());
-        dict.insert("token_length".to_string(), self.token_length.into_pyobject(py).unwrap().into_any().unbind());
-        dict.insert("line_length".to_string(), self.line_length.into_pyobject(py).unwrap().into_any().unbind());
-        dict
+    ///
+    /// Returns a PyResult to propagate conversion errors instead of panicking
+    /// at the FFI boundary. This prevents potential crashes when Python object
+    /// conversion fails.
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("file1", &self.file1)?;
+        dict.set_item("start1", self.start1)?;
+        dict.set_item("file2", &self.file2)?;
+        dict.set_item("start2", self.start2)?;
+        dict.set_item("token_length", self.token_length)?;
+        dict.set_item("line_length", self.line_length)?;
+        Ok(dict)
     }
 }
 

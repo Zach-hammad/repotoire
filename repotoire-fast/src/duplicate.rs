@@ -387,7 +387,14 @@ fn find_duplicate_pairs(
                     continue;
                 }
 
-                if let Some(dup) = compare_locations(loc1, loc2, file_tokens, min_tokens, min_lines, min_similarity) {
+                if let Some(dup) = compare_locations(
+                    loc1,
+                    loc2,
+                    file_tokens,
+                    min_tokens,
+                    min_lines,
+                    min_similarity,
+                ) {
                     duplicates.push(dup);
                 }
             }
@@ -412,7 +419,14 @@ fn find_duplicate_pairs(
                     continue;
                 }
 
-                if let Some(dup) = compare_locations(loc1, loc2, file_tokens, min_tokens, min_lines, min_similarity) {
+                if let Some(dup) = compare_locations(
+                    loc1,
+                    loc2,
+                    file_tokens,
+                    min_tokens,
+                    min_lines,
+                    min_similarity,
+                ) {
                     duplicates.push(dup);
                 }
             }
@@ -428,7 +442,14 @@ fn find_duplicate_pairs(
 
             for loc1 in locs1.iter() {
                 for loc2 in locs2.iter() {
-                    if let Some(dup) = compare_locations(loc1, loc2, file_tokens, min_tokens, min_lines, min_similarity) {
+                    if let Some(dup) = compare_locations(
+                        loc1,
+                        loc2,
+                        file_tokens,
+                        min_tokens,
+                        min_lines,
+                        min_similarity,
+                    ) {
                         duplicates.push(dup);
                     }
                 }
