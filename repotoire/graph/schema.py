@@ -96,6 +96,10 @@ class GraphSchema:
         "CREATE INDEX file_repo_path_idx IF NOT EXISTS FOR (f:File) ON (f.repoId, f.filePath)",
         "CREATE INDEX function_repo_name_idx IF NOT EXISTS FOR (f:Function) ON (f.repoId, f.name)",
         "CREATE INDEX class_repo_name_idx IF NOT EXISTS FOR (c:Class) ON (c.repoId, c.name)",
+        # Data flow graph indexes for taint tracking (REPO-411)
+        "CREATE INDEX flows_to_edge_type_idx IF NOT EXISTS FOR ()-[r:FLOWS_TO]-() ON (r.edge_type)",
+        "CREATE INDEX flows_to_source_line_idx IF NOT EXISTS FOR ()-[r:FLOWS_TO]-() ON (r.source_line)",
+        "CREATE INDEX flows_to_scope_idx IF NOT EXISTS FOR ()-[r:FLOWS_TO]-() ON (r.scope)",
     ]
 
     # Vector index definitions (labels and index names)

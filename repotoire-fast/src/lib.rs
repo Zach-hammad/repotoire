@@ -18,6 +18,8 @@ pub mod duplicate;
 pub mod type_inference;
 pub mod word2vec;
 pub mod satd;
+pub mod dataflow;
+pub mod taint;
 
 // Convert GraphError to Python ValueError (REPO-227)
 impl From<errors::GraphError> for PyErr {
@@ -2682,6 +2684,311 @@ fn scan_satd_file(
         .collect())
 }
 
+// ============================================================================
+// DATA FLOW GRAPH EXTRACTION (REPO-411)
+// Extracts def-use chains for taint tracking and data dependency analysis
+// ============================================================================
+
+/// Python wrapper for DataFlowEdge
+#[pyclass]
+#[derive(Clone)]
+pub struct PyDataFlowEdge {
+    #[pyo3(get)]
+    pub source_var: String,
+    #[pyo3(get)]
+    pub source_line: u32,
+    #[pyo3(get)]
+    pub target_var: String,
+    #[pyo3(get)]
+    pub target_line: u32,
+    #[pyo3(get)]
+    pub edge_type: String,
+    #[pyo3(get)]
+    pub scope: String,
+}
+
+#[pymethods]
+impl PyDataFlowEdge {
+    fn __repr__(&self) -> String {
+        format!(
+            "DataFlowEdge({}:{} -> {}:{}, type={}, scope={})",
+            self.source_var, self.source_line,
+            self.target_var, self.target_line,
+            self.edge_type, self.scope
+        )
+    }
+
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("source_var", &self.source_var)?;
+        dict.set_item("source_line", self.source_line)?;
+        dict.set_item("target_var", &self.target_var)?;
+        dict.set_item("target_line", self.target_line)?;
+        dict.set_item("edge_type", &self.edge_type)?;
+        dict.set_item("scope", &self.scope)?;
+        Ok(dict)
+    }
+}
+
+impl From<dataflow::DataFlowEdge> for PyDataFlowEdge {
+    fn from(edge: dataflow::DataFlowEdge) -> Self {
+        PyDataFlowEdge {
+            source_var: edge.source_var,
+            source_line: edge.source_line,
+            target_var: edge.target_var,
+            target_line: edge.target_line,
+            edge_type: edge.edge_type.as_str().to_string(),
+            scope: edge.scope,
+        }
+    }
+}
+
+/// Extract data flow edges from Python source code.
+///
+/// Returns a list of DataFlowEdge objects representing def-use chains.
+///
+/// # Arguments
+/// * `source` - Python source code to analyze
+///
+/// # Returns
+/// List of DataFlowEdge objects with:
+/// - source_var: Source variable/expression name
+/// - source_line: Source line number (1-indexed)
+/// - target_var: Target variable/expression name
+/// - target_line: Target line number (1-indexed)
+/// - edge_type: Type of data flow (assignment, parameter, return, etc.)
+/// - scope: Scope path (e.g., "module.Class.method")
+///
+/// # Example
+/// ```python
+/// from repotoire_fast import extract_dataflow
+///
+/// source = '''
+/// x = input()
+/// y = x
+/// eval(y)
+/// '''
+/// edges = extract_dataflow(source)
+/// for edge in edges:
+///     print(f"{edge.source_var}:{edge.source_line} -> {edge.target_var}:{edge.target_line}")
+/// ```
+#[pyfunction]
+fn extract_dataflow(source: &str) -> Vec<PyDataFlowEdge> {
+    dataflow::extract_dataflow_edges(source)
+        .into_iter()
+        .map(PyDataFlowEdge::from)
+        .collect()
+}
+
+/// Extract data flow edges from multiple files in parallel.
+///
+/// # Arguments
+/// * `files` - List of (file_path, source_code) tuples
+///
+/// # Returns
+/// List of (file_path, [DataFlowEdge]) tuples
+#[pyfunction]
+fn extract_dataflow_batch(
+    py: Python<'_>,
+    files: Vec<(String, String)>,
+) -> Vec<(String, Vec<PyDataFlowEdge>)> {
+    py.detach(|| {
+        dataflow::extract_dataflow_edges_batch(files)
+            .into_iter()
+            .map(|(path, edges)| {
+                let py_edges: Vec<PyDataFlowEdge> = edges
+                    .into_iter()
+                    .map(PyDataFlowEdge::from)
+                    .collect();
+                (path, py_edges)
+            })
+            .collect()
+    })
+}
+
+// ============================================================================
+// TAINT ANALYSIS (REPO-411)
+// Detects data flows from untrusted sources to dangerous sinks
+// ============================================================================
+
+/// Python wrapper for TaintFlow
+#[pyclass]
+#[derive(Clone)]
+pub struct PyTaintFlow {
+    #[pyo3(get)]
+    pub source: String,
+    #[pyo3(get)]
+    pub source_line: u32,
+    #[pyo3(get)]
+    pub source_category: String,
+    #[pyo3(get)]
+    pub sink: String,
+    #[pyo3(get)]
+    pub sink_line: u32,
+    #[pyo3(get)]
+    pub vulnerability: String,
+    #[pyo3(get)]
+    pub severity: String,
+    #[pyo3(get)]
+    pub path: Vec<String>,
+    #[pyo3(get)]
+    pub path_lines: Vec<u32>,
+    #[pyo3(get)]
+    pub scope: String,
+    #[pyo3(get)]
+    pub has_sanitizer: bool,
+}
+
+#[pymethods]
+impl PyTaintFlow {
+    fn __repr__(&self) -> String {
+        format!(
+            "TaintFlow({} -> {}, vulnerability={}, severity={})",
+            self.source, self.sink, self.vulnerability, self.severity
+        )
+    }
+
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("source", &self.source)?;
+        dict.set_item("source_line", self.source_line)?;
+        dict.set_item("source_category", &self.source_category)?;
+        dict.set_item("sink", &self.sink)?;
+        dict.set_item("sink_line", self.sink_line)?;
+        dict.set_item("vulnerability", &self.vulnerability)?;
+        dict.set_item("severity", &self.severity)?;
+        dict.set_item("path", &self.path)?;
+        dict.set_item("path_lines", &self.path_lines)?;
+        dict.set_item("scope", &self.scope)?;
+        dict.set_item("has_sanitizer", self.has_sanitizer)?;
+        Ok(dict)
+    }
+}
+
+impl From<taint::TaintFlow> for PyTaintFlow {
+    fn from(flow: taint::TaintFlow) -> Self {
+        // Compute severity before moving fields (severity() borrows vulnerability)
+        let severity = flow.severity().to_string();
+        let vulnerability = flow.vulnerability.as_str().to_string();
+        let source_category = flow.source_category.as_str().to_string();
+
+        PyTaintFlow {
+            source: flow.source,
+            source_line: flow.source_line,
+            source_category,
+            sink: flow.sink,
+            sink_line: flow.sink_line,
+            vulnerability,
+            severity,
+            path: flow.path,
+            path_lines: flow.path_lines,
+            scope: flow.scope,
+            has_sanitizer: flow.has_sanitizer,
+        }
+    }
+}
+
+/// Find taint flows in Python source code.
+///
+/// Analyzes data flow from untrusted sources (e.g., user input) to
+/// dangerous sinks (e.g., eval, SQL queries) to detect vulnerabilities.
+///
+/// # Arguments
+/// * `source` - Python source code to analyze
+///
+/// # Returns
+/// List of TaintFlow objects representing potential vulnerabilities:
+/// - source: Source variable introducing taint
+/// - source_line: Line where taint is introduced
+/// - source_category: Category (user_input, file, network, etc.)
+/// - sink: Dangerous sink receiving tainted data
+/// - sink_line: Line of the sink
+/// - vulnerability: Type (sql_injection, command_injection, etc.)
+/// - severity: Risk level (critical, high, medium, low)
+/// - path: Variable path from source to sink
+/// - path_lines: Line numbers along the path
+/// - scope: Scope where flow occurs
+/// - has_sanitizer: Whether a sanitizer was detected in path
+///
+/// # Example
+/// ```python
+/// from repotoire_fast import find_taint_flows
+///
+/// source = '''
+/// user_input = input()
+/// query = "SELECT * FROM users WHERE id = " + user_input
+/// cursor.execute(query)
+/// '''
+/// flows = find_taint_flows(source)
+/// for flow in flows:
+///     print(f"{flow.vulnerability}: {flow.source} -> {flow.sink}")
+/// ```
+#[pyfunction]
+fn find_taint_flows(source: &str) -> Vec<PyTaintFlow> {
+    taint::find_taint_flows(source)
+        .into_iter()
+        .map(PyTaintFlow::from)
+        .collect()
+}
+
+/// Find taint flows in multiple files in parallel.
+///
+/// # Arguments
+/// * `files` - List of (file_path, source_code) tuples
+///
+/// # Returns
+/// List of (file_path, [TaintFlow]) tuples
+#[pyfunction]
+fn find_taint_flows_batch(
+    py: Python<'_>,
+    files: Vec<(String, String)>,
+) -> Vec<(String, Vec<PyTaintFlow>)> {
+    py.detach(|| {
+        taint::find_taint_flows_batch(files)
+            .into_iter()
+            .map(|(path, flows)| {
+                let py_flows: Vec<PyTaintFlow> = flows
+                    .into_iter()
+                    .map(PyTaintFlow::from)
+                    .collect();
+                (path, py_flows)
+            })
+            .collect()
+    })
+}
+
+/// Get default taint source patterns.
+///
+/// Returns a list of (pattern, category, description) tuples for
+/// built-in taint sources that can be customized.
+#[pyfunction]
+fn get_default_taint_sources() -> Vec<(String, String, String)> {
+    taint::default_sources()
+        .into_iter()
+        .map(|s| (s.pattern, s.category.as_str().to_string(), s.description))
+        .collect()
+}
+
+/// Get default taint sink patterns.
+///
+/// Returns a list of (pattern, vulnerability, description) tuples for
+/// built-in taint sinks that can be customized.
+#[pyfunction]
+fn get_default_taint_sinks() -> Vec<(String, String, String)> {
+    taint::default_sinks()
+        .into_iter()
+        .map(|s| (s.pattern, s.vulnerability.as_str().to_string(), s.description))
+        .collect()
+}
+
+/// Get default sanitizer patterns.
+///
+/// Returns a list of function/method names that neutralize taint.
+#[pyfunction]
+fn get_default_sanitizers() -> Vec<String> {
+    taint::default_sanitizers()
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -2756,6 +3063,16 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     // SATD (Self-Admitted Technical Debt) scanning (REPO-410)
     n.add_function(wrap_pyfunction!(scan_satd_batch, n)?)?;
     n.add_function(wrap_pyfunction!(scan_satd_file, n)?)?;
+    // Data Flow Graph and Taint Analysis (REPO-411)
+    n.add_class::<PyDataFlowEdge>()?;
+    n.add_function(wrap_pyfunction!(extract_dataflow, n)?)?;
+    n.add_function(wrap_pyfunction!(extract_dataflow_batch, n)?)?;
+    n.add_class::<PyTaintFlow>()?;
+    n.add_function(wrap_pyfunction!(find_taint_flows, n)?)?;
+    n.add_function(wrap_pyfunction!(find_taint_flows_batch, n)?)?;
+    n.add_function(wrap_pyfunction!(get_default_taint_sources, n)?)?;
+    n.add_function(wrap_pyfunction!(get_default_taint_sinks, n)?)?;
+    n.add_function(wrap_pyfunction!(get_default_sanitizers, n)?)?;
     Ok(())
 }
 

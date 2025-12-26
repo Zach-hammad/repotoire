@@ -61,6 +61,7 @@ from repotoire.detectors.jscpd_detector import JscpdDetector
 from repotoire.detectors.vulture_detector import VultureDetector
 from repotoire.detectors.semgrep_detector import SemgrepDetector
 from repotoire.detectors.satd_detector import SATDDetector
+from repotoire.detectors.taint_detector import TaintDetector
 from repotoire.detectors.deduplicator import FindingDeduplicator
 from repotoire.detectors.root_cause_analyzer import RootCauseAnalyzer
 from repotoire.detectors.voting_engine import VotingEngine, VotingStrategy, ConfidenceMethod
@@ -263,6 +264,14 @@ class AnalysisEngine:
             # SATD (Self-Admitted Technical Debt) detector (REPO-410)
             # Scans TODO, FIXME, HACK, XXX, KLUDGE, REFACTOR, TEMP, BUG comments
             SATDDetector(
+                neo4j_client,
+                detector_config={"repository_path": repository_path},
+                enricher=self.enricher  # Enable graph enrichment
+            ),
+            # Taint tracking detector (REPO-411)
+            # Traces data from untrusted sources to dangerous sinks
+            # Detects SQL injection, command injection, XSS, etc.
+            TaintDetector(
                 neo4j_client,
                 detector_config={"repository_path": repository_path},
                 enricher=self.enricher  # Enable graph enrichment

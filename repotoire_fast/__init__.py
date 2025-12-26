@@ -72,6 +72,16 @@ from .repotoire_fast import (
     # SATD (Self-Admitted Technical Debt) scanning (REPO-410)
     scan_satd_batch,                  # Batch SATD scanning in parallel
     scan_satd_file,                   # Single file SATD scanning
+    # Data Flow Graph and Taint Analysis (REPO-411)
+    PyDataFlowEdge,                   # Data flow edge result class
+    extract_dataflow,                 # Extract DFG from Python source
+    extract_dataflow_batch,           # Batch DFG extraction in parallel
+    PyTaintFlow,                      # Taint flow result class
+    find_taint_flows,                 # Find taint flows (source -> sink)
+    find_taint_flows_batch,           # Batch taint analysis in parallel
+    get_default_taint_sources,        # Get default taint source patterns
+    get_default_taint_sinks,          # Get default taint sink patterns
+    get_default_sanitizers,           # Get default sanitizer patterns
 )
 
 __all__ = [
@@ -147,4 +157,14 @@ __all__ = [
     # SATD (Self-Admitted Technical Debt) scanning (REPO-410)
     "scan_satd_batch",                  # Batch SATD scanning in parallel
     "scan_satd_file",                   # Single file SATD scanning
+    # Data Flow Graph and Taint Analysis (REPO-411)
+    "PyDataFlowEdge",                   # Data flow edge result class
+    "extract_dataflow",                 # Extract DFG from Python source
+    "extract_dataflow_batch",           # Batch DFG extraction in parallel
+    "PyTaintFlow",                      # Taint flow result class
+    "find_taint_flows",                 # Find taint flows (source -> sink)
+    "find_taint_flows_batch",           # Batch taint analysis in parallel
+    "get_default_taint_sources",        # Get default taint source patterns
+    "get_default_taint_sinks",          # Get default taint sink patterns
+    "get_default_sanitizers",           # Get default sanitizer patterns
 ]
