@@ -425,6 +425,10 @@ def custom_openapi() -> dict[str, Any]:
         license_info=app.license_info,
     )
 
+    # Ensure components exists before adding security schemes
+    if "components" not in openapi_schema:
+        openapi_schema["components"] = {}
+
     # Add security schemes
     openapi_schema["components"]["securitySchemes"] = {
         "BearerAuth": {
