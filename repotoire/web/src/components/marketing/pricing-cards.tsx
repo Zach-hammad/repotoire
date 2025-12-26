@@ -26,7 +26,7 @@ const plans = [
   {
     name: "Pro",
     price: { monthly: "29", annual: "23" },
-    description: "For professional developers and small teams",
+    description: "For developers and small teams (per seat)",
     features: [
       "10 repositories",
       "Unlimited analyses",

@@ -21,7 +21,9 @@
 use petgraph::graph::DiGraph;
 use petgraph::algo::tarjan_scc as petgraph_tarjan;
 use rayon::prelude::*;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
+use rand::prelude::*;
+use rand_chacha::ChaCha8Rng;
 
 use crate::errors::GraphError;
 
@@ -1134,6 +1136,207 @@ pub fn batch_jaccard_similarity(
 }
 
 // ============================================================================
+// NODE2VEC RANDOM WALKS (REPO-247)
+// ============================================================================
+//
+// What is Node2Vec?
+// A graph embedding algorithm that generates biased random walks. The walks
+// are then fed to Word2Vec (skip-gram) to learn node embeddings.
+//
+// Why biased walks?
+// Node2Vec uses two parameters to control the walk behavior:
+// - p (return parameter): Controls likelihood of immediately revisiting a node
+// - q (in-out parameter): Controls search to differentiate inward vs outward nodes
+//
+// Transition probabilities from node t via v to x:
+//   πvx = αpq(t, x) * wvx  where:
+//   - αpq(t, x) = 1/p if d(t, x) = 0 (x == t, return to previous)
+//   - αpq(t, x) = 1   if d(t, x) = 1 (x is neighbor of t)
+//   - αpq(t, x) = 1/q if d(t, x) = 2 (x is not neighbor of t)
+//
+// Low p (< 1): More likely to revisit - BFS-like local exploration
+// High p (> 1): Less likely to revisit - DFS-like exploration
+// Low q (< 1): More likely to visit non-neighbors - DFS-like (go far)
+// High q (> 1): More likely to visit neighbors of previous - BFS-like (stay local)
+//
+// Classic settings:
+// - p=1, q=1: Standard DeepWalk (unbiased)
+// - p=1, q=0.5: DFS-like (explore outward)
+// - p=1, q=2: BFS-like (stay local)
+// ============================================================================
+
+/// Generate biased random walks for Node2Vec embedding.
+///
+/// # Arguments
+/// * `edges` - List of (source, target) edge tuples
+/// * `num_nodes` - Total number of nodes in graph
+/// * `walk_length` - Length of each random walk
+/// * `walks_per_node` - Number of walks to start from each node
+/// * `p` - Return parameter (higher = less likely to revisit previous node)
+/// * `q` - In-out parameter (higher = more BFS-like, lower = more DFS-like)
+/// * `seed` - Optional random seed for reproducibility
+///
+/// # Returns
+/// List of walks, where each walk is a list of node IDs (u32)
+///
+/// # Errors
+/// - `NodeOutOfBounds` if any edge references a node >= num_nodes
+/// - `InvalidParameter` if p or q is <= 0
+pub fn node2vec_random_walks(
+    edges: &[(u32, u32)],
+    num_nodes: usize,
+    walk_length: usize,
+    walks_per_node: usize,
+    p: f64,
+    q: f64,
+    seed: Option<u64>,
+) -> Result<Vec<Vec<u32>>, GraphError> {
+    // Validate parameters
+    if num_nodes == 0 || walk_length == 0 || walks_per_node == 0 {
+        return Ok(vec![]);
+    }
+
+    if p <= 0.0 || q <= 0.0 {
+        return Err(GraphError::InvalidParameter(
+            "p and q must be positive".to_string()
+        ));
+    }
+
+    validate_edges(edges, num_nodes as u32)?;
+
+    // Build adjacency list
+    let mut neighbors: Vec<Vec<u32>> = vec![vec![]; num_nodes];
+    for &(src, dst) in edges {
+        neighbors[src as usize].push(dst);
+    }
+
+    // Build edge set for O(1) edge existence lookup
+    let edge_set: FxHashSet<(u32, u32)> = edges.iter().copied().collect();
+
+    // Pre-compute 1/p and 1/q to avoid repeated division
+    let inv_p = 1.0 / p;
+    let inv_q = 1.0 / q;
+
+    // Master seed for deterministic per-node seeds
+    let master_seed = seed.unwrap_or(42);
+
+    // Generate walks in parallel across starting nodes
+    let walks: Vec<Vec<u32>> = (0..num_nodes)
+        .into_par_iter()
+        .flat_map(|start_node| {
+            let start = start_node as u32;
+
+            // Skip isolated nodes (no outgoing edges)
+            if neighbors[start_node].is_empty() {
+                return vec![];
+            }
+
+            // Create deterministic RNG seeded by (master_seed, node_id)
+            // This ensures reproducibility even with parallel execution
+            let node_seed = master_seed.wrapping_mul(0x517cc1b727220a95)
+                .wrapping_add(start_node as u64);
+            let mut rng = ChaCha8Rng::seed_from_u64(node_seed);
+
+            let mut node_walks = Vec::with_capacity(walks_per_node);
+
+            for _ in 0..walks_per_node {
+                let walk = generate_biased_walk(
+                    start,
+                    walk_length,
+                    &neighbors,
+                    &edge_set,
+                    inv_p,
+                    inv_q,
+                    &mut rng,
+                );
+                node_walks.push(walk);
+            }
+
+            node_walks
+        })
+        .collect();
+
+    Ok(walks)
+}
+
+/// Generate a single biased random walk starting from a node.
+fn generate_biased_walk(
+    start: u32,
+    walk_length: usize,
+    neighbors: &[Vec<u32>],
+    edge_set: &FxHashSet<(u32, u32)>,
+    inv_p: f64,
+    inv_q: f64,
+    rng: &mut ChaCha8Rng,
+) -> Vec<u32> {
+    let mut walk = Vec::with_capacity(walk_length);
+    walk.push(start);
+
+    if walk_length == 1 {
+        return walk;
+    }
+
+    // First step: uniform random choice (no previous node yet)
+    let first_neighbors = &neighbors[start as usize];
+    if first_neighbors.is_empty() {
+        return walk;
+    }
+    let first_step = first_neighbors[rng.gen_range(0..first_neighbors.len())];
+    walk.push(first_step);
+
+    // Subsequent steps: biased by p and q
+    for _ in 2..walk_length {
+        let current = *walk.last().unwrap();
+        let previous = walk[walk.len() - 2];
+
+        let current_neighbors = &neighbors[current as usize];
+        if current_neighbors.is_empty() {
+            break; // Dead end
+        }
+
+        // Compute unnormalized transition weights
+        let mut weights: Vec<f64> = Vec::with_capacity(current_neighbors.len());
+        let mut total_weight = 0.0;
+
+        for &next in current_neighbors {
+            let weight = if next == previous {
+                // Return to previous node: weight = 1/p
+                inv_p
+            } else if edge_set.contains(&(previous, next)) {
+                // Next is neighbor of previous: weight = 1
+                1.0
+            } else {
+                // Next is not neighbor of previous: weight = 1/q
+                inv_q
+            };
+            weights.push(weight);
+            total_weight += weight;
+        }
+
+        // Sample next node according to weights
+        if total_weight <= 0.0 {
+            break;
+        }
+
+        let sample = rng.gen::<f64>() * total_weight;
+        let mut cumulative = 0.0;
+        let mut chosen_idx = 0;
+
+        for (i, &w) in weights.iter().enumerate() {
+            cumulative += w;
+            if sample < cumulative {
+                chosen_idx = i;
+                break;
+            }
+        }
+
+        walk.push(current_neighbors[chosen_idx]);
+    }
+
+    walk
+}
+
+// ============================================================================
 // UNIT TESTS (REPO-218)
 // Comprehensive tests covering:
 // - Edge cases (empty, single node, self-loops, duplicates)
@@ -1886,6 +2089,219 @@ mod tests {
             // With damping=0, all nodes get equal random jump probability
             assert!(approx_eq(result_0[0], result_0[1]),
                 "Damping=0 should give equal scores");
+        }
+    }
+
+    // =========================================================================
+    // NODE2VEC RANDOM WALK TESTS (REPO-247)
+    // =========================================================================
+
+    mod node2vec {
+        use super::*;
+
+        #[test]
+        fn test_empty_graph() {
+            let walks = node2vec_random_walks(&[], 0, 10, 5, 1.0, 1.0, Some(42)).unwrap();
+            assert!(walks.is_empty(), "Empty graph should produce no walks");
+        }
+
+        #[test]
+        fn test_zero_walk_length() {
+            let edges = vec![(0, 1), (1, 0)];
+            let walks = node2vec_random_walks(&edges, 2, 0, 5, 1.0, 1.0, Some(42)).unwrap();
+            assert!(walks.is_empty(), "Zero walk length should produce no walks");
+        }
+
+        #[test]
+        fn test_zero_walks_per_node() {
+            let edges = vec![(0, 1), (1, 0)];
+            let walks = node2vec_random_walks(&edges, 2, 10, 0, 1.0, 1.0, Some(42)).unwrap();
+            assert!(walks.is_empty(), "Zero walks per node should produce no walks");
+        }
+
+        #[test]
+        fn test_invalid_p() {
+            let edges = vec![(0, 1)];
+            let result = node2vec_random_walks(&edges, 2, 10, 5, 0.0, 1.0, Some(42));
+            assert!(result.is_err(), "p=0 should be invalid");
+
+            let result = node2vec_random_walks(&edges, 2, 10, 5, -1.0, 1.0, Some(42));
+            assert!(result.is_err(), "p<0 should be invalid");
+        }
+
+        #[test]
+        fn test_invalid_q() {
+            let edges = vec![(0, 1)];
+            let result = node2vec_random_walks(&edges, 2, 10, 5, 1.0, 0.0, Some(42));
+            assert!(result.is_err(), "q=0 should be invalid");
+        }
+
+        #[test]
+        fn test_node_out_of_bounds() {
+            let edges = vec![(0, 5)]; // Node 5 doesn't exist
+            let result = node2vec_random_walks(&edges, 2, 10, 5, 1.0, 1.0, Some(42));
+            assert!(result.is_err(), "Edge to non-existent node should fail");
+        }
+
+        #[test]
+        fn test_basic_walk_generation() {
+            let edges = vec![(0, 1), (1, 2), (2, 0)];
+            let walks = node2vec_random_walks(&edges, 3, 10, 2, 1.0, 1.0, Some(42)).unwrap();
+
+            // 3 nodes × 2 walks each = 6 walks
+            assert_eq!(walks.len(), 6, "Should generate walks_per_node walks for each node");
+
+            for walk in &walks {
+                assert!(walk.len() <= 10, "Walks should not exceed walk_length");
+                assert!(!walk.is_empty(), "Walks should not be empty");
+                // First node should be valid
+                assert!(walk[0] < 3, "Starting node should be valid");
+            }
+        }
+
+        #[test]
+        fn test_isolated_nodes_skipped() {
+            // Node 2 has no outgoing edges
+            let edges = vec![(0, 1), (1, 0)];
+            let walks = node2vec_random_walks(&edges, 3, 10, 2, 1.0, 1.0, Some(42)).unwrap();
+
+            // Only 2 nodes have edges, so 2 × 2 = 4 walks
+            assert_eq!(walks.len(), 4, "Isolated nodes should not produce walks");
+        }
+
+        #[test]
+        fn test_determinism_same_seed() {
+            let edges = vec![(0, 1), (1, 2), (2, 0), (0, 2)];
+
+            let walks1 = node2vec_random_walks(&edges, 3, 20, 5, 1.0, 1.0, Some(42)).unwrap();
+            let walks2 = node2vec_random_walks(&edges, 3, 20, 5, 1.0, 1.0, Some(42)).unwrap();
+
+            assert_eq!(walks1, walks2, "Same seed should produce identical walks");
+        }
+
+        #[test]
+        fn test_different_seeds_different_walks() {
+            let edges = vec![(0, 1), (1, 2), (2, 0), (0, 2)];
+
+            let walks1 = node2vec_random_walks(&edges, 3, 20, 5, 1.0, 1.0, Some(42)).unwrap();
+            let walks2 = node2vec_random_walks(&edges, 3, 20, 5, 1.0, 1.0, Some(123)).unwrap();
+
+            assert_ne!(walks1, walks2, "Different seeds should produce different walks");
+        }
+
+        #[test]
+        fn test_walk_length_one() {
+            let edges = vec![(0, 1), (1, 0)];
+            let walks = node2vec_random_walks(&edges, 2, 1, 2, 1.0, 1.0, Some(42)).unwrap();
+
+            for walk in &walks {
+                assert_eq!(walk.len(), 1, "Walk length 1 should produce single-node walks");
+            }
+        }
+
+        #[test]
+        fn test_dead_end_handling() {
+            // Node 1 is a dead end (no outgoing edges)
+            let edges = vec![(0, 1)];
+            let walks = node2vec_random_walks(&edges, 2, 10, 2, 1.0, 1.0, Some(42)).unwrap();
+
+            // Only node 0 has edges
+            assert_eq!(walks.len(), 2);
+
+            for walk in &walks {
+                // Walk should start at 0, go to 1, then stop
+                assert!(walk.len() <= 2, "Walk should stop at dead end");
+                assert_eq!(walk[0], 0);
+            }
+        }
+
+        #[test]
+        fn test_p_parameter_effect() {
+            // With very high p, should rarely return to previous node
+            // With very low p, should often return to previous node
+            let edges = vec![(0, 1), (1, 0), (1, 2), (2, 1)];
+
+            // Generate many walks with extreme p values
+            let walks_high_p = node2vec_random_walks(&edges, 3, 50, 10, 10.0, 1.0, Some(42)).unwrap();
+            let walks_low_p = node2vec_random_walks(&edges, 3, 50, 10, 0.1, 1.0, Some(42)).unwrap();
+
+            // Count returns (consecutive duplicates like ..., 0, 1, 0, ...)
+            fn count_returns(walks: &[Vec<u32>]) -> usize {
+                let mut returns = 0;
+                for walk in walks {
+                    for i in 2..walk.len() {
+                        if walk[i] == walk[i - 2] {
+                            returns += 1;
+                        }
+                    }
+                }
+                returns
+            }
+
+            let returns_high_p = count_returns(&walks_high_p);
+            let returns_low_p = count_returns(&walks_low_p);
+
+            // Low p should have more returns than high p
+            assert!(returns_low_p > returns_high_p,
+                "Low p ({}) should produce more returns than high p ({})",
+                returns_low_p, returns_high_p);
+        }
+
+        #[test]
+        fn test_cycle_graph() {
+            // Cycle: 0 -> 1 -> 2 -> 3 -> 0
+            let edges = vec![(0, 1), (1, 2), (2, 3), (3, 0)];
+            let walks = node2vec_random_walks(&edges, 4, 20, 3, 1.0, 1.0, Some(42)).unwrap();
+
+            assert_eq!(walks.len(), 12, "4 nodes × 3 walks = 12 walks");
+
+            // Each walk should follow the cycle
+            for walk in &walks {
+                for i in 1..walk.len() {
+                    let expected_next = (walk[i - 1] + 1) % 4;
+                    assert_eq!(walk[i], expected_next,
+                        "In cycle graph, walk should follow cycle");
+                }
+            }
+        }
+
+        #[test]
+        fn test_complete_graph() {
+            // K4: Every node connected to every other
+            let edges = vec![
+                (0, 1), (0, 2), (0, 3),
+                (1, 0), (1, 2), (1, 3),
+                (2, 0), (2, 1), (2, 3),
+                (3, 0), (3, 1), (3, 2),
+            ];
+
+            let walks = node2vec_random_walks(&edges, 4, 10, 5, 1.0, 1.0, Some(42)).unwrap();
+
+            assert_eq!(walks.len(), 20, "4 nodes × 5 walks = 20 walks");
+
+            for walk in &walks {
+                assert_eq!(walk.len(), 10, "Complete graph should allow full walks");
+            }
+        }
+
+        #[test]
+        fn test_large_graph_performance() {
+            // 1000 nodes, random edges
+            let n = 1000;
+            let mut edges = Vec::new();
+            for i in 0..n {
+                edges.push((i as u32, ((i + 1) % n) as u32));
+                edges.push((i as u32, ((i + 7) % n) as u32));
+            }
+
+            let walks = node2vec_random_walks(&edges, n, 80, 10, 1.0, 1.0, Some(42)).unwrap();
+
+            assert_eq!(walks.len(), n * 10);
+
+            // All walks should reach full length in connected graph
+            for walk in &walks {
+                assert_eq!(walk.len(), 80, "Connected graph should produce full-length walks");
+            }
         }
     }
 }

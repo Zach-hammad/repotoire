@@ -16,7 +16,7 @@
   --secondary: oklch(0.96 0.005 250);
   --secondary-foreground: oklch(0.25 0.005 250);
   --muted: oklch(0.94 0.005 250);
-  --muted-foreground: oklch(0.45 0.01 250);
+  --muted-foreground: oklch(0.40 0.01 250);
   --accent: oklch(0.96 0.01 295);
   --accent-foreground: oklch(0.25 0.005 250);
   --destructive: oklch(0.55 0.2 25);
@@ -53,7 +53,7 @@
   --secondary: oklch(0.2 0.005 250);
   --secondary-foreground: oklch(0.9 0 0);
   --muted: oklch(0.22 0.005 250);
-  --muted-foreground: oklch(0.65 0.01 250);
+  --muted-foreground: oklch(0.70 0.01 250);
   --accent: oklch(0.25 0.02 295);
   --accent-foreground: oklch(0.9 0 0);
   --destructive: oklch(0.55 0.18 25);
@@ -236,6 +236,97 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
+/* Dark mode polish for charts */
+.dark .recharts-cartesian-grid line {
+  stroke: hsl(var(--border));
+}
+
+.dark .recharts-tooltip-wrapper .recharts-default-tooltip {
+  background-color: hsl(var(--popover)) !important;
+  border-color: hsl(var(--border)) !important;
+}
+
+/* Dark mode for notification badges */
+.dark .notification-unread {
+  background: linear-gradient(135deg, hsl(var(--primary) / 0.2), hsl(var(--accent) / 0.2));
+}
+
+/* Focus ring improvements for accessibility */
+*:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Enhanced focus for interactive elements */
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Improved scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.2);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* Skeleton shimmer animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 0%,
+    hsl(var(--muted-foreground) / 0.1) 50%,
+    hsl(var(--muted)) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.dark .skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 0%,
+    hsl(var(--muted-foreground) / 0.15) 50%,
+    hsl(var(--muted)) 100%
+  );
+  background-size: 200% 100%;
+}
+
 /* Updated gradient to match logo colors: purple to coral */
 .text-gradient {
   background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 50%, #f97316 100%);
@@ -251,4 +342,25 @@
 
 .bg-brand-gradient:hover {
   background: linear-gradient(135deg, #7c3aed 0%, #db2777 50%, #ea580c 100%);
+}
+
+/* Respect user's motion preferences for accessibility (WCAG 2.3.3) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-fade-up,
+  .animate-fade-in,
+  .animate-slide-in-right,
+  .animate-scale-in {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }

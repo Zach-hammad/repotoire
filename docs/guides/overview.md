@@ -49,6 +49,15 @@ Use Repotoire in Claude Code, Cursor, or any MCP-compatible AI assistant.
 - Available tools and usage examples
 - IDE integration (Cursor, VS Code)
 
+### [Repotoire vs Graphite](comparison-graphite.md)
+
+Understand how Repotoire compares to Graphite and when to use each.
+
+- Feature comparison table
+- Technical architecture differences
+- Pricing comparison
+- Ideal combined workflow
+
 ## Getting Help
 
 - [CLI Reference](../cli/overview.md) - Command documentation

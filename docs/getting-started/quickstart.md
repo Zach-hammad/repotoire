@@ -1,74 +1,34 @@
 # Quick Start
 
-Get Repotoire running and analyze your first codebase in under 5 minutes.
+Analyze your codebase in under 2 minutes.
 
-## Prerequisites
-
-- Python 3.10+
-- Docker (for Neo4j) or an existing Neo4j instance
-- Your codebase (Python, JavaScript, or TypeScript)
-
-## Step 1: Install Repotoire
+## Step 1: Install
 
 ```bash
-# Using pip
 pip install repotoire
-
-# Or using uv (faster)
-uv pip install repotoire
-
-# Verify installation
-repotoire --version
 ```
 
-## Step 2: Start Neo4j
+## Step 2: Get Your API Key
 
-The easiest way is with Docker:
+1. Go to [repotoire.com/settings/api-keys](https://repotoire.com/settings/api-keys)
+2. Create a new API key
+3. Set it in your environment:
 
 ```bash
-docker run -d \
-  --name repotoire-neo4j \
-  -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/your-password \
-  -e NEO4J_PLUGINS='["apoc"]' \
-  neo4j:latest
+export REPOTOIRE_API_KEY=ak_your_key_here
 ```
 
-Wait for Neo4j to start (~30 seconds), then verify:
+## Step 3: Analyze
 
 ```bash
-# Open Neo4j Browser
-open http://localhost:7474
+repotoire analyze ./my-project
 ```
 
-## Step 3: Configure Repotoire
+That's it! View your results at [repotoire.com/dashboard](https://repotoire.com/dashboard).
 
-Set environment variables:
+## Step 4: Ingest Your Codebase (Optional)
 
-```bash
-export REPOTOIRE_NEO4J_URI=bolt://localhost:7687
-export REPOTOIRE_NEO4J_PASSWORD=your-password
-```
-
-Or create a config file:
-
-```bash
-repotoire init
-```
-
-Verify connectivity:
-
-```bash
-repotoire validate
-```
-
-Expected output:
-```
-✓ Neo4j connection validated
-✓ Configuration valid
-```
-
-## Step 4: Ingest Your Codebase
+For deeper analysis, ingest your codebase first:
 
 ```bash
 repotoire ingest ./my-project

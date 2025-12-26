@@ -9,7 +9,6 @@ This guide covers all installation methods and optional features for Repotoire.
 | Python | 3.10+ | 3.11+ |
 | RAM | 4 GB | 8 GB+ |
 | Disk Space | 500 MB | 2 GB+ |
-| Docker | 20.10+ | Latest |
 
 ### Supported Operating Systems
 
@@ -218,36 +217,26 @@ repotoire --version
 
 # Validate configuration
 repotoire validate
-
-# Test Neo4j connection (after Neo4j is running)
-repotoire validate --check-neo4j
 ```
 
 ## Post-Installation Setup
 
-### 1. Download spaCy Model
+### 1. Get Your API Key
+
+1. Go to [repotoire.com/settings/api-keys](https://repotoire.com/settings/api-keys)
+2. Create a new API key
+3. Set it in your environment:
+
+```bash
+export REPOTOIRE_API_KEY=ak_your_key_here
+```
+
+### 2. Download spaCy Model (Optional)
 
 Required for natural language processing features:
 
 ```bash
 python -m spacy download en_core_web_lg
-```
-
-### 2. Start Neo4j
-
-See [Quickstart](quickstart.md) for Neo4j setup instructions.
-
-### 3. Configure Environment
-
-```bash
-export REPOTOIRE_NEO4J_URI=bolt://localhost:7687
-export REPOTOIRE_NEO4J_PASSWORD=your-password
-```
-
-Or create a configuration file:
-
-```bash
-repotoire init
 ```
 
 ## Troubleshooting
@@ -259,16 +248,6 @@ If you see `ModuleNotFoundError`:
 ```bash
 # Reinstall with all dependencies
 pip install --upgrade --force-reinstall repotoire[dev]
-```
-
-### Neo4j Connection Failed
-
-```bash
-# Check Neo4j is running
-docker ps | grep neo4j
-
-# Test connection
-repotoire validate
 ```
 
 ### Permission Denied

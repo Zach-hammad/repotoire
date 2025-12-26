@@ -358,6 +358,12 @@ class Neo4jClient:
                     "docstring": e.docstring,
                 }
 
+                # Add repo_id and repo_slug for multi-tenant isolation
+                if e.repo_id:
+                    entity_dict["repoId"] = e.repo_id
+                if e.repo_slug:
+                    entity_dict["repoSlug"] = e.repo_slug
+
                 # Add type-specific fields
                 if hasattr(e, "is_external"):  # Module
                     entity_dict["is_external"] = e.is_external

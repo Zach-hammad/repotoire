@@ -1,0 +1,76 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "Welcome back" [level=1] [ref=e5]
+      - paragraph [ref=e6]: Sign in to your Repotoire account
+    - generic [ref=e8]:
+      - generic [ref=e9]:
+        - generic [ref=e11]:
+          - heading "Sign in to repotoire" [level=1] [ref=e12]
+          - paragraph [ref=e13]: Welcome back! Please sign in to continue
+        - generic [ref=e14]:
+          - button "Sign in with GitHub Continue with GitHub" [ref=e17] [cursor=pointer]:
+            - generic [ref=e18]:
+              - img "Sign in with GitHub" [ref=e20]
+              - generic [ref=e21]: Continue with GitHub
+          - paragraph [ref=e24]: or
+          - generic [ref=e26]:
+            - generic [ref=e27]:
+              - generic [ref=e30]:
+                - generic [ref=e32]: Email address
+                - textbox "Email address" [ref=e33]:
+                  - /placeholder: Enter your email address
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic: Password
+                    - generic:
+                      - textbox "Password":
+                        - /placeholder: Enter your password
+                      - button "Show password":
+                        - img
+            - button "Continue" [ref=e36] [cursor=pointer]:
+              - generic [ref=e37]:
+                - text: Continue
+                - img [ref=e38]
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - generic [ref=e42]: Don’t have an account?
+          - link "Sign up" [ref=e43] [cursor=pointer]:
+            - /url: http://localhost:3000/sign-up#/?redirect_url=http%3A%2F%2Flocalhost%3A3000%2Fsamples%2Freact
+        - generic [ref=e45]:
+          - generic [ref=e47]:
+            - paragraph [ref=e48]: Secured by
+            - link "Clerk logo" [ref=e49] [cursor=pointer]:
+              - /url: https://go.clerk.com/components
+              - img [ref=e50]
+          - paragraph [ref=e55]: Development mode
+  - generic [ref=e57]:
+    - generic [ref=e58]:
+      - generic [ref=e59]: Cookie Preferences
+      - generic [ref=e60]:
+        - text: We use cookies to improve your experience and analyze site usage.
+        - link "Learn more" [ref=e61] [cursor=pointer]:
+          - /url: /privacy
+    - generic [ref=e63]:
+      - button "Customize" [ref=e64]
+      - button "Reject All" [ref=e65]
+      - button "Accept All" [ref=e66]
+  - region "Notifications alt+T"
+  - generic [ref=e71] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e72]:
+      - img [ref=e73]
+    - generic [ref=e76]:
+      - button "Open issues overlay" [ref=e77]:
+        - generic [ref=e78]:
+          - generic [ref=e79]: "0"
+          - generic [ref=e80]: "1"
+        - generic [ref=e81]: Issue
+      - button "Collapse issues badge" [ref=e82]:
+        - img [ref=e83]
+  - alert [ref=e85]
+```

@@ -1,8 +1,16 @@
-"""MCP (Model Context Protocol) server generation from code analysis.
+"""MCP (Model Context Protocol) server and utilities.
 
-Supports two modes:
-1. Traditional mode: All tools registered upfront (~1600+ tokens)
-2. Optimized mode (REPO-208/209/213): Progressive discovery (~230 tokens)
+API-backed MCP Server (REPO-325):
+- Use `repotoire-mcp` for API-backed code intelligence
+- search_code: Semantic code search
+- ask_code_question: RAG-powered Q&A
+- get_prompt_context: Context for prompt engineering
+- get_file_content: Read specific files
+- get_architecture: Codebase structure overview
+
+Server Generation:
+- Traditional mode: All tools registered upfront (~1600+ tokens)
+- Optimized mode (REPO-208/209/213): Progressive discovery (~230 tokens)
 
 Token savings with optimized mode:
 - Tool definitions: 94% reduction
@@ -19,6 +27,7 @@ Token-efficient utilities (REPO-210/211/212):
 from repotoire.mcp.pattern_detector import PatternDetector
 from repotoire.mcp.schema_generator import SchemaGenerator
 from repotoire.mcp.server_generator import ServerGenerator, MCP_PROGRESSIVE_DISCOVERY
+from repotoire.mcp.api_server import RepotoireAPIClient, run_server as run_api_server
 from repotoire.mcp.models import (
     DetectedPattern,
     RoutePattern,
@@ -73,6 +82,9 @@ __all__ = [
     "PatternDetector",
     "SchemaGenerator",
     "ServerGenerator",
+    # API-backed server (REPO-325)
+    "RepotoireAPIClient",
+    "run_api_server",
     # Models
     "DetectedPattern",
     "RoutePattern",

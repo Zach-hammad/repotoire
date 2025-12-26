@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -191,25 +192,25 @@ export default function APIKeysPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Link
-              href="/dashboard/settings"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </Link>
+      <div className="space-y-4">
+        <Breadcrumb
+          items={[
+            { label: 'Settings', href: '/dashboard/settings' },
+            { label: 'API Keys' },
+          ]}
+        />
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
             <h1 className="text-3xl font-bold tracking-tight">API Keys</h1>
+            <p className="text-muted-foreground">
+              Manage API keys for programmatic access to Repotoire
+            </p>
           </div>
-          <p className="text-muted-foreground">
-            Manage API keys for programmatic access to Repotoire
-          </p>
+          <Button onClick={() => setIsCreateDialogOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Create API Key
+          </Button>
         </div>
-        <Button onClick={() => setIsCreateDialogOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Create API Key
-        </Button>
       </div>
 
       {/* Error state */}

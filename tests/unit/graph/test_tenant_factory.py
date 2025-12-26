@@ -398,3 +398,160 @@ class TestGetCachedOrgIds:
         factory = GraphClientFactory(backend="falkordb")
         cached = factory.get_cached_org_ids()
         assert cached == []
+
+
+class TestFlyIoDefaults:
+    """Tests for Fly.io environment detection and defaults."""
+
+    @patch.dict("os.environ", {"FLY_APP_NAME": "repotoire-worker"}, clear=False)
+    def test_fly_environment_detection(self):
+        """Test that Fly.io environment is detected."""
+        from repotoire.graph.tenant_factory import _is_fly_environment
+
+        assert _is_fly_environment() is True
+
+    @patch.dict("os.environ", {}, clear=True)
+    def test_non_fly_environment_detection(self):
+        """Test that non-Fly.io environment is detected."""
+        from repotoire.graph.tenant_factory import _is_fly_environment
+
+        assert _is_fly_environment() is False
+
+    @patch.dict("os.environ", {"FLY_APP_NAME": "repotoire-worker"}, clear=True)
+    def test_fly_falkordb_host_default(self):
+        """Test FalkorDB host defaults to internal DNS on Fly.io."""
+        factory = GraphClientFactory(backend="falkordb")
+        assert factory.falkordb_host == "repotoire-falkor.internal"
+
+    @patch.dict("os.environ", {}, clear=True)
+    def test_local_falkordb_host_default(self):
+        """Test FalkorDB host defaults to localhost when not on Fly.io."""
+        factory = GraphClientFactory(backend="falkordb")
+        assert factory.falkordb_host == "localhost"
+
+    @patch.dict("os.environ", {
+        "FALKORDB_HOST": "custom-host.local",
+        "FLY_APP_NAME": "repotoire-worker",
+    }, clear=True)
+    def test_explicit_host_overrides_fly_default(self):
+        """Test explicit FALKORDB_HOST overrides Fly.io default."""
+        factory = GraphClientFactory(backend="falkordb")
+        assert factory.falkordb_host == "custom-host.local"
+
+
+class TestFalkorDBEnvVars:
+    """Tests for FALKORDB_* environment variable support."""
+
+    @patch.dict("os.environ", {
+        "FALKORDB_HOST": "falkor.example.com",
+        "FALKORDB_PORT": "16379",
+        "FALKORDB_PASSWORD": "secret123",
+    }, clear=True)
+    def test_falkordb_env_vars(self):
+        """Test factory reads FALKORDB_* env vars."""
+        factory = GraphClientFactory(backend="falkordb")
+
+        assert factory.falkordb_host == "falkor.example.com"
+        assert factory.falkordb_port == 16379
+        assert factory.falkordb_password == "secret123"
+
+    @patch.dict("os.environ", {
+        "FALKORDB_HOST": "from-falkordb",
+        "REPOTOIRE_FALKORDB_HOST": "from-repotoire",
+    }, clear=True)
+    def test_falkordb_env_takes_precedence(self):
+        """Test FALKORDB_* takes precedence over REPOTOIRE_FALKORDB_*."""
+        factory = GraphClientFactory(backend="falkordb")
+        assert factory.falkordb_host == "from-falkordb"
+
+
+class TestTenantContextValidation:
+    """Tests for tenant context validation."""
+
+    @patch("repotoire.graph.falkordb_client.FalkorDBClient")
+    def test_validate_tenant_context_success(self, mock_falkordb_class):
+        """Test successful tenant context validation."""
+        mock_client = Mock()
+        mock_falkordb_class.return_value = mock_client
+
+        factory = GraphClientFactory(backend="falkordb")
+        org_id = uuid4()
+
+        client = factory.get_client(org_id, "test-org")
+
+        # Validation should pass
+        result = factory.validate_tenant_context(client, org_id)
+        assert result is True
+
+    @patch("repotoire.graph.falkordb_client.FalkorDBClient")
+    def test_validate_tenant_context_mismatch(self, mock_falkordb_class):
+        """Test tenant context validation fails on mismatch."""
+        mock_client = Mock()
+        mock_falkordb_class.return_value = mock_client
+
+        factory = GraphClientFactory(backend="falkordb")
+        org1 = uuid4()
+        org2 = uuid4()
+
+        # Create client for org1
+        client = factory.get_client(org1, "org-one")
+
+        # Validation should fail when checking against org2
+        with pytest.raises(ValueError, match="Tenant context mismatch"):
+            factory.validate_tenant_context(client, org2)
+
+    def test_validate_tenant_context_non_multitenant(self):
+        """Test validation fails for non-multi-tenant clients."""
+        factory = GraphClientFactory(backend="falkordb")
+
+        # Create a mock client without _org_id
+        mock_client = Mock(spec=[])
+
+        with pytest.raises(ValueError, match="not multi-tenant"):
+            factory.validate_tenant_context(mock_client, uuid4())
+
+
+class TestSecurityLogging:
+    """Tests for security audit logging."""
+
+    @patch("repotoire.graph.falkordb_client.FalkorDBClient")
+    def test_tenant_access_logged(self, mock_falkordb_class, caplog):
+        """Test that tenant access is logged for security auditing."""
+        import logging
+
+        mock_client = Mock()
+        mock_falkordb_class.return_value = mock_client
+
+        with caplog.at_level(logging.INFO):
+            factory = GraphClientFactory(backend="falkordb")
+            org_id = uuid4()
+            factory.get_client(org_id, "test-org")
+
+        # Check that tenant access was logged
+        assert any("Tenant graph access" in record.message for record in caplog.records)
+
+    @patch("repotoire.graph.falkordb_client.FalkorDBClient")
+    def test_context_mismatch_logged_as_warning(self, mock_falkordb_class, caplog):
+        """Test that context mismatch is logged as a warning."""
+        import logging
+
+        mock_client = Mock()
+        mock_falkordb_class.return_value = mock_client
+
+        factory = GraphClientFactory(backend="falkordb")
+        org1 = uuid4()
+        org2 = uuid4()
+
+        client = factory.get_client(org1, "org-one")
+
+        with caplog.at_level(logging.WARNING):
+            try:
+                factory.validate_tenant_context(client, org2)
+            except ValueError:
+                pass
+
+        # Check that mismatch was logged as warning
+        assert any(
+            "Tenant context mismatch detected" in record.message
+            for record in caplog.records
+        )

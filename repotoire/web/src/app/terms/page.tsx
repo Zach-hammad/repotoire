@@ -13,11 +13,7 @@ export default function TermsPage() {
         <article className="prose prose-slate dark:prose-invert max-w-none">
           <h1 className="text-3xl font-bold tracking-tight">Terms of Service</h1>
           <p className="text-muted-foreground">
-            Last updated: {new Date().toLocaleDateString("en-US", {
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            })}
+            Last updated: December 1, 2024
           </p>
 
           <section className="mt-8">

@@ -167,7 +167,7 @@ Use an external Neo4j instance (cloud or self-hosted):
 ```yaml
 - uses: ./.github/actions/repotoire-check
   with:
-    neo4j-uri: ${{ secrets.NEO4J_URI }}  # e.g., neo4j+s://xxx.databases.neo4j.io
+    neo4j-uri: ${{ secrets.NEO4J_URI }}  # e.g., bolt://your-host:7687 or bolt+s://host:7687
     neo4j-password: ${{ secrets.NEO4J_PASSWORD }}
 ```
 

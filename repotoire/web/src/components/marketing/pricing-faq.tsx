@@ -19,6 +19,11 @@ const faqs = [
       "Yes! You can change your plan at any time. When upgrading, you'll be charged the prorated difference. When downgrading, the new rate applies at your next billing cycle.",
   },
   {
+    question: "What's your cancellation and refund policy?",
+    answer:
+      "You can cancel your subscription at any time from your account settings. Cancellation takes effect at the end of your current billing period. We don't offer refunds for partial months, but you'll retain access until your paid period ends.",
+  },
+  {
     question: "Do you offer annual billing?",
     answer:
       "Yes, we offer annual billing with a 20% discount. You can switch between monthly and annual billing at any time from your account settings.",

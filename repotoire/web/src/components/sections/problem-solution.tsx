@@ -174,7 +174,7 @@ export function ProblemSolution() {
               <tr>
                 <td className="p-4 text-foreground">Re-analysis speed</td>
                 <td className="p-4 text-center text-muted-foreground">Full rescan</td>
-                <td className="p-4 text-center text-foreground">Incremental (100x faster)</td>
+                <td className="p-4 text-center text-foreground">Incremental (changed files only)</td>
               </tr>
               <tr>
                 <td className="p-4 text-foreground">Auto-fix</td>

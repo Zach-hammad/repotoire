@@ -35,6 +35,9 @@ class FalkorDBClient(DatabaseClient):
         port: int = 6379,
         graph_name: str = "repotoire",
         password: Optional[str] = None,
+        ssl: bool = False,
+        socket_timeout: Optional[float] = None,
+        socket_connect_timeout: Optional[float] = None,
         max_retries: int = 3,
         retry_base_delay: float = 1.0,
         retry_backoff_factor: float = 2.0,
@@ -47,6 +50,9 @@ class FalkorDBClient(DatabaseClient):
             port: FalkorDB port (Redis protocol)
             graph_name: Name of the graph to use
             password: Optional Redis password
+            ssl: Enable TLS/SSL connection (required for Fly.io external access)
+            socket_timeout: Socket timeout in seconds
+            socket_connect_timeout: Connection timeout in seconds
             max_retries: Maximum retry attempts
             retry_base_delay: Base delay between retries
             retry_backoff_factor: Backoff multiplier
@@ -55,6 +61,9 @@ class FalkorDBClient(DatabaseClient):
         self.port = port
         self.graph_name = graph_name
         self.password = password
+        self.ssl = ssl
+        self.socket_timeout = socket_timeout
+        self.socket_connect_timeout = socket_connect_timeout
         self.max_retries = max_retries
         self.retry_base_delay = retry_base_delay
         self.retry_backoff_factor = retry_backoff_factor
@@ -70,11 +79,19 @@ class FalkorDBClient(DatabaseClient):
         except ImportError:
             raise ImportError("falkordb package required: pip install falkordb")
 
-        self.db = FalkorDB(
-            host=self.host,
-            port=self.port,
-            password=self.password,
-        )
+        # Build connection kwargs
+        conn_kwargs = {
+            "host": self.host,
+            "port": self.port,
+            "password": self.password,
+            "ssl": self.ssl,
+        }
+        if self.socket_timeout is not None:
+            conn_kwargs["socket_timeout"] = self.socket_timeout
+        if self.socket_connect_timeout is not None:
+            conn_kwargs["socket_connect_timeout"] = self.socket_connect_timeout
+
+        self.db = FalkorDB(**conn_kwargs)
         self.graph = self.db.select_graph(self.graph_name)
 
     def close(self) -> None:
@@ -259,6 +276,12 @@ class FalkorDBClient(DatabaseClient):
                     "lineEnd": e.line_end,
                     "docstring": e.docstring,
                 }
+
+                # Add repo_id and repo_slug for multi-tenant isolation
+                if e.repo_id:
+                    entity_dict["repoId"] = e.repo_id
+                if e.repo_slug:
+                    entity_dict["repoSlug"] = e.repo_slug
 
                 # Add type-specific fields
                 for attr in ["is_external", "package", "loc", "hash", "language",

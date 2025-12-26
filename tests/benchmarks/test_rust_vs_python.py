@@ -466,6 +466,458 @@ baz = 3
 
 
 # ============================================================================
+# FUNCTION BOUNDARY DETECTION BENCHMARKS (REPO-245)
+# ============================================================================
+
+def _python_extract_function_boundaries(source: str) -> list:
+    """Python AST-based function boundary extraction (fallback implementation)."""
+    import ast
+
+    boundaries = []
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return boundaries
+
+    def extract_from_node(node, prefix=""):
+        """Recursively extract functions from AST node."""
+        if isinstance(node, ast.ClassDef):
+            class_prefix = f"{prefix}.{node.name}" if prefix else node.name
+            for item in ast.iter_child_nodes(node):
+                extract_from_node(item, class_prefix)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            name = f"{prefix}.{node.name}" if prefix else node.name
+            boundaries.append((name, node.lineno, node.end_lineno or node.lineno))
+            # Recurse into function body for nested functions
+            for item in ast.iter_child_nodes(node):
+                extract_from_node(item, name)
+        else:
+            # Check other compound statements that might contain functions
+            for item in ast.iter_child_nodes(node):
+                extract_from_node(item, prefix)
+
+    for item in ast.iter_child_nodes(tree):
+        extract_from_node(item, "")
+
+    return boundaries
+
+
+class TestFunctionBoundaryDetection:
+    """Compare Rust vs Python AST function boundary extraction (REPO-245)."""
+
+    @pytest.fixture
+    def function_rich_source(self) -> str:
+        """Generate Python source with many functions for benchmarking."""
+        code_parts = [
+            '"""Module with many functions for benchmarking."""',
+            'from typing import List, Dict, Optional',
+            '',
+        ]
+
+        # Add top-level functions
+        for i in range(20):
+            code_parts.extend([
+                f'def top_level_func_{i}(x: int, y: int) -> int:',
+                f'    """Function {i}."""',
+                f'    def nested_func_{i}(z):',
+                f'        return z * 2',
+                f'    return nested_func_{i}(x) + y',
+                '',
+            ])
+
+        # Add classes with methods
+        for i in range(10):
+            code_parts.extend([
+                f'class ServiceClass{i}:',
+                f'    """Service class {i}."""',
+                '',
+                f'    def __init__(self, config: dict):',
+                f'        self.config = config',
+                f'        self._cache = {{}}',
+                '',
+                f'    def process(self, data: List[dict]) -> List[dict]:',
+                f'        """Process data."""',
+                f'        def validate_item(item):',
+                f'            return item is not None',
+                f'        return [d for d in data if validate_item(d)]',
+                '',
+                f'    async def async_process(self, data: List[dict]) -> List[dict]:',
+                f'        """Async processing."""',
+                f'        return await self._fetch(data)',
+                '',
+                f'    def _transform(self, item: dict) -> dict:',
+                f'        return {{"transformed": item}}',
+                '',
+            ])
+
+        return '\n'.join(code_parts)
+
+    @pytest.fixture
+    def function_rich_files(self, function_rich_source) -> list:
+        """Generate multiple files for batch benchmarking."""
+        files = []
+        for i in range(50):
+            files.append((f"src/module_{i}.py", function_rich_source))
+        return files
+
+    @pytest.mark.benchmark(group="function_boundaries")
+    @pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust extension not available")
+    def test_function_boundaries_rust_single(self, benchmark, function_rich_source):
+        """Benchmark Rust function boundary detection (single file)."""
+        from repotoire_fast import extract_function_boundaries
+
+        result = benchmark(extract_function_boundaries, function_rich_source)
+        assert isinstance(result, list)
+        assert len(result) > 50  # Should find many functions
+
+    @pytest.mark.benchmark(group="function_boundaries")
+    def test_function_boundaries_python_single(self, benchmark, function_rich_source):
+        """Benchmark Python AST function boundary detection (single file)."""
+        result = benchmark(_python_extract_function_boundaries, function_rich_source)
+        assert isinstance(result, list)
+        assert len(result) > 50  # Should find many functions
+
+    @pytest.mark.benchmark(group="function_boundaries")
+    @pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust extension not available")
+    def test_function_boundaries_rust_batch(self, benchmark, function_rich_files):
+        """Benchmark Rust batch function boundary detection."""
+        from repotoire_fast import extract_function_boundaries_batch
+
+        result = benchmark(extract_function_boundaries_batch, function_rich_files)
+        assert len(result) == len(function_rich_files)
+
+    @pytest.mark.benchmark(group="function_boundaries")
+    def test_function_boundaries_python_batch(self, benchmark, function_rich_files):
+        """Benchmark Python AST batch function boundary detection."""
+        def python_batch(files):
+            return [
+                (path, _python_extract_function_boundaries(source))
+                for path, source in files
+            ]
+
+        result = benchmark(python_batch, function_rich_files)
+        assert len(result) == len(function_rich_files)
+
+    @pytest.mark.benchmark(group="function_boundaries")
+    @pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust extension not available")
+    def test_function_boundaries_correctness(self, function_rich_source):
+        """Verify Rust and Python extract same number of functions."""
+        from repotoire_fast import extract_function_boundaries
+
+        rust_result = extract_function_boundaries(function_rich_source)
+        python_result = _python_extract_function_boundaries(function_rich_source)
+
+        # Both should find the same number of functions
+        assert len(rust_result) == len(python_result), (
+            f"Rust found {len(rust_result)} functions, "
+            f"Python found {len(python_result)} functions"
+        )
+
+
+# ============================================================================
+# BUG EXTRACTION BENCHMARKS (REPO-246)
+# ============================================================================
+
+def _python_extract_buggy_functions(repo_path: str, keywords: list, max_commits: int = 100):
+    """Python GitPython-based bug extraction (fallback implementation)."""
+    import ast
+    import re
+    from datetime import datetime
+    from git import Repo
+
+    repo = Repo(repo_path)
+    buggy_functions = {}
+
+    # Get commits
+    commits = list(repo.iter_commits(max_count=max_commits))
+
+    def is_bug_fix(message):
+        msg_lower = message.lower()
+        return any(kw in msg_lower for kw in keywords)
+
+    def parse_functions(content, file_path):
+        """Extract functions from Python source."""
+        functions = []
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return functions
+
+        module_name = file_path.replace("/", ".").removesuffix(".py")
+
+        def extract(node, prefix=""):
+            if isinstance(node, ast.ClassDef):
+                class_prefix = f"{prefix}.{node.name}" if prefix else node.name
+                for item in ast.iter_child_nodes(node):
+                    extract(item, class_prefix)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                name = f"{prefix}.{node.name}" if prefix else node.name
+                functions.append((f"{module_name}.{name}", node.lineno, node.end_lineno or node.lineno))
+                for item in ast.iter_child_nodes(node):
+                    extract(item, name)
+            else:
+                for item in ast.iter_child_nodes(node):
+                    extract(item, prefix)
+
+        for item in ast.iter_child_nodes(tree):
+            extract(item, "")
+        return functions
+
+    def extract_changed_lines(diff):
+        """Extract changed line numbers from diff."""
+        changed_lines = set()
+        if not diff.diff:
+            return changed_lines
+
+        try:
+            diff_text = diff.diff.decode("utf-8", errors="ignore")
+        except (AttributeError, UnicodeDecodeError):
+            return changed_lines
+
+        hunk_pattern = re.compile(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+        current_line = 0
+        for line in diff_text.split("\n"):
+            match = hunk_pattern.match(line)
+            if match:
+                current_line = int(match.group(2))
+                continue
+            if current_line > 0:
+                if line.startswith("+") and not line.startswith("+++"):
+                    changed_lines.add(current_line)
+                    current_line += 1
+                elif line.startswith("-") and not line.startswith("---"):
+                    changed_lines.add(current_line)
+                else:
+                    current_line += 1
+        return changed_lines
+
+    for commit in commits:
+        if not is_bug_fix(commit.message):
+            continue
+        if len(commit.parents) > 1:
+            continue
+
+        parent = commit.parents[0] if commit.parents else None
+        if parent:
+            diffs = parent.diff(commit, create_patch=True)
+        else:
+            diffs = commit.diff(None, create_patch=True)
+
+        for diff in diffs:
+            file_path = diff.b_path or diff.a_path
+            if not file_path or not file_path.endswith(".py"):
+                continue
+            if "test" in file_path.lower() or "__pycache__" in file_path:
+                continue
+
+            changed_lines = extract_changed_lines(diff)
+            if not changed_lines:
+                continue
+
+            try:
+                if diff.b_blob:
+                    content = diff.b_blob.data_stream.read().decode("utf-8", errors="ignore")
+                else:
+                    continue
+
+                functions = parse_functions(content, file_path)
+                for qname, start, end in functions:
+                    if any(start <= line <= end for line in changed_lines):
+                        if qname not in buggy_functions:
+                            buggy_functions[qname] = {
+                                "qualified_name": qname,
+                                "file_path": file_path,
+                                "commit_sha": commit.hexsha,
+                                "commit_message": commit.message.strip()[:200],
+                            }
+            except Exception:
+                continue
+
+    return list(buggy_functions.values())
+
+
+class TestBugExtraction:
+    """Compare Rust vs Python bug extraction (REPO-246)."""
+
+    @pytest.fixture
+    def repo_path(self, tmp_path) -> str:
+        """Create a synthetic git repository for benchmarking."""
+        import subprocess
+
+        repo_dir = tmp_path / "bench_repo"
+        repo_dir.mkdir()
+
+        # Initialize git repo
+        subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@test.com"],
+            cwd=repo_dir, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"],
+            cwd=repo_dir, check=True, capture_output=True
+        )
+
+        # Create files with many functions
+        src_dir = repo_dir / "src"
+        src_dir.mkdir()
+
+        # Generate initial files
+        for i in range(10):
+            content = f'''"""Module {i}."""
+
+class Service{i}:
+    """Service class {i}."""
+
+    def __init__(self, config):
+        self.config = config
+
+    def process(self, data):
+        """Process data."""
+        return [d for d in data if d]
+
+    def validate(self, item):
+        """Validate item."""
+        return item is not None
+
+    def transform(self, item):
+        """Transform item."""
+        return {{"transformed": item}}
+
+
+def helper_{i}(x, y):
+    """Helper function."""
+    return x + y
+
+
+def another_helper_{i}(a, b, c):
+    """Another helper."""
+    return a * b + c
+'''
+            (src_dir / f"module_{i}.py").write_text(content)
+
+        subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "Initial commit"],
+            cwd=repo_dir, check=True, capture_output=True
+        )
+
+        # Create commits with bug fixes (simulate history)
+        for commit_num in range(50):
+            module_num = commit_num % 10
+            content = f'''"""Module {module_num}."""
+
+class Service{module_num}:
+    """Service class {module_num}."""
+
+    def __init__(self, config):
+        self.config = config
+        self._version = {commit_num}  # Fix: track version
+
+    def process(self, data):
+        """Process data."""
+        # Fix: handle empty data v{commit_num}
+        if not data:
+            return []
+        return [d for d in data if d]
+
+    def validate(self, item):
+        """Validate item."""
+        # Bug fix: check None properly
+        if item is None:
+            return False
+        return bool(item)
+
+    def transform(self, item):
+        """Transform item."""
+        return {{"transformed": item, "v": {commit_num}}}
+
+
+def helper_{module_num}(x, y):
+    """Helper function."""
+    # Fix: handle zero division
+    if y == 0:
+        return x
+    return x + y
+
+
+def another_helper_{module_num}(a, b, c):
+    """Another helper."""
+    return a * b + c + {commit_num}
+'''
+            (src_dir / f"module_{module_num}.py").write_text(content)
+            subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
+
+            # Alternate between bug fix and regular commits
+            if commit_num % 3 == 0:
+                msg = f"Fix: handle edge case in module {module_num}"
+            elif commit_num % 3 == 1:
+                msg = f"Bug fix: improve validation in module {module_num}"
+            else:
+                msg = f"Refactor: update module {module_num}"
+
+            subprocess.run(
+                ["git", "commit", "-m", msg],
+                cwd=repo_dir, check=True, capture_output=True
+            )
+
+        return str(repo_dir)
+
+    @pytest.mark.benchmark(group="bug_extraction")
+    @pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust extension not available")
+    def test_bug_extraction_rust(self, benchmark, repo_path):
+        """Benchmark Rust parallel bug extraction."""
+        from repotoire_fast import extract_buggy_functions_parallel
+
+        result = benchmark(
+            extract_buggy_functions_parallel,
+            repo_path,
+            ["fix", "bug", "error"],
+            None,  # since_date
+            100,   # max_commits
+        )
+        assert isinstance(result, list)
+
+    @pytest.mark.benchmark(group="bug_extraction")
+    def test_bug_extraction_python(self, benchmark, repo_path):
+        """Benchmark Python GitPython bug extraction."""
+        result = benchmark(
+            _python_extract_buggy_functions,
+            repo_path,
+            ["fix", "bug", "error"],
+            100,   # max_commits
+        )
+        assert isinstance(result, list)
+
+    @pytest.mark.benchmark(group="bug_extraction")
+    @pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust extension not available")
+    def test_bug_extraction_rust_200_commits(self, benchmark, repo_path):
+        """Benchmark Rust parallel bug extraction (200 commits)."""
+        from repotoire_fast import extract_buggy_functions_parallel
+
+        result = benchmark(
+            extract_buggy_functions_parallel,
+            repo_path,
+            ["fix", "bug", "error"],
+            None,  # since_date
+            200,   # max_commits
+        )
+        assert isinstance(result, list)
+
+    @pytest.mark.benchmark(group="bug_extraction")
+    def test_bug_extraction_python_200_commits(self, benchmark, repo_path):
+        """Benchmark Python GitPython bug extraction (200 commits)."""
+        result = benchmark(
+            _python_extract_buggy_functions,
+            repo_path,
+            ["fix", "bug", "error"],
+            200,   # max_commits
+        )
+        assert isinstance(result, list)
+
+
+# ============================================================================
 # SUMMARY REPORT
 # ============================================================================
 

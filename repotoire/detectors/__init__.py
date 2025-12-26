@@ -36,6 +36,7 @@ from repotoire.detectors.radon_detector import RadonDetector
 from repotoire.detectors.jscpd_detector import JscpdDetector
 from repotoire.detectors.vulture_detector import VultureDetector
 from repotoire.detectors.semgrep_detector import SemgrepDetector
+from repotoire.detectors.satd_detector import SATDDetector
 
 __all__ = [
     "AnalysisEngine",
@@ -69,4 +70,5 @@ __all__ = [
     "JscpdDetector",
     "VultureDetector",
     "SemgrepDetector",
+    "SATDDetector",
 ]

@@ -20,6 +20,7 @@ from repotoire.api.v1.routes import (
     fixes,
     github,
     historical,
+    marketplace,
     notifications,
     organizations,
     sandbox,
@@ -30,6 +31,8 @@ from repotoire.api.v1.routes import (
 )
 from repotoire.api.v1.routes.admin import changelog as admin_changelog
 from repotoire.api.v1.routes.admin import overrides as admin_overrides
+from repotoire.api.v1.routes.admin import reports as admin_reports
+from repotoire.api.v1.routes.admin import reviews as admin_reviews
 from repotoire.api.v1.routes.admin import status as admin_status
 
 # v1-specific OpenAPI tags
@@ -144,6 +147,11 @@ V1_OPENAPI_TAGS = [
         "description": "Public changelog and release notes. View new features, improvements, "
         "bug fixes, and subscribe to updates. No authentication required for public endpoints.",
     },
+    {
+        "name": "marketplace",
+        "description": "Repotoire Marketplace for AI skills, commands, styles, and prompts. "
+        "Browse, install, publish, and manage marketplace assets.",
+    },
 ]
 
 # Create v1 FastAPI sub-application
@@ -216,6 +224,7 @@ v1_app.include_router(findings.router)
 v1_app.include_router(fixes.router)
 v1_app.include_router(github.router)
 v1_app.include_router(historical.router)
+v1_app.include_router(marketplace.router)
 v1_app.include_router(notifications.router)
 v1_app.include_router(organizations.router)
 v1_app.include_router(sandbox.router)
@@ -225,6 +234,9 @@ v1_app.include_router(webhooks.router)
 v1_app.include_router(status.router)
 v1_app.include_router(changelog.router)
 v1_app.include_router(admin_overrides.router)
+v1_app.include_router(admin_reports.router)
+v1_app.include_router(admin_reports.admin_router)  # Admin report management endpoints
+v1_app.include_router(admin_reviews.router)
 v1_app.include_router(admin_status.router)
 v1_app.include_router(admin_changelog.router)
 

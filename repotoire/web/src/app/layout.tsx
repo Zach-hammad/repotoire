@@ -26,7 +26,7 @@ const crimsonPro = Crimson_Pro({
 export const metadata: Metadata = {
   title: "Repotoire — Graph-Powered Code Intelligence",
   description:
-    "Go beyond traditional linters with graph-powered code intelligence. Detect architectural issues, get AI-powered auto-fixes, and analyze 10-100x faster.",
+    "Go beyond traditional linters with graph-powered code intelligence. Detect architectural issues, get AI-powered auto-fixes, and fast incremental analysis.",
   generator: "v0.app",
   keywords: ["code analysis", "linter", "graph database", "AI", "technical debt", "code quality"],
   icons: {
@@ -49,7 +49,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Repotoire — Graph-Powered Code Intelligence",
     description:
-      "Go beyond traditional linters with graph-powered code intelligence. Detect architectural issues, get AI-powered auto-fixes, and analyze 10-100x faster.",
+      "Go beyond traditional linters with graph-powered code intelligence. Detect architectural issues, get AI-powered auto-fixes, and fast incremental analysis.",
     type: "website",
   },
 }

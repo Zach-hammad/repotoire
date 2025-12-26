@@ -52,7 +52,7 @@ export function FinalCTA() {
             variant="outline"
             className="h-14 px-8 text-lg font-display border-border hover:bg-muted bg-transparent"
           >
-            <Link href="mailto:hello@repotoire.com">Book a Demo</Link>
+            <Link href="/contact">Contact Us</Link>
           </Button>
         </div>
 

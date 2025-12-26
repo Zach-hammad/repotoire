@@ -52,8 +52,8 @@ export function Features() {
         <h2
           className={`text-3xl sm:text-4xl tracking-tight text-foreground mb-4 text-center opacity-0 ${isVisible ? "animate-fade-up" : ""}`}
         >
-          <span className="font-serif italic text-muted-foreground">8 hybrid</span>{" "}
-          <span className="text-gradient font-display font-semibold">detectors</span>
+          <span className="font-serif italic text-muted-foreground">8 integrated</span>{" "}
+          <span className="text-gradient font-display font-semibold">analysis tools</span>
         </h2>
         <p
           className={`text-muted-foreground max-w-xl mx-auto text-center mb-12 opacity-0 ${isVisible ? "animate-fade-up delay-100" : ""}`}
@@ -89,7 +89,7 @@ export function Features() {
             <span className="text-gradient font-display font-semibold">auto-fix</span>
           </h3>
           <p className="text-muted-foreground max-w-lg mx-auto">
-            Every issue comes with a GPT-4o generated fix using RAG over your codebase. 70%+ approval rate.
+            Every issue comes with a GPT-4o generated fix using RAG over your codebase. Review and apply with one click.
           </p>
         </div>
       </div>

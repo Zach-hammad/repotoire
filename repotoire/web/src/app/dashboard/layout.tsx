@@ -14,6 +14,7 @@ import {
   CreditCard,
   AlertCircle,
   FolderGit2,
+  Package,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
@@ -23,42 +24,39 @@ import { ThemeToggle } from '@/components/dashboard/theme-toggle';
 import { UserNav } from '@/components/auth/user-nav';
 import { ApiAuthProvider } from '@/components/providers/api-auth-provider';
 import { OrganizationSwitcher } from '@clerk/nextjs';
+import { PageTransition } from '@/components/transitions/page-transition';
+import { ErrorBoundary } from '@/components/error-boundary';
+import { LazyNotificationCenter, LazyKeyboardShortcuts } from '@/components/lazy-components';
 
-const sidebarLinks = [
+// Grouped navigation for better information architecture
+const sidebarSections = [
   {
-    name: 'Overview',
-    href: '/dashboard',
-    icon: LayoutDashboard,
+    name: 'Analyze',
+    items: [
+      { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
+      { name: 'Repositories', href: '/dashboard/repos', icon: FolderGit2 },
+      { name: 'Findings', href: '/dashboard/findings', icon: AlertCircle },
+    ],
   },
   {
-    name: 'Repositories',
-    href: '/dashboard/repos',
-    icon: FolderGit2,
+    name: 'Improve',
+    items: [
+      { name: 'AI Fixes', href: '/dashboard/fixes', icon: ListChecks },
+      { name: 'File Browser', href: '/dashboard/files', icon: FileCode2 },
+    ],
   },
   {
-    name: 'Findings',
-    href: '/dashboard/findings',
-    icon: AlertCircle,
+    name: 'Extend',
+    items: [
+      { name: 'Marketplace', href: '/dashboard/marketplace', icon: Package },
+    ],
   },
   {
-    name: 'Fixes',
-    href: '/dashboard/fixes',
-    icon: ListChecks,
-  },
-  {
-    name: 'Files',
-    href: '/dashboard/files',
-    icon: FileCode2,
-  },
-  {
-    name: 'Billing',
-    href: '/dashboard/billing',
-    icon: CreditCard,
-  },
-  {
-    name: 'Settings',
-    href: '/dashboard/settings',
-    icon: Settings,
+    name: 'Account',
+    items: [
+      { name: 'Billing', href: '/dashboard/billing', icon: CreditCard },
+      { name: 'Settings', href: '/dashboard/settings', icon: Settings },
+    ],
   },
 ];
 
@@ -87,26 +85,35 @@ function Sidebar({ className }: { className?: string }) {
           />
         </Link>
       </div>
-      <nav className="flex-1 space-y-1 px-3 py-4">
-        {sidebarLinks.map((link) => {
-          const isActive = pathname === link.href ||
-            (link.href !== '/dashboard' && pathname.startsWith(link.href));
-          return (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
-                isActive
-                  ? 'bg-brand-gradient text-white shadow-sm'
-                  : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-              )}
-            >
-              <link.icon className="h-4 w-4" />
-              {link.name}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 space-y-6 px-3 py-4 overflow-y-auto">
+        {sidebarSections.map((section) => (
+          <div key={section.name}>
+            <h3 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+              {section.name}
+            </h3>
+            <div className="space-y-1">
+              {section.items.map((link) => {
+                const isActive = pathname === link.href ||
+                  (link.href !== '/dashboard' && pathname.startsWith(link.href));
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={cn(
+                      'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200',
+                      isActive
+                        ? 'bg-brand-gradient text-white shadow-sm'
+                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                    )}
+                  >
+                    <link.icon className="h-4 w-4" />
+                    {link.name}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
       <div className="border-t border-border/50 p-4 space-y-4">
         <div className="space-y-2">
@@ -123,6 +130,10 @@ function Sidebar({ className }: { className?: string }) {
               },
             }}
           />
+        </div>
+        <div className="flex items-center justify-between py-1">
+          <span className="text-sm text-muted-foreground">Notifications</span>
+          <LazyNotificationCenter />
         </div>
         <div className="flex items-center justify-between py-1">
           <span className="text-sm text-muted-foreground">Account</span>
@@ -185,8 +196,15 @@ export default function DashboardLayout({
 
           {/* Main Content */}
           <main className="flex-1 overflow-auto dot-grid">
-            <div className="container max-w-7xl p-6 md:p-8">{children}</div>
+            <div className="container max-w-7xl p-6 md:p-8">
+              <ErrorBoundary>
+                <PageTransition>{children}</PageTransition>
+              </ErrorBoundary>
+            </div>
           </main>
+
+          {/* Global keyboard shortcuts */}
+          <LazyKeyboardShortcuts />
         </div>
       </SWRConfig>
     </ApiAuthProvider>

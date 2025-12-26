@@ -139,6 +139,30 @@ class DatabaseClient(ABC):
         """Delete all nodes and relationships."""
         pass
 
+    def delete_repository(self, repo_id: str) -> int:
+        """Delete all nodes for a specific repository.
+
+        This method removes all nodes that have the given repo_id,
+        including their relationships. Used for cleaning up repo data
+        when a repository is deleted or needs re-ingestion.
+
+        Args:
+            repo_id: Repository UUID string to delete
+
+        Returns:
+            Number of nodes deleted
+        """
+        # Default implementation - subclasses can override
+        query = """
+        MATCH (n {repoId: $repo_id})
+        DETACH DELETE n
+        RETURN count(n) as deleted
+        """
+        result = self.execute_query(query, {"repo_id": repo_id})
+        if result:
+            return result[0].get("deleted", 0)
+        return 0
+
     @abstractmethod
     def create_indexes(self) -> None:
         """Create indexes for better query performance."""

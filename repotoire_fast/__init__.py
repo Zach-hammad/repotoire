@@ -42,6 +42,18 @@ from .repotoire_fast import (
     graph_validate_calls,             # Validate calls by community
     graph_rank_call_candidates,       # Rank call candidates
     graph_batch_jaccard,              # Batch Jaccard similarity
+    # Node2Vec random walks for graph embedding (REPO-247)
+    node2vec_random_walks,            # Biased random walks for Node2Vec
+    # Word2Vec skip-gram training (REPO-249)
+    PyWord2VecConfig,                 # Configuration class for Word2Vec training
+    train_word2vec_skipgram,          # Train Word2Vec, returns dict
+    train_word2vec_skipgram_matrix,   # Train Word2Vec, returns flat matrix
+    # Word2Vec parallel training (Hogwild! SGD)
+    train_word2vec_skipgram_parallel,        # Parallel Word2Vec, returns dict
+    train_word2vec_skipgram_parallel_matrix, # Parallel Word2Vec, returns flat matrix
+    # Complete Node2Vec pipeline (REPO-250)
+    graph_node2vec,                   # Full Node2Vec: random walks + skip-gram
+    graph_random_walks,               # Random walks only (graph_* namespace)
     # Type inference for call graph resolution (PyCG-style)
     infer_types,                      # Infer types from source files
     resolve_method_call,              # Resolve method calls
@@ -51,6 +63,15 @@ from .repotoire_fast import (
     # Feature extraction for bug prediction (REPO-248)
     combine_features_batch,           # Combine embeddings + metrics in parallel
     normalize_features_batch,         # Z-score normalization in parallel
+    # Function boundary detection for ML training data (REPO-245)
+    extract_function_boundaries,      # Extract function name + line range
+    extract_function_boundaries_batch, # Batch function boundary extraction
+    # Parallel git commit processing for bug extraction (REPO-246)
+    PyBuggyFunction,                  # Result class for buggy function data
+    extract_buggy_functions_parallel, # Extract buggy functions from git history
+    # SATD (Self-Admitted Technical Debt) scanning (REPO-410)
+    scan_satd_batch,                  # Batch SATD scanning in parallel
+    scan_satd_file,                   # Single file SATD scanning
 )
 
 __all__ = [
@@ -96,6 +117,18 @@ __all__ = [
     "graph_validate_calls",             # Validate calls by community
     "graph_rank_call_candidates",       # Rank call candidates
     "graph_batch_jaccard",              # Batch Jaccard similarity
+    # Node2Vec random walks for graph embedding (REPO-247)
+    "node2vec_random_walks",            # Biased random walks for Node2Vec
+    # Word2Vec skip-gram training (REPO-249)
+    "PyWord2VecConfig",                 # Configuration class for Word2Vec training
+    "train_word2vec_skipgram",          # Train Word2Vec, returns dict
+    "train_word2vec_skipgram_matrix",   # Train Word2Vec, returns flat matrix
+    # Word2Vec parallel training (Hogwild! SGD)
+    "train_word2vec_skipgram_parallel",        # Parallel Word2Vec, returns dict
+    "train_word2vec_skipgram_parallel_matrix", # Parallel Word2Vec, returns flat matrix
+    # Complete Node2Vec pipeline (REPO-250)
+    "graph_node2vec",                   # Full Node2Vec: random walks + skip-gram
+    "graph_random_walks",               # Random walks only (graph_* namespace)
     # Type inference for call graph resolution (PyCG-style)
     "infer_types",                      # Infer types from source files
     "resolve_method_call",              # Resolve method calls
@@ -105,4 +138,13 @@ __all__ = [
     # Feature extraction for bug prediction (REPO-248)
     "combine_features_batch",           # Combine embeddings + metrics in parallel
     "normalize_features_batch",         # Z-score normalization in parallel
+    # Function boundary detection for ML training data (REPO-245)
+    "extract_function_boundaries",      # Extract function name + line range
+    "extract_function_boundaries_batch", # Batch function boundary extraction
+    # Parallel git commit processing for bug extraction (REPO-246)
+    "PyBuggyFunction",                  # Result class for buggy function data
+    "extract_buggy_functions_parallel", # Extract buggy functions from git history
+    # SATD (Self-Admitted Technical Debt) scanning (REPO-410)
+    "scan_satd_batch",                  # Batch SATD scanning in parallel
+    "scan_satd_file",                   # Single file SATD scanning
 ]

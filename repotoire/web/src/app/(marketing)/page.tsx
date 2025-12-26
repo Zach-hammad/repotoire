@@ -3,26 +3,24 @@ import { Hero } from "@/components/sections/hero"
 import { ProblemSolution } from "@/components/sections/problem-solution"
 import { Features } from "@/components/sections/features"
 import { HowItWorks } from "@/components/sections/how-it-works"
-import { Differentiators } from "@/components/sections/differentiators"
 import { SocialProof } from "@/components/sections/social-proof"
-import { Pricing } from "@/components/sections/pricing"
 import { FAQ } from "@/components/sections/faq"
 import { FinalCTA } from "@/components/sections/final-cta"
 
 export const metadata: Metadata = {
-  title: "Repotoire - AI-Powered Code Health Platform",
+  title: "Repotoire - Graph-Powered Code Analysis",
   description:
-    "Analyze code quality, detect issues, and fix them automatically with AI. Graph-powered analysis that catches problems before they become technical debt.",
+    "Find architectural issues, circular dependencies, and code smells that linters miss. Graph-powered analysis with AI-powered fixes.",
   openGraph: {
-    title: "Repotoire - AI-Powered Code Health Platform",
-    description: "Ship healthier code, faster. AI-powered code health analysis.",
+    title: "Repotoire - Graph-Powered Code Analysis",
+    description: "Find what your linter can't see. Graph-powered code health analysis.",
     images: ["/og-image.png"],
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Repotoire - AI-Powered Code Health Platform",
-    description: "Ship healthier code, faster.",
+    title: "Repotoire - Graph-Powered Code Analysis",
+    description: "Find what your linter can't see.",
     images: ["/og-image.png"],
   },
 }
@@ -32,11 +30,13 @@ export default function LandingPage() {
     <>
       <Hero />
       <ProblemSolution />
-      <Features />
-      <HowItWorks />
-      <Differentiators />
+      <section id="features">
+        <Features />
+      </section>
+      <section id="how-it-works">
+        <HowItWorks />
+      </section>
       <SocialProof />
-      <Pricing />
       <FAQ />
       <FinalCTA />
     </>

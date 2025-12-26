@@ -13,11 +13,7 @@ export default function PrivacyPage() {
         <article className="prose prose-slate dark:prose-invert max-w-none">
           <h1 className="text-3xl font-bold tracking-tight">Privacy Policy</h1>
           <p className="text-muted-foreground">
-            Last updated: {new Date().toLocaleDateString("en-US", {
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            })}
+            Last updated: December 1, 2024
           </p>
 
           <section className="mt-8">

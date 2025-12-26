@@ -9,28 +9,28 @@ const tiers = [
   {
     name: "Free",
     price: { monthly: "0", annual: "0" },
-    description: "For individual developers",
-    features: ["1 repository", "All 8 detectors", "HTML reports", "CLI access"],
+    description: "For open source projects",
+    features: ["1 repository", "10 analyses/month", "All 8 detectors", "HTML & CLI reports"],
     cta: "Start Free",
-    href: "/dashboard",
+    href: "/sign-up",
     highlighted: false,
   },
   {
-    name: "Team",
-    price: { monthly: "99", annual: "79" },
-    description: "For growing teams",
-    features: ["Unlimited repos", "AI auto-fix", "GitHub Actions", "Natural language search", "Slack alerts"],
-    cta: "Start 14-day Trial",
-    href: "/dashboard",
+    name: "Pro",
+    price: { monthly: "29", annual: "23" },
+    description: "For professional developers",
+    features: ["10 repositories", "Unlimited analyses", "AI auto-fix", "Private repos", "PR comments"],
+    cta: "Start Free Trial",
+    href: "/sign-up?plan=pro",
     highlighted: true,
   },
   {
     name: "Enterprise",
-    price: { monthly: "Custom", annual: "Custom" },
-    description: "For large organizations",
-    features: ["Self-hosted option", "SSO/SAML", "Custom detectors", "Dedicated support"],
-    cta: "Talk to Us",
-    href: "mailto:hello@repotoire.com",
+    price: { monthly: "99", annual: "79" },
+    description: "For organizations",
+    features: ["Unlimited repos", "SSO/SAML", "Custom rules", "Dedicated support"],
+    cta: "Contact Sales",
+    href: "/contact",
     highlighted: false,
   },
 ]
@@ -116,7 +116,7 @@ export function Pricing() {
                     <span className="text-4xl font-display font-bold text-foreground">
                       ${annual ? tier.price.annual : tier.price.monthly}
                     </span>
-                    <span className="text-muted-foreground text-sm">/dev/mo</span>
+                    <span className="text-muted-foreground text-sm">/month</span>
                   </>
                 ) : (
                   <span className="text-4xl font-display font-bold text-foreground">Custom</span>

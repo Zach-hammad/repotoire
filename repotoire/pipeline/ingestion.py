@@ -1,11 +1,48 @@
 """Main ingestion pipeline for processing codebases."""
 
+import functools
 import hashlib
 import os
 import re
 import time
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Tuple
+
+
+# Memoized helper functions for string parsing - avoid repeated splits
+@functools.lru_cache(maxsize=10000)
+def _parse_qualified_name(qn: str) -> Tuple[str, str, str]:
+    """Parse qualified name into (file_path, entity_part, line).
+
+    Format: /path/to/file.py::Class.method:line
+    Returns: (file_path, entity_part_without_line_numbers, "")
+    """
+    if "::" not in qn:
+        return (qn, "", "")
+    file_part, rest = qn.split("::", 1)
+    # Entity part is like "ClassName:140.method_name:177" - strip line number at end
+    entity_part = rest.rsplit(":", 1)[0] if ":" in rest else rest
+    # Remove line numbers embedded in class names (e.g., "ClassName:140.method" -> "ClassName.method")
+    entity_part = re.sub(r":(\d+)", "", entity_part)
+    return (file_part, entity_part, "")
+
+
+@functools.lru_cache(maxsize=10000)
+def _get_module_prefix(qn: str) -> str:
+    """Extract module prefix (everything except last component).
+
+    e.g., "repotoire.mcp.models.Class" -> "repotoire.mcp.models"
+    """
+    if "." in qn:
+        return ".".join(qn.split(".")[:-1])
+    return ""
+
+
+@functools.lru_cache(maxsize=10000)
+def _split_path_components(path: str, sep: str = os.sep) -> Tuple[str, ...]:
+    """Split path into components (cached for repeated use)."""
+    return tuple(path.split(sep))
 
 from repotoire_fast import scan_files as rust_scan_files
 
@@ -46,6 +83,8 @@ class IngestionPipeline:
         generate_contexts: bool = False,
         context_model: str = "claude-haiku-3-5-20241022",
         max_context_cost: Optional[float] = None,
+        repo_id: Optional[str] = None,
+        repo_slug: Optional[str] = None,
     ):
         """Initialize ingestion pipeline with security validation.
 
@@ -63,6 +102,10 @@ class IngestionPipeline:
             generate_contexts: Whether to generate semantic contexts using Claude (default: False)
             context_model: Claude model for context generation (default: claude-haiku-3-5-20241022)
             max_context_cost: Maximum USD to spend on context generation (default: unlimited)
+            repo_id: Optional repository UUID for multi-tenant isolation. When set, all
+                entities created during ingestion will have this repo_id attached.
+            repo_slug: Optional repository slug (e.g., "owner/repo-name") for human-readable
+                identification. Used with repo_id for multi-tenant setups.
 
         Raises:
             ValueError: If repository path is invalid
@@ -97,6 +140,8 @@ class IngestionPipeline:
         self.generate_contexts = generate_contexts
         self.context_model = context_model
         self.max_context_cost = max_context_cost
+        self.repo_id = repo_id
+        self.repo_slug = repo_slug
 
         # Track skipped files for reporting
         self.skipped_files: List[Dict[str, str]] = []
@@ -753,6 +798,12 @@ class IngestionPipeline:
         if not entities:
             return
 
+        # Set repo_id and repo_slug on all entities for multi-tenant isolation
+        if self.repo_id:
+            for entity in entities:
+                entity.repo_id = self.repo_id
+                entity.repo_slug = self.repo_slug
+
         # Batch create nodes
         try:
             id_mapping = self.db.batch_create_nodes(entities)
@@ -1085,13 +1136,13 @@ class IngestionPipeline:
             Dict mapping caller_qn -> {target_simple_name -> resolved_callee_qn}
             This allows us to resolve "self.method()" to the actual method qualified name.
         """
-        type_inferred_calls: Dict[str, Dict[str, str]] = {}
+        type_inferred_calls: Dict[str, Dict[str, str]] = defaultdict(dict)
 
         try:
             import repotoire_fast as rf
         except ImportError:
             logger.debug("repotoire_fast not available, skipping type inference")
-            return type_inferred_calls
+            return dict(type_inferred_calls)  # Return regular dict
 
         try:
             # Step 1: Get all source files with their paths
@@ -1180,15 +1231,10 @@ class IngestionPipeline:
 
             for func in funcs:
                 qn = func["qn"]
-                # Extract file path and entity from graph qualified name
-                # Format: /path/to/file.py::Class.method:line
-                if "::" not in qn:
+                # Use cached parsing for qualified names (significant speedup for large codebases)
+                file_part, entity_part, _ = _parse_qualified_name(qn)
+                if not entity_part:  # Parsing failed or no :: separator
                     continue
-                file_part, rest = qn.split("::", 1)
-                # Entity part is like "ClassName:140.method_name:177" - strip all line numbers
-                entity_part = rest.rsplit(":", 1)[0] if ":" in rest else rest
-                # Remove line numbers embedded in class names (e.g., "ClassName:140.method" -> "ClassName.method")
-                entity_part = re.sub(r":(\d+)", "", entity_part)
 
                 # Convert file path to module path for matching
                 # Must match Rust file_to_module_ns: uses package detection from __init__.py
@@ -1204,7 +1250,7 @@ class IngestionPipeline:
                 #   "home/user/project/repotoire/models.py", "user/project/repotoire/models.py", ...
                 #   until it matches "repotoire/models.py" in the lookup table
                 relative_file_path = None
-                parts = file_part_norm.split(os.sep)
+                parts = _split_path_components(file_part_norm)  # Cached split
                 for i in range(len(parts)):
                     suffix = os.sep.join(parts[i:])
                     matched_file = file_lookup.get(suffix)
@@ -1277,8 +1323,6 @@ class IngestionPipeline:
                     if callee_qn:
                         # Extract simple name from callee
                         simple_name = callee_ti_ns.split(".")[-1]
-                        if caller_qn not in type_inferred_calls:
-                            type_inferred_calls[caller_qn] = {}
                         type_inferred_calls[caller_qn][simple_name] = callee_qn
 
             logger.info(
@@ -1399,11 +1443,9 @@ class IngestionPipeline:
             internal_entities = self.db.execute_query(internal_entities_query)
 
             # Build name -> list of qualified names (multiple entities can have same name)
-            name_to_qualified: Dict[str, List[Dict]] = {}
+            name_to_qualified: Dict[str, List[Dict]] = defaultdict(list)
             for entity in internal_entities:
                 name = entity["name"]
-                if name not in name_to_qualified:
-                    name_to_qualified[name] = []
                 name_to_qualified[name].append({
                     "qualified_name": entity["qualified_name"],
                     "label": entity["label"]
@@ -1422,19 +1464,17 @@ class IngestionPipeline:
             imports_result = self.db.execute_query(imports_query)
 
             # Map: file_path -> set of imported module prefixes (e.g., "repotoire.mcp.models")
-            file_import_modules: Dict[str, set] = {}
+            file_import_modules: Dict[str, set] = defaultdict(set)
             for imp in imports_result:
                 importer = imp["importer_path"]
                 imported_qn = imp["imported_qn"]
                 if not importer or not imported_qn:
                     continue
-                if importer not in file_import_modules:
-                    file_import_modules[importer] = set()
                 # Store the full imported qualified name and its module prefix
                 file_import_modules[importer].add(imported_qn)
                 # Also store module prefix (e.g., "repotoire.mcp.models" from "repotoire.mcp.models.Class")
-                if "." in imported_qn:
-                    module_prefix = ".".join(imported_qn.split(".")[:-1])
+                module_prefix = _get_module_prefix(imported_qn)  # Cached
+                if module_prefix:
                     file_import_modules[importer].add(module_prefix)
 
             # Build mapping from module path to file path for internal files
@@ -1795,11 +1835,9 @@ class IngestionPipeline:
         logger.warning(f"{'='*60}")
 
         # Group by reason
-        reasons: Dict[str, List[str]] = {}
+        reasons: Dict[str, List[str]] = defaultdict(list)
         for item in self.skipped_files:
             reason = item["reason"]
-            if reason not in reasons:
-                reasons[reason] = []
             reasons[reason].append(item["file"])
 
         for reason, files in reasons.items():

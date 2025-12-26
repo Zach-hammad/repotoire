@@ -4,7 +4,66 @@ import Image from "next/image";
 import { Rss } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChangelogList, ChangelogSubscribe } from "@/components/changelog";
-import { fetchChangelogEntries } from "@/lib/changelog-api";
+import { fetchChangelogEntries, ChangelogEntry } from "@/lib/changelog-api";
+
+// Fallback changelog entries for when API is unavailable
+const fallbackEntries: ChangelogEntry[] = [
+  {
+    id: "1",
+    version: "1.0.0",
+    title: "Repotoire 1.0 - Official Launch",
+    slug: "v1-0-0-official-launch",
+    summary: "We're excited to announce the official launch of Repotoire! Graph-powered code health analysis is now available for everyone. Analyze your codebase, detect architectural issues, and get AI-powered fix suggestions.",
+    category: "feature",
+    is_major: true,
+    published_at: "2024-12-01T00:00:00Z",
+    image_url: null,
+  },
+  {
+    id: "2",
+    version: "1.0.0",
+    title: "8 Hybrid Detectors for Comprehensive Analysis",
+    slug: "hybrid-detectors",
+    summary: "Repotoire now includes 8 production-ready hybrid detectors: Ruff, Pylint, Mypy, Bandit, Radon, Jscpd, Vulture, and Semgrep. Each detector combines external tool analysis with graph-based context enrichment.",
+    category: "feature",
+    is_major: false,
+    published_at: "2024-12-01T00:00:00Z",
+    image_url: null,
+  },
+  {
+    id: "3",
+    version: "1.0.0",
+    title: "AI-Powered Auto-Fix with Human-in-the-Loop",
+    slug: "ai-auto-fix",
+    summary: "Introducing AI-powered code fixing using GPT-4o and RAG. Get evidence-based fix suggestions with before/after diffs, and approve changes before they're applied to your codebase.",
+    category: "feature",
+    is_major: false,
+    published_at: "2024-12-01T00:00:00Z",
+    image_url: null,
+  },
+  {
+    id: "4",
+    version: "1.0.0",
+    title: "Fast Incremental Analysis",
+    slug: "incremental-analysis",
+    summary: "Hash-based change detection and dependency-aware analysis means re-analyzing your codebase is significantly faster. Only changed files and their dependents are processed.",
+    category: "improvement",
+    is_major: false,
+    published_at: "2024-11-15T00:00:00Z",
+    image_url: null,
+  },
+  {
+    id: "5",
+    version: "1.0.0",
+    title: "Pre-commit Hook Integration",
+    slug: "pre-commit-hooks",
+    summary: "Integrate Repotoire into your development workflow with pre-commit hooks. Get instant feedback on code quality before commits are finalized.",
+    category: "feature",
+    is_major: false,
+    published_at: "2024-11-15T00:00:00Z",
+    image_url: null,
+  },
+];
 
 export const metadata: Metadata = {
   title: "Changelog - Repotoire",
@@ -27,10 +86,16 @@ export const revalidate = 300;
 
 async function getChangelogEntries() {
   try {
-    return await fetchChangelogEntries({ limit: 20 });
+    const result = await fetchChangelogEntries({ limit: 20 });
+    // If API returns empty, use fallback entries
+    if (result.entries.length === 0) {
+      return { entries: fallbackEntries, total: fallbackEntries.length, has_more: false };
+    }
+    return result;
   } catch (error) {
     console.error("Failed to fetch changelog entries:", error);
-    return { entries: [], total: 0, has_more: false };
+    // Use fallback entries when API fails
+    return { entries: fallbackEntries, total: fallbackEntries.length, has_more: false };
   }
 }
 

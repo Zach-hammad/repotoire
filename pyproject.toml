@@ -45,6 +45,23 @@ dependencies = [
     "pyjwt[crypto]>=2.8.0",  # JWT generation for GitHub App auth
     "cryptography>=41.0.0",  # Token encryption at rest
     "svix>=1.0.0",  # Clerk webhook signature verification
+    "keyring>=24.0.0",  # Secure credential storage (REPO-397)
+    # SaaS dependencies (previously optional)
+    "sqlalchemy>=2.0.0",  # SQLAlchemy ORM for PostgreSQL SaaS database
+    "alembic>=1.13.0",  # Database migrations for SQLAlchemy models
+    "psycopg2-binary>=2.9.9",  # PostgreSQL adapter (sync)
+    "asyncpg>=0.29.0",  # PostgreSQL adapter (async)
+    "stripe>=7.0.0",  # Stripe payment processing for subscriptions
+    "celery>=5.3.0",  # Distributed task queue for background jobs
+    "redis>=5.0.0",  # Redis client for Celery broker
+    "structlog>=24.0.0",  # Structured logging for workers
+    "sentry-sdk[fastapi,celery,sqlalchemy]>=2.0.0",  # Error tracking
+    "resend>=0.5.0",  # Email service for notifications
+    "aioboto3>=13.0.0",  # Async AWS SES client for non-blocking email sending
+    "email-validator>=2.0.0",  # Pydantic email validation
+    "python-slugify>=8.0.0",  # Slug generation for changelog URLs
+    "bleach>=6.0.0",  # HTML sanitization for markdown content
+    "slowapi>=0.1.9",  # Rate limiting for FastAPI endpoints
 ]
 
 [project.optional-dependencies]
@@ -87,24 +104,6 @@ timescale = [
     "psycopg2-binary>=2.9.9",  # PostgreSQL adapter for TimescaleDB metrics storage
 ]
 
-saas = [
-    "sqlalchemy>=2.0.0",  # SQLAlchemy ORM for PostgreSQL SaaS database
-    "alembic>=1.13.0",  # Database migrations for SQLAlchemy models
-    "psycopg2-binary>=2.9.9",  # PostgreSQL adapter (sync)
-    "asyncpg>=0.29.0",  # PostgreSQL adapter (async)
-    "stripe>=7.0.0",  # Stripe payment processing for subscriptions
-    "celery>=5.3.0",  # Distributed task queue for background jobs
-    "redis>=5.0.0",  # Redis client for Celery broker
-    "structlog>=24.0.0",  # Structured logging for workers
-    "sentry-sdk[fastapi,celery,sqlalchemy]>=2.0.0",  # Error tracking (REPO-271)
-    "resend>=0.5.0",  # Email service for notifications
-    "aioboto3>=13.0.0",  # Async AWS SES client for non-blocking email sending (REPO-376)
-    "email-validator>=2.0.0",  # Pydantic email validation
-    "python-slugify>=8.0.0",  # Slug generation for changelog URLs
-    "bleach>=6.0.0",  # HTML sanitization for markdown content
-    "slowapi>=0.1.9",  # Rate limiting for FastAPI endpoints (REPO-359)
-]
-
 graphiti = [
     "graphiti-core>=0.24.1",  # Temporal knowledge graph for git history tracking
 ]
@@ -141,6 +140,7 @@ ml = [
     "joblib>=1.3.0",  # Model serialization for bug predictor
     "torch>=2.5.0,<2.9.0",  # PyTorch for multimodal fusion neural networks (pinned for PyG compat)
     "torch-geometric>=2.6.0",  # PyTorch Geometric for GraphSAGE
+    "gensim>=4.3.0",  # Word2Vec for Node2Vec embeddings (REPO-247)
     # Note: pyg-lib, torch-sparse, torch-scatter must be installed separately
     # from https://data.pyg.org/whl/ with matching torch+cuda versions
 ]
@@ -160,7 +160,9 @@ anthropic = [
 [project.scripts]
 repotoire = "repotoire.cli:main"
 repotoire-pre-commit = "repotoire.hooks.pre_commit:main"
-repotoire-mcp = "mcp_server.repotoire_mcp_server:main"
+repotoire-mcp = "repotoire.mcp.api_server:main"
+repotoire-marketplace-mcp = "repotoire.mcp_marketplace.server:run_server"
+repotoire-marketplace-mcp-http = "repotoire.mcp_marketplace.http_server:run_http_server"
 
 [project.urls]
 Homepage = "https://github.com/yourusername/repotoire"
@@ -201,8 +203,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
 # Test markers for categorizing tests
 markers = [
     "unit: Unit tests (fast, no external dependencies)",
@@ -212,9 +212,8 @@ markers = [
     "benchmark: Performance benchmark tests",
     "neo4j: Tests requiring Neo4j connection",
     "falkordb: Tests requiring FalkorDB connection",
+    "anyio: Async tests using anyio",
 ]
-# Default timeout for tests (can be overridden per-test)
-timeout = 300
 # Filter warnings
 filterwarnings = [
     "ignore::DeprecationWarning",
@@ -226,6 +225,7 @@ dev = [
     "build>=1.3.0",
     "bump-my-version>=1.2.4",
     "git-cliff>=2.10.1",
+    "pytest-benchmark>=5.2.3",
 ]
 
 # Bump My Version configuration for semantic versioning

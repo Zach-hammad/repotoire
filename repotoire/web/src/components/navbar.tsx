@@ -41,16 +41,16 @@ export function Navbar() {
           </Link>
 
           <div className="hidden md:flex items-center gap-8">
-            <Link href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <Link href="/features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
               Features
             </Link>
             <Link
-              href="#how-it-works"
+              href="/how-it-works"
               className="text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
               How It Works
             </Link>
-            <Link href="#pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <Link href="/pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
               Pricing
             </Link>
             <Link href="/docs" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
@@ -89,13 +89,13 @@ export function Navbar() {
         {isOpen && (
           <div className="md:hidden py-4 border-t border-border">
             <div className="flex flex-col gap-4">
-              <Link href="#features" className="text-sm text-muted-foreground hover:text-foreground">
+              <Link href="/features" className="text-sm text-muted-foreground hover:text-foreground">
                 Features
               </Link>
-              <Link href="#how-it-works" className="text-sm text-muted-foreground hover:text-foreground">
+              <Link href="/how-it-works" className="text-sm text-muted-foreground hover:text-foreground">
                 How It Works
               </Link>
-              <Link href="#pricing" className="text-sm text-muted-foreground hover:text-foreground">
+              <Link href="/pricing" className="text-sm text-muted-foreground hover:text-foreground">
                 Pricing
               </Link>
               <Link href="/docs" className="text-sm text-muted-foreground hover:text-foreground">

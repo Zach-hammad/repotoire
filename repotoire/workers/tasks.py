@@ -106,6 +106,10 @@ def analyze_repository(
             repo_github_installation_id = repo.github_installation_id
             org_id = repo.organization_id
 
+            # Get org slug for multi-tenant graph naming
+            org = repo.organization
+            org_slug = org.slug if org else None
+
             # Update status to running
             progress.update(
                 status=AnalysisStatus.RUNNING,
@@ -145,16 +149,18 @@ def analyze_repository(
         # ============================================================
         # PHASE 3: Build knowledge graph (may take minutes)
         # ============================================================
-        # Get Neo4j client (uses env vars, no DB needed)
-        neo4j_client = _get_neo4j_client_for_org(None)
+        # Get graph client (multi-tenant: isolated graph per org)
+        graph_client = _get_graph_client_for_org(org_id, org_slug)
 
         # Import here to avoid circular imports
         from repotoire.pipeline.ingestion import IngestionPipeline
 
-        # Run ingestion pipeline
+        # Run ingestion pipeline with repo context for multi-tenant isolation
         pipeline = IngestionPipeline(
             repo_path=str(clone_dir),
-            neo4j_client=neo4j_client,
+            neo4j_client=graph_client,
+            repo_id=repo_id,  # Pass repo UUID for node tagging
+            repo_slug=repo_full_name,  # Pass full name (owner/repo)
         )
 
         def ingestion_progress(pct: float) -> None:
@@ -174,7 +180,7 @@ def analyze_repository(
         # ============================================================
         from repotoire.detectors.engine import AnalysisEngine
 
-        engine = AnalysisEngine(neo4j_client=neo4j_client)
+        engine = AnalysisEngine(neo4j_client=graph_client)
 
         def analysis_progress(pct: float) -> None:
             progress.update(
@@ -355,8 +361,8 @@ def analyze_pr(
                 current_step=f"Analyzing {len(changed_files)} changed files",
             )
 
-            # Get Neo4j client
-            neo4j_client = _get_neo4j_client_for_org(org)
+            # Get graph client (multi-tenant: isolated graph per org)
+            graph_client = _get_graph_client_for_org(org_id, org.slug if org else None)
 
             # Import here to avoid circular imports
             from repotoire.pipeline.ingestion import IngestionPipeline
@@ -364,7 +370,9 @@ def analyze_pr(
             # Run incremental ingestion on changed files only
             pipeline = IngestionPipeline(
                 repo_path=str(clone_dir),
-                neo4j_client=neo4j_client,
+                neo4j_client=graph_client,
+                repo_id=repo_id,  # Pass repo UUID for node tagging
+                repo_slug=repo_full_name,  # Pass full name (owner/repo)
             )
 
             # Ingest only changed files
@@ -378,7 +386,7 @@ def analyze_pr(
             # Run analysis scoped to changed files
             from repotoire.detectors.engine import AnalysisEngine
 
-            engine = AnalysisEngine(neo4j_client=neo4j_client)
+            engine = AnalysisEngine(neo4j_client=graph_client)
             health = engine.analyze()
 
             # Get previous score for delta calculation
@@ -751,8 +759,41 @@ def _get_github_token(repo: Repository) -> str | None:
     )
 
 
+def _get_graph_client_for_org(org_id: UUID | None, org_slug: str | None = None):
+    """Get graph database client for organization.
+
+    In multi-tenant mode (REPOTOIRE_MULTITENANT=true), each organization gets
+    its own isolated graph via the GraphClientFactory. In single-tenant mode,
+    returns a shared graph client.
+
+    Args:
+        org_id: Organization UUID for multi-tenant isolation.
+        org_slug: Organization slug for human-readable graph names.
+
+    Returns:
+        DatabaseClient instance (Neo4j or FalkorDB depending on config).
+    """
+    is_multitenant = os.environ.get("REPOTOIRE_MULTITENANT", "").lower() in (
+        "true", "1", "yes"
+    )
+
+    if is_multitenant and org_id:
+        # Multi-tenant mode: use GraphClientFactory for isolated graphs
+        from repotoire.graph.tenant_factory import GraphClientFactory
+
+        factory = GraphClientFactory()
+        return factory.get_client(org_id, org_slug)
+
+    # Single-tenant mode: use shared graph client
+    from repotoire.graph.factory import create_client
+
+    return create_client()
+
+
 def _get_neo4j_client_for_org(org: Organization | None):
     """Get Neo4j client for organization.
+
+    DEPRECATED: Use _get_graph_client_for_org instead.
 
     In a multi-tenant setup, each organization could have its own
     Neo4j database or namespace.
@@ -763,14 +804,11 @@ def _get_neo4j_client_for_org(org: Organization | None):
     Returns:
         Neo4jClient instance.
     """
-    from repotoire.graph.client import Neo4jClient
+    # Extract org_id and slug if org is provided
+    if org:
+        return _get_graph_client_for_org(org.id, org.slug)
 
-    # Use environment variables for now
-    # In production, could use org-specific credentials
-    neo4j_uri = os.environ.get("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687")
-    neo4j_password = os.environ.get("REPOTOIRE_NEO4J_PASSWORD", "")
-
-    return Neo4jClient(uri=neo4j_uri, password=neo4j_password)
+    return _get_graph_client_for_org(None)
 
 
 def _get_changed_files(

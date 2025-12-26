@@ -86,6 +86,16 @@ class GraphSchema:
         "CREATE INDEX function_semantic_context_idx IF NOT EXISTS FOR (f:Function) ON (f.semantic_context)",
         "CREATE INDEX class_semantic_context_idx IF NOT EXISTS FOR (c:Class) ON (c.semantic_context)",
         "CREATE INDEX file_semantic_context_idx IF NOT EXISTS FOR (f:File) ON (f.semantic_context)",
+        # Multi-tenant repo isolation indexes (REPO-391)
+        # These enable efficient filtering by repo_id within an org's graph
+        "CREATE INDEX file_repo_id_idx IF NOT EXISTS FOR (f:File) ON (f.repoId)",
+        "CREATE INDEX function_repo_id_idx IF NOT EXISTS FOR (f:Function) ON (f.repoId)",
+        "CREATE INDEX class_repo_id_idx IF NOT EXISTS FOR (c:Class) ON (c.repoId)",
+        "CREATE INDEX module_repo_id_idx IF NOT EXISTS FOR (m:Module) ON (m.repoId)",
+        # Composite indexes for efficient repo + path/name lookups
+        "CREATE INDEX file_repo_path_idx IF NOT EXISTS FOR (f:File) ON (f.repoId, f.filePath)",
+        "CREATE INDEX function_repo_name_idx IF NOT EXISTS FOR (f:Function) ON (f.repoId, f.name)",
+        "CREATE INDEX class_repo_name_idx IF NOT EXISTS FOR (c:Class) ON (c.repoId, c.name)",
     ]
 
     # Vector index definitions (labels and index names)
@@ -128,6 +138,11 @@ class GraphSchema:
         "CREATE INDEX ON :Function(qualifiedName)",
         "CREATE INDEX ON :Function(name)",
         "CREATE INDEX ON :Class(name)",
+        # Multi-tenant repo isolation indexes (REPO-391)
+        "CREATE INDEX ON :File(repoId)",
+        "CREATE INDEX ON :Function(repoId)",
+        "CREATE INDEX ON :Class(repoId)",
+        "CREATE INDEX ON :Module(repoId)",
     ]
 
     @staticmethod

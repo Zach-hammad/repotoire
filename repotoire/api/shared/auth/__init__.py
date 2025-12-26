@@ -5,6 +5,7 @@ This module provides:
 - get_current_user: FastAPI dependency for Clerk JWT verification
 - StateTokenStore: Redis-backed OAuth state token management
 - FastAPI dependencies for authentication and state token injection
+- Password derivation for secure FalkorDB multi-tenant authentication
 """
 
 # Re-export Clerk authentication utilities
@@ -29,6 +30,15 @@ from repotoire.api.shared.auth.state_store import (
     get_state_store,
 )
 
+# Re-export password derivation utilities
+from repotoire.api.shared.auth.password_utils import (
+    derive_tenant_password,
+    generate_hmac_secret,
+    get_hmac_secret,
+    validate_timing_safe,
+    verify_derived_password,
+)
+
 __all__ = [
     # Clerk auth
     "ClerkUser",
@@ -46,4 +56,10 @@ __all__ = [
     "StateStoreUnavailableError",
     "get_state_store",
     "close_redis_client",
+    # Password derivation (REPO-395)
+    "derive_tenant_password",
+    "generate_hmac_secret",
+    "get_hmac_secret",
+    "validate_timing_safe",
+    "verify_derived_password",
 ]

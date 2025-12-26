@@ -1,5 +1,9 @@
 """Command-line interface for Repotoire."""
 
+# Auto-load .env file if present (before any other imports that use env vars)
+from dotenv import load_dotenv
+load_dotenv()
+
 import click
 from dataclasses import asdict
 from pathlib import Path
@@ -15,7 +19,6 @@ from rich import box
 from rich.markup import escape
 
 from repotoire.pipeline import IngestionPipeline
-from repotoire.graph import Neo4jClient
 from repotoire.graph.factory import create_client
 from repotoire.detectors import AnalysisEngine
 from repotoire.migrations import MigrationManager, MigrationError
@@ -39,6 +42,21 @@ logger = get_logger(__name__)
 
 # Global config storage (loaded once per CLI invocation)
 _config: FalkorConfig | None = None
+
+
+def _get_db_client(quiet: bool = False):
+    """Get database client. Requires REPOTOIRE_API_KEY.
+
+    Args:
+        quiet: Suppress connection messages
+
+    Returns:
+        DatabaseClient instance
+
+    Raises:
+        ConfigurationError: If API key is not set
+    """
+    return create_client(show_cloud_indicator=not quiet)
 
 
 def _extract_git_info(repo_path: Path) -> dict[str, str | None]:
@@ -200,46 +218,25 @@ def cli(ctx: click.Context, config: str | None, log_level: str | None, log_forma
     """Repotoire - Graph-Powered Code Health Platform
 
     \b
-    Repotoire analyzes codebases using Neo4j knowledge graphs to detect
-    code smells, architectural issues, and technical debt. Unlike traditional
-    linters, it combines structural analysis (AST), semantic understanding
-    (NLP + AI), and relational patterns (graph algorithms).
+    Repotoire analyzes codebases using knowledge graphs to detect
+    code smells, architectural issues, and technical debt.
 
     \b
     QUICK START:
-      $ repotoire ingest ./my-repo           # Build knowledge graph
+      $ repotoire login                      # Browser OAuth (one time)
       $ repotoire analyze ./my-repo          # Run health analysis
-      $ repotoire ask "Where is auth?"       # Query with natural language
 
     \b
-    CONFIGURATION:
-      Priority (highest to lowest):
-      1. Command-line options (--neo4j-uri, etc.)
-      2. Config file (--config, .reporc, falkor.toml)
-      3. Environment variables (REPOTOIRE_NEO4J_URI, etc.)
-      4. Built-in defaults
+    COMMON COMMANDS:
+      repotoire login              # Login via browser OAuth
+      repotoire login <key>        # Login with API key (for CI)
+      repotoire logout             # Remove stored credentials
+      repotoire whoami             # Check auth status
+      repotoire analyze ./repo     # Analyze codebase
+      repotoire ask "question"     # Query with natural language
 
     \b
-    COMMON WORKFLOWS:
-      First-time setup:
-        $ repotoire init                     # Create config file
-        $ repotoire validate                 # Test connectivity
-        $ repotoire ingest ./repo            # Ingest codebase
-
-      Daily development:
-        $ repotoire analyze ./repo           # Quick health check
-        $ repotoire hotspots                 # Find problem areas
-        $ repotoire auto-fix                 # AI-powered fixes
-
-      CI/CD integration:
-        $ repotoire analyze ./repo -f json   # Machine-readable output
-        $ repotoire security audit           # Security scan
-
-    \b
-    DOCUMENTATION:
-      Full docs: https://docs.repotoire.io
-      API docs:  https://api.repotoire.io/docs
-      Support:   support@repotoire.io
+    Get your API key at: https://repotoire.com/settings/api-keys
     """
     global _config
 
@@ -265,6 +262,185 @@ def cli(ctx: click.Context, config: str | None, log_level: str | None, log_forma
     # Store config in context for subcommands
     ctx.ensure_object(dict)
     ctx.obj['config'] = _config
+
+
+# =============================================================================
+# Authentication Commands
+# =============================================================================
+
+
+@cli.command()
+@click.argument("api_key", required=False)
+def login(api_key: str | None) -> None:
+    """Login to Repotoire Cloud.
+
+    \b
+    USAGE:
+      $ repotoire login              # Browser OAuth (recommended)
+      $ repotoire login ak_xxx       # Direct API key (for CI/scripts)
+
+    \b
+    Browser login opens your default browser for secure OAuth authentication.
+    Direct API key login is useful for CI/CD or headless environments.
+
+    \b
+    Get your API key at: https://repotoire.com/settings/api-keys
+
+    Credentials are stored securely in your system keyring when available,
+    with a fallback to ~/.repotoire/credentials (chmod 600).
+    """
+    from repotoire.graph.factory import save_api_key, _validate_api_key
+
+    if api_key is None:
+        # Browser OAuth flow
+        _login_browser_oauth()
+    else:
+        # Direct API key login
+        _login_with_api_key(api_key)
+
+
+def _login_with_api_key(api_key: str) -> None:
+    """Login with a direct API key."""
+    from repotoire.graph.factory import save_api_key, _validate_api_key
+
+    try:
+        console.print("Validating API key...", style="dim")
+        auth_info = _validate_api_key(api_key)
+        storage_location = save_api_key(api_key)
+
+        # Show user info if available
+        if auth_info.user:
+            name = auth_info.user.name or auth_info.user.email
+            console.print(
+                f"\n[green]✓[/green] Logged in as [cyan]{name}[/cyan] ({auth_info.user.email})\n"
+                f"  Organization: {auth_info.org_slug} ({auth_info.plan} plan)\n"
+                f"  Credentials saved to: {storage_location}"
+            )
+        else:
+            console.print(
+                f"\n[green]✓[/green] Logged in to [cyan]{auth_info.org_slug}[/cyan] ({auth_info.plan} plan)\n"
+                f"  Credentials saved to: {storage_location}"
+            )
+    except Exception as e:
+        console.print(f"\n[red]✗[/red] {e}")
+        raise SystemExit(1)
+
+
+def _login_browser_oauth() -> None:
+    """Login via browser OAuth flow."""
+    from repotoire.cli.auth import CLIAuth, AuthenticationError
+    from repotoire.cli.credentials import mask_api_key
+    from repotoire.graph.factory import _validate_api_key
+
+    cli_auth = CLIAuth()
+
+    console.print("[bold]Opening browser for authentication...[/bold]")
+    console.print("[dim]If browser doesn't open, visit the URL shown below.[/dim]\n")
+
+    try:
+        # Browser OAuth returns the API key directly (stored by CLIAuth)
+        api_key = cli_auth.login()
+
+        # Validate the API key to get user info
+        try:
+            auth_info = _validate_api_key(api_key)
+            if auth_info.user:
+                name = auth_info.user.name or auth_info.user.email
+                console.print(f"\n[green]✓[/green] Logged in as [cyan]{name}[/cyan] ({auth_info.user.email})")
+                console.print(f"  Organization: {auth_info.org_slug} ({auth_info.plan} plan)")
+            else:
+                console.print(f"\n[green]✓[/green] Logged in to [cyan]{auth_info.org_slug}[/cyan] ({auth_info.plan} plan)")
+        except Exception:
+            # If validation fails, still show success with masked key
+            masked_key = mask_api_key(api_key)
+            console.print(f"\n[green]✓[/green] Logged in successfully")
+            console.print(f"  API Key: {masked_key}")
+
+        # Show where credentials are stored
+        source = cli_auth.get_credential_source()
+        if source:
+            console.print(f"  Credentials saved to: {source}")
+
+        console.print("\n[dim]Run 'repotoire ingest .' to analyze your codebase.[/dim]")
+
+    except AuthenticationError as e:
+        console.print(f"\n[red]✗[/red] Authentication failed: {e}")
+        raise SystemExit(1)
+    except Exception as e:
+        console.print(f"\n[red]✗[/red] {e}")
+        raise SystemExit(1)
+
+
+@cli.command()
+def logout() -> None:
+    """Remove stored credentials.
+
+    \b
+    USAGE:
+      $ repotoire logout
+
+    Clears credentials from system keyring and/or credentials file.
+    """
+    from repotoire.graph.factory import remove_api_key, get_credential_source
+
+    source = get_credential_source()
+    if remove_api_key():
+        console.print(f"[green]✓[/green] Logged out. Credentials removed from {source}.")
+    else:
+        console.print("[dim]No stored credentials found.[/dim]")
+
+
+@cli.command()
+def whoami() -> None:
+    """Show current authentication status.
+
+    \b
+    USAGE:
+      $ repotoire whoami
+
+    Shows your login status, organization, plan, and where credentials are stored.
+    """
+    from repotoire.cli.credentials import mask_api_key
+    from repotoire.graph.factory import get_api_key, get_cloud_auth_info, _validate_api_key, get_credential_source
+
+    api_key = get_api_key()
+    if not api_key:
+        console.print("[red]✗[/red] Not logged in\n")
+        console.print("Run [cyan]repotoire login[/cyan] to authenticate via browser.")
+        console.print("Or set [cyan]REPOTOIRE_API_KEY[/cyan] environment variable.")
+        return
+
+    # Try to get cached info or validate
+    auth_info = get_cloud_auth_info()
+    if not auth_info:
+        try:
+            auth_info = _validate_api_key(api_key)
+        except Exception as e:
+            console.print(f"[red]✗[/red] Invalid API key: {e}")
+            return
+
+    # Get credential source
+    source = get_credential_source()
+    masked_key = mask_api_key(api_key)
+
+    # Show user info if available
+    if auth_info.user:
+        name = auth_info.user.name or auth_info.user.email
+        console.print(f"[green]✓[/green] Logged in as [cyan]{name}[/cyan] ({auth_info.user.email})\n")
+        console.print(f"  Organization: {auth_info.org_slug}")
+        console.print(f"  Plan: {auth_info.plan}")
+        console.print(f"  API Key: {masked_key}")
+        console.print(f"  Credentials stored in: {source}")
+    else:
+        console.print(f"[green]✓[/green] Logged in to [cyan]{auth_info.org_slug}[/cyan]\n")
+        console.print(f"  Plan: {auth_info.plan}")
+        console.print(f"  API Key: {masked_key}")
+        console.print(f"  Credentials stored in: {source}")
+
+
+# =============================================================================
+# Ingest Command
+# =============================================================================
 
 
 @cli.command()
@@ -586,6 +762,21 @@ def ingest(
                     db.clear_graph()
                     console.print("[green]✓ Database cleared[/green]\n")
 
+                # Detect repo info for node tagging when authenticated (REPO-397)
+                repo_id = None
+                repo_slug = None
+                repo_info = None
+                from repotoire.graph.factory import get_api_key
+                if get_api_key():
+                    from repotoire.cli.repo_utils import detect_repo_info
+                    repo_info = detect_repo_info(validated_repo_path)
+                    repo_id = repo_info.repo_id
+                    repo_slug = repo_info.repo_slug
+                    if repo_info.source == "git":
+                        console.print(f"[dim]Repository: {repo_info.repo_slug} (via git remote)[/dim]")
+                    else:
+                        console.print(f"[dim]Repository: {repo_info.repo_slug} (local path)[/dim]")
+
                 pipeline = IngestionPipeline(
                     str(validated_repo_path),
                     db,
@@ -600,6 +791,8 @@ def ingest(
                     generate_contexts=generate_contexts,
                     context_model=context_model,
                     max_context_cost=max_context_cost,
+                    repo_id=repo_id,
+                    repo_slug=repo_slug,
                 )
 
                 # Setup progress bar if not in quiet mode
@@ -653,6 +846,42 @@ def ingest(
 
                 console.print(table)
 
+                # Show dashboard link when authenticated (REPO-397)
+                if repo_info and repo_id:
+                    console.print(
+                        f"\n[green]📡 Synced to dashboard:[/green] "
+                        f"[link=https://repotoire.com/repos/{repo_id[:8]}]"
+                        f"https://repotoire.com/repos/{repo_id[:8]}...[/link]"
+                    )
+
+                # Generate graph embeddings (Node2Vec) - the differentiator!
+                # Uses parallel Rust backend for fast training
+                function_count = stats.get("total_functions", 0)
+                if function_count > 0:
+                    console.print("\n[bold cyan]Generating graph embeddings (Node2Vec)...[/bold cyan]")
+                    try:
+                        from repotoire.ml.node2vec_embeddings import Node2VecEmbedder, Node2VecConfig
+
+                        node2vec_config = Node2VecConfig(
+                            embedding_dimension=128,
+                            walk_length=80,
+                            walks_per_node=10,
+                        )
+                        embedder = Node2VecEmbedder(db, node2vec_config, force_rust=True)
+
+                        embed_stats = embedder.generate_and_store_embeddings(
+                            node_labels=["Function", "Class", "Module"],
+                            relationship_types=["CALLS", "IMPORTS", "USES"],
+                            seed=42,
+                        )
+
+                        embedded_count = embed_stats.get("nodePropertiesWritten", embed_stats.get("embedded_count", 0))
+                        console.print(f"[green]✓ Generated {embedded_count:,} graph embeddings[/green]")
+                    except Exception as e:
+                        # Non-fatal - graph embeddings are enhancement, not required
+                        logger.warning(f"Graph embedding generation failed: {e}")
+                        console.print(f"[yellow]⚠️  Graph embeddings skipped: {e}[/yellow]")
+
                 # Show security info if files were skipped
                 if pipeline.skipped_files:
                     console.print(
@@ -674,15 +903,6 @@ def ingest(
 
 @cli.command()
 @click.argument("repo_path", type=click.Path(exists=True))
-@click.option(
-    "--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)"
-)
-@click.option("--neo4j-user", default=None, help="Neo4j username (overrides config)")
-@click.option(
-    "--neo4j-password",
-    default=None,
-    help="Neo4j password (overrides config, prompts if not provided)",
-)
 @click.option(
     "--output", "-o", type=click.Path(), help="Output file for report"
 )
@@ -734,9 +954,6 @@ def ingest(
 def analyze(
     ctx: click.Context,
     repo_path: str,
-    neo4j_uri: str | None,
-    neo4j_user: str | None,
-    neo4j_password: str | None,
     output: str | None,
     format: str,
     quiet: bool,
@@ -831,46 +1048,17 @@ def analyze(
             else:
                 # Not logged in - show hint but allow analysis
                 if not quiet:
-                    console.print("[dim]Tip: Login with 'repotoire auth login' to track usage[/dim]")
+                    console.print("[dim]Tip: Login with 'repotoire login <api_key>' to track usage[/dim]")
 
     # Validate inputs before execution
     try:
         # Validate repository path
         validated_repo_path = validate_repository_path(repo_path)
 
-        # Apply config defaults (CLI options override config)
-        final_neo4j_uri = neo4j_uri or config.neo4j.uri
-        final_neo4j_user = neo4j_user or config.neo4j.user
-        final_neo4j_password = neo4j_password or config.neo4j.password
-
-        # Validate Neo4j URI
-        final_neo4j_uri = validate_neo4j_uri(final_neo4j_uri)
-
-        # Prompt for password if not provided
-        if not final_neo4j_password:
-            final_neo4j_password = click.prompt("Neo4j password", hide_input=True)
-
-        # Validate credentials
-        final_neo4j_user, final_neo4j_password = validate_neo4j_credentials(
-            final_neo4j_user, final_neo4j_password
-        )
-
-        # Test Neo4j connection is reachable
-        console.print("[dim]Checking Neo4j connectivity...[/dim]")
-        validate_neo4j_connection(final_neo4j_uri, final_neo4j_user, final_neo4j_password)
-        console.print("[green]✓[/green] Neo4j connection validated\n")
-
         # Validate output path if provided
         validated_output = None
         if output:
             validated_output = validate_output_path(output)
-
-        # Validate retry configuration
-        validated_retries = validate_retry_config(
-            config.neo4j.max_retries,
-            config.neo4j.retry_backoff_factor,
-            config.neo4j.retry_base_delay
-        )
 
     except ValidationError as e:
         console.print(f"\n[red]❌ Validation Error:[/red] {e.message}")
@@ -884,14 +1072,9 @@ def analyze(
         with LogContext(operation="analyze", repo_path=repo_path):
             logger.info("Starting analysis")
 
-            with Neo4jClient(
-                final_neo4j_uri,
-                final_neo4j_user,
-                final_neo4j_password,
-                max_retries=validated_retries[0],
-                retry_backoff_factor=validated_retries[1],
-                retry_base_delay=validated_retries[2],
-            ) as db:
+            # Create database client (requires API key)
+            db = _get_db_client(quiet=quiet)
+            try:
                 # Convert detector config to dict for detectors
                 detector_config_dict = asdict(config.detectors)
                 engine = AnalysisEngine(
@@ -947,6 +1130,8 @@ def analyze(
                         config=config,
                         quiet=quiet
                     )
+            finally:
+                db.close()
 
     except click.Abort:
         # Let Click handle abort cleanly (preserves command context)
@@ -955,6 +1140,11 @@ def analyze(
         # Let Click handle its own exceptions (preserves command context)
         raise
     except Exception as e:
+        # Check for ConfigurationError (no database configured)
+        from repotoire.graph.factory import ConfigurationError
+        if isinstance(e, ConfigurationError):
+            console.print(f"\n[yellow]⚠️  {e}[/yellow]")
+            raise click.Abort()
         logger.exception("Error during analysis")
         console.print(f"\n[red]❌ Error: {e}[/red]")
         raise click.Abort()
@@ -1922,7 +2112,8 @@ def status(
     console.print(f"\n[bold cyan]🎼 Repotoire Migration Status[/bold cyan]\n")
 
     try:
-        with Neo4jClient(final_neo4j_uri, final_neo4j_user, final_neo4j_password) as db:
+        db = _get_db_client()
+        try:
             manager = MigrationManager(db)
             status_info = manager.status()
 
@@ -1975,6 +2166,8 @@ def status(
                     )
 
                 console.print(history_table)
+        finally:
+            db.close()
 
     except MigrationError as e:
         console.print(f"\n[red]❌ Migration Error:[/red] {e}")
@@ -2033,7 +2226,8 @@ def up(
     console.print(f"\n[bold cyan]🎼 Repotoire Migration: Upgrading Schema[/bold cyan]\n")
 
     try:
-        with Neo4jClient(final_neo4j_uri, final_neo4j_user, final_neo4j_password) as db:
+        db = _get_db_client()
+        try:
             manager = MigrationManager(db)
 
             # Show current state
@@ -2060,6 +2254,8 @@ def up(
             # Show new version
             new_version = manager.get_current_version()
             console.print(f"New version: [bold cyan]{new_version}[/bold cyan]\n")
+        finally:
+            db.close()
 
     except MigrationError as e:
         console.print(f"\n[red]❌ Migration Error:[/red] {e}")
@@ -2129,7 +2325,8 @@ def down(
     console.print(f"\n[bold red]⚠️  Falkor Migration: Rollback Schema[/bold red]\n")
 
     try:
-        with Neo4jClient(final_neo4j_uri, final_neo4j_user, final_neo4j_password) as db:
+        db = _get_db_client()
+        try:
             manager = MigrationManager(db)
 
             # Show current state
@@ -2164,6 +2361,8 @@ def down(
             # Show new version
             new_version = manager.get_current_version()
             console.print(f"New version: [bold cyan]{new_version}[/bold cyan]\n")
+        finally:
+            db.close()
 
     except MigrationError as e:
         console.print(f"\n[red]❌ Migration Error:[/red] {e}")
@@ -2495,7 +2694,7 @@ def hotspots(ctx, repo_path: str, neo4j_uri, neo4j_user, neo4j_password, window:
             password = neo4j_password or config.neo4j.password or click.prompt("Neo4j password", hide_input=True)
 
             # Connect to Neo4j
-            client = Neo4jClient(uri=uri, username=user, password=password)
+            client = _get_db_client()
 
             # Create temporal metrics analyzer
             from repotoire.detectors.temporal_metrics import TemporalMetrics
@@ -2582,7 +2781,7 @@ def history(ctx, repo_path: str, neo4j_uri, neo4j_user, neo4j_password, strategy
         password = neo4j_password or config.neo4j.password or click.prompt("Neo4j password", hide_input=True)
 
         # Connect to Neo4j
-        client = Neo4jClient(uri=uri, username=user, password=password)
+        client = _get_db_client()
 
         # Create temporal ingestion pipeline
         from repotoire.pipeline.temporal_ingestion import TemporalIngestionPipeline
@@ -2659,7 +2858,7 @@ def compare(ctx, before_commit: str, after_commit: str, neo4j_uri, neo4j_user, n
         password = neo4j_password or config.neo4j.password or click.prompt("Neo4j password", hide_input=True)
 
         # Connect to Neo4j
-        client = Neo4jClient(uri=uri, username=user, password=password)
+        client = _get_db_client()
 
         # Create temporal metrics analyzer
         from repotoire.detectors.temporal_metrics import TemporalMetrics
@@ -2779,7 +2978,7 @@ def generate_mcp(
 
         # Connect to Neo4j
         with console.status("[bold green]Connecting to Neo4j...", spinner="dots"):
-            client = Neo4jClient(uri=uri, username=user, password=password)
+            client = _get_db_client()
 
         console.print("[green]✓[/green] Connected to Neo4j")
 
@@ -2977,7 +3176,7 @@ def inspect(
             password = click.prompt("Neo4j password", hide_input=True)
 
         # Connect to Neo4j
-        client = Neo4jClient(uri=uri, user=user, password=password)
+        client = _get_db_client()
 
         # Get statistics
         stats = client.get_stats()
@@ -3060,7 +3259,7 @@ def visualize(
             password = click.prompt("Neo4j password", hide_input=True)
 
         # Connect to Neo4j
-        client = Neo4jClient(uri=uri, user=user, password=password)
+        client = _get_db_client()
 
         # Get relationship type counts to understand schema
         rel_counts = client.get_relationship_type_counts()
@@ -3142,7 +3341,7 @@ def sample(
             password = click.prompt("Neo4j password", hide_input=True)
 
         # Connect to Neo4j
-        client = Neo4jClient(uri=uri, user=user, password=password)
+        client = _get_db_client()
 
         # Get total count
         node_counts = client.get_node_label_counts()
@@ -3217,7 +3416,7 @@ def validate(
             password = click.prompt("Neo4j password", hide_input=True)
 
         # Connect to Neo4j
-        client = Neo4jClient(uri=uri, user=user, password=password)
+        client = _get_db_client()
 
         console.print()
         console.print("[bold cyan]Validating Graph Schema...[/bold cyan]")
@@ -3297,7 +3496,7 @@ def list(
         password = neo4j_password or config.neo4j_password
 
         # Connect
-        client = Neo4jClient(uri=uri, password=password)
+        client = _get_db_client()
         engine = RuleEngine(client)
 
         # Get rules
@@ -3426,7 +3625,7 @@ def add(
         password = neo4j_password or config.neo4j_password
 
         # Connect
-        client = Neo4jClient(uri=uri, password=password)
+        client = _get_db_client()
         engine = RuleEngine(client)
         validator = RuleValidator(client)
 
@@ -3524,7 +3723,7 @@ def edit(
         password = neo4j_password or config.neo4j_password
 
         # Connect
-        client = Neo4jClient(uri=uri, password=password)
+        client = _get_db_client()
         engine = RuleEngine(client)
 
         # Check rule exists
@@ -3583,7 +3782,7 @@ def delete(
         password = neo4j_password or config.neo4j_password
 
         # Connect
-        client = Neo4jClient(uri=uri, password=password)
+        client = _get_db_client()
         engine = RuleEngine(client)
 
         # Delete
@@ -3623,7 +3822,7 @@ def test(
         password = neo4j_password or config.neo4j_password
 
         # Connect
-        client = Neo4jClient(uri=uri, password=password)
+        client = _get_db_client()
         engine = RuleEngine(client)
 
         # Get rule
@@ -3684,7 +3883,7 @@ def stats(
         password = neo4j_password or config.neo4j_password
 
         # Connect
-        client = Neo4jClient(uri=uri, password=password)
+        client = _get_db_client()
         engine = RuleEngine(client)
 
         # Get statistics
@@ -3761,7 +3960,7 @@ def daemon_refresh(
         password = neo4j_password or config.neo4j_password
 
         # Connect
-        client = Neo4jClient(uri=uri, password=password)
+        client = _get_db_client()
 
         # Create daemon
         daemon = RuleRefreshDaemon(
@@ -4555,7 +4754,6 @@ def auto_fix(
     import os
     import json
     from pathlib import Path
-    from repotoire.graph import Neo4jClient
     from repotoire.engine import AnalysisEngine
     from repotoire.autofix import AutoFixEngine, InteractiveReviewer, FixApplicator
     from repotoire.models import Severity
@@ -4586,7 +4784,7 @@ def auto_fix(
         if not quiet_mode:
             console.print("[bold]Step 1: Analyzing codebase...[/bold]")
 
-        neo4j_client = Neo4jClient(uri=neo4j_uri, password=neo4j_password)
+        neo4j_client = _get_db_client()
         engine = AnalysisEngine(neo4j_client)
 
         if not quiet_mode:
@@ -4995,7 +5193,6 @@ def hotspots(
         # Show hotspots for specific file
         repotoire hotspots --file path/to/file.py
     """
-    from repotoire.graph import Neo4jClient
     from repotoire.graph.enricher import GraphEnricher
     from rich.table import Table
 
@@ -5003,7 +5200,7 @@ def hotspots(
 
     # Connect to Neo4j
     try:
-        neo4j_client = Neo4jClient(neo4j_uri, password=neo4j_password)
+        neo4j_client = _get_db_client()
         enricher = GraphEnricher(neo4j_client)
     except Exception as e:
         console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
@@ -5163,14 +5360,13 @@ def embeddings_generate(
         repotoire embeddings generate --dimension 256
         repotoire embeddings generate --force
     """
-    from repotoire.graph import Neo4jClient
     from repotoire.ml import FastRPEmbedder, FastRPConfig
 
     console.print("\n🔮 [bold]FastRP Graph Embedding Generation[/bold]\n")
 
     # Connect to Neo4j
     try:
-        neo4j_client = Neo4jClient(neo4j_uri, password=neo4j_password)
+        neo4j_client = _get_db_client()
     except Exception as e:
         console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
         raise click.Abort()
@@ -5249,13 +5445,12 @@ def embeddings_stats(
     Examples:
         repotoire embeddings stats
     """
-    from repotoire.graph import Neo4jClient
     from repotoire.ml import FastRPEmbedder
 
     console.print("\n📊 [bold]Graph Embedding Statistics[/bold]\n")
 
     try:
-        neo4j_client = Neo4jClient(neo4j_uri, password=neo4j_password)
+        neo4j_client = _get_db_client()
     except Exception as e:
         console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
         raise click.Abort()
@@ -5331,14 +5526,13 @@ def embeddings_similar(
         repotoire embeddings similar "my.module.MyClass.method"
         repotoire embeddings similar "my.module" --type Function -k 20
     """
-    from repotoire.graph import Neo4jClient
     from repotoire.ml import StructuralSimilarityAnalyzer
     from rich.table import Table
 
     console.print(f"\n🔍 [bold]Finding entities similar to:[/bold] [cyan]{qualified_name}[/cyan]\n")
 
     try:
-        neo4j_client = Neo4jClient(neo4j_uri, password=neo4j_password)
+        neo4j_client = _get_db_client()
     except Exception as e:
         console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
         raise click.Abort()
@@ -5441,14 +5635,13 @@ def embeddings_clones(
         repotoire embeddings clones
         repotoire embeddings clones --threshold 0.9 --limit 100
     """
-    from repotoire.graph import Neo4jClient
     from repotoire.ml import StructuralSimilarityAnalyzer
     from rich.table import Table
 
     console.print(f"\n🔎 [bold]Finding potential code clones[/bold] (threshold >= {threshold})\n")
 
     try:
-        neo4j_client = Neo4jClient(neo4j_uri, password=neo4j_password)
+        neo4j_client = _get_db_client()
     except Exception as e:
         console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
         raise click.Abort()
@@ -5657,6 +5850,10 @@ cli.add_command(auth_group)
 from .api_keys import api_keys
 cli.add_command(api_keys, name="api-keys")
 
+# Register marketplace commands (REPO-381)
+from .marketplace import marketplace
+cli.add_command(marketplace)
+
 
 @cli.command()
 @click.argument("query")
@@ -5744,7 +5941,6 @@ def ask(
         repotoire ask "JWT middleware" --hybrid-search --reranker voyage
         repotoire ask "calculate_score function" --no-hybrid-search --reranker none
     """
-    from repotoire.graph import Neo4jClient
     from repotoire.ai import (
         CodeEmbedder,
         EmbeddingConfig,
@@ -5760,7 +5956,7 @@ def ask(
 
     # Connect to Neo4j
     try:
-        client = Neo4jClient(neo4j_uri, password=neo4j_password)
+        client = _get_db_client()
     except Exception as e:
         console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
         console.print("[dim]Make sure Neo4j is running and credentials are correct[/dim]")

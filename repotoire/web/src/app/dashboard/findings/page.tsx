@@ -216,14 +216,18 @@ export default function FindingsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Detectors</SelectItem>
-                  <SelectItem value="ruff">Ruff</SelectItem>
-                  <SelectItem value="mypy">Mypy</SelectItem>
-                  <SelectItem value="bandit">Bandit</SelectItem>
-                  <SelectItem value="pylint">Pylint</SelectItem>
-                  <SelectItem value="complexity">Complexity</SelectItem>
-                  <SelectItem value="semgrep">Semgrep</SelectItem>
-                  <SelectItem value="vulture">Vulture</SelectItem>
-                  <SelectItem value="jscpd">Jscpd</SelectItem>
+                  <SelectItem value="RuffLintDetector">Ruff Lint</SelectItem>
+                  <SelectItem value="MypyDetector">Mypy</SelectItem>
+                  <SelectItem value="BanditDetector">Bandit</SelectItem>
+                  <SelectItem value="PylintDetector">Pylint</SelectItem>
+                  <SelectItem value="RadonDetector">Complexity (Radon)</SelectItem>
+                  <SelectItem value="SemgrepDetector">Semgrep</SelectItem>
+                  <SelectItem value="VultureDetector">Vulture</SelectItem>
+                  <SelectItem value="JscpdDetector">Jscpd</SelectItem>
+                  <SelectItem value="SATDDetector">SATD (Technical Debt)</SelectItem>
+                  <SelectItem value="CircularDependencyDetector">Circular Dependencies</SelectItem>
+                  <SelectItem value="GodClassDetector">God Class</SelectItem>
+                  <SelectItem value="DeadCodeDetector">Dead Code</SelectItem>
                 </SelectContent>
               </Select>
             </div>

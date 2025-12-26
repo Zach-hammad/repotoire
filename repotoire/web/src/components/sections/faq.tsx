@@ -7,12 +7,12 @@ const faqs = [
   {
     question: "How long does setup take?",
     answer:
-      "Initial analysis takes 5-15 minutes for most codebases. After that, incremental scans run in under 8 seconds.",
+      "Initial analysis takes 5-15 minutes for most codebases. After that, incremental scans are significantly faster since only changed files are processed.",
   },
   {
     question: "What languages do you support?",
     answer:
-      "TypeScript, JavaScript, Python, Java, Go, Rust, C#, and C++. The graph analysis works across polyglot codebases.",
+      "Python is fully supported with AST-based analysis. TypeScript, JavaScript, and other languages are coming soon.",
   },
   {
     question: "Is the AI auto-fix safe?",

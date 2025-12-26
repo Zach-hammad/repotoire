@@ -45,6 +45,23 @@ thiserror = "1.0"
 # rustc-hash - Fast hash map for performance-critical code
 rustc-hash = "2.0"
 
+# git2 - Rust bindings for libgit2 (REPO-246)
+# Used for parallel commit processing in bug extraction
+# Much faster than subprocess git calls for bulk operations
+git2 = "0.19"
+
+# rand + rand_chacha - Random number generation (REPO-247)
+# Used for Node2Vec biased random walks with reproducible seeding
+rand = "0.8"
+rand_chacha = "0.3"
+
+# regex + lazy_static - SATD comment scanning (REPO-410)
+# regex for pattern matching, lazy_static for compile-once patterns
+regex = "1.11"
+lazy_static = "1.5"
+
+# Note: regex crate was evaluated but manual parsing proved faster for diff parsing
+
 [dev-dependencies]
 # criterion - Benchmarking framework (REPO-167)
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -55,4 +72,12 @@ harness = false
 
 [[bench]]
 name = "graph_bench"
+harness = false
+
+[[bench]]
+name = "word2vec_bench"
+harness = false
+
+[[bench]]
+name = "node2vec_bench"
 harness = false

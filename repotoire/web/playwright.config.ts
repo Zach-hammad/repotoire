@@ -106,7 +106,7 @@ export default defineConfig({
         {
           name: "chromium-unauthenticated",
           use: { ...devices["Desktop Chrome"] },
-          testMatch: /public\.spec\.ts/,
+          testMatch: /(public|accessibility)\.spec\.ts/,
         },
       ],
 

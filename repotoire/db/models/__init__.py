@@ -56,6 +56,20 @@ from .changelog import (
     DigestFrequency,
     UserChangelogRead,
 )
+from .marketplace import (
+    AssetType,
+    AssetVisibility,
+    MarketplaceAsset,
+    MarketplaceAssetVersion,
+    MarketplaceInstall,
+    MarketplacePurchase,
+    MarketplacePublisher,
+    MarketplaceReview,
+    OrgPrivateAsset,
+    PricingType,
+    PublisherType,
+    PurchaseStatus,
+)
 from .status import (
     ComponentStatus,
     Incident,
@@ -135,4 +149,18 @@ __all__ = [
     "ChangelogSubscriber",
     "DigestFrequency",
     "UserChangelogRead",
+    # Marketplace models
+    "MarketplacePublisher",
+    "MarketplaceAsset",
+    "MarketplaceAssetVersion",
+    "MarketplaceInstall",
+    "MarketplacePurchase",
+    "MarketplaceReview",
+    "OrgPrivateAsset",
+    # Marketplace enums
+    "PublisherType",
+    "AssetType",
+    "PricingType",
+    "AssetVisibility",
+    "PurchaseStatus",
 ]

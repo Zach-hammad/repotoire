@@ -5,6 +5,7 @@ Critical for optimizing CI/CD in monorepos - only test/build affected packages.
 """
 
 import subprocess
+from collections import deque
 from pathlib import Path
 from typing import List, Set, Dict, Optional
 
@@ -274,11 +275,11 @@ class AffectedPackagesDetector:
             List of affected package paths (excluding changed packages)
         """
         affected: Set[str] = set()
-        queue: List[tuple[str, int]] = [(pkg, 0) for pkg in changed_packages]
+        queue: deque[tuple[str, int]] = deque((pkg, 0) for pkg in changed_packages)
         visited: Set[str] = set(changed_packages)
 
         while queue:
-            current_pkg, depth = queue.pop(0)
+            current_pkg, depth = queue.popleft()  # O(1) vs O(n) for list.pop(0)
 
             # Stop if we've reached max depth
             if depth >= max_depth:

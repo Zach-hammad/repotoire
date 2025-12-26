@@ -551,11 +551,11 @@ class PythonASTVisitor(ast.NodeVisitor):
             parts = []
             node = decorator
             while isinstance(node, ast.Attribute):
-                parts.insert(0, node.attr)
+                parts.append(node.attr)  # O(1) append instead of O(n) insert(0)
                 node = node.value
             if isinstance(node, ast.Name):
-                parts.insert(0, node.id)
-            return ".".join(parts) if parts else None
+                parts.append(node.id)
+            return ".".join(reversed(parts)) if parts else None
         elif isinstance(decorator, ast.Call):
             return self._resolve_decorator_name(decorator.func)
         return None

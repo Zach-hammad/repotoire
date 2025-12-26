@@ -402,21 +402,51 @@ def config(backend: str | None):
         "REPOTOIRE_NEO4J_PASSWORD" if os.environ.get("REPOTOIRE_NEO4J_PASSWORD") else "default",
     )
 
-    # FalkorDB settings
-    table.add_row(
-        "FalkorDB Host",
-        os.environ.get("REPOTOIRE_FALKORDB_HOST", "localhost"),
-        "REPOTOIRE_FALKORDB_HOST" if os.environ.get("REPOTOIRE_FALKORDB_HOST") else "default",
+    # FalkorDB settings - check both FALKORDB_* and REPOTOIRE_FALKORDB_* env vars
+    # On Fly.io, default host is repotoire-falkor.internal
+    is_fly = bool(os.environ.get("FLY_APP_NAME"))
+    default_host = "repotoire-falkor.internal" if is_fly else "localhost"
+
+    falkordb_host = os.environ.get(
+        "FALKORDB_HOST",
+        os.environ.get("REPOTOIRE_FALKORDB_HOST", default_host)
     )
-    table.add_row(
-        "FalkorDB Port",
-        os.environ.get("REPOTOIRE_FALKORDB_PORT", "6379"),
-        "REPOTOIRE_FALKORDB_PORT" if os.environ.get("REPOTOIRE_FALKORDB_PORT") else "default",
+    host_source = (
+        "FALKORDB_HOST" if os.environ.get("FALKORDB_HOST")
+        else "REPOTOIRE_FALKORDB_HOST" if os.environ.get("REPOTOIRE_FALKORDB_HOST")
+        else "fly.io default" if is_fly
+        else "default"
+    )
+    table.add_row("FalkorDB Host", falkordb_host, host_source)
+
+    falkordb_port = os.environ.get(
+        "FALKORDB_PORT",
+        os.environ.get("REPOTOIRE_FALKORDB_PORT", "6379")
+    )
+    port_source = (
+        "FALKORDB_PORT" if os.environ.get("FALKORDB_PORT")
+        else "REPOTOIRE_FALKORDB_PORT" if os.environ.get("REPOTOIRE_FALKORDB_PORT")
+        else "default"
+    )
+    table.add_row("FalkorDB Port", falkordb_port, port_source)
+
+    has_falkordb_pw = os.environ.get("FALKORDB_PASSWORD") or os.environ.get("REPOTOIRE_FALKORDB_PASSWORD")
+    pw_source = (
+        "FALKORDB_PASSWORD" if os.environ.get("FALKORDB_PASSWORD")
+        else "REPOTOIRE_FALKORDB_PASSWORD" if os.environ.get("REPOTOIRE_FALKORDB_PASSWORD")
+        else "default"
     )
     table.add_row(
         "FalkorDB Password",
-        "***" if os.environ.get("REPOTOIRE_FALKORDB_PASSWORD") else "(none)",
-        "REPOTOIRE_FALKORDB_PASSWORD" if os.environ.get("REPOTOIRE_FALKORDB_PASSWORD") else "default",
+        "***" if has_falkordb_pw else "(none)",
+        pw_source,
+    )
+
+    # Show Fly.io environment status
+    table.add_row(
+        "Fly.io Environment",
+        "Yes" if is_fly else "No",
+        "FLY_APP_NAME" if is_fly else "not detected",
     )
 
     # Multi-tenancy strategy

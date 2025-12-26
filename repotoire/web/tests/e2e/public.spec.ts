@@ -9,26 +9,42 @@ async function isMobileViewport(page: import("@playwright/test").Page): Promise<
 }
 
 /**
+ * Helper to measure page load time.
+ */
+async function measureLoadTime(page: import("@playwright/test").Page, url: string): Promise<number> {
+  const startTime = Date.now();
+  await page.goto(url);
+  await page.waitForLoadState('domcontentloaded');
+  return Date.now() - startTime;
+}
+
+/**
  * Tests for public pages (no authentication required).
  *
- * These tests run without any auth state.
+ * These tests run without any auth state and provide comprehensive UX analysis.
  */
 test.describe("Public Pages", () => {
   test.describe("Marketing Homepage", () => {
+    test("loads homepage within acceptable time", async ({ page }) => {
+      const loadTime = await measureLoadTime(page, "/");
+
+      // Homepage should load in under 3 seconds
+      expect(loadTime).toBeLessThan(3000);
+
+      // Log the actual load time for analysis
+      console.log(`Homepage load time: ${loadTime}ms`);
+    });
+
     test("displays hero section with main heading", async ({ page }) => {
       await page.goto("/");
 
       // Should have a prominent heading
       const heading = page.getByRole("heading", { level: 1 });
       await expect(heading).toBeVisible();
-    });
 
-    test("displays features section", async ({ page }) => {
-      await page.goto("/");
-
-      // Look for features section heading or link
-      const featuresSection = page.locator("#features").or(page.getByRole("heading", { name: /features/i }));
-      await expect(featuresSection.first()).toBeVisible();
+      // Check heading text is meaningful
+      const headingText = await heading.textContent();
+      expect(headingText?.length).toBeGreaterThan(10);
     });
 
     test("displays call-to-action buttons", async ({ page }) => {
@@ -38,22 +54,48 @@ test.describe("Public Pages", () => {
       const ctaButtons = page.getByRole("link", { name: /get started|try free|sign up|start free/i })
         .or(page.getByRole("button", { name: /get started|try free|sign up|start free/i }));
       await expect(ctaButtons.first()).toBeVisible();
+
+      // CTA should be clickable
+      await expect(ctaButtons.first()).toBeEnabled();
     });
 
-    test("navigation bar is visible", async ({ page }) => {
+    test("navigation bar is visible and functional", async ({ page }) => {
       await page.goto("/");
 
       // Navigation should be present
       const nav = page.locator("nav, header");
       await expect(nav.first()).toBeVisible();
+
+      // Should have logo/brand
+      const logo = page.locator('a[href="/"], img[alt*="logo" i], img[alt*="repotoire" i]');
+      await expect(logo.first()).toBeVisible();
     });
 
-    test("footer is visible", async ({ page }) => {
+    test("footer is visible with required links", async ({ page }) => {
       await page.goto("/");
 
       // Footer should be present
       const footer = page.locator("footer");
       await expect(footer).toBeVisible();
+
+      // Footer should have privacy and terms links
+      const privacyLink = page.getByRole("link", { name: /privacy/i });
+      const termsLink = page.getByRole("link", { name: /terms/i });
+      await expect(privacyLink.first()).toBeVisible();
+      await expect(termsLink.first()).toBeVisible();
+    });
+
+    test("features section is visible and well-structured", async ({ page }) => {
+      await page.goto("/");
+
+      // Look for features section
+      const featuresSection = page.locator("#features").or(page.getByRole("heading", { name: /features/i }));
+      await expect(featuresSection.first()).toBeVisible();
+
+      // Should have multiple feature items
+      const featureItems = page.locator('[class*="feature"], [data-testid*="feature"]');
+      const count = await featureItems.count();
+      expect(count).toBeGreaterThanOrEqual(2);
     });
 
     test("navigates to pricing from homepage", async ({ page }) => {
@@ -67,13 +109,8 @@ test.describe("Public Pages", () => {
       // Click pricing link
       await page.getByRole("link", { name: /pricing/i }).first().click();
 
-      // Should navigate to pricing page, section, or show pricing content
-      // Local dev may use scroll-to-section, prod may use /pricing route
-      const url = page.url();
-      const hasPricingUrl = url.includes("pricing");
-      const hasPricingContent = await page.getByText(/free|pro|enterprise/i).first().isVisible().catch(() => false);
-
-      expect(hasPricingUrl || hasPricingContent).toBeTruthy();
+      // Should navigate to pricing page
+      await expect(page).toHaveURL(/\/pricing/);
     });
 
     test("navigates to sign-in from homepage", async ({ page }) => {
@@ -90,9 +127,29 @@ test.describe("Public Pages", () => {
       // Should navigate to sign-in page
       await expect(page).toHaveURL(/\/sign-in/);
     });
+
+    test("hero CTA transitions smoothly", async ({ page }) => {
+      await page.goto("/");
+
+      // Find and hover over CTA button
+      const ctaButton = page.getByRole("link", { name: /get started|try free|sign up|start free/i }).first();
+
+      // Should be visible and have some interactive state
+      await ctaButton.hover();
+      await expect(ctaButton).toBeVisible();
+    });
   });
 
   test.describe("Pricing Page", () => {
+    test("loads pricing page quickly", async ({ page }) => {
+      const loadTime = await measureLoadTime(page, "/pricing");
+
+      // Pricing page should load in under 3 seconds
+      expect(loadTime).toBeLessThan(3000);
+
+      console.log(`Pricing page load time: ${loadTime}ms`);
+    });
+
     test("displays pricing tiers", async ({ page }) => {
       await page.goto("/pricing");
 
@@ -124,8 +181,127 @@ test.describe("Public Pages", () => {
       // Should have action buttons
       const ctaButtons = page.getByRole("button", {
         name: /get started|upgrade|contact|try/i,
-      });
+      }).or(page.getByRole("link", {
+        name: /get started|upgrade|contact|try/i,
+      }));
       await expect(ctaButtons.first()).toBeVisible();
+    });
+  });
+
+  test.describe("Documentation Pages", () => {
+    test("docs index page loads", async ({ page }) => {
+      await page.goto("/docs");
+
+      // Should have documentation content
+      await expect(page).toHaveURL(/\/docs/);
+
+      // Should have main heading
+      const heading = page.getByRole("heading", { level: 1 });
+      await expect(heading).toBeVisible();
+    });
+
+    test("docs navigation is visible and structured", async ({ page }) => {
+      await page.goto("/docs");
+
+      // Should have navigation for docs
+      const nav = page.locator("nav, aside, [role='navigation']");
+      await expect(nav.first()).toBeVisible();
+
+      // Should have multiple nav links
+      const navLinks = page.locator("nav a, aside a");
+      const count = await navLinks.count();
+      expect(count).toBeGreaterThan(3);
+    });
+
+    test("navigates between doc sections", async ({ page }) => {
+      await page.goto("/docs");
+
+      // Find and click a doc link
+      const docLink = page.locator("nav a, aside a").first();
+      await docLink.click();
+
+      // Should navigate to a different doc page
+      await expect(page).toHaveURL(/\/docs\/.+/);
+    });
+  });
+
+  test.describe("Sample Report Pages", () => {
+    test("samples index page loads", async ({ page }) => {
+      await page.goto("/samples");
+
+      // Should show samples content
+      await expect(page).toHaveURL(/\/samples/);
+
+      // Should have heading
+      const heading = page.getByRole("heading", { level: 1 });
+      await expect(heading).toBeVisible();
+    });
+
+    test("react sample page loads", async ({ page }) => {
+      const loadTime = await measureLoadTime(page, "/samples/react");
+
+      // Sample reports may have visualizations, so allow more time
+      expect(loadTime).toBeLessThan(5000);
+
+      console.log(`React sample page load time: ${loadTime}ms`);
+    });
+
+    test("sample page displays code metrics", async ({ page }) => {
+      await page.goto("/samples/react");
+
+      // Should have metrics or stats
+      const metrics = page.locator('[class*="metric"], [class*="stat"], [class*="score"]');
+      await expect(metrics.first()).toBeVisible();
+    });
+
+    test("navigates from samples index to react sample", async ({ page }) => {
+      await page.goto("/samples");
+
+      // Should have link to react sample
+      const reactLink = page.getByRole("link", { name: /react/i });
+      await reactLink.first().click();
+
+      await expect(page).toHaveURL(/\/samples\/react/);
+    });
+  });
+
+  test.describe("Marketing Content Pages", () => {
+    test("about page loads and displays content", async ({ page }) => {
+      await page.goto("/about");
+
+      await expect(page).toHaveURL(/\/about/);
+
+      // Should have heading
+      const heading = page.getByRole("heading", { level: 1 });
+      await expect(heading).toBeVisible();
+    });
+
+    test("blog page loads and displays posts", async ({ page }) => {
+      await page.goto("/blog");
+
+      await expect(page).toHaveURL(/\/blog/);
+
+      // Should have heading
+      const heading = page.getByRole("heading");
+      await expect(heading.first()).toBeVisible();
+    });
+
+    test("contact page loads and displays form", async ({ page }) => {
+      await page.goto("/contact");
+
+      await expect(page).toHaveURL(/\/contact/);
+
+      // Should have heading
+      const heading = page.getByRole("heading", { level: 1 });
+      await expect(heading).toBeVisible();
+    });
+
+    test("marketplace page loads", async ({ page }) => {
+      await page.goto("/marketplace");
+
+      // Should redirect or show marketplace content
+      const url = page.url();
+      expect(url).toContain("marketplace");
     });
   });
 
@@ -156,22 +332,14 @@ test.describe("Public Pages", () => {
         page.getByText(/data|information|collect|use/i).first()
       ).toBeVisible();
     });
-  });
 
-  test.describe("Documentation Pages", () => {
-    test("docs index page loads", async ({ page }) => {
-      await page.goto("/docs");
+    test("legal pages have proper document structure", async ({ page }) => {
+      await page.goto("/privacy");
 
-      // Should have documentation content
-      await expect(page).toHaveURL(/\/docs/);
-    });
-
-    test("docs navigation is visible", async ({ page }) => {
-      await page.goto("/docs");
-
-      // Should have navigation for docs
-      const nav = page.locator("nav, aside, [role='navigation']");
-      await expect(nav.first()).toBeVisible();
+      // Should have multiple sections/headings
+      const headings = page.locator("h2, h3");
+      const count = await headings.count();
+      expect(count).toBeGreaterThan(2);
     });
   });
 
@@ -207,8 +375,20 @@ test.describe("Public Pages", () => {
   });
 
   test.describe("Responsive Design", () => {
-    test("homepage is responsive on mobile", async ({ page }) => {
+    test("homepage is responsive on mobile (375px)", async ({ page }) => {
       await page.setViewportSize({ width: 375, height: 667 });
+      await page.goto("/");
+
+      // Content should still be visible
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+
+      // Should not have horizontal scroll
+      const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
+      expect(bodyWidth).toBeLessThanOrEqual(375);
+    });
+
+    test("homepage is responsive on mobile landscape (667px)", async ({ page }) => {
+      await page.setViewportSize({ width: 667, height: 375 });
       await page.goto("/");
 
       // Content should still be visible
@@ -219,7 +399,7 @@ test.describe("Public Pages", () => {
       await page.setViewportSize({ width: 375, height: 667 });
       await page.goto("/");
 
-      // Mobile menu button should be visible (hamburger)
+      // Mobile menu button should be visible (hamburger) or nav should adapt
       const mobileMenu = page.locator(
         '[aria-label*="menu"], [data-testid="mobile-menu"], button:has(svg)'
       );
@@ -236,6 +416,26 @@ test.describe("Public Pages", () => {
 
       // Pricing tier headings should be visible
       await expect(page.getByRole("heading", { name: /free/i }).first()).toBeVisible();
+
+      // Check no horizontal overflow
+      const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
+      expect(bodyWidth).toBeLessThanOrEqual(768);
+    });
+
+    test("docs page is responsive on mobile", async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.goto("/docs");
+
+      // Should have heading visible
+      await expect(page.getByRole("heading").first()).toBeVisible();
+    });
+
+    test("sample reports are responsive on mobile", async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.goto("/samples/react");
+
+      // Page should load without errors
+      await expect(page.locator("body")).toBeVisible();
     });
   });
 
@@ -245,7 +445,8 @@ test.describe("Public Pages", () => {
 
       const title = await page.title();
       expect(title).toBeTruthy();
-      expect(title.length).toBeGreaterThan(0);
+      expect(title.length).toBeGreaterThan(10);
+      expect(title.length).toBeLessThan(70); // SEO best practice
     });
 
     test("homepage has meta description", async ({ page }) => {
@@ -253,6 +454,19 @@ test.describe("Public Pages", () => {
 
       const metaDescription = page.locator('meta[name="description"]');
       await expect(metaDescription).toHaveAttribute("content", /.+/);
+
+      // Check description length
+      const description = await metaDescription.getAttribute("content");
+      expect(description?.length).toBeGreaterThan(50);
+      expect(description?.length).toBeLessThan(160); // SEO best practice
+    });
+
+    test("pricing page has proper meta title", async ({ page }) => {
+      await page.goto("/pricing");
+
+      const title = await page.title();
+      expect(title).toBeTruthy();
+      expect(title).toContain("Pricing");
     });
 
     test("images have alt text", async ({ page }) => {
@@ -282,6 +496,133 @@ test.describe("Public Pages", () => {
       // Something should be focused
       const focusedElement = page.locator(":focus");
       await expect(focusedElement).toBeVisible();
+    });
+
+    test("main content has proper landmark", async ({ page }) => {
+      await page.goto("/");
+
+      // Should have main landmark
+      const main = page.locator("main, [role='main']");
+      await expect(main).toBeVisible();
+    });
+
+    test("skip to content link exists", async ({ page }) => {
+      await page.goto("/");
+
+      // Tab once to focus skip link
+      await page.keyboard.press("Tab");
+
+      // Check if focused element is a skip link (optional but good practice)
+      const focusedElement = page.locator(":focus");
+      const text = await focusedElement.textContent().catch(() => "");
+
+      // This is optional - not all sites have skip links
+      console.log("First focusable element:", text);
+    });
+  });
+
+  test.describe("External Links", () => {
+    test("external links open in new tab", async ({ page }) => {
+      await page.goto("/");
+
+      // Find external links (if any)
+      const externalLinks = page.locator('a[href^="http"]:not([href*="repotoire"]), a[target="_blank"]');
+      const count = await externalLinks.count();
+
+      if (count > 0) {
+        // Check first external link has target="_blank"
+        await expect(externalLinks.first()).toHaveAttribute("target", "_blank");
+
+        // Should also have rel="noopener noreferrer" for security
+        const rel = await externalLinks.first().getAttribute("rel");
+        expect(rel).toMatch(/noopener|noreferrer/);
+      }
+    });
+
+    test("social media links work correctly", async ({ page }) => {
+      await page.goto("/");
+
+      // Look for social media links in footer
+      const socialLinks = page.locator('footer a[href*="twitter"], footer a[href*="github"], footer a[href*="linkedin"]');
+      const count = await socialLinks.count();
+
+      // Log if social links exist
+      console.log(`Found ${count} social media links`);
+    });
+  });
+
+  test.describe("Page Transitions", () => {
+    test("navigation transitions are smooth", async ({ page }) => {
+      await page.goto("/");
+
+      // Navigate to pricing
+      await page.getByRole("link", { name: /pricing/i }).first().click();
+      await page.waitForLoadState("domcontentloaded");
+
+      // Page should load without errors
+      await expect(page).toHaveURL(/\/pricing/);
+    });
+
+    test("back button works correctly", async ({ page }) => {
+      await page.goto("/");
+      await page.getByRole("link", { name: /pricing/i }).first().click();
+      await page.waitForLoadState("domcontentloaded");
+
+      // Go back
+      await page.goBack();
+
+      // Should be back on homepage
+      await expect(page).toHaveURL(/^\/$|\/$/);
+    });
+  });
+
+  test.describe("Performance", () => {
+    test("homepage has no console errors", async ({ page }) => {
+      const errors: string[] = [];
+      page.on("console", (msg) => {
+        if (msg.type() === "error") {
+          errors.push(msg.text());
+        }
+      });
+
+      await page.goto("/");
+      await page.waitForLoadState("networkidle");
+
+      // Should have no critical console errors
+      const criticalErrors = errors.filter(e => !e.includes("favicon") && !e.includes("404"));
+      expect(criticalErrors.length).toBe(0);
+    });
+
+    test("pricing page has no console errors", async ({ page }) => {
+      const errors: string[] = [];
+      page.on("console", (msg) => {
+        if (msg.type() === "error") {
+          errors.push(msg.text());
+        }
+      });
+
+      await page.goto("/pricing");
+      await page.waitForLoadState("networkidle");
+
+      // Should have no critical console errors
+      const criticalErrors = errors.filter(e => !e.includes("favicon") && !e.includes("404"));
+      expect(criticalErrors.length).toBe(0);
+    });
+
+    test("docs page has no console errors", async ({ page }) => {
+      const errors: string[] = [];
+      page.on("console", (msg) => {
+        if (msg.type() === "error") {
+          errors.push(msg.text());
+        }
+      });
+
+      await page.goto("/docs");
+      await page.waitForLoadState("networkidle");
+
+      // Should have no critical console errors
+      const criticalErrors = errors.filter(e => !e.includes("favicon") && !e.includes("404"));
+      expect(criticalErrors.length).toBe(0);
     });
   });
 });

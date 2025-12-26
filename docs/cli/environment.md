@@ -27,8 +27,9 @@ export REPOTOIRE_NEO4J_URI=bolt://localhost:7687
 # Remote with encryption
 export REPOTOIRE_NEO4J_URI=bolt+s://neo4j.example.com:7687
 
-# Neo4j Aura
-export REPOTOIRE_NEO4J_URI=neo4j+s://abc123.databases.neo4j.io
+# FalkorDB on Fly.io (via proxy)
+export REPOTOIRE_FALKORDB_HOST=localhost
+export REPOTOIRE_FALKORDB_PORT=16379  # Fly proxy port
 ```
 
 **Supported schemes:** `bolt://`, `neo4j://`, `bolt+s://`, `neo4j+s://`, `bolt+ssc://`, `neo4j+ssc://`

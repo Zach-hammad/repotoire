@@ -32,6 +32,21 @@ try:
 except ImportError:
     HAS_RUST_DIFF_PARSER = False
 
+# Try to use Rust implementation for ~3-5x speedup on function boundary detection (REPO-245)
+try:
+    from repotoire_fast import extract_function_boundaries as _rust_extract_boundaries
+    HAS_RUST_FUNCTION_PARSER = True
+except ImportError:
+    HAS_RUST_FUNCTION_PARSER = False
+
+# Try to use Rust implementation for ~10x+ speedup on bug extraction (REPO-246)
+try:
+    from repotoire_fast import extract_buggy_functions_parallel as _rust_extract_buggy
+    from repotoire_fast import PyBuggyFunction
+    HAS_RUST_BUG_EXTRACTOR = True
+except ImportError:
+    HAS_RUST_BUG_EXTRACTOR = False
+
 # Bug-fix commit keywords (case-insensitive matching)
 DEFAULT_BUG_KEYWORDS = [
     "fix",
@@ -291,6 +306,9 @@ class GitBugLabelExtractor:
     ) -> List[FunctionInfo]:
         """Parse Python content to extract function information.
 
+        Uses Rust implementation for ~3-5x speedup when available (REPO-245),
+        falling back to Python AST if not installed.
+
         Args:
             content: Python source code
             file_path: Path to the file (for qualified names)
@@ -300,17 +318,61 @@ class GitBugLabelExtractor:
         """
         functions: List[FunctionInfo] = []
 
+        # Calculate module name for qualified names
+        # file_path from git diff is already relative to repo root (e.g., "repotoire/api/routes/fixes.py")
+        # Convert to module-style path: "repotoire.api.routes.fixes"
+        file_path_obj = Path(file_path)
+        if file_path_obj.is_absolute():
+            # If absolute, try to make relative to repo_path
+            try:
+                rel_path = file_path_obj.relative_to(self.repo_path)
+                module_name = str(rel_path.with_suffix("")).replace("/", ".")
+            except ValueError:
+                module_name = file_path_obj.stem
+        else:
+            # Already relative - use as-is (this is the normal case from git diffs)
+            module_name = str(file_path_obj.with_suffix("")).replace("/", ".")
+
+        # Use Rust implementation if available (~3-5x faster)
+        if HAS_RUST_FUNCTION_PARSER:
+            try:
+                boundaries = _rust_extract_boundaries(content)
+                for name, line_start, line_end in boundaries:
+                    # name is like "ClassName.method" or "function_name"
+                    qualified_name = f"{module_name}.{name}"
+
+                    # Calculate LOC (non-empty, non-comment lines)
+                    lines = content.split("\n")[line_start - 1 : line_end]
+                    loc = sum(
+                        1
+                        for line in lines
+                        if line.strip() and not line.strip().startswith("#")
+                    )
+
+                    if loc >= self.min_loc:
+                        # Extract source code
+                        source = "\n".join(lines)
+
+                        functions.append(FunctionInfo(
+                            name=name.split(".")[-1],  # Just the function name
+                            qualified_name=qualified_name,
+                            file_path=file_path,
+                            line_start=line_start,
+                            line_end=line_end,
+                            loc=loc,
+                            complexity=1,  # Simplified - could add Rust complexity later
+                            source=source[:2000] if source else None,
+                        ))
+                return functions
+            except Exception:
+                # Fall back to Python AST on any error
+                pass
+
+        # Fallback: Python AST implementation
         try:
             tree = ast.parse(content, filename=file_path)
         except SyntaxError:
             return functions
-
-        # Calculate relative path for qualified names
-        try:
-            rel_path = Path(file_path).relative_to(self.repo_path)
-            module_name = str(rel_path.with_suffix("")).replace("/", ".")
-        except ValueError:
-            module_name = Path(file_path).stem
 
         # Walk AST to find functions and methods
         for node in ast.walk(tree):
@@ -416,16 +478,47 @@ class GitBugLabelExtractor:
         self,
         since_date: str = "2020-01-01",
         max_commits: Optional[int] = None,
+        use_rust: bool = True,
     ) -> List[TrainingExample]:
         """Find functions fixed in bug commits.
+
+        Uses Rust implementation for ~10x+ speedup when available (REPO-246).
 
         Args:
             since_date: Only consider commits after this date (YYYY-MM-DD)
             max_commits: Limit number of commits to process
+            use_rust: Whether to use Rust implementation if available (default True)
 
         Returns:
             List of TrainingExample with label="buggy"
         """
+        # Try Rust implementation for ~10x+ speedup (REPO-246)
+        if use_rust and HAS_RUST_BUG_EXTRACTOR:
+            try:
+                rust_results = _rust_extract_buggy(
+                    str(self.repo_path),
+                    self.keywords,
+                    since_date=since_date,
+                    max_commits=max_commits,
+                )
+                buggy_functions: Dict[str, TrainingExample] = {}
+                for func in rust_results:
+                    buggy_functions[func.qualified_name] = TrainingExample(
+                        qualified_name=func.qualified_name,
+                        file_path=func.file_path,
+                        label="buggy",
+                        commit_sha=func.commit_sha,
+                        commit_message=func.commit_message[:200],
+                        commit_date=func.commit_date,
+                        confidence=1.0,
+                    )
+                self._buggy_functions = buggy_functions
+                return list(buggy_functions.values())
+            except Exception:
+                # Fall back to Python implementation on any error
+                pass
+
+        # Fallback: Python implementation using GitPython
         since = datetime.fromisoformat(since_date)
         buggy_functions: Dict[str, TrainingExample] = {}
 

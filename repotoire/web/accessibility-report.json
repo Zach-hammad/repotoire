@@ -1,0 +1,288 @@
+{
+  "testsRun": 23,
+  "passed": 16,
+  "failed": 7,
+  "timestamp": "2025-12-22T15:04:05.820Z",
+  "testDuration": "16.5 seconds",
+  "wcagViolations": [
+    {
+      "rule": "color-contrast",
+      "impact": "serious",
+      "wcagCriteria": "WCAG 2.1 Level AA - 1.4.3 Contrast (Minimum)",
+      "description": "Elements must meet minimum color contrast ratio thresholds",
+      "affectedPages": ["Home", "Pricing", "About", "Contact", "Marketplace"],
+      "elements": [
+        {
+          "page": "Home",
+          "selector": ".h-12.text-base.has-[>svg]:px-4:nth-child(1)",
+          "fgColor": "#f8f8f8",
+          "bgColor": "#9f5fff",
+          "contrastRatio": 3.55,
+          "expectedRatio": "4.5:1",
+          "fontSize": "16px",
+          "element": "<a data-slot=\"button\" href=\"/dashboard\">"
+        },
+        {
+          "page": "Home",
+          "selector": ".h-7",
+          "fgColor": "#f8f8f8",
+          "bgColor": "#9f5fff",
+          "contrastRatio": 3.55,
+          "expectedRatio": "4.5:1",
+          "fontSize": "12px",
+          "element": "<button data-slot=\"button\">"
+        },
+        {
+          "page": "Home",
+          "selector": ".sm:justify-end > .text-primary-foreground.bg-primary",
+          "fgColor": "#f8f8f8",
+          "bgColor": "#9f5fff",
+          "contrastRatio": 3.55,
+          "expectedRatio": "4.5:1",
+          "fontSize": "14px",
+          "element": "<button data-slot=\"button\">"
+        },
+        {
+          "page": "Pricing",
+          "selector": ".bg-primary",
+          "fgColor": "#f8f8f8",
+          "bgColor": "#9f5fff",
+          "contrastRatio": 3.55,
+          "expectedRatio": "4.5:1",
+          "element": "<button data-slot=\"button\">"
+        },
+        {
+          "page": "About",
+          "selector": ".bg-primary",
+          "fgColor": "#f8f8f8",
+          "bgColor": "#9f5fff",
+          "contrastRatio": 3.55,
+          "expectedRatio": "4.5:1",
+          "element": "<button data-slot=\"button\">"
+        },
+        {
+          "page": "Contact",
+          "selector": ".has-[>svg]:px-3",
+          "fgColor": "#f8f8f8",
+          "bgColor": "#9f5fff",
+          "contrastRatio": 3.55,
+          "expectedRatio": "4.5:1",
+          "element": "<button data-slot=\"button\" type=\"submit\">"
+        },
+        {
+          "page": "Contact",
+          "selector": ".sm:justify-end > .bg-primary",
+          "fgColor": "#f8f8f8",
+          "bgColor": "#9f5fff",
+          "contrastRatio": 3.55,
+          "expectedRatio": "4.5:1",
+          "element": "<button data-slot=\"button\">"
+        },
+        {
+          "page": "Marketplace",
+          "selector": ".bg-primary",
+          "fgColor": "#f8f8f8",
+          "bgColor": "#9f5fff",
+          "contrastRatio": 3.55,
+          "expectedRatio": "4.5:1",
+          "element": "<button data-slot=\"button\">"
+        }
+      ],
+      "fix": "Increase color contrast ratio to at least 4.5:1. The primary button color (#9f5fff purple) has insufficient contrast with white text (#f8f8f8). Solutions: (1) Darken the purple to #7c3fd9 or darker, (2) Use a darker text color like #000000, or (3) Add a text-shadow for improved readability."
+    },
+    {
+      "rule": "link-name",
+      "impact": "serious",
+      "wcagCriteria": "WCAG 2.1 Level A - 4.1.2 Name, Role, Value",
+      "description": "Links must have discernible text",
+      "affectedPages": ["Home", "Pricing", "About", "Contact", "Marketplace"],
+      "elements": [
+        {
+          "page": "Home",
+          "selector": ".duration-300.hover:text-foreground[href$=\"repotoire\"]:nth-child(1)",
+          "href": "https://github.com/repotoire",
+          "element": "<a class=\"text-muted-foreground hover:text-foreground transition-colors duration-300\" href=\"https://github.com/repotoire\">",
+          "issue": "Link has no visible text, aria-label, aria-labelledby, or title attribute"
+        },
+        {
+          "page": "Home",
+          "selector": ".duration-300.hover:text-foreground[href$=\"repotoire\"]:nth-child(2)",
+          "href": "https://twitter.com/repotoire (or similar)",
+          "element": "<a class=\"text-muted-foreground hover:text-foreground transition-colors duration-300\">",
+          "issue": "Link has no visible text, aria-label, aria-labelledby, or title attribute"
+        }
+      ],
+      "fix": "Add aria-label to social media icon links. Example: <a aria-label=\"Follow us on GitHub\" href=\"https://github.com/repotoire\">. This provides screen reader users with context about the link destination."
+    },
+    {
+      "rule": "button-name",
+      "impact": "critical",
+      "wcagCriteria": "WCAG 2.1 Level A - 4.1.2 Name, Role, Value",
+      "description": "Buttons must have discernible text",
+      "affectedPages": ["Marketplace"],
+      "elements": [
+        {
+          "page": "Marketplace",
+          "selector": "button[aria-controls=\"radix-_R_6jinebnabmulb_\"]",
+          "role": "combobox",
+          "element": "<button type=\"button\" role=\"combobox\" aria-controls=\"radix-_R_6jinebnabmulb_\" aria-expanded=\"false\">",
+          "issue": "Combobox button has no accessible name"
+        },
+        {
+          "page": "Marketplace",
+          "selector": "button[aria-controls=\"radix-_R_ajinebnabmulb_\"]",
+          "role": "combobox",
+          "element": "<button type=\"button\" role=\"combobox\" aria-controls=\"radix-_R_ajinebnabmulb_\" aria-expanded=\"false\">",
+          "issue": "Combobox button has no accessible name"
+        }
+      ],
+      "fix": "Add aria-label to combobox buttons. Example: <button type=\"button\" role=\"combobox\" aria-label=\"Select category\" aria-controls=\"...\">. For Radix UI components, ensure you're using the Radix Primitives correctly with proper labeling patterns."
+    }
+  ],
+  "issues": [
+    {
+      "severity": "critical",
+      "category": "ARIA Labels",
+      "description": "Combobox buttons on Marketplace page lack accessible names",
+      "wcagCriteria": "WCAG 2.1 Level A - 4.1.2",
+      "affectedFiles": [
+        "src/app/(marketing)/marketplace/page.tsx",
+        "src/components/marketplace/*"
+      ],
+      "recommendation": "Add aria-label attributes to all combobox/select components. For Radix UI Select components, wrap the trigger in a Label or add aria-label directly to the Trigger component.",
+      "codeExample": "<Select.Trigger aria-label=\"Filter by category\">\n  <Select.Value placeholder=\"All Categories\" />\n</Select.Trigger>"
+    },
+    {
+      "severity": "high",
+      "category": "Color Contrast",
+      "description": "Primary button color (#9f5fff) has insufficient contrast (3.55:1) with white/off-white text across all pages",
+      "wcagCriteria": "WCAG 2.1 Level AA - 1.4.3",
+      "affectedFiles": [
+        "src/app/globals.css",
+        "tailwind.config.ts"
+      ],
+      "recommendation": "Update the primary color in your Tailwind/CSS configuration. Current: #9f5fff (contrast 3.55:1). Recommended: #7c3fd9 or darker (contrast 4.5:1+). Alternatively, change text color from #f8f8f8 to pure white #ffffff or pure black #000000 depending on the final background color choice.",
+      "codeExample": "// tailwind.config.ts\ncolors: {\n  primary: {\n    DEFAULT: '#7c3fd9', // Darker purple for 4.5:1 contrast\n    foreground: '#ffffff', // Pure white for maximum contrast\n  }\n}"
+    },
+    {
+      "severity": "high",
+      "category": "Link Labels",
+      "description": "Social media icon links (GitHub, Twitter/X) in footer lack accessible text",
+      "wcagCriteria": "WCAG 2.1 Level A - 4.1.2",
+      "affectedFiles": [
+        "src/components/layout/footer.tsx",
+        "src/components/marketing/*"
+      ],
+      "recommendation": "Add aria-label to all icon-only links. Screen reader users need to know the purpose of each link. Example: <a aria-label=\"Follow us on GitHub\" href=\"https://github.com/repotoire\"><GithubIcon /></a>",
+      "codeExample": "<a \n  aria-label=\"Follow Repotoire on GitHub\" \n  href=\"https://github.com/repotoire\"\n  className=\"text-muted-foreground hover:text-foreground transition-colors duration-300\"\n>\n  <GitHubIcon className=\"h-5 w-5\" />\n</a>"
+    },
+    {
+      "severity": "medium",
+      "category": "Skip Links",
+      "description": "No skip-to-main-content link found for keyboard users",
+      "wcagCriteria": "WCAG 2.1 Level A - 2.4.1",
+      "affectedFiles": [
+        "src/components/layout/header.tsx",
+        "src/app/layout.tsx"
+      ],
+      "recommendation": "Add a visually-hidden skip link as the first focusable element on the page. This allows keyboard users to bypass navigation and jump directly to main content.",
+      "codeExample": "// In your main layout or header component\n<a \n  href=\"#main-content\" \n  className=\"sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-white focus:text-black\"\n>\n  Skip to main content\n</a>\n\n// In your main content area\n<main id=\"main-content\">\n  {/* page content */}\n</main>"
+    },
+    {
+      "severity": "medium",
+      "category": "Touch Targets",
+      "description": "Some interactive elements are smaller than the recommended 44x44 pixel minimum touch target size",
+      "wcagCriteria": "WCAG 2.1 Level AAA - 2.5.5 (not required for AA, but best practice)",
+      "affectedFiles": [
+        "Various component files"
+      ],
+      "recommendation": "Ensure all buttons, links, and interactive elements are at least 44x44 pixels. Found: (1) Element with 178x32px, (2) Element with 36x36px. Increase padding or minimum dimensions.",
+      "codeExample": "// Tailwind classes for minimum touch targets\nclassName=\"min-h-[44px] min-w-[44px] inline-flex items-center justify-center\""
+    },
+    {
+      "severity": "low",
+      "category": "Keyboard Navigation",
+      "description": "All tested pages are fully keyboard navigable with visible focus indicators",
+      "wcagCriteria": "WCAG 2.1 Level A - 2.1.1, 2.4.7",
+      "affectedFiles": [],
+      "recommendation": "No action needed - keyboard navigation is working well. All interactive elements are reachable via Tab/Shift+Tab, no keyboard traps detected, and focus indicators are visible."
+    },
+    {
+      "severity": "low",
+      "category": "Heading Hierarchy",
+      "description": "Proper heading hierarchy detected on most pages (single h1, proper h2/h3 nesting)",
+      "wcagCriteria": "WCAG 2.1 Level A - 1.3.1",
+      "affectedFiles": [],
+      "recommendation": "Continue maintaining proper heading hierarchy. Ensure each page has exactly one h1 and headings don't skip levels (e.g., h1 -> h3)."
+    },
+    {
+      "severity": "low",
+      "category": "Semantic HTML",
+      "description": "Good use of semantic HTML5 elements (header, nav, main, footer) detected",
+      "wcagCriteria": "WCAG 2.1 Level A - 1.3.1",
+      "affectedFiles": [],
+      "recommendation": "Continue using semantic HTML5 elements and ARIA landmarks for better screen reader navigation."
+    }
+  ],
+  "summary": {
+    "totalViolations": 3,
+    "criticalIssues": 1,
+    "highIssues": 2,
+    "mediumIssues": 2,
+    "lowIssues": 3,
+    "wcagLevel": "AA",
+    "overallCompliance": "Partial - 7 failures, 16 passes",
+    "keyFindings": [
+      "Color contrast issues with primary purple button (#9f5fff) across all pages - affects readability for users with low vision",
+      "Missing ARIA labels on icon-only links (social media) - inaccessible to screen reader users",
+      "Missing ARIA labels on combobox buttons (Marketplace page) - critical accessibility barrier",
+      "No skip-to-main-content link - inconvenient for keyboard-only users",
+      "Some touch targets below 44x44px minimum - difficult for users with motor disabilities",
+      "Keyboard navigation works well with visible focus indicators",
+      "Proper semantic HTML structure with landmarks",
+      "Good heading hierarchy maintained"
+    ],
+    "priorityFixes": [
+      {
+        "priority": 1,
+        "issue": "Fix color contrast on primary buttons",
+        "effort": "Low - CSS/config change",
+        "impact": "High - Affects all pages"
+      },
+      {
+        "priority": 2,
+        "issue": "Add ARIA labels to icon links and combobox buttons",
+        "effort": "Low - Add attributes",
+        "impact": "High - Critical for screen readers"
+      },
+      {
+        "priority": 3,
+        "issue": "Add skip-to-main-content link",
+        "effort": "Low - Add one component",
+        "impact": "Medium - Improves keyboard UX"
+      },
+      {
+        "priority": 4,
+        "issue": "Increase touch target sizes",
+        "effort": "Medium - Adjust spacing/padding",
+        "impact": "Medium - Helps mobile users"
+      }
+    ]
+  },
+  "testEnvironment": {
+    "browser": "Chromium (Playwright)",
+    "viewportDesktop": "1280x720",
+    "viewportMobile": "375x667",
+    "axeCoreVersion": "4.11",
+    "wcagTags": ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]
+  },
+  "nextSteps": [
+    "1. Update primary color in tailwind.config.ts to meet 4.5:1 contrast ratio",
+    "2. Add aria-label to all social media icon links in footer component",
+    "3. Add aria-label to Radix UI Select/Combobox components on Marketplace page",
+    "4. Implement skip-to-main-content link in main layout",
+    "5. Review and increase touch target sizes for elements below 44x44px",
+    "6. Re-run accessibility tests to verify fixes",
+    "7. Consider implementing automated accessibility testing in CI/CD pipeline"
+  ]
+}

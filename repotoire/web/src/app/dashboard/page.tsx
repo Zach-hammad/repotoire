@@ -22,7 +22,9 @@ import {
   Loader2,
   Wand2,
 } from 'lucide-react';
-import { useAnalyticsSummary, useTrends, useFileHotspots, useHealthScore, useAnalysisHistory, useFindings, useGenerateFixes, useFixStats } from '@/lib/hooks';
+import { useAnalyticsSummary, useTrends, useFileHotspots, useHealthScore, useAnalysisHistory, useFindings, useGenerateFixes, useFixStats, useRepositories, useGitHubInstallations } from '@/lib/hooks';
+import { OnboardingWizard } from '@/components/onboarding/onboarding-wizard';
+import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
 import {
   LineChart,
@@ -404,11 +406,16 @@ function FileHotspotsList({ loading }: { loading?: boolean }) {
 
   if (hotspots.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-6 text-center">
-        <FileCode2 className="h-10 w-10 text-muted-foreground/50 mb-2" />
-        <p className="text-sm text-muted-foreground">No hotspots found</p>
-        <p className="text-xs text-muted-foreground/70">Run an analysis to see file hotspots</p>
-      </div>
+      <EmptyState
+        icon={FileCode2}
+        title="No File Hotspots Yet"
+        description="Hotspots show files with the most issues. Run an analysis to identify which files need attention first."
+        action={{
+          label: "Analyze Repository",
+          href: "/dashboard/repos",
+        }}
+        size="sm"
+      />
     );
   }
 
@@ -514,11 +521,16 @@ function RecentAnalyses({ loading }: { loading?: boolean }) {
 
   if (analyses.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-6 text-center">
-        <Activity className="h-10 w-10 text-muted-foreground/50 mb-2" />
-        <p className="text-sm text-muted-foreground">No analyses yet</p>
-        <p className="text-xs text-muted-foreground/70">Run your first analysis</p>
-      </div>
+      <EmptyState
+        icon={Activity}
+        title="No Analyses Yet"
+        description="Run your first analysis to get insights into your code health, detect issues, and track improvements over time."
+        action={{
+          label: "Start Analysis",
+          href: "/dashboard/repos",
+        }}
+        size="sm"
+      />
     );
   }
 
@@ -961,9 +973,18 @@ async function exportToPdf() {
 
 export default function DashboardPage() {
   const { data: summary, isLoading } = useAnalyticsSummary();
+  const { data: repositories } = useRepositories();
+  const { data: installations } = useGitHubInstallations();
+  const { data: analysisHistory } = useAnalysisHistory(undefined, 1);
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | null>(null);
   const [severityFilter, setSeverityFilter] = useState<Severity[]>([]);
   const [isExporting, setIsExporting] = useState(false);
+
+  // Onboarding state
+  const hasGitHubConnected = (installations?.length || 0) > 0;
+  const hasRepositories = (repositories?.length || 0) > 0;
+  const hasCompletedAnalysis = (analysisHistory?.length || 0) > 0;
+  const showOnboarding = !hasCompletedAnalysis;
 
   const handleExport = useCallback(async () => {
     setIsExporting(true);
@@ -978,6 +999,15 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Onboarding Wizard for New Users */}
+      {showOnboarding && (
+        <OnboardingWizard
+          hasGitHubConnected={hasGitHubConnected}
+          hasRepositories={hasRepositories}
+          hasCompletedAnalysis={hasCompletedAnalysis}
+        />
+      )}
+
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>

@@ -1,0 +1,413 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - navigation [ref=e3]:
+      - generic [ref=e5]:
+        - link "Repotoire" [ref=e6] [cursor=pointer]:
+          - /url: /
+          - img "Repotoire" [ref=e7]
+        - generic [ref=e8]:
+          - link "Features" [ref=e9] [cursor=pointer]:
+            - /url: "#features"
+          - link "How It Works" [ref=e10] [cursor=pointer]:
+            - /url: "#how-it-works"
+          - link "Pricing" [ref=e11] [cursor=pointer]:
+            - /url: "#pricing"
+          - link "Docs" [ref=e12] [cursor=pointer]:
+            - /url: /docs
+        - generic [ref=e13]:
+          - link "Sign In" [ref=e14] [cursor=pointer]:
+            - /url: /sign-in
+            - button "Sign In" [ref=e15]
+          - link "Start Free" [ref=e16] [cursor=pointer]:
+            - /url: /sign-up
+            - button "Start Free" [ref=e17]
+    - main [ref=e18]:
+      - generic [ref=e21]:
+        - generic [ref=e22]:
+          - heading "Your codebase, understood." [level=1] [ref=e23]:
+            - text: Your codebase,
+            - text: understood.
+          - paragraph [ref=e24]: Repotoire builds a knowledge graph of your code—finding architectural debt, code smells, and issues that linters miss.
+          - generic [ref=e25]:
+            - link "Analyze Your Repo" [ref=e26] [cursor=pointer]:
+              - /url: /dashboard
+            - link "See Sample Report" [ref=e27] [cursor=pointer]:
+              - /url: "#features"
+          - generic [ref=e28]:
+            - link "GitHub" [ref=e29] [cursor=pointer]:
+              - /url: https://github.com/repotoire/repotoire
+              - img [ref=e30]
+              - generic [ref=e32]: GitHub
+            - generic [ref=e34]: Used by 500+ teams
+          - generic [ref=e35]:
+            - paragraph [ref=e36]: Trusted by engineers at
+            - generic [ref=e37]:
+              - generic [ref=e38]: Stripe
+              - generic [ref=e39]: Vercel
+              - generic [ref=e40]: Linear
+              - generic [ref=e41]: Notion
+        - generic [ref=e43]:
+          - generic [ref=e44]:
+            - generic [ref=e50]: myapp/
+            - generic [ref=e51]: 2 min ago
+          - generic [ref=e52]:
+            - generic [ref=e53]:
+              - generic [ref=e54]: Health Score
+              - generic [ref=e55]: "72"
+            - generic [ref=e56]:
+              - generic [ref=e57]:
+                - generic [ref=e58]: Structure
+                - generic [ref=e61]: 85%
+              - generic [ref=e62]:
+                - generic [ref=e63]: Quality
+                - generic [ref=e66]: 68%
+              - generic [ref=e67]:
+                - generic [ref=e68]: Architecture
+                - generic [ref=e71]: 52%
+          - generic [ref=e72]:
+            - generic [ref=e73] [cursor=pointer]:
+              - generic [ref=e76]: 3 circular dependencies
+              - generic [ref=e77]: Fix →
+            - generic [ref=e78] [cursor=pointer]:
+              - generic [ref=e81]: 847 dead exports
+              - generic [ref=e82]: Fix →
+            - generic [ref=e83] [cursor=pointer]:
+              - generic [ref=e86]: 12 bottleneck modules
+              - generic [ref=e87]: View →
+          - generic [ref=e88]:
+            - generic [ref=e89]: Ruff · Pylint · Mypy · Bandit · Semgrep
+            - button "Apply AI Fix" [ref=e90]
+      - generic [ref=e92]:
+        - heading "Linters check files. Your bugs live in relationships." [level=2] [ref=e93]:
+          - text: Linters check files.
+          - text: Your bugs live in relationships.
+        - paragraph [ref=e94]: Circular dependencies. Dead code spanning 10 files. Modules that everything depends on. These issues don't live in a single file—they live in how your code connects.
+        - generic [ref=e95]:
+          - generic [ref=e96]:
+            - generic [ref=e97]: Traditional linters see
+            - generic [ref=e98]:
+              - generic [ref=e100]: .py
+              - generic [ref=e102]: .py
+              - generic [ref=e104]: .py
+              - generic [ref=e106]: .py
+              - generic [ref=e108]: .py
+            - paragraph [ref=e109]: Isolated files. No context.
+          - generic [ref=e110]:
+            - generic [ref=e111]: Repotoire sees
+            - img [ref=e113]
+            - paragraph [ref=e130]: A knowledge graph. Every connection mapped.
+        - table [ref=e132]:
+          - rowgroup [ref=e133]:
+            - row "ESLint / Pylint Repotoire" [ref=e134]:
+              - columnheader [ref=e135]
+              - columnheader "ESLint / Pylint" [ref=e136]
+              - columnheader "Repotoire" [ref=e137]
+          - rowgroup [ref=e138]:
+            - row "Analysis scope Single file Entire codebase graph" [ref=e139]:
+              - cell "Analysis scope" [ref=e140]
+              - cell "Single file" [ref=e141]
+              - cell "Entire codebase graph" [ref=e142]
+            - row "Circular deps ✗ ✓" [ref=e143]:
+              - cell "Circular deps" [ref=e144]
+              - cell "✗" [ref=e145]
+              - cell "✓" [ref=e146]
+            - row "Cross-file dead code ✗ ✓" [ref=e147]:
+              - cell "Cross-file dead code" [ref=e148]
+              - cell "✗" [ref=e149]
+              - cell "✓" [ref=e150]
+            - row "Re-analysis speed Full rescan Incremental (100x faster)" [ref=e151]:
+              - cell "Re-analysis speed" [ref=e152]
+              - cell "Full rescan" [ref=e153]
+              - cell "Incremental (100x faster)" [ref=e154]
+            - row "Auto-fix Basic suggestions GPT-4o + RAG patches" [ref=e155]:
+              - cell "Auto-fix" [ref=e156]
+              - cell "Basic suggestions" [ref=e157]
+              - cell "GPT-4o + RAG patches" [ref=e158]
+      - generic [ref=e160]:
+        - heading "8 hybrid detectors" [level=2] [ref=e161]
+        - paragraph [ref=e162]: Graph algorithms + Ruff, Pylint, Mypy, Bandit, Semgrep working together.
+        - generic [ref=e163]:
+          - generic [ref=e164]:
+            - generic [ref=e167]: Circular Dependencies
+            - code [ref=e168]: A → B → C → A
+          - generic [ref=e169]:
+            - generic [ref=e172]: Dead Code
+            - code [ref=e173]: 847 unused exports
+          - generic [ref=e174]:
+            - generic [ref=e177]: Bottlenecks
+            - code [ref=e178]: utils.ts → 234 deps
+          - generic [ref=e179]:
+            - generic [ref=e182]: Modularity
+            - code [ref=e183]: "Q = 0.42 (target: 0.7)"
+          - generic [ref=e184]:
+            - generic [ref=e187]: Code Smells
+            - code [ref=e188]: god class detected
+          - generic [ref=e189]:
+            - generic [ref=e192]: Type Coverage
+            - code [ref=e193]: 78% typed (12 gaps)
+          - generic [ref=e194]:
+            - generic [ref=e197]: Security
+            - code [ref=e198]: SQL injection path
+          - generic [ref=e199]:
+            - generic [ref=e202]: Complexity
+            - code [ref=e203]: high churn hotspot
+        - generic [ref=e204]:
+          - heading "AI-powered auto-fix" [level=3] [ref=e205]
+          - paragraph [ref=e206]: Every issue comes with a GPT-4o generated fix using RAG over your codebase. 70%+ approval rate.
+      - generic [ref=e208]:
+        - generic [ref=e209]:
+          - heading "Setup in 5 minutes" [level=2] [ref=e210]
+          - paragraph [ref=e211]: Connect your repo, build the graph, get actionable insights.
+        - generic [ref=e212]:
+          - generic [ref=e213]:
+            - generic [ref=e214]:
+              - generic [ref=e215]: "01"
+              - heading "Connect" [level=3] [ref=e216]
+            - generic [ref=e217]:
+              - generic [ref=e218]: "# Install CLI"
+              - generic [ref=e219]: npx repotoire init
+              - generic [ref=e220]: ✓ Connected to github.com/acme/app
+              - generic [ref=e221]: ✓ Found 2,847 files
+          - generic [ref=e222]:
+            - generic [ref=e223]:
+              - generic [ref=e224]: "02"
+              - heading "Analyze" [level=3] [ref=e225]
+            - generic [ref=e226]:
+              - generic [ref=e227]: Building knowledge graph...
+              - generic [ref=e230]:
+                - generic [ref=e231]: "Nodes: 12,458"
+                - generic [ref=e232]: "Edges: 47,921"
+          - generic [ref=e233]:
+            - generic [ref=e234]:
+              - generic [ref=e235]: "03"
+              - heading "Fix" [level=3] [ref=e236]
+            - generic [ref=e237]:
+              - generic [ref=e238]: Circular dependency
+              - generic [ref=e240]: auth.ts → user.ts → auth.ts
+              - button "Apply AI Fix" [ref=e241]
+      - generic [ref=e243]:
+        - heading "How we compare" [level=2] [ref=e245]
+        - generic [ref=e246]:
+          - generic [ref=e247]:
+            - generic [ref=e249]: Traditional
+            - generic [ref=e250]: Repotoire
+          - generic [ref=e251]:
+            - generic [ref=e252]: Speed
+            - generic [ref=e253]: 5-15 min full codebase scans
+            - generic [ref=e254]: 8 second incremental analysis
+          - generic [ref=e255]:
+            - generic [ref=e256]: Detection
+            - generic [ref=e257]: Single-file syntax issues
+            - generic [ref=e258]: Cross-file architectural problems
+          - generic [ref=e259]:
+            - generic [ref=e260]: Fixes
+            - generic [ref=e261]: Generic suggestions
+            - generic [ref=e262]: AI-generated code with 70% approval rate
+          - generic [ref=e263]:
+            - generic [ref=e264]: Search
+            - generic [ref=e265]: Regex pattern matching
+            - generic [ref=e266]: Natural language queries
+      - generic [ref=e268]:
+        - generic [ref=e270]:
+          - generic [ref=e273]: JK
+          - generic [ref=e274]:
+            - blockquote [ref=e275]: "\"We had circular dependencies silently breaking hot reload for 2 years. Repotoire found 47 of them in our monorepo. Fixed them all in one afternoon with the AI auto-fix.\""
+            - generic [ref=e277]:
+              - generic [ref=e278]: James Kim
+              - generic [ref=e279]: Staff Engineer at Lattice
+        - generic [ref=e280]:
+          - generic [ref=e281]:
+            - generic [ref=e282]: "47"
+            - generic [ref=e283]: cycles fixed in one repo
+          - generic [ref=e284]:
+            - generic [ref=e285]: 8s
+            - generic [ref=e286]: re-analysis (was 12 min)
+          - generic [ref=e287]:
+            - generic [ref=e288]: 18%
+            - generic [ref=e289]: bundle size reduction
+      - generic [ref=e291]:
+        - generic [ref=e292]:
+          - heading "Simple pricing" [level=2] [ref=e293]
+          - paragraph [ref=e294]: Free forever for personal projects.
+          - generic [ref=e295]:
+            - button "Monthly" [ref=e296]
+            - button "Annual -20%" [ref=e297]
+        - generic [ref=e298]:
+          - generic [ref=e299]:
+            - generic [ref=e300]:
+              - heading "Free" [level=3] [ref=e301]
+              - paragraph [ref=e302]: For individual developers
+            - generic [ref=e303]:
+              - generic [ref=e304]: $0
+              - text: /dev/mo
+            - list [ref=e305]:
+              - listitem [ref=e306]:
+                - img [ref=e307]
+                - generic [ref=e309]: 1 repository
+              - listitem [ref=e310]:
+                - img [ref=e311]
+                - generic [ref=e313]: All 8 detectors
+              - listitem [ref=e314]:
+                - img [ref=e315]
+                - generic [ref=e317]: HTML reports
+              - listitem [ref=e318]:
+                - img [ref=e319]
+                - generic [ref=e321]: CLI access
+            - link "Start Free" [ref=e322] [cursor=pointer]:
+              - /url: /dashboard
+          - generic [ref=e323]:
+            - generic [ref=e324]: Most Popular
+            - generic [ref=e325]:
+              - heading "Team" [level=3] [ref=e326]
+              - paragraph [ref=e327]: For growing teams
+            - generic [ref=e328]:
+              - generic [ref=e329]: $79
+              - text: /dev/mo
+            - list [ref=e330]:
+              - listitem [ref=e331]:
+                - img [ref=e332]
+                - generic [ref=e334]: Unlimited repos
+              - listitem [ref=e335]:
+                - img [ref=e336]
+                - generic [ref=e338]: AI auto-fix
+              - listitem [ref=e339]:
+                - img [ref=e340]
+                - generic [ref=e342]: GitHub Actions
+              - listitem [ref=e343]:
+                - img [ref=e344]
+                - generic [ref=e346]: Natural language search
+              - listitem [ref=e347]:
+                - img [ref=e348]
+                - generic [ref=e350]: Slack alerts
+            - link "Start 14-day Trial" [ref=e351] [cursor=pointer]:
+              - /url: /dashboard
+          - generic [ref=e352]:
+            - generic [ref=e353]:
+              - heading "Enterprise" [level=3] [ref=e354]
+              - paragraph [ref=e355]: For large organizations
+            - generic [ref=e356]: Custom
+            - list [ref=e357]:
+              - listitem [ref=e358]:
+                - img [ref=e359]
+                - generic [ref=e361]: Self-hosted option
+              - listitem [ref=e362]:
+                - img [ref=e363]
+                - generic [ref=e365]: SSO/SAML
+              - listitem [ref=e366]:
+                - img [ref=e367]
+                - generic [ref=e369]: Custom detectors
+              - listitem [ref=e370]:
+                - img [ref=e371]
+                - generic [ref=e373]: Dedicated support
+            - link "Talk to Us" [ref=e374] [cursor=pointer]:
+              - /url: mailto:hello@repotoire.com
+      - generic [ref=e376]:
+        - heading "Frequently asked questions" [level=2] [ref=e378]
+        - generic [ref=e379]:
+          - heading "How long does setup take?" [level=3] [ref=e381]:
+            - button "How long does setup take?" [ref=e382]:
+              - text: How long does setup take?
+              - img
+          - heading "What languages do you support?" [level=3] [ref=e384]:
+            - button "What languages do you support?" [ref=e385]:
+              - text: What languages do you support?
+              - img
+          - heading "Is the AI auto-fix safe?" [level=3] [ref=e387]:
+            - button "Is the AI auto-fix safe?" [ref=e388]:
+              - text: Is the AI auto-fix safe?
+              - img
+          - heading "Does it work with our CI/CD?" [level=3] [ref=e390]:
+            - button "Does it work with our CI/CD?" [ref=e391]:
+              - text: Does it work with our CI/CD?
+              - img
+          - heading "How do you handle security?" [level=3] [ref=e393]:
+            - button "How do you handle security?" [ref=e394]:
+              - text: How do you handle security?
+              - img
+      - generic [ref=e396]:
+        - heading "Ready to understand your codebase?" [level=2] [ref=e397]:
+          - text: Ready to understand
+          - text: your codebase?
+        - paragraph [ref=e398]: Connect your repo. Get a health score in 5 minutes. Fix issues with AI.
+        - generic [ref=e399]:
+          - link "Start Free — No Credit Card" [ref=e400] [cursor=pointer]:
+            - /url: /dashboard
+          - link "Book a Demo" [ref=e401] [cursor=pointer]:
+            - /url: mailto:hello@repotoire.com
+        - paragraph [ref=e402]: Free for open source. 14-day trial for private repos.
+    - contentinfo [ref=e403]:
+      - generic [ref=e404]:
+        - generic [ref=e405]:
+          - generic [ref=e406]:
+            - link "Repotoire" [ref=e407] [cursor=pointer]:
+              - /url: /
+              - img [ref=e409]
+              - generic [ref=e419]: Repotoire
+            - paragraph [ref=e420]: AI-powered code health analysis. Ship healthier code, faster.
+          - generic [ref=e421]:
+            - heading "Product" [level=3] [ref=e422]
+            - list [ref=e423]:
+              - listitem [ref=e424]:
+                - link "Features" [ref=e425] [cursor=pointer]:
+                  - /url: /#features
+              - listitem [ref=e426]:
+                - link "Pricing" [ref=e427] [cursor=pointer]:
+                  - /url: /pricing
+              - listitem [ref=e428]:
+                - link "Docs" [ref=e429] [cursor=pointer]:
+                  - /url: /docs
+              - listitem [ref=e430]:
+                - link "Changelog" [ref=e431] [cursor=pointer]:
+                  - /url: /changelog
+          - generic [ref=e432]:
+            - heading "Company" [level=3] [ref=e433]
+            - list [ref=e434]:
+              - listitem [ref=e435]:
+                - link "About" [ref=e436] [cursor=pointer]:
+                  - /url: /about
+              - listitem [ref=e437]:
+                - link "Blog" [ref=e438] [cursor=pointer]:
+                  - /url: /blog
+              - listitem [ref=e439]:
+                - link "Contact" [ref=e440] [cursor=pointer]:
+                  - /url: /contact
+              - listitem [ref=e441]:
+                - link "Status" [ref=e442] [cursor=pointer]:
+                  - /url: /status
+          - generic [ref=e443]:
+            - heading "Legal" [level=3] [ref=e444]
+            - list [ref=e445]:
+              - listitem [ref=e446]:
+                - link "Privacy" [ref=e447] [cursor=pointer]:
+                  - /url: /privacy
+              - listitem [ref=e448]:
+                - link "Terms" [ref=e449] [cursor=pointer]:
+                  - /url: /terms
+        - generic [ref=e450]:
+          - paragraph [ref=e451]: © 2025 Repotoire. All rights reserved.
+          - generic [ref=e452]:
+            - link [ref=e453] [cursor=pointer]:
+              - /url: https://github.com/repotoire
+              - img [ref=e454]
+            - link [ref=e456] [cursor=pointer]:
+              - /url: https://twitter.com/repotoire
+              - img [ref=e457]
+  - generic [ref=e460]:
+    - generic [ref=e461]:
+      - generic [ref=e462]: Cookie Preferences
+      - generic [ref=e463]:
+        - text: We use cookies to improve your experience and analyze site usage.
+        - link "Learn more" [ref=e464] [cursor=pointer]:
+          - /url: /privacy
+    - generic [ref=e466]:
+      - button "Customize" [ref=e467]
+      - button "Reject All" [ref=e468]
+      - button "Accept All" [ref=e469]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e475] [cursor=pointer]:
+    - img [ref=e476]
+  - alert [ref=e479]
+```

@@ -30,6 +30,7 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_CONNECT_WEBHOOK_SECRET = os.environ.get("STRIPE_CONNECT_WEBHOOK_SECRET", "")
 CLERK_WEBHOOK_SECRET = os.environ.get("CLERK_WEBHOOK_SECRET", "")
 
 
@@ -604,6 +605,202 @@ async def stripe_webhook(
 
     else:
         logger.debug(f"Unhandled Stripe event type: {event_type}")
+
+    return {"status": "ok"}
+
+
+# ============================================================================
+# Stripe Connect Webhook Handlers (Marketplace)
+# ============================================================================
+
+
+async def handle_account_updated(
+    db: AsyncSession,
+    account: dict[str, Any],
+) -> None:
+    """Handle account.updated event from Stripe Connect.
+
+    Updates publisher's connect status when their account changes.
+    """
+    account_id = account.get("id")
+    logger.info(f"Handling account.updated for: {account_id}")
+
+    # Find publisher by stripe_account_id
+    from repotoire.db.models.marketplace import MarketplacePublisher
+
+    result = await db.execute(
+        select(MarketplacePublisher).where(
+            MarketplacePublisher.stripe_account_id == account_id
+        )
+    )
+    publisher = result.scalar_one_or_none()
+
+    if not publisher:
+        logger.warning(f"No publisher found for Stripe account: {account_id}")
+        return
+
+    # Update status from account data
+    publisher.stripe_charges_enabled = account.get("charges_enabled", False)
+    publisher.stripe_payouts_enabled = account.get("payouts_enabled", False)
+    publisher.stripe_onboarding_complete = account.get("details_submitted", False)
+
+    await db.commit()
+    logger.info(
+        f"Updated publisher {publisher.id} connect status: "
+        f"charges={publisher.stripe_charges_enabled}, "
+        f"payouts={publisher.stripe_payouts_enabled}, "
+        f"complete={publisher.stripe_onboarding_complete}"
+    )
+
+
+async def handle_payment_intent_succeeded(
+    db: AsyncSession,
+    payment_intent: dict[str, Any],
+) -> None:
+    """Handle payment_intent.succeeded event from Stripe Connect.
+
+    Completes the purchase and auto-installs the asset for the buyer.
+    """
+    pi_id = payment_intent.get("id")
+    logger.info(f"Handling payment_intent.succeeded: {pi_id}")
+
+    # Get metadata
+    metadata = payment_intent.get("metadata", {})
+    asset_id = metadata.get("asset_id")
+    buyer_user_id = metadata.get("buyer_user_id")
+
+    if not asset_id or not buyer_user_id:
+        logger.warning(f"Missing metadata in payment_intent: {pi_id}")
+        return
+
+    # Find the purchase record
+    from repotoire.db.models.marketplace import (
+        MarketplacePurchase,
+        MarketplaceInstall,
+        MarketplaceAsset,
+    )
+
+    result = await db.execute(
+        select(MarketplacePurchase).where(
+            MarketplacePurchase.stripe_payment_intent_id == pi_id
+        )
+    )
+    purchase = result.scalar_one_or_none()
+
+    if not purchase:
+        logger.warning(f"No purchase found for payment_intent: {pi_id}")
+        return
+
+    if purchase.status == "completed":
+        logger.info(f"Purchase {purchase.id} already completed (idempotent)")
+        return
+
+    # Update purchase status
+    purchase.status = "completed"
+    purchase.completed_at = datetime.now(timezone.utc)
+
+    # Get charge ID if available
+    latest_charge = payment_intent.get("latest_charge")
+    if latest_charge:
+        purchase.stripe_charge_id = latest_charge
+
+    # Auto-install the asset for the buyer
+    # Check if already installed
+    from uuid import UUID
+
+    asset_uuid = UUID(asset_id)
+    existing_install = await db.execute(
+        select(MarketplaceInstall).where(
+            MarketplaceInstall.asset_id == asset_uuid,
+            MarketplaceInstall.user_id == buyer_user_id,
+        )
+    )
+    if not existing_install.scalar_one_or_none():
+        # Get asset to find latest version
+        asset_result = await db.execute(
+            select(MarketplaceAsset).where(MarketplaceAsset.id == asset_uuid)
+        )
+        asset = asset_result.scalar_one_or_none()
+
+        if asset:
+            # Create installation
+            install = MarketplaceInstall(
+                user_id=buyer_user_id,
+                asset_id=asset_uuid,
+                version_id=None,  # Will be set when syncing
+                enabled=True,
+                auto_update=True,
+            )
+            db.add(install)
+
+            # Increment install count
+            asset.install_count = (asset.install_count or 0) + 1
+
+    await db.commit()
+    logger.info(f"Purchase {purchase.id} completed and asset installed for {buyer_user_id}")
+
+
+async def handle_payout_paid(
+    db: AsyncSession,
+    payout: dict[str, Any],
+) -> None:
+    """Handle payout.paid event from Stripe Connect.
+
+    Optional: Track payouts for analytics/reporting.
+    """
+    payout_id = payout.get("id")
+    amount = payout.get("amount", 0)
+    currency = payout.get("currency", "usd")
+
+    logger.info(f"Payout completed: {payout_id}, amount: {amount} {currency}")
+    # Could store payout records for analytics if needed
+
+
+@router.post("/stripe/connect")
+async def stripe_connect_webhook(
+    request: Request,
+    stripe_signature: str = Header(alias="Stripe-Signature"),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Handle Stripe Connect webhook events.
+
+    Processes Connect-specific events for marketplace transactions:
+    - account.updated: Publisher connect status changes
+    - payment_intent.succeeded: Purchase completed, auto-install asset
+    - payout.paid: (optional) Track payouts for analytics
+    """
+    payload = await request.body()
+
+    # Verify webhook signature
+    if not STRIPE_CONNECT_WEBHOOK_SECRET:
+        raise HTTPException(
+            status_code=500,
+            detail="Stripe Connect webhook secret not configured",
+        )
+
+    event = StripeService.construct_webhook_event(
+        payload=payload,
+        signature=stripe_signature,
+        webhook_secret=STRIPE_CONNECT_WEBHOOK_SECRET,
+    )
+
+    event_type = event["type"]
+    data = event["data"]["object"]
+
+    logger.info(f"Received Stripe Connect webhook: {event_type}")
+
+    # Route to appropriate handler
+    if event_type == "account.updated":
+        await handle_account_updated(db, data)
+
+    elif event_type == "payment_intent.succeeded":
+        await handle_payment_intent_succeeded(db, data)
+
+    elif event_type == "payout.paid":
+        await handle_payout_paid(db, data)
+
+    else:
+        logger.debug(f"Unhandled Stripe Connect event type: {event_type}")
 
     return {"status": "ok"}
 

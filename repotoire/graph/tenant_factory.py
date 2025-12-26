@@ -25,12 +25,26 @@ Examples:
 
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Dict, Optional
 from uuid import UUID
 
 from repotoire.graph.base import DatabaseClient
 
 logger = logging.getLogger(__name__)
+
+
+def _is_fly_environment() -> bool:
+    """Check if running on Fly.io."""
+    return bool(os.environ.get("FLY_APP_NAME"))
+
+
+def _get_fly_falkordb_host() -> str:
+    """Get FalkorDB internal host for Fly.io.
+
+    Returns the internal DNS name for the FalkorDB service.
+    """
+    return "repotoire-falkor.internal"
 
 
 class GraphClientFactory:
@@ -104,14 +118,22 @@ class GraphClientFactory:
         )
 
         # FalkorDB connection config
+        # Support both FALKORDB_* and REPOTOIRE_FALKORDB_* env vars for flexibility
+        # On Fly.io, use internal DNS for FalkorDB by default
+        default_host = _get_fly_falkordb_host() if _is_fly_environment() else "localhost"
         self.falkordb_host = falkordb_host or os.environ.get(
-            "REPOTOIRE_FALKORDB_HOST", "localhost"
+            "FALKORDB_HOST",
+            os.environ.get("REPOTOIRE_FALKORDB_HOST", default_host)
         )
         self.falkordb_port = falkordb_port or int(
-            os.environ.get("REPOTOIRE_FALKORDB_PORT", "6379")
+            os.environ.get(
+                "FALKORDB_PORT",
+                os.environ.get("REPOTOIRE_FALKORDB_PORT", "6379")
+            )
         )
         self.falkordb_password = falkordb_password or os.environ.get(
-            "REPOTOIRE_FALKORDB_PASSWORD"
+            "FALKORDB_PASSWORD",
+            os.environ.get("REPOTOIRE_FALKORDB_PASSWORD")
         )
 
         logger.info(
@@ -157,8 +179,89 @@ class GraphClientFactory:
         # Cache the client
         self._clients[org_id] = client
 
+        # Log tenant access for security auditing
+        self._log_tenant_access(org_id, org_slug, graph_name, "client_created")
+
         logger.info(f"Created tenant client for org {org_id}: {graph_name}")
         return client
+
+    def _log_tenant_access(
+        self,
+        org_id: UUID,
+        org_slug: Optional[str],
+        graph_name: str,
+        action: str,
+    ) -> None:
+        """Log tenant access for security auditing.
+
+        Args:
+            org_id: Organization UUID
+            org_slug: Organization slug
+            graph_name: Graph/database name
+            action: Action being performed (e.g., "client_created", "query", "provisioned")
+        """
+        logger.info(
+            "Tenant graph access",
+            extra={
+                "tenant_id": str(org_id),
+                "tenant_slug": org_slug,
+                "graph_name": graph_name,
+                "action": action,
+                "backend": self.backend,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    def validate_tenant_context(
+        self,
+        client: DatabaseClient,
+        expected_org_id: UUID,
+    ) -> bool:
+        """Validate that a client belongs to the expected organization.
+
+        Use this to verify tenant context before executing sensitive operations.
+        Raises an error if there's a mismatch, preventing cross-tenant access.
+
+        Args:
+            client: DatabaseClient to validate
+            expected_org_id: Expected organization UUID
+
+        Returns:
+            True if validation passes
+
+        Raises:
+            ValueError: If client's org_id doesn't match expected_org_id
+        """
+        if not hasattr(client, "_org_id") or client._org_id is None:
+            raise ValueError(
+                "Client is not multi-tenant. Use get_client() to create tenant-isolated clients."
+            )
+
+        if client._org_id != expected_org_id:
+            # Log security event
+            logger.warning(
+                "Tenant context mismatch detected",
+                extra={
+                    "expected_org_id": str(expected_org_id),
+                    "client_org_id": str(client._org_id),
+                    "action": "context_mismatch",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            raise ValueError(
+                f"Tenant context mismatch: client belongs to org {client._org_id}, "
+                f"but expected org {expected_org_id}"
+            )
+
+        # Log successful validation
+        logger.debug(
+            "Tenant context validated",
+            extra={
+                "org_id": str(expected_org_id),
+                "action": "context_validated",
+            },
+        )
+        return True
 
     def _generate_graph_name(self, org_id: UUID, org_slug: Optional[str]) -> str:
         """Generate a unique graph/database name for an organization.

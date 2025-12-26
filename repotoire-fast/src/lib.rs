@@ -16,6 +16,8 @@ pub mod graph_algo;
 mod errors;
 pub mod duplicate;
 pub mod type_inference;
+pub mod word2vec;
+pub mod satd;
 
 // Convert GraphError to Python ValueError (REPO-227)
 impl From<errors::GraphError> for PyErr {
@@ -758,6 +760,445 @@ fn graph_batch_jaccard(
         .map_err(|e| e.into())
 }
 
+/// Generate biased random walks for Node2Vec graph embedding (REPO-247)
+///
+/// # Arguments
+/// * `edges` - List of (source, target) edge tuples
+/// * `num_nodes` - Total number of nodes in graph
+/// * `walk_length` - Length of each random walk (default: 80)
+/// * `walks_per_node` - Number of walks per node (default: 10)
+/// * `p` - Return parameter (default: 1.0, higher = less backtracking)
+/// * `q` - In-out parameter (default: 1.0, higher = BFS-like, lower = DFS-like)
+/// * `seed` - Optional seed for reproducibility
+///
+/// # Returns
+/// List of walks, where each walk is a list of node IDs
+#[pyfunction]
+#[pyo3(signature = (edges, num_nodes, walk_length=80, walks_per_node=10, p=1.0, q=1.0, seed=None))]
+fn node2vec_random_walks(
+    py: Python<'_>,
+    edges: Vec<(u32, u32)>,
+    num_nodes: usize,
+    walk_length: usize,
+    walks_per_node: usize,
+    p: f64,
+    q: f64,
+    seed: Option<u64>,
+) -> PyResult<Vec<Vec<u32>>> {
+    py.detach(|| {
+        graph_algo::node2vec_random_walks(&edges, num_nodes, walk_length, walks_per_node, p, q, seed)
+    })
+    .map_err(|e| e.into())
+}
+
+// ============================================================================
+// WORD2VEC SKIP-GRAM TRAINING (REPO-249)
+// Native Rust implementation to replace gensim dependency
+// ============================================================================
+
+/// Word2Vec skip-gram training configuration
+#[pyclass]
+#[derive(Clone)]
+pub struct PyWord2VecConfig {
+    /// Dimension of embedding vectors (default: 128)
+    #[pyo3(get, set)]
+    pub embedding_dim: usize,
+    /// Context window size (default: 5)
+    #[pyo3(get, set)]
+    pub window_size: usize,
+    /// Minimum word frequency (default: 1)
+    #[pyo3(get, set)]
+    pub min_count: usize,
+    /// Number of negative samples (default: 5)
+    #[pyo3(get, set)]
+    pub negative_samples: usize,
+    /// Initial learning rate (default: 0.025)
+    #[pyo3(get, set)]
+    pub learning_rate: f32,
+    /// Minimum learning rate (default: 0.0001)
+    #[pyo3(get, set)]
+    pub min_learning_rate: f32,
+    /// Number of training epochs (default: 5)
+    #[pyo3(get, set)]
+    pub epochs: usize,
+    /// Random seed for reproducibility
+    #[pyo3(get, set)]
+    pub seed: Option<u64>,
+}
+
+#[pymethods]
+impl PyWord2VecConfig {
+    #[new]
+    #[pyo3(signature = (
+        embedding_dim=128,
+        window_size=5,
+        min_count=1,
+        negative_samples=5,
+        learning_rate=0.025,
+        min_learning_rate=0.0001,
+        epochs=5,
+        seed=None
+    ))]
+    fn new(
+        embedding_dim: usize,
+        window_size: usize,
+        min_count: usize,
+        negative_samples: usize,
+        learning_rate: f32,
+        min_learning_rate: f32,
+        epochs: usize,
+        seed: Option<u64>,
+    ) -> Self {
+        Self {
+            embedding_dim,
+            window_size,
+            min_count,
+            negative_samples,
+            learning_rate,
+            min_learning_rate,
+            epochs,
+            seed,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Word2VecConfig(embedding_dim={}, window_size={}, min_count={}, \
+             negative_samples={}, learning_rate={}, epochs={}, seed={:?})",
+            self.embedding_dim,
+            self.window_size,
+            self.min_count,
+            self.negative_samples,
+            self.learning_rate,
+            self.epochs,
+            self.seed
+        )
+    }
+}
+
+impl From<PyWord2VecConfig> for word2vec::Word2VecConfig {
+    fn from(py_config: PyWord2VecConfig) -> Self {
+        word2vec::Word2VecConfig {
+            embedding_dim: py_config.embedding_dim,
+            window_size: py_config.window_size,
+            min_count: py_config.min_count,
+            negative_samples: py_config.negative_samples,
+            learning_rate: py_config.learning_rate,
+            min_learning_rate: py_config.min_learning_rate,
+            epochs: py_config.epochs,
+            seed: py_config.seed,
+        }
+    }
+}
+
+/// Train Word2Vec skip-gram embeddings from random walks (REPO-249)
+///
+/// Replaces gensim Word2Vec with native Rust implementation for:
+/// - 3x+ performance improvement
+/// - No Python GIL during training
+/// - Smaller dependency footprint (~100MB savings)
+///
+/// # Arguments
+/// * `walks` - List of random walks (e.g., from node2vec_random_walks)
+/// * `config` - Training configuration (or None for defaults)
+///
+/// # Returns
+/// Dict mapping node_id (u32) to embedding (list of f32)
+///
+/// # Example
+/// ```python
+/// from repotoire_fast import train_word2vec_skipgram, Word2VecConfig
+///
+/// walks = [[0, 1, 2, 1, 0], [1, 2, 3, 2, 1]]
+/// config = Word2VecConfig(embedding_dim=64, epochs=10)
+/// embeddings = train_word2vec_skipgram(walks, config)
+/// ```
+#[pyfunction]
+#[pyo3(signature = (walks, config=None))]
+fn train_word2vec_skipgram(
+    py: Python<'_>,
+    walks: Vec<Vec<u32>>,
+    config: Option<PyWord2VecConfig>,
+) -> PyResult<HashMap<u32, Vec<f32>>> {
+    let rust_config: word2vec::Word2VecConfig = config
+        .map(|c| c.into())
+        .unwrap_or_default();
+
+    let result = py.detach(|| {
+        word2vec::train_skipgram(&walks, &rust_config)
+    });
+
+    Ok(result.embeddings.into_iter().collect())
+}
+
+/// Train Word2Vec and return as numpy-compatible matrix (REPO-249)
+///
+/// More efficient for large vocabularies as it avoids dict overhead.
+///
+/// # Arguments
+/// * `walks` - List of random walks
+/// * `config` - Training configuration (or None for defaults)
+///
+/// # Returns
+/// Tuple of (node_ids: list[u32], embeddings: list[f32], dim: int)
+/// - node_ids: sorted list of node IDs
+/// - embeddings: flattened matrix in row-major order
+/// - dim: embedding dimension
+///
+/// # Example
+/// ```python
+/// import numpy as np
+/// from repotoire_fast import train_word2vec_skipgram_matrix
+///
+/// node_ids, flat_emb, dim = train_word2vec_skipgram_matrix(walks)
+/// embeddings = np.array(flat_emb).reshape(-1, dim)
+/// # embeddings[i] is the embedding for node_ids[i]
+/// ```
+#[pyfunction]
+#[pyo3(signature = (walks, config=None))]
+fn train_word2vec_skipgram_matrix(
+    py: Python<'_>,
+    walks: Vec<Vec<u32>>,
+    config: Option<PyWord2VecConfig>,
+) -> PyResult<(Vec<u32>, Vec<f32>, usize)> {
+    let rust_config: word2vec::Word2VecConfig = config
+        .map(|c| c.into())
+        .unwrap_or_default();
+
+    let (node_ids, flat, dim) = py.detach(|| {
+        word2vec::train_skipgram_matrix(&walks, &rust_config)
+    });
+
+    Ok((node_ids, flat, dim))
+}
+
+/// Train Word2Vec using Hogwild! parallel SGD (REPO-249)
+///
+/// Significantly faster than sequential on multi-core systems.
+/// Uses lock-free concurrent updates (proven to converge for sparse problems).
+///
+/// # Arguments
+/// * `walks` - List of random walks (list of node ID sequences)
+/// * `config` - Training configuration (or None for defaults)
+///
+/// # Returns
+/// Dict mapping node_id (u32) to embedding (list of f32)
+#[pyfunction]
+#[pyo3(signature = (walks, config=None))]
+fn train_word2vec_skipgram_parallel(
+    py: Python<'_>,
+    walks: Vec<Vec<u32>>,
+    config: Option<PyWord2VecConfig>,
+) -> PyResult<HashMap<u32, Vec<f32>>> {
+    let rust_config: word2vec::Word2VecConfig = config
+        .map(|c| c.into())
+        .unwrap_or_default();
+
+    let result = py.detach(|| {
+        word2vec::train_skipgram_parallel(&walks, &rust_config)
+    });
+
+    Ok(result.embeddings.into_iter().collect())
+}
+
+/// Train Word2Vec using parallel training and return as numpy-compatible matrix
+///
+/// Combines Hogwild! parallelism with efficient matrix output.
+///
+/// # Arguments
+/// * `walks` - List of random walks
+/// * `config` - Training configuration (or None for defaults)
+///
+/// # Returns
+/// Tuple of (node_ids: list[u32], embeddings: list[f32], dim: int)
+#[pyfunction]
+#[pyo3(signature = (walks, config=None))]
+fn train_word2vec_skipgram_parallel_matrix(
+    py: Python<'_>,
+    walks: Vec<Vec<u32>>,
+    config: Option<PyWord2VecConfig>,
+) -> PyResult<(Vec<u32>, Vec<f32>, usize)> {
+    let rust_config: word2vec::Word2VecConfig = config
+        .map(|c| c.into())
+        .unwrap_or_default();
+
+    let (node_ids, flat, dim) = py.detach(|| {
+        word2vec::train_skipgram_parallel_matrix(&walks, &rust_config)
+    });
+
+    Ok((node_ids, flat, dim))
+}
+
+// ============================================================================
+// COMPLETE NODE2VEC PIPELINE (REPO-250)
+// Integrates random walks (REPO-247) + Word2Vec (REPO-249) into unified function
+// ============================================================================
+
+/// Complete Node2Vec graph embedding pipeline (REPO-250)
+///
+/// Generates node embeddings by combining:
+/// 1. Biased random walks (Node2Vec algorithm from REPO-247)
+/// 2. Skip-gram training (Word2Vec from REPO-249)
+///
+/// This provides 10-100x speedup over Neo4j GDS by eliminating network overhead.
+///
+/// # Arguments
+/// * `edges` - List of (source, target) edge tuples
+/// * `num_nodes` - Total number of nodes in graph
+/// * `embedding_dim` - Dimension of embedding vectors (default: 128)
+/// * `walk_length` - Length of each random walk (default: 80)
+/// * `walks_per_node` - Number of walks per node (default: 10)
+/// * `p` - Return parameter (default: 1.0, higher = less backtracking)
+/// * `q` - In-out parameter (default: 1.0, higher = BFS-like, lower = DFS-like)
+/// * `window_size` - Context window for skip-gram (default: 5)
+/// * `negative_samples` - Negative samples per positive (default: 5)
+/// * `epochs` - Training epochs (default: 5)
+/// * `learning_rate` - Initial learning rate (default: 0.025)
+/// * `seed` - Optional random seed for reproducibility
+///
+/// # Returns
+/// Tuple of (node_ids: list[u32], embeddings: numpy.ndarray)
+/// - node_ids: List of node IDs in order (length = num embedded nodes)
+/// - embeddings: 2D numpy array of shape (num_nodes, embedding_dim)
+///
+/// # Example
+/// ```python
+/// import numpy as np
+/// from repotoire_fast import graph_node2vec
+///
+/// edges = [(0, 1), (1, 2), (2, 0), (0, 3)]
+/// node_ids, embeddings = graph_node2vec(edges, num_nodes=4, embedding_dim=64)
+/// # embeddings[i] is the embedding for node_ids[i]
+/// ```
+#[pyfunction]
+#[pyo3(signature = (
+    edges,
+    num_nodes,
+    embedding_dim = 128,
+    walk_length = 80,
+    walks_per_node = 10,
+    p = 1.0,
+    q = 1.0,
+    window_size = 5,
+    negative_samples = 5,
+    epochs = 5,
+    learning_rate = 0.025,
+    seed = None
+))]
+fn graph_node2vec<'py>(
+    py: Python<'py>,
+    edges: Vec<(u32, u32)>,
+    num_nodes: usize,
+    embedding_dim: usize,
+    walk_length: usize,
+    walks_per_node: usize,
+    p: f64,
+    q: f64,
+    window_size: usize,
+    negative_samples: usize,
+    epochs: usize,
+    learning_rate: f32,
+    seed: Option<u64>,
+) -> PyResult<(Vec<u32>, Bound<'py, numpy::PyArray2<f32>>)> {
+    use numpy::{IntoPyArray, ndarray::Array2};
+
+    // Validate inputs
+    if num_nodes == 0 {
+        // Return empty results for empty graph
+        let empty_array = Array2::<f32>::zeros((0, embedding_dim));
+        return Ok((vec![], empty_array.into_pyarray(py)));
+    }
+
+    // Step 1: Generate random walks (releases GIL via py.detach)
+    let walks = py.detach(|| {
+        graph_algo::node2vec_random_walks(
+            &edges,
+            num_nodes,
+            walk_length,
+            walks_per_node,
+            p,
+            q,
+            seed,
+        )
+    })?;
+
+    // Filter walks with at least 2 nodes (needed for context pairs)
+    let walks: Vec<Vec<u32>> = walks.into_iter().filter(|w| w.len() > 1).collect();
+
+    if walks.is_empty() {
+        // No valid walks = no embeddings
+        let empty_array = Array2::<f32>::zeros((0, embedding_dim));
+        return Ok((vec![], empty_array.into_pyarray(py)));
+    }
+
+    // Step 2: Train Word2Vec embeddings with Hogwild! parallel SGD
+    // (releases GIL via py.detach, uses all CPU cores)
+    let config = word2vec::Word2VecConfig {
+        embedding_dim,
+        window_size,
+        min_count: 1, // Include all nodes that appear in walks
+        negative_samples,
+        learning_rate,
+        min_learning_rate: 0.0001,
+        epochs,
+        seed,
+    };
+
+    let (node_ids, flat_embeddings, dim) = py.detach(|| {
+        // Use parallel training for faster performance on multi-core systems
+        word2vec::train_skipgram_parallel_matrix(&walks, &config)
+    });
+
+    if node_ids.is_empty() {
+        let empty_array = Array2::<f32>::zeros((0, embedding_dim));
+        return Ok((vec![], empty_array.into_pyarray(py)));
+    }
+
+    // Step 3: Convert to numpy array
+    let n_nodes = node_ids.len();
+    let array = Array2::from_shape_vec((n_nodes, dim), flat_embeddings)
+        .map_err(|e| PyValueError::new_err(format!("Failed to create array: {}", e)))?;
+
+    Ok((node_ids, array.into_pyarray(py)))
+}
+
+/// Generate random walks for Node2Vec (separate from training)
+///
+/// Useful for hybrid workflows where you want Rust walks but Python training,
+/// or for debugging/inspecting walk patterns.
+///
+/// This is the same as `node2vec_random_walks` but with a more explicit name
+/// in the `graph_*` namespace for consistency.
+///
+/// # Arguments
+/// * `edges` - List of (source, target) edge tuples
+/// * `num_nodes` - Total number of nodes in graph
+/// * `walk_length` - Length of each random walk (default: 80)
+/// * `walks_per_node` - Number of walks per node (default: 10)
+/// * `p` - Return parameter (default: 1.0)
+/// * `q` - In-out parameter (default: 1.0)
+/// * `seed` - Optional random seed for reproducibility
+///
+/// # Returns
+/// List of walks, where each walk is a list of node IDs (u32)
+#[pyfunction]
+#[pyo3(signature = (edges, num_nodes, walk_length=80, walks_per_node=10, p=1.0, q=1.0, seed=None))]
+fn graph_random_walks(
+    py: Python<'_>,
+    edges: Vec<(u32, u32)>,
+    num_nodes: usize,
+    walk_length: usize,
+    walks_per_node: usize,
+    p: f64,
+    q: f64,
+    seed: Option<u64>,
+) -> PyResult<Vec<Vec<u32>>> {
+    py.detach(|| {
+        graph_algo::node2vec_random_walks(&edges, num_nodes, walk_length, walks_per_node, p, q, seed)
+    })
+    .map_err(|e| e.into())
+}
+
 // ============================================================================
 // DUPLICATE CODE DETECTION (REPO-166)
 // Uses Rabin-Karp rolling hash for 5-10x speedup over jscpd
@@ -1343,10 +1784,13 @@ fn normalize_features_batch<'py>(
 ///
 /// Returns a list of (function_name, line_start, line_end) tuples for all
 /// functions in the source, including:
-/// - Top-level functions (def foo():)
-/// - Async functions (async def foo():)
-/// - Class methods (class Foo: def bar(self):)
-/// - Nested functions (functions inside functions)
+/// - Top-level functions: "function_name"
+/// - Async functions: "function_name"
+/// - Class methods: "ClassName.method_name"
+/// - Nested functions: "outer_function.inner_function" or "Class.method.nested"
+///
+/// The name format preserves hierarchy so Python can prepend the module path
+/// to create fully qualified names.
 ///
 /// Line numbers are 1-indexed to match Python conventions.
 ///
@@ -1370,7 +1814,7 @@ fn normalize_features_batch<'py>(
 /// '''
 ///
 /// boundaries = extract_function_boundaries(source)
-/// # Returns [("hello", 2, 3), ("greet", 6, 7)]
+/// # Returns [("hello", 2, 3), ("Greeter.greet", 6, 7)]
 /// ```
 #[pyfunction]
 fn extract_function_boundaries(source: &str) -> Vec<(String, u32, u32)> {
@@ -1387,69 +1831,86 @@ fn extract_function_boundaries(source: &str) -> Vec<(String, u32, u32)> {
     let mut boundaries = Vec::new();
 
     // Recursive helper to extract functions from statements
+    // `prefix` tracks the current scope (e.g., "ClassName" or "ClassName.method")
     fn extract_from_stmts(
         stmts: &[Stmt],
         line_positions: &LinePositions,
         boundaries: &mut Vec<(String, u32, u32)>,
+        prefix: &str,
     ) {
         for stmt in stmts {
             match stmt {
                 Stmt::FunctionDef(f) => {
                     let start = line_positions.from_offset(f.range.start().into()).as_usize() + 1;
                     let end = line_positions.from_offset(f.range.end().into()).as_usize() + 1;
-                    boundaries.push((f.name.to_string(), start as u32, end as u32));
-                    // Recurse into function body for nested functions
-                    extract_from_stmts(&f.body, line_positions, boundaries);
+                    let name = if prefix.is_empty() {
+                        f.name.to_string()
+                    } else {
+                        format!("{}.{}", prefix, f.name)
+                    };
+                    boundaries.push((name.clone(), start as u32, end as u32));
+                    // Recurse into function body for nested functions (with updated prefix)
+                    extract_from_stmts(&f.body, line_positions, boundaries, &name);
                 }
                 Stmt::AsyncFunctionDef(f) => {
                     let start = line_positions.from_offset(f.range.start().into()).as_usize() + 1;
                     let end = line_positions.from_offset(f.range.end().into()).as_usize() + 1;
-                    boundaries.push((f.name.to_string(), start as u32, end as u32));
+                    let name = if prefix.is_empty() {
+                        f.name.to_string()
+                    } else {
+                        format!("{}.{}", prefix, f.name)
+                    };
+                    boundaries.push((name.clone(), start as u32, end as u32));
                     // Recurse into function body for nested functions
-                    extract_from_stmts(&f.body, line_positions, boundaries);
+                    extract_from_stmts(&f.body, line_positions, boundaries, &name);
                 }
                 Stmt::ClassDef(c) => {
-                    // Extract methods from class body
-                    extract_from_stmts(&c.body, line_positions, boundaries);
+                    // Extract methods from class body with class name as prefix
+                    let class_prefix = if prefix.is_empty() {
+                        c.name.to_string()
+                    } else {
+                        format!("{}.{}", prefix, c.name)
+                    };
+                    extract_from_stmts(&c.body, line_positions, boundaries, &class_prefix);
                 }
                 Stmt::If(if_stmt) => {
-                    // Handle functions defined inside if blocks
-                    extract_from_stmts(&if_stmt.body, line_positions, boundaries);
-                    extract_from_stmts(&if_stmt.orelse, line_positions, boundaries);
+                    // Handle functions defined inside if blocks (keep same prefix)
+                    extract_from_stmts(&if_stmt.body, line_positions, boundaries, prefix);
+                    extract_from_stmts(&if_stmt.orelse, line_positions, boundaries, prefix);
                 }
                 Stmt::While(w) => {
-                    extract_from_stmts(&w.body, line_positions, boundaries);
-                    extract_from_stmts(&w.orelse, line_positions, boundaries);
+                    extract_from_stmts(&w.body, line_positions, boundaries, prefix);
+                    extract_from_stmts(&w.orelse, line_positions, boundaries, prefix);
                 }
                 Stmt::For(f) => {
-                    extract_from_stmts(&f.body, line_positions, boundaries);
-                    extract_from_stmts(&f.orelse, line_positions, boundaries);
+                    extract_from_stmts(&f.body, line_positions, boundaries, prefix);
+                    extract_from_stmts(&f.orelse, line_positions, boundaries, prefix);
                 }
                 Stmt::AsyncFor(f) => {
-                    extract_from_stmts(&f.body, line_positions, boundaries);
-                    extract_from_stmts(&f.orelse, line_positions, boundaries);
+                    extract_from_stmts(&f.body, line_positions, boundaries, prefix);
+                    extract_from_stmts(&f.orelse, line_positions, boundaries, prefix);
                 }
                 Stmt::With(w) => {
-                    extract_from_stmts(&w.body, line_positions, boundaries);
+                    extract_from_stmts(&w.body, line_positions, boundaries, prefix);
                 }
                 Stmt::AsyncWith(w) => {
-                    extract_from_stmts(&w.body, line_positions, boundaries);
+                    extract_from_stmts(&w.body, line_positions, boundaries, prefix);
                 }
                 Stmt::Try(t) => {
-                    extract_from_stmts(&t.body, line_positions, boundaries);
+                    extract_from_stmts(&t.body, line_positions, boundaries, prefix);
                     for handler in &t.handlers {
                         let rustpython_parser::ast::ExceptHandler::ExceptHandler(e) = handler;
-                        extract_from_stmts(&e.body, line_positions, boundaries);
+                        extract_from_stmts(&e.body, line_positions, boundaries, prefix);
                     }
-                    extract_from_stmts(&t.orelse, line_positions, boundaries);
-                    extract_from_stmts(&t.finalbody, line_positions, boundaries);
+                    extract_from_stmts(&t.orelse, line_positions, boundaries, prefix);
+                    extract_from_stmts(&t.finalbody, line_positions, boundaries, prefix);
                 }
                 _ => {}
             }
         }
     }
 
-    extract_from_stmts(&ast, &line_positions, &mut boundaries);
+    extract_from_stmts(&ast, &line_positions, &mut boundaries, "");
     boundaries
 }
 
@@ -1463,6 +1924,7 @@ fn extract_function_boundaries(source: &str) -> Vec<(String, u32, u32)> {
 ///
 /// # Returns
 /// List of (file_path, [(function_name, start_line, end_line)]) tuples
+/// where function_name includes class prefix for methods (e.g., "ClassName.method_name")
 ///
 /// # Example
 /// ```python
@@ -1485,59 +1947,75 @@ fn extract_function_boundaries_batch(
     use rustpython_parser::Parse;
     use line_numbers::LinePositions;
 
-    // Recursive helper (same as single-file version)
+    // Recursive helper (same as single-file version, with prefix tracking)
     fn extract_from_stmts(
         stmts: &[Stmt],
         line_positions: &LinePositions,
         boundaries: &mut Vec<(String, u32, u32)>,
+        prefix: &str,
     ) {
         for stmt in stmts {
             match stmt {
                 Stmt::FunctionDef(f) => {
                     let start = line_positions.from_offset(f.range.start().into()).as_usize() + 1;
                     let end = line_positions.from_offset(f.range.end().into()).as_usize() + 1;
-                    boundaries.push((f.name.to_string(), start as u32, end as u32));
-                    extract_from_stmts(&f.body, line_positions, boundaries);
+                    let name = if prefix.is_empty() {
+                        f.name.to_string()
+                    } else {
+                        format!("{}.{}", prefix, f.name)
+                    };
+                    boundaries.push((name.clone(), start as u32, end as u32));
+                    extract_from_stmts(&f.body, line_positions, boundaries, &name);
                 }
                 Stmt::AsyncFunctionDef(f) => {
                     let start = line_positions.from_offset(f.range.start().into()).as_usize() + 1;
                     let end = line_positions.from_offset(f.range.end().into()).as_usize() + 1;
-                    boundaries.push((f.name.to_string(), start as u32, end as u32));
-                    extract_from_stmts(&f.body, line_positions, boundaries);
+                    let name = if prefix.is_empty() {
+                        f.name.to_string()
+                    } else {
+                        format!("{}.{}", prefix, f.name)
+                    };
+                    boundaries.push((name.clone(), start as u32, end as u32));
+                    extract_from_stmts(&f.body, line_positions, boundaries, &name);
                 }
                 Stmt::ClassDef(c) => {
-                    extract_from_stmts(&c.body, line_positions, boundaries);
+                    let class_prefix = if prefix.is_empty() {
+                        c.name.to_string()
+                    } else {
+                        format!("{}.{}", prefix, c.name)
+                    };
+                    extract_from_stmts(&c.body, line_positions, boundaries, &class_prefix);
                 }
                 Stmt::If(if_stmt) => {
-                    extract_from_stmts(&if_stmt.body, line_positions, boundaries);
-                    extract_from_stmts(&if_stmt.orelse, line_positions, boundaries);
+                    extract_from_stmts(&if_stmt.body, line_positions, boundaries, prefix);
+                    extract_from_stmts(&if_stmt.orelse, line_positions, boundaries, prefix);
                 }
                 Stmt::While(w) => {
-                    extract_from_stmts(&w.body, line_positions, boundaries);
-                    extract_from_stmts(&w.orelse, line_positions, boundaries);
+                    extract_from_stmts(&w.body, line_positions, boundaries, prefix);
+                    extract_from_stmts(&w.orelse, line_positions, boundaries, prefix);
                 }
                 Stmt::For(f) => {
-                    extract_from_stmts(&f.body, line_positions, boundaries);
-                    extract_from_stmts(&f.orelse, line_positions, boundaries);
+                    extract_from_stmts(&f.body, line_positions, boundaries, prefix);
+                    extract_from_stmts(&f.orelse, line_positions, boundaries, prefix);
                 }
                 Stmt::AsyncFor(f) => {
-                    extract_from_stmts(&f.body, line_positions, boundaries);
-                    extract_from_stmts(&f.orelse, line_positions, boundaries);
+                    extract_from_stmts(&f.body, line_positions, boundaries, prefix);
+                    extract_from_stmts(&f.orelse, line_positions, boundaries, prefix);
                 }
                 Stmt::With(w) => {
-                    extract_from_stmts(&w.body, line_positions, boundaries);
+                    extract_from_stmts(&w.body, line_positions, boundaries, prefix);
                 }
                 Stmt::AsyncWith(w) => {
-                    extract_from_stmts(&w.body, line_positions, boundaries);
+                    extract_from_stmts(&w.body, line_positions, boundaries, prefix);
                 }
                 Stmt::Try(t) => {
-                    extract_from_stmts(&t.body, line_positions, boundaries);
+                    extract_from_stmts(&t.body, line_positions, boundaries, prefix);
                     for handler in &t.handlers {
                         let rustpython_parser::ast::ExceptHandler::ExceptHandler(e) = handler;
-                        extract_from_stmts(&e.body, line_positions, boundaries);
+                        extract_from_stmts(&e.body, line_positions, boundaries, prefix);
                     }
-                    extract_from_stmts(&t.orelse, line_positions, boundaries);
-                    extract_from_stmts(&t.finalbody, line_positions, boundaries);
+                    extract_from_stmts(&t.orelse, line_positions, boundaries, prefix);
+                    extract_from_stmts(&t.finalbody, line_positions, boundaries, prefix);
                 }
                 _ => {}
             }
@@ -1556,12 +2034,652 @@ fn extract_function_boundaries_batch(
 
                 let line_positions = LinePositions::from(source.as_str());
                 let mut boundaries = Vec::new();
-                extract_from_stmts(&ast, &line_positions, &mut boundaries);
+                extract_from_stmts(&ast, &line_positions, &mut boundaries, "");
 
                 (path, boundaries)
             })
             .collect()
     })
+}
+
+// ============================================================================
+// PARALLEL GIT COMMIT PROCESSING FOR BUG EXTRACTION (REPO-246)
+// Uses git2 + Rayon for 10x+ speedup over Python GitPython
+// ============================================================================
+
+/// Result struct for buggy function extraction.
+///
+/// Contains all metadata needed for ML training data.
+#[pyclass]
+#[derive(Clone)]
+pub struct PyBuggyFunction {
+    #[pyo3(get)]
+    pub qualified_name: String,
+    #[pyo3(get)]
+    pub file_path: String,
+    #[pyo3(get)]
+    pub commit_sha: String,
+    #[pyo3(get)]
+    pub commit_message: String,
+    #[pyo3(get)]
+    pub commit_date: String,
+}
+
+#[pymethods]
+impl PyBuggyFunction {
+    fn __repr__(&self) -> String {
+        format!(
+            "BuggyFunction(name='{}', file='{}', commit='{}')",
+            self.qualified_name,
+            self.file_path,
+            &self.commit_sha[..8.min(self.commit_sha.len())]
+        )
+    }
+
+    /// Convert to dictionary for easy Python interop
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("qualified_name", &self.qualified_name)?;
+        dict.set_item("file_path", &self.file_path)?;
+        dict.set_item("commit_sha", &self.commit_sha)?;
+        dict.set_item("commit_message", &self.commit_message)?;
+        dict.set_item("commit_date", &self.commit_date)?;
+        Ok(dict)
+    }
+}
+
+/// Internal struct for collecting buggy function data (thread-safe)
+#[derive(Clone)]
+struct BuggyFunctionData {
+    qualified_name: String,
+    file_path: String,
+    commit_sha: String,
+    commit_message: String,
+    commit_timestamp: i64,  // For sorting by earliest occurrence
+}
+
+/// Check if a commit message matches any bug-fix keywords (case-insensitive).
+#[inline]
+fn is_bug_fix_commit(message: &str, keywords: &[String]) -> bool {
+    let msg_lower = message.to_lowercase();
+    keywords.iter().any(|kw| msg_lower.contains(kw))
+}
+
+/// Parse diff text to extract changed line numbers.
+/// Reuses the logic from parse_diff_changed_lines but returns a HashSet.
+fn parse_diff_to_changed_lines(diff_text: &str) -> rustc_hash::FxHashSet<u32> {
+    let mut changed_lines: rustc_hash::FxHashSet<u32> = rustc_hash::FxHashSet::default();
+    let mut current_line: u32 = 0;
+
+    for line in diff_text.lines() {
+        if let Some(start) = parse_hunk_header(line) {
+            current_line = start;
+            continue;
+        }
+
+        if current_line > 0 {
+            let first_byte = line.as_bytes().first().copied().unwrap_or(0);
+            match first_byte {
+                b'+' if !line.starts_with("+++") => {
+                    changed_lines.insert(current_line);
+                    current_line += 1;
+                }
+                b'-' if !line.starts_with("---") => {
+                    changed_lines.insert(current_line);
+                }
+                b'\\' => {}
+                _ => {
+                    current_line += 1;
+                }
+            }
+        }
+    }
+
+    changed_lines
+}
+
+/// Extract function boundaries from source code.
+/// Returns Vec<(name, start_line, end_line)>.
+fn extract_boundaries_internal(source: &str) -> Vec<(String, u32, u32)> {
+    use rustpython_parser::ast::{Stmt, Suite};
+    use rustpython_parser::Parse;
+    use line_numbers::LinePositions;
+
+    let ast = match Suite::parse(source, "<string>") {
+        Ok(ast) => ast,
+        Err(_) => return vec![],
+    };
+
+    let line_positions = LinePositions::from(source);
+    let mut boundaries = Vec::new();
+
+    fn extract_from_stmts(
+        stmts: &[Stmt],
+        line_positions: &LinePositions,
+        boundaries: &mut Vec<(String, u32, u32)>,
+        prefix: &str,
+    ) {
+        for stmt in stmts {
+            match stmt {
+                Stmt::FunctionDef(f) => {
+                    let start = line_positions.from_offset(f.range.start().into()).as_usize() + 1;
+                    let end = line_positions.from_offset(f.range.end().into()).as_usize() + 1;
+                    let name = if prefix.is_empty() {
+                        f.name.to_string()
+                    } else {
+                        format!("{}.{}", prefix, f.name)
+                    };
+                    boundaries.push((name.clone(), start as u32, end as u32));
+                    extract_from_stmts(&f.body, line_positions, boundaries, &name);
+                }
+                Stmt::AsyncFunctionDef(f) => {
+                    let start = line_positions.from_offset(f.range.start().into()).as_usize() + 1;
+                    let end = line_positions.from_offset(f.range.end().into()).as_usize() + 1;
+                    let name = if prefix.is_empty() {
+                        f.name.to_string()
+                    } else {
+                        format!("{}.{}", prefix, f.name)
+                    };
+                    boundaries.push((name.clone(), start as u32, end as u32));
+                    extract_from_stmts(&f.body, line_positions, boundaries, &name);
+                }
+                Stmt::ClassDef(c) => {
+                    let class_prefix = if prefix.is_empty() {
+                        c.name.to_string()
+                    } else {
+                        format!("{}.{}", prefix, c.name)
+                    };
+                    extract_from_stmts(&c.body, line_positions, boundaries, &class_prefix);
+                }
+                Stmt::If(if_stmt) => {
+                    extract_from_stmts(&if_stmt.body, line_positions, boundaries, prefix);
+                    extract_from_stmts(&if_stmt.orelse, line_positions, boundaries, prefix);
+                }
+                Stmt::While(w) => {
+                    extract_from_stmts(&w.body, line_positions, boundaries, prefix);
+                    extract_from_stmts(&w.orelse, line_positions, boundaries, prefix);
+                }
+                Stmt::For(f) => {
+                    extract_from_stmts(&f.body, line_positions, boundaries, prefix);
+                    extract_from_stmts(&f.orelse, line_positions, boundaries, prefix);
+                }
+                Stmt::AsyncFor(f) => {
+                    extract_from_stmts(&f.body, line_positions, boundaries, prefix);
+                    extract_from_stmts(&f.orelse, line_positions, boundaries, prefix);
+                }
+                Stmt::With(w) => {
+                    extract_from_stmts(&w.body, line_positions, boundaries, prefix);
+                }
+                Stmt::AsyncWith(w) => {
+                    extract_from_stmts(&w.body, line_positions, boundaries, prefix);
+                }
+                Stmt::Try(t) => {
+                    extract_from_stmts(&t.body, line_positions, boundaries, prefix);
+                    for handler in &t.handlers {
+                        let rustpython_parser::ast::ExceptHandler::ExceptHandler(e) = handler;
+                        extract_from_stmts(&e.body, line_positions, boundaries, prefix);
+                    }
+                    extract_from_stmts(&t.orelse, line_positions, boundaries, prefix);
+                    extract_from_stmts(&t.finalbody, line_positions, boundaries, prefix);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    extract_from_stmts(&ast, &line_positions, &mut boundaries, "");
+    boundaries
+}
+
+/// Check if a function's line range overlaps with changed lines.
+#[inline]
+fn function_overlaps_changes(start: u32, end: u32, changed_lines: &rustc_hash::FxHashSet<u32>) -> bool {
+    (start..=end).any(|line| changed_lines.contains(&line))
+}
+
+/// Process a single commit to extract buggy functions.
+/// Returns a list of BuggyFunctionData for functions changed in this bug-fix commit.
+fn process_commit(
+    repo: &git2::Repository,
+    commit: &git2::Commit,
+    keywords: &[String],
+) -> Vec<BuggyFunctionData> {
+    let mut results = Vec::new();
+
+    // Get commit message
+    let message = commit.message().unwrap_or("").to_string();
+
+    // Check if this is a bug-fix commit
+    if !is_bug_fix_commit(&message, keywords) {
+        return results;
+    }
+
+    // Skip merge commits (more than 1 parent)
+    if commit.parent_count() > 1 {
+        return results;
+    }
+
+    // Get commit metadata
+    let commit_sha = commit.id().to_string();
+    let commit_timestamp = commit.time().seconds();
+    let commit_message = message.lines().next().unwrap_or("").to_string();
+
+    // Get parent commit (or use empty tree for initial commit)
+    let parent_tree = if commit.parent_count() > 0 {
+        commit.parent(0).ok().and_then(|p| p.tree().ok())
+    } else {
+        None
+    };
+
+    let current_tree = match commit.tree() {
+        Ok(tree) => tree,
+        Err(_) => return results,
+    };
+
+    // Get diff between parent and current commit
+    let diff = match repo.diff_tree_to_tree(
+        parent_tree.as_ref(),
+        Some(&current_tree),
+        None,
+    ) {
+        Ok(diff) => diff,
+        Err(_) => return results,
+    };
+
+    // Process each file in the diff
+    let _ = diff.foreach(
+        &mut |delta, _| {
+            // Only process Python files
+            let file_path = delta.new_file().path()
+                .or_else(|| delta.old_file().path())
+                .and_then(|p| p.to_str())
+                .map(|s| s.to_string());
+
+            if let Some(ref path) = file_path {
+                if !path.ends_with(".py") {
+                    return true;  // Skip non-Python files
+                }
+
+                // Skip test files and __pycache__
+                if path.to_lowercase().contains("test") || path.contains("__pycache__") {
+                    return true;
+                }
+            }
+
+            true
+        },
+        None,
+        None,
+        Some(&mut |delta, _hunk, line| {
+            // This callback processes individual diff lines
+            // But we'll use a different approach - get the full patch
+            let _ = (delta, line);
+            true
+        }),
+    );
+
+    // Alternative approach: iterate deltas and get patches
+    for delta_idx in 0..diff.deltas().len() {
+        let delta = match diff.get_delta(delta_idx) {
+            Some(d) => d,
+            None => continue,
+        };
+
+        // Only process Python files
+        let file_path = delta.new_file().path()
+            .or_else(|| delta.old_file().path())
+            .and_then(|p| p.to_str())
+            .map(|s| s.to_string());
+
+        let file_path = match file_path {
+            Some(p) if p.ends_with(".py") => p,
+            _ => continue,
+        };
+
+        // Skip test files and __pycache__
+        if file_path.to_lowercase().contains("test") || file_path.contains("__pycache__") {
+            continue;
+        }
+
+        // Get the patch for this file
+        let mut patch = match git2::Patch::from_diff(&diff, delta_idx) {
+            Ok(Some(p)) => p,
+            _ => continue,
+        };
+
+        // Convert patch to diff text
+        let diff_buf = match patch.to_buf() {
+            Ok(buf) => buf,
+            Err(_) => continue,
+        };
+
+        let diff_str = String::from_utf8_lossy(&diff_buf);
+        let changed_lines = parse_diff_to_changed_lines(&diff_str);
+
+        if changed_lines.is_empty() {
+            continue;
+        }
+
+        // Get the new file content to extract function boundaries
+        let new_blob_id = delta.new_file().id();
+        if new_blob_id.is_zero() {
+            // File was deleted
+            continue;
+        }
+
+        let blob = match repo.find_blob(new_blob_id) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+
+        // Try to read as UTF-8 text
+        let content = match std::str::from_utf8(blob.content()) {
+            Ok(s) => s,
+            Err(_) => continue,  // Binary file or encoding issue
+        };
+
+        // Extract function boundaries
+        let boundaries = extract_boundaries_internal(content);
+
+        // Calculate module name from file path
+        let module_name = file_path
+            .strip_suffix(".py")
+            .unwrap_or(&file_path)
+            .replace('/', ".");
+
+        // Find functions that overlap with changed lines
+        for (name, start, end) in boundaries {
+            if function_overlaps_changes(start, end, &changed_lines) {
+                let qualified_name = format!("{}.{}", module_name, name);
+                results.push(BuggyFunctionData {
+                    qualified_name,
+                    file_path: file_path.clone(),
+                    commit_sha: commit_sha.clone(),
+                    commit_message: commit_message.clone(),
+                    commit_timestamp,
+                });
+            }
+        }
+    }
+
+    results
+}
+
+/// Extract buggy functions from git history in parallel.
+///
+/// Iterates through commits, identifies bug-fix commits by keyword matching,
+/// parses diffs to find changed functions, and returns structured results.
+///
+/// # Arguments
+/// * `repo_path` - Path to the git repository
+/// * `keywords` - Bug-fix keywords to search in commit messages (case-insensitive)
+/// * `since_date` - Only consider commits after this date (YYYY-MM-DD format), or None for all
+/// * `max_commits` - Limit number of commits to process (for testing), or None for all
+///
+/// # Returns
+/// List of PyBuggyFunction objects, deduplicated by qualified_name (keeps earliest occurrence)
+///
+/// # Errors
+/// Returns PyErr if:
+/// - Repository cannot be opened
+/// - Invalid date format
+///
+/// # Example
+/// ```python
+/// from repotoire_fast import extract_buggy_functions_parallel
+///
+/// results = extract_buggy_functions_parallel(
+///     "/path/to/repo",
+///     ["fix", "bug", "error"],
+///     since_date="2024-01-01",
+///     max_commits=1000,
+/// )
+/// for func in results:
+///     print(f"{func.qualified_name} was buggy in {func.commit_sha[:8]}")
+/// ```
+#[pyfunction]
+#[pyo3(signature = (repo_path, keywords, since_date=None, max_commits=None))]
+fn extract_buggy_functions_parallel(
+    py: Python<'_>,
+    repo_path: &str,
+    keywords: Vec<String>,
+    since_date: Option<&str>,
+    max_commits: Option<usize>,
+) -> PyResult<Vec<PyBuggyFunction>> {
+    use std::sync::Mutex;
+
+    // Open the repository
+    let repo = git2::Repository::open(repo_path)
+        .map_err(|e| PyValueError::new_err(format!("Failed to open repository: {}", e)))?;
+
+    // Parse since_date to timestamp
+    let since_timestamp: Option<i64> = if let Some(date_str) = since_date {
+        // Parse YYYY-MM-DD format
+        let parts: Vec<&str> = date_str.split('-').collect();
+        if parts.len() != 3 {
+            return Err(PyValueError::new_err(format!(
+                "Invalid date format '{}', expected YYYY-MM-DD", date_str
+            )));
+        }
+
+        // Simple date parsing (assumes UTC midnight)
+        let year: i32 = parts[0].parse().map_err(|_|
+            PyValueError::new_err(format!("Invalid year in date: {}", date_str)))?;
+        let month: u32 = parts[1].parse().map_err(|_|
+            PyValueError::new_err(format!("Invalid month in date: {}", date_str)))?;
+        let day: u32 = parts[2].parse().map_err(|_|
+            PyValueError::new_err(format!("Invalid day in date: {}", date_str)))?;
+
+        // Approximate timestamp calculation (days since 1970)
+        // This is a simplified calculation - good enough for filtering
+        let days_since_epoch = (year as i64 - 1970) * 365
+            + ((month - 1) as i64) * 30
+            + (day as i64);
+        Some(days_since_epoch * 86400)
+    } else {
+        None
+    };
+
+    // Normalize keywords to lowercase
+    let keywords: Vec<String> = keywords.iter().map(|k| k.to_lowercase()).collect();
+
+    // Collect commit OIDs first (we need to do this in a single thread)
+    let mut revwalk = repo.revwalk()
+        .map_err(|e| PyValueError::new_err(format!("Failed to create revwalk: {}", e)))?;
+
+    revwalk.push_head()
+        .map_err(|e| PyValueError::new_err(format!("Failed to push HEAD: {}", e)))?;
+
+    // Set topological ordering (newest first)
+    revwalk.set_sorting(git2::Sort::TIME)
+        .map_err(|e| PyValueError::new_err(format!("Failed to set sorting: {}", e)))?;
+
+    let commit_oids: Vec<git2::Oid> = revwalk
+        .filter_map(|oid| oid.ok())
+        .take(max_commits.unwrap_or(usize::MAX))
+        .collect();
+
+    // Process commits in parallel, collecting results
+    let all_results: Mutex<Vec<BuggyFunctionData>> = Mutex::new(Vec::new());
+
+    // Detach Python thread state during parallel git processing
+    py.detach(|| {
+        commit_oids.par_iter().for_each(|&oid| {
+            // Each thread opens its own view of the repository
+            // git2::Repository is not thread-safe, so we open fresh for each thread
+            let thread_repo = match git2::Repository::open(repo_path) {
+                Ok(r) => r,
+                Err(_) => return,
+            };
+
+            let commit = match thread_repo.find_commit(oid) {
+                Ok(c) => c,
+                Err(_) => return,
+            };
+
+            // Filter by date if specified
+            if let Some(since_ts) = since_timestamp {
+                if commit.time().seconds() < since_ts {
+                    return;
+                }
+            }
+
+            // Process this commit
+            let commit_results = process_commit(&thread_repo, &commit, &keywords);
+
+            if !commit_results.is_empty() {
+                let mut results = all_results.lock().unwrap();
+                results.extend(commit_results);
+            }
+        });
+    });
+
+    // Deduplicate by qualified_name, keeping earliest occurrence (smallest timestamp)
+    let results = all_results.into_inner().unwrap();
+    let mut deduplicated: std::collections::HashMap<String, BuggyFunctionData> =
+        std::collections::HashMap::new();
+
+    for data in results {
+        deduplicated
+            .entry(data.qualified_name.clone())
+            .and_modify(|existing| {
+                // Keep the one with the smaller (earlier) timestamp
+                if data.commit_timestamp < existing.commit_timestamp {
+                    *existing = data.clone();
+                }
+            })
+            .or_insert(data);
+    }
+
+    // Convert to Python objects
+    let py_results: Vec<PyBuggyFunction> = deduplicated
+        .into_values()
+        .map(|data| {
+            // Format timestamp as ISO date
+            let commit_date = format_timestamp(data.commit_timestamp);
+
+            PyBuggyFunction {
+                qualified_name: data.qualified_name,
+                file_path: data.file_path,
+                commit_sha: data.commit_sha,
+                commit_message: data.commit_message,
+                commit_date,
+            }
+        })
+        .collect();
+
+    Ok(py_results)
+}
+
+/// Format a Unix timestamp as ISO date string (YYYY-MM-DD)
+fn format_timestamp(timestamp: i64) -> String {
+    // Simple timestamp to date conversion
+    let days = timestamp / 86400;
+    let mut year = 1970;
+    let mut remaining_days = days;
+
+    // Calculate year
+    loop {
+        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        if remaining_days < days_in_year {
+            break;
+        }
+        remaining_days -= days_in_year;
+        year += 1;
+    }
+
+    // Calculate month and day
+    let mut month = 1;
+    let month_days = if is_leap_year(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    for days_in_month in month_days {
+        if remaining_days < days_in_month {
+            break;
+        }
+        remaining_days -= days_in_month;
+        month += 1;
+    }
+
+    let day = remaining_days + 1;
+    format!("{:04}-{:02}-{:02}", year, month, day)
+}
+
+#[inline]
+fn is_leap_year(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+// ============================================================================
+// SATD (Self-Admitted Technical Debt) SCANNER (REPO-410)
+// Detects TODO, FIXME, HACK, XXX, KLUDGE, REFACTOR, TEMP, BUG patterns
+// ============================================================================
+
+/// Scan multiple files for SATD (Self-Admitted Technical Debt) comments in parallel.
+///
+/// This function scans code comments for patterns like TODO, FIXME, HACK, XXX,
+/// KLUDGE, REFACTOR, TEMP, and BUG. Uses rayon for parallel processing,
+/// achieving 50-100x speedup over Python regex.
+///
+/// # Arguments
+/// * `files` - List of (file_path, content) tuples to scan
+///
+/// # Returns
+/// List of tuples: (file_path, line_number, satd_type, comment_text, severity)
+/// where severity is one of: "high", "medium", "low"
+///
+/// # Severity Mapping
+/// - HIGH: HACK, KLUDGE, BUG (known bugs or workarounds)
+/// - MEDIUM: FIXME, XXX, REFACTOR (issues needing attention)
+/// - LOW: TODO, TEMP (reminders for future work)
+#[pyfunction]
+fn scan_satd_batch(
+    py: Python<'_>,
+    files: Vec<(String, String)>,
+) -> PyResult<Vec<(String, usize, String, String, String)>> {
+    // Detach Python thread state during parallel SATD scanning
+    let findings = py.detach(|| satd::scan_batch(files));
+
+    // Convert to Python-friendly tuples
+    Ok(findings
+        .into_iter()
+        .map(|f| (
+            f.file_path,
+            f.line_number,
+            f.satd_type.as_str().to_string(),
+            f.comment_text,
+            f.severity.as_str().to_string(),
+        ))
+        .collect())
+}
+
+/// Scan a single file for SATD comments.
+///
+/// # Arguments
+/// * `file_path` - Path to the file (for reporting in findings)
+/// * `content` - File content to scan
+///
+/// # Returns
+/// List of tuples: (line_number, satd_type, comment_text, severity)
+#[pyfunction]
+fn scan_satd_file(
+    file_path: String,
+    content: String,
+) -> PyResult<Vec<(usize, String, String, String)>> {
+    let findings = satd::scan_file(&file_path, &content);
+
+    Ok(findings
+        .into_iter()
+        .map(|f| (
+            f.line_number,
+            f.satd_type.as_str().to_string(),
+            f.comment_text,
+            f.severity.as_str().to_string(),
+        ))
+        .collect())
 }
 
 #[pymodule]
@@ -1603,6 +2721,18 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(graph_validate_calls, n)?)?;
     n.add_function(wrap_pyfunction!(graph_rank_call_candidates, n)?)?;
     n.add_function(wrap_pyfunction!(graph_batch_jaccard, n)?)?;
+    // Node2Vec random walks for graph embedding (REPO-247)
+    n.add_function(wrap_pyfunction!(node2vec_random_walks, n)?)?;
+    // Word2Vec skip-gram training (REPO-249)
+    n.add_class::<PyWord2VecConfig>()?;
+    n.add_function(wrap_pyfunction!(train_word2vec_skipgram, n)?)?;
+    n.add_function(wrap_pyfunction!(train_word2vec_skipgram_matrix, n)?)?;
+    // Word2Vec parallel training (Hogwild! SGD)
+    n.add_function(wrap_pyfunction!(train_word2vec_skipgram_parallel, n)?)?;
+    n.add_function(wrap_pyfunction!(train_word2vec_skipgram_parallel_matrix, n)?)?;
+    // Complete Node2Vec pipeline (REPO-250)
+    n.add_function(wrap_pyfunction!(graph_node2vec, n)?)?;
+    n.add_function(wrap_pyfunction!(graph_random_walks, n)?)?;
     // Duplicate code detection (REPO-166)
     n.add_class::<PyDuplicateBlock>()?;
     n.add_function(wrap_pyfunction!(find_duplicates, n)?)?;
@@ -1617,6 +2747,15 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     // Feature extraction for bug prediction (REPO-248)
     n.add_function(wrap_pyfunction!(combine_features_batch, n)?)?;
     n.add_function(wrap_pyfunction!(normalize_features_batch, n)?)?;
+    // Function boundary detection for ML training data (REPO-245)
+    n.add_function(wrap_pyfunction!(extract_function_boundaries, n)?)?;
+    n.add_function(wrap_pyfunction!(extract_function_boundaries_batch, n)?)?;
+    // Parallel git commit processing for bug extraction (REPO-246)
+    n.add_class::<PyBuggyFunction>()?;
+    n.add_function(wrap_pyfunction!(extract_buggy_functions_parallel, n)?)?;
+    // SATD (Self-Admitted Technical Debt) scanning (REPO-410)
+    n.add_function(wrap_pyfunction!(scan_satd_batch, n)?)?;
+    n.add_function(wrap_pyfunction!(scan_satd_file, n)?)?;
     Ok(())
 }
 

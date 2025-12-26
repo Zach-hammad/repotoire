@@ -44,86 +44,47 @@ This enables detection of complex issues like circular dependencies, architectur
 
 ## Quick Start
 
+Get started in 60 seconds:
+
 ```bash
-# 1. Install Repotoire
-pip install -e .
+# 1. Install
+pip install repotoire
 
-# 2. Start Neo4j (required)
-docker run -d \
-  --name repotoire-neo4j \
-  -p 7687:7687 -p 7474:7474 \
-  -e NEO4J_AUTH=neo4j/your-password \
-  neo4j:latest
+# 2. Set your API key (get one at repotoire.com/settings/api-keys)
+export REPOTOIRE_API_KEY=ak_your_key_here
 
-# 3. Set your password
-export REPOTOIRE_NEO4J_PASSWORD=your-password
-
-# 4. Ingest your codebase
-repotoire ingest /path/to/your/repo
-
-# 5. Analyze and get health report
-repotoire analyze /path/to/your/repo
+# 3. Analyze your code
+repotoire analyze .
 ```
+
+That's it! View your results at [repotoire.com/dashboard](https://repotoire.com/dashboard).
 
 ## Installation
 
 ### Requirements
 - Python 3.10 or higher
-- Neo4j 5.0+ (via Docker or local installation)
 - 4GB+ RAM recommended
 
-### Install from Source
+### Install from PyPI
 
 ```bash
-# Clone the repository
+pip install repotoire
+```
+
+### Install from Source (for development)
+
+```bash
 git clone https://github.com/repotoire/repotoire.git
 cd repotoire
-
-# Install with all dependencies
 pip install -e ".[dev,config]"
-
-# Or install with all optional features
-pip install -e ".[dev,config,gds,all-languages]"
 ```
-
-### Neo4j Setup
-
-#### Option 1: Docker (Recommended)
-
-```bash
-docker run -d \
-  --name repotoire-neo4j \
-  -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/your-secure-password \
-  -e NEO4J_PLUGINS='["graph-data-science", "apoc"]' \
-  neo4j:latest
-```
-
-Access Neo4j Browser at http://localhost:7474
-
-#### Option 2: Local Installation
-
-Download from [neo4j.com/download](https://neo4j.com/download/) and follow installation instructions for your OS.
 
 ### Configuration
 
-Create a `.repotoirerc` file in your project or home directory:
+Set your API key:
 
-```yaml
-neo4j:
-  uri: bolt://localhost:7687
-  user: neo4j
-  password: ${NEO4J_PASSWORD}  # Use environment variable
-
-ingestion:
-  patterns:
-    - "**/*.py"
-  max_file_size_mb: 10
-  batch_size: 100
-
-logging:
-  level: INFO
-  format: human
+```bash
+export REPOTOIRE_API_KEY=ak_your_key_here
 ```
 
 See [CONFIG.md](CONFIG.md) for complete configuration options.
@@ -382,14 +343,6 @@ on: [push, pull_request]
 jobs:
   repotoire-analysis:
     runs-on: ubuntu-latest
-    services:
-      neo4j:
-        image: neo4j:latest
-        ports:
-          - 7687:7687
-        env:
-          NEO4J_AUTH: neo4j/test
-
     steps:
       - uses: actions/checkout@v3
 
@@ -401,30 +354,16 @@ jobs:
       - name: Install Repotoire
         run: pip install repotoire
 
-      - name: Validate configuration
-        run: repotoire validate
+      - name: Analyze codebase
+        run: repotoire analyze . -o report.json
         env:
-          REPOTOIRE_NEO4J_PASSWORD: test
+          REPOTOIRE_API_KEY: ${{ secrets.REPOTOIRE_API_KEY }}
 
-      - name: Ingest codebase
-        run: repotoire ingest . --quiet
-        env:
-          REPOTOIRE_NEO4J_PASSWORD: test
-
-      - name: Analyze and generate report
-        run: |
-          repotoire analyze . -o report.html --format html
-          repotoire analyze . -o report.json --format json
-        env:
-          REPOTOIRE_NEO4J_PASSWORD: test
-
-      - name: Upload reports
+      - name: Upload report
         uses: actions/upload-artifact@v3
         with:
-          name: repotoire-reports
-          path: |
-            report.html
-            report.json
+          name: repotoire-report
+          path: report.json
 
       - name: Check health score
         run: |
@@ -440,25 +379,14 @@ jobs:
 ```yaml
 repotoire_analysis:
   image: python:3.10
-  services:
-    - name: neo4j:latest
-      alias: neo4j
-  variables:
-    NEO4J_AUTH: neo4j/test
-    REPOTOIRE_NEO4J_URI: bolt://neo4j:7687
-    REPOTOIRE_NEO4J_PASSWORD: test
   script:
     - pip install repotoire
-    - repotoire validate
-    - repotoire ingest . --quiet
     - repotoire analyze . -o report.json
-    - repotoire analyze . -o report.html --format html
+  variables:
+    REPOTOIRE_API_KEY: $REPOTOIRE_API_KEY
   artifacts:
     paths:
-      - report.html
       - report.json
-    reports:
-      dotenv: metrics.env
 ```
 
 ### Pre-commit Hook
@@ -485,105 +413,49 @@ echo "✅ Code health check passed (score: $SCORE)"
 
 ## Troubleshooting
 
-### Neo4j Connection Issues
+### API Key Issues
 
-**Problem**: `Cannot connect to Neo4j`
-
-**Solutions**:
-1. Verify Neo4j is running: `docker ps | grep neo4j`
-2. Check the port: `7687` for Bolt, not `7474` (HTTP)
-3. Test connection: `repotoire validate`
-4. Check firewall: `telnet localhost 7687`
-5. Verify credentials: Check `$REPOTOIRE_NEO4J_PASSWORD`
-
-**Problem**: `Authentication failed`
+**Problem**: `Invalid API key`
 
 **Solutions**:
-1. Verify password is correct
-2. Check environment variable: `echo $REPOTOIRE_NEO4J_PASSWORD`
-3. Reset Neo4j password if needed
-4. Use `--neo4j-password` flag to override
+1. Verify your API key: `echo $REPOTOIRE_API_KEY`
+2. Check the key starts with `ak_`
+3. Get a new key at [repotoire.com/settings/api-keys](https://repotoire.com/settings/api-keys)
 
-### Ingestion Issues
+### Analysis Issues
 
 **Problem**: `No files found to process`
 
 **Solutions**:
-1. Check your patterns: `repotoire ingest . -p "**/*.py"`
+1. Check your patterns: `repotoire analyze . -p "**/*.py"`
 2. Verify the path exists: `ls /path/to/repo`
-3. Check file permissions: `ls -la /path/to/repo`
-4. Look for skipped files in logs
+3. Check file permissions
 
 **Problem**: `Files are being skipped`
 
 **Solutions**:
 1. Check file size: Default limit is 10MB
 2. Symlinks: Disabled by default, use `--follow-symlinks`
-3. Check logs for skip reasons
-4. Adjust limits: `--max-file-size 50`
-
-### Performance Issues
-
-**Problem**: Ingestion is slow
-
-**Solutions**:
-1. Increase batch size: Set `batch_size: 500` in config
-2. Use `--quiet` flag to disable progress bars
-3. Add more RAM to Neo4j
-4. Filter patterns to exclude test files
-
-**Problem**: Analysis takes too long
-
-**Solutions**:
-1. Use incremental analysis (future feature)
-2. Analyze specific subsystems only
-3. Increase Neo4j heap size
-4. Consider using Neo4j Enterprise with GDS
+3. Adjust limits: `--max-file-size 50`
 
 ### Configuration Issues
-
-**Problem**: Config file not found
-
-**Solutions**:
-1. Check file name: `.repotoirerc` or `repotoire.toml`
-2. Check location: Current dir, parents, or home dir
-3. Use `--config` flag for explicit path
-4. Generate template: `repotoire config --generate yaml`
 
 **Problem**: Environment variables not working
 
 **Solutions**:
-1. Verify `REPOTOIRE_` prefix: `echo $REPOTOIRE_NEO4J_URI`
-2. Export variables: `export REPOTOIRE_NEO4J_URI=...`
-3. Check variable names in [CONFIG.md](CONFIG.md)
-4. Restart shell after setting
+1. Verify `REPOTOIRE_` prefix: `echo $REPOTOIRE_API_KEY`
+2. Export variables: `export REPOTOIRE_API_KEY=...`
+3. Restart shell after setting
 
 ## FAQ
 
 ### General
 
 **Q: What languages does Repotoire support?**
-A: Currently Python with AST parsing. Multi-language support (TypeScript, Java, Go) is planned using tree-sitter.
+A: Currently Python with AST parsing. Multi-language support (TypeScript, Java, Go) is planned.
 
-**Q: Do I need Neo4j Enterprise?**
-A: No, Community Edition works fine. Enterprise provides GDS for advanced graph algorithms.
-
-**Q: Can I run Repotoire without Neo4j?**
-A: No, Neo4j is required for the knowledge graph. We recommend Docker for easy setup.
-
-**Q: How much disk space does Repotoire need?**
-A: Depends on codebase size. Roughly 10-50MB per 1000 files in Neo4j. A 100k LOC project uses ~500MB.
-
-### Configuration
-
-**Q: How do I keep my Neo4j password secure?**
-A: Use environment variables: `password: ${NEO4J_PASSWORD}` in config, then `export NEO4J_PASSWORD=...`
-
-**Q: Can I use multiple config files?**
-A: Yes, Repotoire merges configs from multiple locations (project, parent dirs, home).
-
-**Q: What's the difference between .repotoirerc and repotoire.toml?**
-A: `.repotoirerc` supports YAML or JSON, `repotoire.toml` is TOML format. Choose your preference.
+**Q: Is there a free tier?**
+A: Yes! Get started free at [repotoire.com](https://repotoire.com).
 
 ### Analysis
 
@@ -601,36 +473,19 @@ A: Yes, use negative patterns: `patterns: ["**/*.py", "!**/tests/**"]`
 
 ### Reports
 
-**Q: Can I customize the HTML report template?**
-A: Custom templates are planned. Current template is embedded in `repotoire/reporters/html_reporter.py`.
-
 **Q: How do I share reports with my team?**
-A: Generate HTML report and upload to GitHub Pages, S3, or your web server. Reports are static files.
+A: View reports in your [dashboard](https://repotoire.com/dashboard) or generate HTML/JSON exports.
 
 **Q: Can I get alerts for health score drops?**
-A: Not built-in yet. Use CI/CD integration to fail builds below a threshold.
+A: Yes, configure alerts in your dashboard settings.
 
 ### Performance
 
 **Q: How long does analysis take?**
-A: Depends on codebase size. Roughly 1-5 seconds per 100 files for ingestion, <1 second for analysis.
-
-**Q: Can I analyze incrementally?**
-A: Not yet, but planned. Currently, re-run full ingestion when code changes significantly.
+A: Typically under 60 seconds for most projects.
 
 **Q: Will Repotoire slow down my CI/CD?**
-A: Typical run: 30-60 seconds for medium projects (5k-10k LOC). Use caching and incremental analysis (planned).
-
-### Troubleshooting
-
-**Q: Why am I getting "Security Error" messages?**
-A: Repotoire validates paths for security. Ensure files are within repository boundaries and not symlinks (unless enabled).
-
-**Q: Import errors after installation?**
-A: Install all dependencies: `pip install -e ".[dev,config]"` or check `requirements.txt`.
-
-**Q: Neo4j runs out of memory?**
-A: Increase heap size: Add `-e NEO4J_server_memory_heap_max__size=4G` to Docker command.
+A: Typical run: 30-60 seconds for medium projects (5k-10k LOC).
 
 ## Architecture
 

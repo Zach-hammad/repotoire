@@ -26,53 +26,15 @@ pip install -e ".[dev,gds,all-languages,config]"
 python -m spacy download en_core_web_lg
 ```
 
-### Neo4j Setup
+### Cloud Setup
 
-Neo4j is required for the graph database. Start with Docker:
-
-```bash
-docker run \
-    --name repotoire-neo4j \
-    -p 7474:7474 -p 7688:7687 \
-    -d \
-    -e NEO4J_AUTH=neo4j/your-password \
-    -e NEO4J_PLUGINS='["graph-data-science", "apoc"]' \
-    neo4j:latest
-```
-
-**Note**: Port 7688 is used on the host to avoid conflicts with standard Neo4j installations.
-
-Configure credentials:
-```bash
-export REPOTOIRE_NEO4J_URI=bolt://localhost:7688
-export REPOTOIRE_NEO4J_PASSWORD=your-password
-```
-
-### FalkorDB Setup (Alternative to Neo4j)
-
-FalkorDB is a lightweight, Redis-based graph database that can be used instead of Neo4j for development, testing, or smaller deployments.
+Set your API key and start developing:
 
 ```bash
-docker run \
-    --name repotoire-falkordb \
-    -p 6379:6379 \
-    -d \
-    falkordb/falkordb:latest
+export REPOTOIRE_API_KEY=your_dev_key  # Get from repotoire.com/settings/api-keys
+repotoire ingest .
+repotoire analyze .
 ```
-
-Configure for FalkorDB:
-```bash
-export REPOTOIRE_NEO4J_URI=bolt://localhost:6379
-export REPOTOIRE_NEO4J_PASSWORD=  # Empty for no auth
-```
-
-**Key differences from Neo4j:**
-- No `datetime()` or `duration()` functions (uses UNIX timestamps)
-- No GDS algorithms (uses Rust-based alternatives)
-- No APOC procedures
-- Lower memory footprint, faster startup
-
-See [docs/FALKORDB.md](docs/FALKORDB.md) for complete documentation.
 
 ### TimescaleDB Setup (Optional)
 

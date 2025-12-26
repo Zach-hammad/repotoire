@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { Code2, Zap, Shield, GitBranch } from "lucide-react"
 
 export function SocialProof() {
   const sectionRef = useRef<HTMLElement>(null)
@@ -20,46 +21,47 @@ export function SocialProof() {
   return (
     <section ref={sectionRef} className="py-24 px-4 sm:px-6 lg:px-8 border-t border-border">
       <div className="max-w-4xl mx-auto">
-        <div className={`card-elevated rounded-xl p-8 md:p-10 mb-12 opacity-0 ${isVisible ? "animate-fade-up" : ""}`}>
-          <div className="flex flex-col md:flex-row gap-6 items-start">
-            <div className="flex-shrink-0">
-              <div className="w-14 h-14 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                <span className="text-lg font-display font-bold text-primary">JK</span>
-              </div>
-            </div>
-            <div>
-              <blockquote className="text-lg md:text-xl text-foreground mb-4 leading-relaxed">
-                "We had circular dependencies silently breaking hot reload for 2 years. Repotoire found 47 of them in
-                our monorepo.
-                <span className="text-primary font-medium"> Fixed them all in one afternoon</span> with the AI
-                auto-fix."
-              </blockquote>
-              <div className="flex items-center gap-3">
-                <div>
-                  <div className="font-display font-medium text-foreground">James Kim</div>
-                  <div className="text-sm text-muted-foreground">Staff Engineer at Lattice</div>
-                </div>
-              </div>
-            </div>
-          </div>
+        {/* Product Highlights */}
+        <div className={`text-center mb-12 opacity-0 ${isVisible ? "animate-fade-up" : ""}`}>
+          <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-4">
+            Built for Real Codebases
+          </h2>
+          <p className="text-muted-foreground max-w-2xl mx-auto">
+            Graph-powered analysis that catches architectural issues linters miss
+          </p>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
           <div className={`text-center opacity-0 ${isVisible ? "animate-fade-up delay-200" : ""}`}>
-            <div className="text-2xl md:text-3xl font-display font-bold text-foreground mb-1">47</div>
-            <div className="text-xs md:text-sm text-muted-foreground">cycles fixed in one repo</div>
+            <div className="w-12 h-12 mx-auto mb-3 rounded-lg bg-primary/10 flex items-center justify-center">
+              <Code2 className="w-6 h-6 text-primary" />
+            </div>
+            <div className="text-sm font-display font-medium text-foreground mb-1">Python Support</div>
+            <div className="text-xs text-muted-foreground">AST-based analysis</div>
           </div>
 
-          <div
-            className={`text-center border-x border-border opacity-0 ${isVisible ? "animate-fade-up delay-300" : ""}`}
-          >
-            <div className="text-2xl md:text-3xl font-display font-bold text-foreground mb-1">8s</div>
-            <div className="text-xs md:text-sm text-muted-foreground">re-analysis (was 12 min)</div>
+          <div className={`text-center opacity-0 ${isVisible ? "animate-fade-up delay-300" : ""}`}>
+            <div className="w-12 h-12 mx-auto mb-3 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+              <GitBranch className="w-6 h-6 text-emerald-500" />
+            </div>
+            <div className="text-sm font-display font-medium text-foreground mb-1">Graph Database</div>
+            <div className="text-xs text-muted-foreground">Neo4j knowledge graph</div>
           </div>
 
           <div className={`text-center opacity-0 ${isVisible ? "animate-fade-up delay-400" : ""}`}>
-            <div className="text-2xl md:text-3xl font-display font-bold text-foreground mb-1">18%</div>
-            <div className="text-xs md:text-sm text-muted-foreground">bundle size reduction</div>
+            <div className="w-12 h-12 mx-auto mb-3 rounded-lg bg-amber-500/10 flex items-center justify-center">
+              <Zap className="w-6 h-6 text-amber-500" />
+            </div>
+            <div className="text-sm font-display font-medium text-foreground mb-1">8 Integrated Tools</div>
+            <div className="text-xs text-muted-foreground">Ruff, Mypy, Bandit...</div>
+          </div>
+
+          <div className={`text-center opacity-0 ${isVisible ? "animate-fade-up delay-500" : ""}`}>
+            <div className="w-12 h-12 mx-auto mb-3 rounded-lg bg-blue-500/10 flex items-center justify-center">
+              <Shield className="w-6 h-6 text-blue-500" />
+            </div>
+            <div className="text-sm font-display font-medium text-foreground mb-1">AI-Powered Fixes</div>
+            <div className="text-xs text-muted-foreground">GPT-4o + RAG</div>
           </div>
         </div>
       </div>
