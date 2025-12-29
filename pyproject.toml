@@ -66,6 +66,8 @@ dependencies = [
     "uv-secure>=0.15.0",  # Fast uv.lock vulnerability scanning
     # ML dependencies
     "datasets>=2.14.0",  # Required for sentence-transformers fine-tuning
+    "sentence-transformers>=2.2.0",  # Local embedding models + contrastive learning
+    "accelerate>=0.26.0",  # Required for PyTorch Trainer
 ]
 
 [project.optional-dependencies]
@@ -118,7 +120,7 @@ security = [
 ]
 
 local-embeddings = [
-    "sentence-transformers>=2.2.0",  # Local embedding models (free, no API key required)
+    # sentence-transformers now in core deps
 ]
 
 observability = [
