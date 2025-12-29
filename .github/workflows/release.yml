@@ -182,7 +182,7 @@ jobs:
     name: Publish to PyPI
     needs: [build-wheels, build-sdist]
     runs-on: ubuntu-latest
-    if: github.event.inputs.dry_run != 'true'
+    if: github.event_name == 'push' || github.event.inputs.dry_run != 'true'
     environment:
       name: pypi
       url: https://pypi.org/p/repotoire
@@ -214,7 +214,7 @@ jobs:
     name: Create GitHub Release
     needs: [bump-version, build-wheels, build-sdist]
     runs-on: ubuntu-latest
-    if: github.event.inputs.dry_run != 'true'
+    if: github.event_name == 'push' || github.event.inputs.dry_run != 'true'
     permissions:
       contents: write
 
