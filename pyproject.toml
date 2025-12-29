@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "repotoire"
-version = "0.1.0"
+version = "0.1.1"
 description = "Graph-Powered Code Health Platform"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -236,7 +236,7 @@ dev = [
 
 # Bump My Version configuration for semantic versioning
 [tool.bumpversion]
-current_version = "0.1.0"
+current_version = "0.1.1"
 commit = true
 commit_args = "--no-verify"
 tag = true

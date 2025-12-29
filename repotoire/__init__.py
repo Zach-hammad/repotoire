@@ -5,7 +5,7 @@ Analyzes codebases using knowledge graphs to detect code smells,
 architectural issues, and technical debt.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from repotoire.pipeline import IngestionPipeline
 from repotoire.graph import Neo4jClient
