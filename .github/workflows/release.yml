@@ -103,11 +103,8 @@ jobs:
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             manylinux: auto
-          # macOS x86_64 (Intel) - using macos-13 (deprecated but still available)
-          # Note: Users can build from source if this stops working
-          - os: macos-13
-            target: x86_64-apple-darwin
-            manylinux: auto
+          # macOS x86_64 (Intel) - DISABLED: macos-13 is retired
+          # Intel Mac users can install from source distribution (sdist)
           # macOS ARM64 (Apple Silicon)
           - os: macos-latest
             target: aarch64-apple-darwin
@@ -136,9 +133,11 @@ jobs:
           args: --release --out dist --find-interpreter
           manylinux: ${{ matrix.manylinux }}
           before-script-linux: |
-            # Install Python 3.11 in manylinux container for cross-compilation
+            # Install OpenSSL dev headers for openssl-sys crate (required by git2)
             if command -v yum &> /dev/null; then
-              yum install -y python3.11 python3.11-devel || true
+              yum install -y openssl-devel perl-IPC-Cmd || true
+            elif command -v apk &> /dev/null; then
+              apk add openssl-dev || true
             fi
 
       - name: Store wheels
