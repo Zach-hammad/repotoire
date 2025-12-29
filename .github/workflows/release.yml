@@ -103,8 +103,9 @@ jobs:
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             manylinux: auto
-          # macOS x86_64 (Intel)
-          - os: macos-15-large
+          # macOS x86_64 (Intel) - using macos-13 (deprecated but still available)
+          # Note: Users can build from source if this stops working
+          - os: macos-13
             target: x86_64-apple-darwin
             manylinux: auto
           # macOS ARM64 (Apple Silicon)
@@ -132,8 +133,13 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist
+          args: --release --out dist --find-interpreter
           manylinux: ${{ matrix.manylinux }}
+          before-script-linux: |
+            # Install Python 3.11 in manylinux container for cross-compilation
+            if command -v yum &> /dev/null; then
+              yum install -y python3.11 python3.11-devel || true
+            fi
 
       - name: Store wheels
         uses: actions/upload-artifact@v4
