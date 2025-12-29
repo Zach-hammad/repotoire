@@ -182,7 +182,7 @@ jobs:
     name: Publish to PyPI
     needs: [build-wheels, build-sdist]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event.inputs.dry_run != 'true'
+    if: always() && !cancelled() && !failure() && (github.event_name == 'push' || github.event.inputs.dry_run != 'true')
     environment:
       name: pypi
       url: https://pypi.org/p/repotoire
@@ -212,9 +212,9 @@ jobs:
   # Create GitHub Release
   github-release:
     name: Create GitHub Release
-    needs: [bump-version, build-wheels, build-sdist]
+    needs: [build-wheels, build-sdist]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event.inputs.dry_run != 'true'
+    if: always() && !cancelled() && !failure() && (github.event_name == 'push' || github.event.inputs.dry_run != 'true')
     permissions:
       contents: write
 
@@ -222,7 +222,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.bump-version.outputs.new_tag || github.ref }}
+          ref: ${{ github.ref }}
           fetch-depth: 0
 
       - name: Download all wheels
@@ -246,7 +246,7 @@ jobs:
 
       - name: Generate changelog for release
         run: |
-          TAG=${{ needs.bump-version.outputs.new_tag || github.ref_name }}
+          TAG=${{ github.ref_name }}
           PREV_TAG=$(git describe --tags --abbrev=0 $TAG^ 2>/dev/null || echo "")
 
           if [ -n "$PREV_TAG" ]; then
@@ -258,7 +258,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.bump-version.outputs.new_tag || github.ref_name }}
+          tag_name: ${{ github.ref_name }}
           body_path: RELEASE_NOTES.md
           files: dist/*
           generate_release_notes: false
