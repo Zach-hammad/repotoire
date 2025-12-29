@@ -99,13 +99,17 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             manylinux: auto
-          # Linux ARM64 - DISABLED: cross-compilation has OpenSSL linking issues
-          # ARM64 Linux users can install from source distribution (sdist)
-          # macOS x86_64 (Intel) - DISABLED: macos-13 is retired
-          # Intel Mac users can install from source distribution (sdist)
+          # Linux ARM64 - Native ARM runner (no cross-compilation issues!)
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            manylinux: auto
           # macOS ARM64 (Apple Silicon)
           - os: macos-latest
             target: aarch64-apple-darwin
+            manylinux: auto
+          # macOS x86_64 (Intel) - macos-15-intel (available until 2027)
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
             manylinux: auto
           # Windows x86_64
           - os: windows-latest
@@ -130,10 +134,13 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter
           manylinux: ${{ matrix.manylinux }}
+          sccache: true
           before-script-linux: |
             # Install OpenSSL dev headers for openssl-sys crate (required by git2)
             if command -v yum &> /dev/null; then
               yum install -y openssl-devel perl-IPC-Cmd || true
+            elif command -v apt-get &> /dev/null; then
+              apt-get update && apt-get install -y libssl-dev pkg-config || true
             elif command -v apk &> /dev/null; then
               apk add openssl-dev || true
             fi
