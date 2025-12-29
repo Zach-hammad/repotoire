@@ -183,8 +183,8 @@ manifest-path = "repotoire-fast/Cargo.toml"
 python-source = "."
 # The Rust module name
 module-name = "repotoire_fast"
-# Include Python files
-include = ["repotoire/**/*.py", "repotoire/**/*.html", "repotoire/**/*.jinja2"]
+# Include Python files and LICENSE
+include = ["repotoire/**/*.py", "repotoire/**/*.html", "repotoire/**/*.jinja2", "LICENSE"]
 # Build features
 features = ["pyo3/extension-module"]
 
