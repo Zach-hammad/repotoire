@@ -1465,6 +1465,19 @@ wheels = [
 ]
 
 [[package]]
+name = "falkordb"
+version = "1.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+    { name = "redis" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/14/0e/95ef4ac84130b7d2bb87b357648cdfe9414abea10e066aca4737be21375a/falkordb-1.4.0.tar.gz", hash = "sha256:89b6bd02f0e0ce214852cc07c0be3fa44bb3a08daf39d343f790c7a92b50636f", size = 30344, upload-time = "2025-12-24T15:43:47.671Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/ef/b03cd82bc93479745ca0b58b4cee176cda0cf6ba353c24613ec0a8143093/falkordb-1.4.0-py3-none-any.whl", hash = "sha256:3ede67ebf096013e93f46f3365e9c4a68a5bc3e0116eec88d22540422d335601", size = 36197, upload-time = "2025-12-24T15:43:46.488Z" },
+]
+
+[[package]]
 name = "fastapi"
 version = "0.122.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4863,7 +4876,7 @@ wheels = [
 
 [[package]]
 name = "repotoire"
-version = "0.1.0"
+version = "0.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },
@@ -4878,13 +4891,13 @@ dependencies = [
     { name = "datasets" },
     { name = "detect-secrets" },
     { name = "email-validator" },
+    { name = "falkordb" },
     { name = "fastapi" },
     { name = "gitpython" },
     { name = "httpx" },
     { name = "jinja2" },
     { name = "keyring" },
     { name = "mcp" },
-    { name = "neo4j" },
     { name = "neo4j-graphrag" },
     { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "networkx", version = "3.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -5012,6 +5025,7 @@ requires-dist = [
     { name = "e2b-code-interpreter", marker = "extra == 'sandbox'", specifier = ">=1.0.0" },
     { name = "email-validator", specifier = ">=2.0.0" },
     { name = "factory-boy", marker = "extra == 'dev'", specifier = ">=3.3.0" },
+    { name = "falkordb", specifier = ">=1.0.0" },
     { name = "fastapi", specifier = ">=0.121.3" },
     { name = "gensim", marker = "extra == 'ml'", specifier = ">=4.3.0" },
     { name = "gitpython", specifier = ">=3.1.40" },
@@ -5026,7 +5040,6 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.22.0" },
     { name = "mypy", marker = "extra == 'detectors'", specifier = ">=1.7.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.7.0" },
-    { name = "neo4j", specifier = ">=5.14.0" },
     { name = "neo4j-graphrag", specifier = ">=1.10.1" },
     { name = "networkx", specifier = ">=3.2.0" },
     { name = "openai", specifier = ">=1.0.0" },

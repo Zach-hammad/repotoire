@@ -354,10 +354,11 @@ def create_cloud_client(
     show_indicator: bool = True,
     command: Optional[str] = None,
 ) -> DatabaseClient:
-    """Create a cloud-connected FalkorDB client.
+    """Create a cloud proxy client.
 
-    Validates the API key against the Repotoire Cloud API and returns
-    a FalkorDB client configured for the user's organization.
+    Returns a client that proxies all graph operations through the
+    Repotoire API. This allows the CLI to work without direct database
+    connectivity.
 
     Args:
         api_key: Repotoire API key (starts with 'ak_' or 'rp_')
@@ -365,13 +366,13 @@ def create_cloud_client(
         command: CLI command being executed (for audit logging)
 
     Returns:
-        FalkorDBClient configured for cloud mode
+        CloudProxyClient that proxies operations through the API
 
     Raises:
         CloudAuthenticationError: If API key is invalid or expired
         CloudConnectionError: If cannot connect to Repotoire Cloud
     """
-    from repotoire.graph.falkordb_client import FalkorDBClient
+    from repotoire.graph.cloud_client import CloudProxyClient
 
     # Check cache first
     auth_info = _get_cached_auth(api_key)
@@ -391,19 +392,8 @@ def create_cloud_client(
     # Log connection to Neon (fire-and-forget, non-blocking)
     _log_cloud_connection(api_key, auth_info, cached=used_cache, command=command)
 
-    # Create FalkorDB client with cloud config
-    db_config = auth_info.db_config
-
-    return FalkorDBClient(
-        host=db_config["host"],
-        port=db_config.get("port", 6379),
-        graph_name=db_config["graph"],
-        # REPO-395: Use derived password from API response
-        # The password is derived from the API key using HMAC-SHA256,
-        # so users never see the master FalkorDB password
-        password=db_config.get("password"),
-        ssl=db_config.get("ssl", False),
-    )
+    # Create cloud proxy client
+    return CloudProxyClient(api_key=api_key)
 
 
 def _validate_api_key(api_key: str) -> CloudAuthInfo:

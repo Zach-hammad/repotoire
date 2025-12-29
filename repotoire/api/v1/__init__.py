@@ -19,6 +19,7 @@ from repotoire.api.v1.routes import (
     findings,
     fixes,
     github,
+    graph,
     historical,
     marketplace,
     notifications,
@@ -223,6 +224,7 @@ v1_app.include_router(customer_webhooks.router)
 v1_app.include_router(findings.router)
 v1_app.include_router(fixes.router)
 v1_app.include_router(github.router)
+v1_app.include_router(graph.router)
 v1_app.include_router(historical.router)
 v1_app.include_router(marketplace.router)
 v1_app.include_router(notifications.router)
