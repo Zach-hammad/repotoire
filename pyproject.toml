@@ -109,7 +109,8 @@ graphiti = [
 ]
 
 security = [
-    "pip-audit>=2.6.0",  # Dependency vulnerability scanning
+    "uv-secure>=0.15.0",  # Fast uv.lock vulnerability scanning (primary)
+    "pip-audit>=2.6.0",  # Dependency vulnerability scanning (fallback)
     "cyclonedx-bom>=4.0.0",  # SBOM generation (CycloneDX format)
 ]
 

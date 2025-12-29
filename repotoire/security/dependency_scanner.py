@@ -1,16 +1,18 @@
-"""Dependency vulnerability scanner using pip-audit with Neo4j enrichment.
+"""Dependency vulnerability scanner using uv-secure/pip-audit with Neo4j enrichment.
 
-This hybrid detector combines pip-audit's vulnerability analysis with Neo4j graph data
+This hybrid detector combines vulnerability analysis with Neo4j graph data
 to provide dependency vulnerability detection with rich context.
 
 Architecture:
-    1. Run pip-audit on repository dependencies
-    2. Parse pip-audit JSON output
-    3. Enrich findings with Neo4j graph data (usage patterns, import relationships)
-    4. Generate detailed vulnerability findings with context
+    1. Try uv-secure first (for uv.lock projects - fastest)
+    2. Fall back to pip-audit (for requirements.txt projects)
+    3. Fall back to safety (if neither is available)
+    4. Parse JSON output and enrich with Neo4j graph data
+    5. Generate detailed vulnerability findings with context
 
 This approach achieves:
-    - Comprehensive CVE detection (OSV database)
+    - Fast scanning via uv-secure for uv-based projects
+    - Comprehensive CVE detection (OSV/PyPI Advisory Database)
     - License compliance checking
     - Rich context (which files use vulnerable dependencies)
     - Actionable remediation recommendations
@@ -31,15 +33,20 @@ logger = get_logger(__name__)
 
 
 class DependencyScanner(CodeSmellDetector):
-    """Detects dependency vulnerabilities using pip-audit with graph enrichment.
+    """Detects dependency vulnerabilities using uv-secure/pip-audit with graph enrichment.
 
-    Uses pip-audit for vulnerability scanning and Neo4j for usage context.
+    Scanning order:
+        1. uv-secure (if uv.lock exists) - fastest, native to uv projects
+        2. pip-audit (if requirements.txt exists) - mature, PyPA-maintained
+        3. safety (fallback) - works with any pip environment
 
     Configuration:
         repository_path: Path to repository root (required)
         requirements_file: Path to requirements file (default: requirements.txt)
         max_findings: Maximum findings to report (default: 100)
         check_licenses: Also check license compliance (default: False)
+        ignore_packages: List of package names to skip
+        check_outdated: Check for significantly outdated packages
     """
 
     # Severity mapping: CVSS score to our severity levels
@@ -61,6 +68,8 @@ class DependencyScanner(CodeSmellDetector):
                 - requirements_file: Path to requirements file
                 - max_findings: Max findings to report
                 - check_licenses: Enable license checking
+                - ignore_packages: List of package names to ignore (e.g., ["setuptools"])
+                - check_outdated: Check for significantly outdated packages
         """
         super().__init__(neo4j_client)
 
@@ -69,12 +78,21 @@ class DependencyScanner(CodeSmellDetector):
         self.requirements_file = config.get("requirements_file", "requirements.txt")
         self.max_findings = config.get("max_findings", 100)
         self.check_licenses = config.get("check_licenses", False)
+        # REPO-413: Add ignore list for packages to skip
+        self.ignore_packages = {pkg.lower() for pkg in config.get("ignore_packages", [])}
+        # REPO-413: Optional outdated package detection
+        self.check_outdated = config.get("check_outdated", False)
 
         if not self.repository_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repository_path}")
 
     def detect(self) -> List[Finding]:
-        """Run pip-audit and enrich findings with graph data.
+        """Run vulnerability scan and enrich findings with graph data.
+
+        Scanning order:
+            1. uv-secure (if uv.lock exists)
+            2. pip-audit (if requirements.txt exists)
+            3. safety (fallback)
 
         Returns:
             List of dependency vulnerability findings
@@ -82,26 +100,34 @@ class DependencyScanner(CodeSmellDetector):
         logger.info(f"Scanning dependencies in {self.repository_path}")
 
         try:
-            # Run pip-audit
-            vulnerabilities = self._run_pip_audit()
-
-            if not vulnerabilities:
-                logger.info("No dependency vulnerabilities found")
-                return []
-
-            logger.info(f"Found {len(vulnerabilities)} vulnerable dependencies")
-
-            # Convert to findings
             findings = []
-            for vuln in vulnerabilities[:self.max_findings]:
-                finding = self._create_finding(vuln)
-                if finding:
-                    findings.append(finding)
+
+            # Try uv-secure first (for uv.lock projects), then pip-audit, then safety
+            vulnerabilities = self._run_vulnerability_scan()
+
+            if vulnerabilities:
+                logger.info(f"Found {len(vulnerabilities)} vulnerable dependencies")
+
+                # Convert to findings
+                for vuln in vulnerabilities[:self.max_findings]:
+                    finding = self._create_finding(vuln)
+                    if finding:
+                        findings.append(finding)
+            else:
+                logger.info("No dependency vulnerabilities found")
+
+            # REPO-413: Optionally check for outdated packages
+            if self.check_outdated:
+                outdated = self._check_outdated_packages()
+                if outdated:
+                    logger.info(f"Found {len(outdated)} outdated packages")
+                    outdated_findings = self._outdated_to_findings(outdated)
+                    findings.extend(outdated_findings[:self.max_findings - len(findings)])
 
             # Enrich with graph data
             enriched_findings = self._enrich_with_graph_data(findings)
 
-            logger.info(f"Returning {len(enriched_findings)} dependency vulnerability findings")
+            logger.info(f"Returning {len(enriched_findings)} dependency findings")
             return enriched_findings
 
         except subprocess.CalledProcessError as e:
@@ -111,11 +137,124 @@ class DependencyScanner(CodeSmellDetector):
             logger.error(f"Dependency scanning failed: {e}", exc_info=True)
             return []
 
-    def _run_pip_audit(self) -> List[Dict[str, Any]]:
+    def _run_vulnerability_scan(self) -> List[Dict[str, Any]]:
+        """Run vulnerability scan using available tools in priority order.
+
+        Scanning order:
+            1. uv-secure (if uv.lock exists) - fastest, native to uv projects
+            2. pip-audit (if requirements.txt exists) - mature, PyPA-maintained
+            3. safety (fallback) - works with any pip environment
+
+        Returns:
+            List of vulnerability dictionaries in pip-audit format
+        """
+        # Check for uv.lock first (uv-based projects)
+        uv_lock_path = self.repository_path / "uv.lock"
+        if uv_lock_path.exists():
+            logger.info("Found uv.lock, using uv-secure for scanning")
+            vulnerabilities = self._run_uv_secure(uv_lock_path)
+            if vulnerabilities is not None:  # None means tool not found
+                return vulnerabilities
+            logger.warning("uv-secure not available, falling back to pip-audit")
+
+        # Try pip-audit
+        vulnerabilities = self._run_pip_audit()
+        if vulnerabilities is not None:  # None means tool not found
+            return vulnerabilities
+
+        # Fall back to safety
+        logger.warning("pip-audit not available, falling back to safety")
+        return self._run_safety_fallback()
+
+    def _run_uv_secure(self, uv_lock_path: Path) -> Optional[List[Dict[str, Any]]]:
+        """Run uv-secure on uv.lock and return parsed results.
+
+        Args:
+            uv_lock_path: Path to uv.lock file
+
+        Returns:
+            List of vulnerability dictionaries in pip-audit format,
+            or None if uv-secure is not installed
+        """
+        try:
+            cmd = ["uv-secure", "--format", "json", str(uv_lock_path)]
+            logger.debug(f"Running: {' '.join(cmd)}")
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=self.repository_path,
+                timeout=120,  # 2 minute timeout
+            )
+
+            # uv-secure returns 0 for clean, 2 for vulnerabilities found
+            if result.returncode not in [0, 2]:
+                logger.error(f"uv-secure failed with code {result.returncode}: {result.stderr}")
+                return []
+
+            if not result.stdout:
+                return []
+
+            try:
+                return self._convert_uv_secure_to_pip_audit_format(result.stdout)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse uv-secure JSON: {e}")
+                return []
+
+        except FileNotFoundError:
+            # uv-secure not installed
+            return None
+        except subprocess.TimeoutExpired:
+            logger.warning("uv-secure timed out")
+            return []
+
+    def _convert_uv_secure_to_pip_audit_format(self, uv_secure_output: str) -> List[Dict[str, Any]]:
+        """Convert uv-secure JSON output to pip-audit format.
+
+        Args:
+            uv_secure_output: Raw JSON output from uv-secure
+
+        Returns:
+            List of vulnerability dictionaries in pip-audit format
+        """
+        try:
+            data = json.loads(uv_secure_output)
+            result = []
+
+            # uv-secure format: {"files": [{"file_path": "...", "dependencies": [...]}]}
+            for file_entry in data.get("files", []):
+                for dep in file_entry.get("dependencies", []):
+                    vulns = dep.get("vulns", [])
+                    if vulns:
+                        # Convert to pip-audit format
+                        result.append({
+                            "name": dep.get("name", "unknown"),
+                            "version": dep.get("version", "unknown"),
+                            "vulns": [
+                                {
+                                    "id": v.get("id", "UNKNOWN"),
+                                    "description": v.get("details", ""),
+                                    "fix_versions": v.get("fix_versions", []),
+                                    "aliases": v.get("aliases", []),
+                                    "link": v.get("link", ""),
+                                }
+                                for v in vulns
+                            ],
+                        })
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to convert uv-secure output: {e}")
+            return []
+
+    def _run_pip_audit(self) -> Optional[List[Dict[str, Any]]]:
         """Run pip-audit and return parsed results.
 
         Returns:
-            List of vulnerability dictionaries from pip-audit JSON output
+            List of vulnerability dictionaries from pip-audit JSON output,
+            or None if pip-audit is not installed
         """
         cmd = ["pip-audit", "--format", "json", "--progress-spinner", "off"]
 
@@ -129,28 +268,148 @@ class DependencyScanner(CodeSmellDetector):
 
         logger.debug(f"Running: {' '.join(cmd)}")
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            cwd=self.repository_path,
-            timeout=300,  # 5 minute timeout
-        )
-
-        # pip-audit returns non-zero if vulnerabilities found
-        if result.returncode not in [0, 1]:
-            logger.error(f"pip-audit failed with code {result.returncode}: {result.stderr}")
-            return []
-
-        if not result.stdout:
-            return []
-
         try:
-            output = json.loads(result.stdout)
-            # pip-audit JSON format: {"dependencies": [...]}
-            return output.get("dependencies", [])
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse pip-audit JSON: {e}")
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=self.repository_path,
+                timeout=300,  # 5 minute timeout
+            )
+
+            # pip-audit returns non-zero if vulnerabilities found
+            if result.returncode not in [0, 1]:
+                logger.error(f"pip-audit failed with code {result.returncode}: {result.stderr}")
+                return []
+
+            if not result.stdout:
+                return []
+
+            try:
+                output = json.loads(result.stdout)
+                # pip-audit JSON format: {"dependencies": [...]}
+                return output.get("dependencies", [])
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse pip-audit JSON: {e}")
+                return []
+
+        except FileNotFoundError:
+            # pip-audit not installed
+            return None
+
+    def _run_safety_fallback(self) -> List[Dict[str, Any]]:
+        """Run safety check as fallback when pip-audit is not available.
+
+        Returns:
+            List of vulnerability dictionaries in pip-audit format
+        """
+        try:
+            cmd = ["safety", "check", "--json"]
+
+            # Add requirements file if specified
+            req_path = self.repository_path / self.requirements_file
+            if req_path.exists():
+                cmd.extend(["--file", str(req_path)])
+
+            logger.debug(f"Running: {' '.join(cmd)}")
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=self.repository_path,
+                timeout=120,
+            )
+
+            # safety returns 64 for vulnerabilities found, 0 for clean
+            if result.returncode not in [0, 64]:
+                logger.error(f"safety failed with code {result.returncode}: {result.stderr}")
+                return []
+
+            if not result.stdout:
+                return []
+
+            try:
+                # Safety JSON format is different from pip-audit
+                # Convert to pip-audit format
+                return self._convert_safety_to_pip_audit_format(result.stdout)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse safety JSON: {e}")
+                return []
+
+        except FileNotFoundError:
+            logger.warning("Neither pip-audit nor safety installed, skipping dependency scan")
+            return []
+
+    def _convert_safety_to_pip_audit_format(self, safety_output: str) -> List[Dict[str, Any]]:
+        """Convert safety JSON output to pip-audit format.
+
+        Args:
+            safety_output: Raw JSON output from safety check
+
+        Returns:
+            List of vulnerability dictionaries in pip-audit format
+        """
+        try:
+            data = json.loads(safety_output)
+
+            # Safety 2.x format: list of vulnerability tuples
+            # [package_name, affected_version, installed_version, description, advisory_id]
+            if isinstance(data, list):
+                # Group vulnerabilities by package
+                packages: Dict[str, Dict[str, Any]] = {}
+                for vuln in data:
+                    if isinstance(vuln, (list, tuple)) and len(vuln) >= 5:
+                        pkg_name = vuln[0]
+                        installed_version = vuln[2]
+                        description = vuln[3]
+                        advisory_id = str(vuln[4])
+
+                        if pkg_name not in packages:
+                            packages[pkg_name] = {
+                                "name": pkg_name,
+                                "version": installed_version,
+                                "vulns": []
+                            }
+
+                        packages[pkg_name]["vulns"].append({
+                            "id": advisory_id,
+                            "description": description,
+                            "fix_versions": [],
+                            "aliases": []
+                        })
+
+                return list(packages.values())
+
+            # Safety 3.x format: {"report_meta": {...}, "vulnerabilities": [...]}
+            elif isinstance(data, dict) and "vulnerabilities" in data:
+                packages: Dict[str, Dict[str, Any]] = {}
+                for vuln in data.get("vulnerabilities", []):
+                    pkg_name = vuln.get("package_name", "unknown")
+                    installed_version = vuln.get("installed_version", "unknown")
+                    advisory_id = vuln.get("vulnerability_id", "UNKNOWN")
+                    description = vuln.get("advisory", "")
+
+                    if pkg_name not in packages:
+                        packages[pkg_name] = {
+                            "name": pkg_name,
+                            "version": installed_version,
+                            "vulns": []
+                        }
+
+                    packages[pkg_name]["vulns"].append({
+                        "id": advisory_id,
+                        "description": description,
+                        "fix_versions": vuln.get("fixed_versions", []),
+                        "aliases": vuln.get("cve", []) if isinstance(vuln.get("cve"), list) else []
+                    })
+
+                return list(packages.values())
+
+            return []
+
+        except Exception as e:
+            logger.error(f"Failed to convert safety output: {e}")
             return []
 
     def _create_finding(self, vuln: Dict[str, Any]) -> Optional[Finding]:
@@ -160,12 +419,17 @@ class DependencyScanner(CodeSmellDetector):
             vuln: Vulnerability dict from pip-audit
 
         Returns:
-            Finding object or None if conversion fails
+            Finding object or None if conversion fails or package is ignored
         """
         try:
             package_name = vuln.get("name", "unknown")
             package_version = vuln.get("version", "unknown")
             vulnerabilities = vuln.get("vulns", [])
+
+            # REPO-413: Skip ignored packages
+            if package_name.lower() in self.ignore_packages:
+                logger.debug(f"Skipping ignored package: {package_name}")
+                return None
 
             if not vulnerabilities:
                 return None
@@ -330,3 +594,122 @@ Fix: Upgrade to {', '.join(fix_versions) if fix_versions else 'no fix available'
             Severity level (already determined during creation)
         """
         return finding.severity
+
+    def _check_outdated_packages(self) -> List[Dict[str, Any]]:
+        """Check for significantly outdated packages using pip list --outdated.
+
+        REPO-413: Optional feature to detect outdated packages that may have
+        security implications even without known CVEs.
+
+        Returns:
+            List of outdated package dictionaries
+        """
+        try:
+            result = subprocess.run(
+                ["pip", "list", "--outdated", "--format=json"],
+                capture_output=True,
+                text=True,
+                cwd=self.repository_path,
+                timeout=60,
+            )
+
+            if result.returncode != 0:
+                logger.warning(f"pip list --outdated failed: {result.stderr}")
+                return []
+
+            if not result.stdout:
+                return []
+
+            try:
+                return json.loads(result.stdout)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse pip list JSON: {e}")
+                return []
+
+        except FileNotFoundError:
+            logger.warning("pip not found, skipping outdated check")
+            return []
+        except subprocess.TimeoutExpired:
+            logger.warning("pip list --outdated timed out")
+            return []
+
+    def _outdated_to_findings(self, outdated: List[Dict[str, Any]]) -> List[Finding]:
+        """Convert outdated packages to findings.
+
+        REPO-413: Creates INFO-severity findings for significantly outdated packages.
+        Only reports packages with major version differences.
+
+        Args:
+            outdated: List of outdated package dicts from pip list --outdated
+
+        Returns:
+            List of findings for outdated packages
+        """
+        findings = []
+
+        for pkg in outdated:
+            package_name = pkg.get("name", "unknown")
+            current_version = pkg.get("version", "unknown")
+            latest_version = pkg.get("latest_version", "unknown")
+
+            # REPO-413: Skip ignored packages
+            if package_name.lower() in self.ignore_packages:
+                logger.debug(f"Skipping ignored outdated package: {package_name}")
+                continue
+
+            # Only report if there's a major version difference
+            if not self._is_significantly_outdated(current_version, latest_version):
+                continue
+
+            # Find files using this package
+            affected_files = self._find_files_using_package(package_name)
+
+            finding = Finding(
+                id=f"dep-outdated-{package_name}",
+                title=f"Outdated dependency: {package_name} {current_version} → {latest_version}",
+                description=f"""Package: {package_name}
+Current version: {current_version}
+Latest version: {latest_version}
+
+This package is significantly outdated. While no specific vulnerabilities are known,
+outdated packages may miss important security patches and bug fixes.
+
+Recommendation: Update to the latest version using:
+  pip install --upgrade {package_name}
+""",
+                severity=Severity.INFO,
+                detector="dependency_scanner",
+                affected_nodes=[],
+                affected_files=affected_files[:20],
+                graph_context={
+                    "package": package_name,
+                    "current_version": current_version,
+                    "latest_version": latest_version,
+                    "type": "outdated",
+                },
+            )
+
+            findings.append(finding)
+
+        return findings
+
+    def _is_significantly_outdated(self, current: str, latest: str) -> bool:
+        """Check if package is significantly outdated (major version difference).
+
+        Args:
+            current: Current installed version
+            latest: Latest available version
+
+        Returns:
+            True if there's a major version difference
+        """
+        try:
+            # Extract major version numbers
+            current_major = int(current.split(".")[0])
+            latest_major = int(latest.split(".")[0])
+
+            # Report if major version is at least 2 behind
+            return latest_major - current_major >= 2
+        except (ValueError, IndexError):
+            # Can't parse version, skip
+            return False
