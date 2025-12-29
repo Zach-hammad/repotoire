@@ -59,6 +59,7 @@ rand_chacha = "0.3"
 # regex for pattern matching, lazy_static for compile-once patterns
 regex = "1.11"
 lazy_static = "1.5"
+malachite-bigint = "0.2.3"
 
 # Note: regex crate was evaluated but manual parsing proved faster for diff parsing
 

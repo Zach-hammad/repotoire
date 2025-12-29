@@ -767,6 +767,197 @@ def generate_embeddings(
         raise click.Abort()
 
 
+@ml.command("fine-tune-embeddings")
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    required=True,
+    help="Output directory for the fine-tuned model",
+)
+@click.option(
+    "--epochs",
+    default=3,
+    type=int,
+    help="Number of training epochs (default: 3)",
+)
+@click.option(
+    "--batch-size",
+    default=32,
+    type=int,
+    help="Training batch size (default: 32)",
+)
+@click.option(
+    "--base-model",
+    default="all-MiniLM-L6-v2",
+    help="Base model to fine-tune (default: all-MiniLM-L6-v2)",
+)
+@click.option(
+    "--max-code-docstring-pairs",
+    default=5000,
+    type=int,
+    help="Max code-docstring pairs to use (default: 5000)",
+)
+@click.option(
+    "--max-same-class-pairs",
+    default=2000,
+    type=int,
+    help="Max same-class method pairs (default: 2000)",
+)
+@click.option(
+    "--max-caller-callee-pairs",
+    default=2000,
+    type=int,
+    help="Max caller-callee pairs (default: 2000)",
+)
+@click.option(
+    "--learning-rate",
+    default=2e-5,
+    type=float,
+    help="Learning rate (default: 2e-5)",
+)
+@click.option(
+    "--warmup-ratio",
+    default=0.1,
+    type=float,
+    help="Warmup ratio for learning rate scheduler (default: 0.1)",
+)
+def fine_tune_embeddings(
+    output: str,
+    epochs: int,
+    batch_size: int,
+    base_model: str,
+    max_code_docstring_pairs: int,
+    max_same_class_pairs: int,
+    max_caller_callee_pairs: int,
+    learning_rate: float,
+    warmup_ratio: float,
+):
+    """Fine-tune embeddings with contrastive learning on code-docstring pairs.
+
+    Uses MultipleNegativesRankingLoss (InfoNCE with in-batch negatives) to
+    fine-tune a sentence transformer model on code-specific positive pairs:
+
+    \b
+    1. Code-Docstring pairs: (source_code, docstring) - semantic alignment
+    2. Same-Class pairs: (method1, method2) from same class - structural relatedness
+    3. Caller-Callee pairs: (caller, callee) - call graph proximity
+
+    The fine-tuned model can then be used as the local embedding backend
+    for improved code search and RAG.
+
+    Prerequisites:
+    - Codebase must be ingested first (repotoire ingest)
+    - Functions should have source_code and docstring properties in the graph
+
+    Examples:
+
+    \b
+        # Basic fine-tuning with defaults
+        repotoire ml fine-tune-embeddings -o models/code-embeddings
+
+    \b
+        # Custom configuration
+        repotoire ml fine-tune-embeddings -o models/custom \\
+            --epochs 5 --batch-size 64 --base-model all-mpnet-base-v2
+
+    \b
+        # Limit training pairs for faster iteration
+        repotoire ml fine-tune-embeddings -o models/quick \\
+            --max-code-docstring-pairs 1000 --epochs 1
+    """
+    from repotoire.ml.contrastive_learning import (
+        ContrastiveConfig,
+        ContrastivePairGenerator,
+        ContrastiveTrainer,
+    )
+    from repotoire.graph.client import Neo4jClient
+
+    console.print("[bold blue]Fine-tuning embeddings with contrastive learning[/bold blue]")
+    console.print(f"[dim]Base model: {base_model}[/dim]")
+    console.print(f"[dim]Epochs: {epochs}, Batch size: {batch_size}[/dim]\n")
+
+    try:
+        client = Neo4jClient.from_env()
+
+        # Create configuration
+        config = ContrastiveConfig(
+            base_model=base_model,
+            epochs=epochs,
+            batch_size=batch_size,
+            learning_rate=learning_rate,
+            warmup_ratio=warmup_ratio,
+            max_code_docstring_pairs=max_code_docstring_pairs,
+            max_same_class_pairs=max_same_class_pairs,
+            max_caller_callee_pairs=max_caller_callee_pairs,
+        )
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            # Step 1: Generate positive pairs from graph
+            task = progress.add_task("Generating training pairs from graph...", total=None)
+
+            generator = ContrastivePairGenerator(client)
+            pairs = generator.generate_all_pairs(config)
+
+            if not pairs:
+                console.print("[red]No training pairs found![/red]")
+                console.print(
+                    "[yellow]Ensure codebase is ingested with source_code and docstrings.[/yellow]"
+                )
+                raise click.Abort()
+
+            progress.update(
+                task,
+                description=f"Generated {len(pairs)} positive pairs",
+            )
+
+            # Step 2: Train with contrastive loss
+            progress.update(task, description="Fine-tuning with contrastive loss...")
+
+            trainer = ContrastiveTrainer(config)
+            stats = trainer.train(pairs, Path(output))
+
+            progress.update(task, description="Training complete")
+
+        # Print summary
+        table = Table(title="Fine-Tuning Results", show_header=True, header_style="bold cyan")
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="green", justify="right")
+
+        table.add_row("Total pairs", str(stats["pairs"]))
+        table.add_row("Epochs", str(stats["epochs"]))
+        table.add_row("Batch size", str(stats["batch_size"]))
+        table.add_row("Warmup steps", str(stats["warmup_steps"]))
+        table.add_row("Total steps", str(stats["total_steps"]))
+        table.add_row("Base model", stats["base_model"])
+
+        console.print(table)
+
+        console.print(f"\n[green]Model saved to {output}[/green]")
+        console.print(
+            "\n[dim]To use the fine-tuned model for embeddings:[/dim]\n"
+            f"[dim]  export REPOTOIRE_EMBEDDING_MODEL={output}[/dim]\n"
+            "[dim]  repotoire ingest /path/to/repo --generate-embeddings --embedding-backend local[/dim]"
+        )
+
+    except ImportError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        console.print(
+            "[yellow]Install with: pip install sentence-transformers[/yellow]"
+        )
+        raise click.Abort()
+    except click.Abort:
+        raise
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        logger.exception("Fine-tuning failed")
+        raise click.Abort()
+
+
 # ============================================================================
 # Bug Prediction Commands
 # ============================================================================

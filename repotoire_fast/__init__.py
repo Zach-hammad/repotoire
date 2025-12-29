@@ -82,6 +82,18 @@ from .repotoire_fast import (
     get_default_taint_sources,        # Get default taint source patterns
     get_default_taint_sinks,          # Get default taint sink patterns
     get_default_sanitizers,           # Get default sanitizer patterns
+    # Incremental SCC cache (REPO-412)
+    PyIncrementalSCC,                 # Incremental SCC cache class
+    incremental_scc_new,              # Initialize cache with edges
+    find_sccs_one_shot,               # One-shot SCC computation (no caching)
+    # Control Flow Graph (REPO-414)
+    analyze_cfg,                      # Analyze CFG for unreachable code
+    analyze_cfg_batch,                # Batch CFG analysis in parallel
+    # Interprocedural infinite loop detection (REPO-414 Phase 1)
+    analyze_cfg_interprocedural,      # CFG analysis with interprocedural detection
+    analyze_interprocedural,          # Function summaries and call graph
+    # Cross-file interprocedural analysis (REPO-414 Phase 2)
+    analyze_cross_file,               # Cross-file infinite loop detection
 )
 
 __all__ = [
@@ -167,4 +179,16 @@ __all__ = [
     "get_default_taint_sources",        # Get default taint source patterns
     "get_default_taint_sinks",          # Get default taint sink patterns
     "get_default_sanitizers",           # Get default sanitizer patterns
+    # Incremental SCC cache (REPO-412)
+    "PyIncrementalSCC",                 # Incremental SCC cache class
+    "incremental_scc_new",              # Initialize cache with edges
+    "find_sccs_one_shot",               # One-shot SCC computation (no caching)
+    # Control Flow Graph (REPO-414)
+    "analyze_cfg",                      # Analyze CFG for unreachable code
+    "analyze_cfg_batch",                # Batch CFG analysis in parallel
+    # Interprocedural infinite loop detection (REPO-414 Phase 1)
+    "analyze_cfg_interprocedural",      # CFG analysis with interprocedural detection
+    "analyze_interprocedural",          # Function summaries and call graph
+    # Cross-file interprocedural analysis (REPO-414 Phase 2)
+    "analyze_cross_file",               # Cross-file infinite loop detection
 ]

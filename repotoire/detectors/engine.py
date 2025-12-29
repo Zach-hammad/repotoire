@@ -278,6 +278,23 @@ class AnalysisEngine:
             ),
         ]
 
+        # Lazy import to avoid circular dependency (security -> detectors.base -> detectors -> engine)
+        from repotoire.security.dependency_scanner import DependencyScanner
+
+        # Dependency vulnerability scanner (REPO-413)
+        # Scans for vulnerable dependencies using pip-audit (with safety fallback)
+        self.detectors.append(
+            DependencyScanner(
+                neo4j_client,
+                detector_config={
+                    "repository_path": repository_path,
+                    "max_findings": config.get("dependency_scanner", {}).get("max_findings", 50),
+                    "ignore_packages": config.get("dependency_scanner", {}).get("ignore_packages", []),
+                    "check_outdated": config.get("dependency_scanner", {}).get("check_outdated", False),
+                },
+            )
+        )
+
     def analyze(self) -> CodebaseHealth:
         """Run complete analysis and generate health report.
 

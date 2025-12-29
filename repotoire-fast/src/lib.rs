@@ -20,6 +20,8 @@ pub mod word2vec;
 pub mod satd;
 pub mod dataflow;
 pub mod taint;
+pub mod incremental_scc;
+pub mod cfg;
 
 // Convert GraphError to Python ValueError (REPO-227)
 impl From<errors::GraphError> for PyErr {
@@ -2989,6 +2991,552 @@ fn get_default_sanitizers() -> Vec<String> {
     taint::default_sanitizers()
 }
 
+// ============================================================================
+// INCREMENTAL SCC CACHE (REPO-412)
+// 10-100x speedup for circular dependency detection via incremental updates
+// ============================================================================
+
+/// Python wrapper for incremental SCC update results.
+#[derive(Clone)]
+pub enum PyUpdateResult {
+    NoChange,
+    Updated {
+        nodes_updated: usize,
+        sccs_affected: usize,
+        compute_micros: u64,
+    },
+    FullRecompute {
+        total_sccs: usize,
+        compute_micros: u64,
+    },
+}
+
+impl<'py> IntoPyObject<'py> for PyUpdateResult {
+    type Target = pyo3::types::PyDict;
+    type Output = pyo3::Bound<'py, Self::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let dict = pyo3::types::PyDict::new(py);
+        match self {
+            PyUpdateResult::NoChange => {
+                dict.set_item("type", "no_change")?;
+            }
+            PyUpdateResult::Updated { nodes_updated, sccs_affected, compute_micros } => {
+                dict.set_item("type", "updated")?;
+                dict.set_item("nodes_updated", nodes_updated)?;
+                dict.set_item("sccs_affected", sccs_affected)?;
+                dict.set_item("compute_micros", compute_micros)?;
+            }
+            PyUpdateResult::FullRecompute { total_sccs, compute_micros } => {
+                dict.set_item("type", "full_recompute")?;
+                dict.set_item("total_sccs", total_sccs)?;
+                dict.set_item("compute_micros", compute_micros)?;
+            }
+        }
+        Ok(dict)
+    }
+}
+
+impl From<incremental_scc::UpdateResult> for PyUpdateResult {
+    fn from(result: incremental_scc::UpdateResult) -> Self {
+        match result {
+            incremental_scc::UpdateResult::NoChange => PyUpdateResult::NoChange,
+            incremental_scc::UpdateResult::Updated { nodes_updated, sccs_affected, compute_micros } => {
+                PyUpdateResult::Updated { nodes_updated, sccs_affected, compute_micros }
+            }
+            incremental_scc::UpdateResult::FullRecompute { total_sccs, compute_micros } => {
+                PyUpdateResult::FullRecompute { total_sccs, compute_micros }
+            }
+        }
+    }
+}
+
+/// Python wrapper for incremental SCC cache.
+///
+/// Provides 10-100x speedup for circular dependency detection by caching
+/// SCC assignments and only recomputing affected subgraphs on changes.
+///
+/// # Example
+/// ```python
+/// from repotoire_fast import PyIncrementalSCC
+///
+/// cache = PyIncrementalSCC()
+/// edges = [(0, 1), (1, 2), (2, 0)]  # Triangle cycle
+/// cache.initialize(edges, 3)
+///
+/// # Get cycles (SCCs with size >= 2)
+/// cycles = cache.get_cycles(2)
+/// print(f"Found {len(cycles)} cycles")
+///
+/// # Incremental update after edge removal
+/// new_edges = [(0, 1), (1, 2)]  # Removed (2, 0)
+/// result = cache.update([], [(2, 0)], new_edges)
+/// print(f"Update type: {result['type']}")
+/// ```
+#[pyclass]
+pub struct PyIncrementalSCC {
+    cache: incremental_scc::SCCCache,
+}
+
+#[pymethods]
+impl PyIncrementalSCC {
+    /// Create a new empty SCC cache.
+    #[new]
+    fn new() -> Self {
+        PyIncrementalSCC {
+            cache: incremental_scc::SCCCache::new(),
+        }
+    }
+
+    /// Initialize the cache with full Tarjan's SCC computation.
+    ///
+    /// # Arguments
+    /// * `edges` - List of (source, target) directed edges
+    /// * `num_nodes` - Total number of nodes in the graph
+    fn initialize(&mut self, edges: Vec<(u32, u32)>, num_nodes: usize) -> PyResult<()> {
+        self.cache
+            .initialize(&edges, num_nodes)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Incrementally update the cache after edge changes.
+    ///
+    /// This is the core optimization: only affected SCCs are recomputed.
+    ///
+    /// # Arguments
+    /// * `added_edges` - Edges added to the graph
+    /// * `removed_edges` - Edges removed from the graph
+    /// * `all_edges` - Current state of all edges (after changes)
+    ///
+    /// # Returns
+    /// Dict with:
+    /// - type: "no_change", "updated", or "full_recompute"
+    /// - nodes_updated: Number of nodes with changed SCC (if updated)
+    /// - sccs_affected: Number of SCCs that were recomputed (if updated)
+    /// - compute_micros: Time taken in microseconds
+    fn update(
+        &mut self,
+        added_edges: Vec<(u32, u32)>,
+        removed_edges: Vec<(u32, u32)>,
+        all_edges: Vec<(u32, u32)>,
+    ) -> PyResult<PyUpdateResult> {
+        let result = self.cache
+            .update_incremental(&added_edges, &removed_edges, &all_edges)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(PyUpdateResult::from(result))
+    }
+
+    /// Get all cycles (SCCs with size >= min_size).
+    ///
+    /// # Arguments
+    /// * `min_size` - Minimum SCC size (typically 2 for cycles)
+    ///
+    /// # Returns
+    /// List of cycles, where each cycle is a list of node IDs
+    fn get_cycles(&self, min_size: usize) -> Vec<Vec<u32>> {
+        self.cache.get_cycles(min_size)
+    }
+
+    /// Get the SCC ID for a given node.
+    fn get_scc(&self, node: u32) -> Option<u32> {
+        self.cache.get_scc(node)
+    }
+
+    /// Get all members of a given SCC.
+    fn get_scc_members(&self, scc_id: u32) -> Option<Vec<u32>> {
+        self.cache.get_scc_members(scc_id).cloned()
+    }
+
+    /// Get the current cache version.
+    #[getter]
+    fn version(&self) -> u64 {
+        self.cache.version()
+    }
+
+    /// Get the total number of SCCs.
+    #[getter]
+    fn scc_count(&self) -> usize {
+        self.cache.scc_count()
+    }
+
+    /// Verify cache correctness against full Tarjan's (for testing).
+    fn verify(&self, edges: Vec<(u32, u32)>, num_nodes: usize) -> bool {
+        self.cache.verify_against_full(&edges, num_nodes)
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "IncrementalSCC(version={}, scc_count={}, cycles={})",
+            self.cache.version(),
+            self.cache.scc_count(),
+            self.cache.get_cycles(2).len()
+        )
+    }
+}
+
+/// Initialize and compute SCCs in one step (convenience function).
+///
+/// # Arguments
+/// * `edges` - List of (source, target) directed edges
+/// * `num_nodes` - Total number of nodes
+///
+/// # Returns
+/// Initialized PyIncrementalSCC cache
+#[pyfunction]
+fn incremental_scc_new(edges: Vec<(u32, u32)>, num_nodes: usize) -> PyResult<PyIncrementalSCC> {
+    let mut cache = incremental_scc::SCCCache::new();
+    cache
+        .initialize(&edges, num_nodes)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(PyIncrementalSCC { cache })
+}
+
+/// Compute SCCs and return cycles without caching (one-shot).
+///
+/// For cases where you don't need incremental updates, this is simpler
+/// than creating a cache. Uses the same Tarjan's algorithm internally.
+///
+/// # Arguments
+/// * `edges` - List of (source, target) directed edges
+/// * `num_nodes` - Total number of nodes
+/// * `min_size` - Minimum SCC size (typically 2 for cycles)
+///
+/// # Returns
+/// List of cycles, where each cycle is a list of node IDs
+#[pyfunction]
+fn find_sccs_one_shot(
+    edges: Vec<(u32, u32)>,
+    num_nodes: usize,
+    min_size: usize,
+) -> PyResult<Vec<Vec<u32>>> {
+    let mut cache = incremental_scc::SCCCache::new();
+    cache
+        .initialize(&edges, num_nodes)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(cache.get_cycles(min_size))
+}
+
+// ============================================================================
+// CONTROL FLOW GRAPH (REPO-414)
+// CFG extraction for unreachable code and infinite loop detection
+// ============================================================================
+
+/// Analyze control flow for all functions in Python source code.
+///
+/// Extracts control flow graphs for each function and returns analysis results
+/// including unreachable lines (after return/raise) and infinite loop detection.
+///
+/// # Arguments
+/// * `source` - Python source code to analyze
+///
+/// # Returns
+/// List of dictionaries, one per function, with:
+/// - function_name: Qualified function name (e.g., "ClassName.method")
+/// - block_count: Number of basic blocks in CFG
+/// - edge_count: Number of control flow edges
+/// - unreachable_lines: List of line numbers that are unreachable
+/// - has_infinite_loop: Whether function contains an infinite loop
+/// - cyclomatic_complexity: McCabe complexity (E - N + 2)
+///
+/// # Example
+/// ```python
+/// from repotoire_fast import analyze_cfg
+///
+/// source = '''
+/// def foo():
+///     return 1
+///     print("unreachable")
+/// '''
+/// results = analyze_cfg(source)
+/// # [{'function_name': 'foo', 'unreachable_lines': [4], ...}]
+/// ```
+#[pyfunction]
+fn analyze_cfg<'py>(
+    py: Python<'py>,
+    source: &str,
+) -> PyResult<Vec<Bound<'py, pyo3::types::PyDict>>> {
+    let results = cfg::analyze_control_flow(source);
+
+    results
+        .into_iter()
+        .map(|r| {
+            let dict = pyo3::types::PyDict::new(py);
+            dict.set_item("function_name", r.function_name)?;
+            dict.set_item("block_count", r.block_count)?;
+            dict.set_item("edge_count", r.edge_count)?;
+            dict.set_item("unreachable_lines", r.unreachable_lines)?;
+            dict.set_item("has_infinite_loop", r.has_infinite_loop)?;
+            dict.set_item("cyclomatic_complexity", r.cyclomatic_complexity)?;
+
+            // Convert infinite_loop_types to list of dicts
+            let loop_types: Vec<_> = r.infinite_loop_types.iter().map(|info| {
+                let loop_dict = pyo3::types::PyDict::new(py);
+                loop_dict.set_item("line", info.line).ok();
+                loop_dict.set_item("type", info.loop_type.as_str()).ok();
+                loop_dict.set_item("description", info.loop_type.description()).ok();
+                loop_dict
+            }).collect();
+            dict.set_item("infinite_loop_types", loop_types)?;
+
+            Ok(dict)
+        })
+        .collect()
+}
+
+/// Batch analyze control flow for multiple files in parallel.
+///
+/// More efficient than calling analyze_cfg() repeatedly when processing many files.
+///
+/// # Arguments
+/// * `files` - List of (file_path, source_code) tuples
+///
+/// # Returns
+/// List of (file_path, results) tuples where results is a list of CFG analyses
+///
+/// # Example
+/// ```python
+/// from repotoire_fast import analyze_cfg_batch
+///
+/// files = [
+///     ("src/a.py", open("src/a.py").read()),
+///     ("src/b.py", open("src/b.py").read()),
+/// ]
+/// results = analyze_cfg_batch(files)
+/// for path, analyses in results:
+///     print(f"{path}: {len(analyses)} functions")
+/// ```
+#[pyfunction]
+fn analyze_cfg_batch<'py>(
+    py: Python<'py>,
+    files: Vec<(String, String)>,
+) -> PyResult<Vec<(String, Vec<Bound<'py, pyo3::types::PyDict>>)>> {
+    // Detach Python thread state during parallel processing
+    let rust_results = py.detach(|| cfg::analyze_control_flow_batch(files));
+
+    rust_results
+        .into_iter()
+        .map(|(path, analyses)| {
+            let py_analyses: PyResult<Vec<_>> = analyses
+                .into_iter()
+                .map(|r| {
+                    let dict = pyo3::types::PyDict::new(py);
+                    dict.set_item("function_name", r.function_name)?;
+                    dict.set_item("block_count", r.block_count)?;
+                    dict.set_item("edge_count", r.edge_count)?;
+                    dict.set_item("unreachable_lines", r.unreachable_lines)?;
+                    dict.set_item("has_infinite_loop", r.has_infinite_loop)?;
+                    dict.set_item("cyclomatic_complexity", r.cyclomatic_complexity)?;
+
+                    // Convert infinite_loop_types to list of dicts
+                    let loop_types: Vec<_> = r.infinite_loop_types.iter().map(|info| {
+                        let loop_dict = pyo3::types::PyDict::new(py);
+                        loop_dict.set_item("line", info.line).ok();
+                        loop_dict.set_item("type", info.loop_type.as_str()).ok();
+                        loop_dict.set_item("description", info.loop_type.description()).ok();
+                        loop_dict
+                    }).collect();
+                    dict.set_item("infinite_loop_types", loop_types)?;
+
+                    Ok(dict)
+                })
+                .collect();
+            Ok((path, py_analyses?))
+        })
+        .collect()
+}
+
+/// Analyze control flow with interprocedural infinite loop detection.
+///
+/// Performs same-file interprocedural analysis to detect functions that may
+/// diverge due to calling non-terminating functions.
+///
+/// # Arguments
+/// * `source` - Python source code to analyze
+///
+/// # Returns
+/// List of analysis results, each containing:
+/// - function_name: Qualified function name
+/// - block_count: Number of basic blocks
+/// - edge_count: Number of CFG edges
+/// - unreachable_lines: Lines that are unreachable
+/// - has_infinite_loop: Whether function has direct infinite loop
+/// - cyclomatic_complexity: McCabe complexity
+/// - infinite_loop_types: Details of infinite loops
+/// - calls_diverging: Whether function calls a non-terminating function
+/// - diverging_callee: Name of the non-terminating callee (if any)
+#[pyfunction]
+fn analyze_cfg_interprocedural<'py>(
+    py: Python<'py>,
+    source: &str,
+) -> PyResult<Vec<Bound<'py, pyo3::types::PyDict>>> {
+    let results = cfg::analyze_control_flow_interprocedural(source);
+
+    results
+        .into_iter()
+        .map(|r| {
+            let dict = pyo3::types::PyDict::new(py);
+            dict.set_item("function_name", &r.basic.function_name)?;
+            dict.set_item("block_count", r.basic.block_count)?;
+            dict.set_item("edge_count", r.basic.edge_count)?;
+            dict.set_item("unreachable_lines", &r.basic.unreachable_lines)?;
+            dict.set_item("has_infinite_loop", r.basic.has_infinite_loop)?;
+            dict.set_item("cyclomatic_complexity", r.basic.cyclomatic_complexity)?;
+            dict.set_item("calls_diverging", r.calls_diverging)?;
+            dict.set_item("diverging_callee", &r.diverging_callee)?;
+
+            // Convert infinite_loop_types to list of dicts
+            let loop_types: Vec<_> = r.basic.infinite_loop_types.iter().map(|info| {
+                let loop_dict = pyo3::types::PyDict::new(py);
+                loop_dict.set_item("line", info.line).ok();
+                loop_dict.set_item("type", info.loop_type.as_str()).ok();
+                loop_dict.set_item("description", info.loop_type.description()).ok();
+                loop_dict
+            }).collect();
+            dict.set_item("infinite_loop_types", loop_types)?;
+
+            Ok(dict)
+        })
+        .collect()
+}
+
+/// Perform interprocedural analysis to compute function summaries.
+///
+/// Builds a call graph within the file and propagates non-termination
+/// status through call chains.
+///
+/// # Arguments
+/// * `source` - Python source code to analyze
+///
+/// # Returns
+/// Dictionary containing:
+/// - summaries: Dict of function_name -> summary info
+/// - diverging_functions: List of function names that may diverge
+/// - call_graph: Dict of function_name -> list of callee names
+#[pyfunction]
+fn analyze_interprocedural<'py>(
+    py: Python<'py>,
+    source: &str,
+) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+    let analysis = cfg::analyze_interprocedural(source);
+    let result = pyo3::types::PyDict::new(py);
+
+    // Convert summaries
+    let summaries_dict = pyo3::types::PyDict::new(py);
+    for (name, summary) in &analysis.summaries {
+        let summary_dict = pyo3::types::PyDict::new(py);
+        summary_dict.set_item("name", &summary.name)?;
+        summary_dict.set_item("line", summary.line)?;
+        summary_dict.set_item("terminates", summary.terminates.as_str())?;
+        summary_dict.set_item("callees", &summary.callees)?;
+        summary_dict.set_item("has_infinite_loop", summary.has_infinite_loop)?;
+        summary_dict.set_item("inherited_from", &summary.inherited_from)?;
+
+        // Convert infinite loops
+        let loops: Vec<_> = summary.infinite_loops.iter().map(|info| {
+            let loop_dict = pyo3::types::PyDict::new(py);
+            loop_dict.set_item("line", info.line).ok();
+            loop_dict.set_item("type", info.loop_type.as_str()).ok();
+            loop_dict.set_item("description", info.loop_type.description()).ok();
+            loop_dict
+        }).collect();
+        summary_dict.set_item("infinite_loops", loops)?;
+
+        summaries_dict.set_item(name, summary_dict)?;
+    }
+    result.set_item("summaries", summaries_dict)?;
+
+    // Convert diverging functions list
+    result.set_item("diverging_functions", &analysis.diverging_functions)?;
+
+    // Convert call graph
+    let call_graph_dict = pyo3::types::PyDict::new(py);
+    for (caller, callees) in &analysis.call_graph {
+        call_graph_dict.set_item(caller, callees)?;
+    }
+    result.set_item("call_graph", call_graph_dict)?;
+
+    Ok(result)
+}
+
+/// Perform cross-file interprocedural analysis using TypeInference call graph.
+///
+/// This integrates with TypeInference to detect infinite loops that propagate
+/// across file boundaries.
+///
+/// # Arguments
+/// * `files` - List of (file_path, source_code) tuples
+/// * `call_graph` - Cross-file call graph from infer_types() (caller_ns -> callee_ns list)
+///
+/// # Returns
+/// Dictionary containing:
+/// - file_results: Dict of file_path -> list of analysis results
+/// - all_diverging: List of all diverging function names (fully qualified)
+/// - cross_file_calls: The call graph that was used
+///
+/// # Example
+/// ```python
+/// from repotoire_fast import infer_types, analyze_cross_file
+///
+/// files = [("a.py", src_a), ("b.py", src_b)]
+/// ti_result = infer_types(files, max_iterations=3)
+/// call_graph = ti_result["call_graph"]
+///
+/// analysis = analyze_cross_file(files, call_graph)
+/// print(analysis["all_diverging"])  # Functions that may not terminate
+/// ```
+#[pyfunction]
+fn analyze_cross_file<'py>(
+    py: Python<'py>,
+    files: Vec<(String, String)>,
+    call_graph: HashMap<String, Vec<String>>,
+) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+    let analysis = py.detach(|| cfg::analyze_cross_file(files, call_graph));
+    let result = pyo3::types::PyDict::new(py);
+
+    // Convert file_results
+    let file_results_dict = pyo3::types::PyDict::new(py);
+    for (file_path, analyses) in &analysis.file_results {
+        let py_analyses: Vec<_> = analyses.iter().map(|r| {
+            let dict = pyo3::types::PyDict::new(py);
+            dict.set_item("function_name", &r.basic.function_name).ok();
+            dict.set_item("block_count", r.basic.block_count).ok();
+            dict.set_item("edge_count", r.basic.edge_count).ok();
+            dict.set_item("unreachable_lines", &r.basic.unreachable_lines).ok();
+            dict.set_item("has_infinite_loop", r.basic.has_infinite_loop).ok();
+            dict.set_item("cyclomatic_complexity", r.basic.cyclomatic_complexity).ok();
+            dict.set_item("calls_diverging", r.calls_diverging).ok();
+            dict.set_item("diverging_callee", &r.diverging_callee).ok();
+
+            // Convert infinite_loop_types
+            let loop_types: Vec<_> = r.basic.infinite_loop_types.iter().map(|info| {
+                let loop_dict = pyo3::types::PyDict::new(py);
+                loop_dict.set_item("line", info.line).ok();
+                loop_dict.set_item("type", info.loop_type.as_str()).ok();
+                loop_dict.set_item("description", info.loop_type.description()).ok();
+                loop_dict
+            }).collect();
+            dict.set_item("infinite_loop_types", loop_types).ok();
+
+            dict
+        }).collect();
+        file_results_dict.set_item(file_path, py_analyses)?;
+    }
+    result.set_item("file_results", file_results_dict)?;
+
+    // Convert all_diverging
+    result.set_item("all_diverging", &analysis.all_diverging)?;
+
+    // Convert cross_file_calls
+    let calls_dict = pyo3::types::PyDict::new(py);
+    for (caller, callees) in &analysis.cross_file_calls {
+        calls_dict.set_item(caller, callees)?;
+    }
+    result.set_item("cross_file_calls", calls_dict)?;
+
+    Ok(result)
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -3073,6 +3621,18 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(get_default_taint_sources, n)?)?;
     n.add_function(wrap_pyfunction!(get_default_taint_sinks, n)?)?;
     n.add_function(wrap_pyfunction!(get_default_sanitizers, n)?)?;
+    // Incremental SCC cache (REPO-412)
+    n.add_class::<PyIncrementalSCC>()?;
+    n.add_function(wrap_pyfunction!(incremental_scc_new, n)?)?;
+    n.add_function(wrap_pyfunction!(find_sccs_one_shot, n)?)?;
+    // Control Flow Graph (REPO-414)
+    n.add_function(wrap_pyfunction!(analyze_cfg, n)?)?;
+    n.add_function(wrap_pyfunction!(analyze_cfg_batch, n)?)?;
+    // Interprocedural infinite loop detection (REPO-414 Phase 1)
+    n.add_function(wrap_pyfunction!(analyze_cfg_interprocedural, n)?)?;
+    n.add_function(wrap_pyfunction!(analyze_interprocedural, n)?)?;
+    // Cross-file interprocedural analysis (REPO-414 Phase 2)
+    n.add_function(wrap_pyfunction!(analyze_cross_file, n)?)?;
     Ok(())
 }
 

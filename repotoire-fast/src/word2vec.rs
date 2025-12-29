@@ -477,7 +477,7 @@ pub fn train_skipgram_parallel(walks: &[Vec<u32>], config: &Word2VecConfig) -> W
 
             // Thread-local RNG for negative sampling and window size
             let thread_id = rayon::current_thread_index().unwrap_or(0);
-            let thread_seed = epoch_seed.wrapping_add(thread_id as u64 * 0x9E3779B97F4A7C15);
+            let thread_seed = epoch_seed.wrapping_add((thread_id as u64).wrapping_mul(0x9E3779B97F4A7C15));
             let mut rng = ChaCha8Rng::seed_from_u64(thread_seed);
 
             // Thread-local gradient accumulators
