@@ -132,7 +132,7 @@ class AnalysisEngine:
         self.parallel = parallel
         self.max_workers = max_workers
         # Check if using FalkorDB (no GDS support)
-        self.is_falkordb = type(neo4j_client).__name__ == "FalkorDBClient"
+        self.is_falkordb = getattr(neo4j_client, "is_falkordb", False) or type(neo4j_client).__name__ == "FalkorDBClient"
         config = detector_config or {}
 
         # Initialize GraphEnricher for cross-detector collaboration (REPO-151 Phase 2)

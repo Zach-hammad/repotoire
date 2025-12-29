@@ -75,7 +75,7 @@ class DataClumpsDetector(CodeSmellDetector):
         super().__init__(neo4j_client)
         self.enricher = enricher
         # FalkorDB uses id() while Neo4j uses elementId()
-        self.is_falkordb = type(neo4j_client).__name__ == "FalkorDBClient"
+        self.is_falkordb = getattr(neo4j_client, "is_falkordb", False) or type(neo4j_client).__name__ == "FalkorDBClient"
 
         # Allow config to override thresholds
         config = detector_config or {}

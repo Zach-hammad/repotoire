@@ -40,6 +40,22 @@ class AuthenticationError(Exception):
 
 
 @dataclass
+class CLICredentials:
+    """Credentials for CLI authentication.
+
+    Contains the access token (API key) and optional metadata
+    for making authenticated API requests.
+    """
+
+    access_token: str
+    org_id: Optional[str] = None
+    org_slug: Optional[str] = None
+    plan: Optional[str] = None
+    user_email: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+@dataclass
 class OAuthCallbackResult:
     """Result from OAuth callback."""
 
@@ -309,6 +325,23 @@ class CLIAuth:
         console.print(f"[bold]API Key:[/] {masked}")
         if source:
             console.print(f"[bold]Stored in:[/] {source}")
+
+    def get_current_user(self) -> Optional[CLICredentials]:
+        """Get current user credentials if authenticated.
+
+        Returns:
+            CLICredentials if logged in, None otherwise
+        """
+        api_key = self.get_api_key()
+        if not api_key:
+            return None
+
+        return CLICredentials(access_token=api_key)
+
+    @property
+    def api_url(self) -> str:
+        """Get API URL for tier limit checks."""
+        return os.environ.get("REPOTOIRE_API_URL", "https://repotoire-api.fly.dev")
 
 
 def is_offline_mode() -> bool:

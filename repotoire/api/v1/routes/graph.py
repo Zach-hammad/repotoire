@@ -23,7 +23,16 @@ from repotoire.db.models import Organization, OrganizationMembership, User
 from repotoire.db.session import get_db
 from repotoire.graph.tenant_factory import get_factory
 from repotoire.logging_config import get_logger
-from repotoire.models import Entity, Relationship
+from repotoire.models import (
+    Entity,
+    FileEntity,
+    ClassEntity,
+    FunctionEntity,
+    ModuleEntity,
+    NodeType,
+    Relationship,
+    RelationshipType,
+)
 
 logger = get_logger(__name__)
 
@@ -293,18 +302,74 @@ async def batch_create_nodes(
     """Batch create nodes in the graph."""
     client = _get_client_for_user(user)
     try:
-        # Convert dicts to Entity objects
+        # Convert dicts to appropriate Entity subclass
         entities = []
         for e in request.entities:
-            entity = Entity(
-                entity_type=e["entity_type"],
-                name=e["name"],
-                qualified_name=e["qualified_name"],
-                file_path=e.get("file_path"),
-                line_number=e.get("line_number"),
-                end_line_number=e.get("end_line_number"),
-                properties=e.get("properties", {}),
-            )
+            entity_type = e.get("entity_type", "Unknown")
+            node_type = NodeType(entity_type) if entity_type in [t.value for t in NodeType] else None
+
+            # Common fields for all entities
+            base_fields = {
+                "name": e["name"],
+                "qualified_name": e["qualified_name"],
+                "file_path": e.get("file_path", ""),
+                "line_start": e.get("line_start", 0),
+                "line_end": e.get("line_end", 0),
+                "docstring": e.get("docstring"),
+            }
+
+            # Create appropriate entity type
+            if entity_type == "File":
+                entity = FileEntity(
+                    **base_fields,
+                    node_type=NodeType.FILE,
+                    language=e.get("language", "python"),
+                    loc=e.get("loc", 0),
+                    hash=e.get("hash"),
+                    exports=e.get("exports", []),
+                )
+            elif entity_type == "Class":
+                entity = ClassEntity(
+                    **base_fields,
+                    node_type=NodeType.CLASS,
+                    is_abstract=e.get("is_abstract", False),
+                    complexity=e.get("complexity", 0),
+                    decorators=e.get("decorators", []),
+                )
+            elif entity_type == "Function":
+                entity = FunctionEntity(
+                    **base_fields,
+                    node_type=NodeType.FUNCTION,
+                    parameters=e.get("parameters", []),
+                    return_type=e.get("return_type"),
+                    is_async=e.get("is_async", False),
+                    decorators=e.get("decorators", []),
+                    complexity=e.get("complexity", 0),
+                    is_method=e.get("is_method", False),
+                    is_static=e.get("is_static", False),
+                    is_classmethod=e.get("is_classmethod", False),
+                    is_property=e.get("is_property", False),
+                )
+            elif entity_type == "Module":
+                entity = ModuleEntity(
+                    **base_fields,
+                    node_type=NodeType.MODULE,
+                    is_external=e.get("is_external", False),
+                    package=e.get("package"),
+                )
+            else:
+                # Fall back to base Entity for unknown types
+                entity = Entity(
+                    **base_fields,
+                    node_type=node_type,
+                )
+
+            # Set repo_id and repo_slug for multi-tenant isolation
+            if e.get("repo_id"):
+                entity.repo_id = e["repo_id"]
+            if e.get("repo_slug"):
+                entity.repo_slug = e["repo_slug"]
+
             entities.append(entity)
 
         created = client.batch_create_nodes(entities)
@@ -330,10 +395,17 @@ async def batch_create_relationships(
         # Convert dicts to Relationship objects
         relationships = []
         for r in request.relationships:
+            # Parse rel_type from string to enum
+            rel_type_str = r.get("rel_type", "CALLS")
+            try:
+                rel_type = RelationshipType(rel_type_str)
+            except ValueError:
+                rel_type = RelationshipType.CALLS  # Default fallback
+
             rel = Relationship(
-                source=r["source"],
-                target=r["target"],
-                relationship_type=r["relationship_type"],
+                source_id=r["source_id"],
+                target_id=r["target_id"],
+                rel_type=rel_type,
                 properties=r.get("properties", {}),
             )
             relationships.append(rel)

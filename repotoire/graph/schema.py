@@ -201,8 +201,8 @@ class GraphSchema:
             client: Neo4j or FalkorDB client instance
         """
         self.client = client
-        # Detect if we're using FalkorDB
-        self.is_falkordb = type(client).__name__ == "FalkorDBClient"
+        # Detect if we're using FalkorDB (check property first, then class name)
+        self.is_falkordb = getattr(client, "is_falkordb", False) or type(client).__name__ == "FalkorDBClient"
 
     def create_constraints(self) -> None:
         """Create all uniqueness constraints."""

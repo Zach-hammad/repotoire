@@ -127,14 +127,31 @@ class CloudProxyClient(DatabaseClient):
         entity_dicts = []
         for e in entities:
             entity_dict = {
-                "entity_type": e.entity_type,
+                "entity_type": e.node_type.value if e.node_type else "Unknown",
                 "name": e.name,
                 "qualified_name": e.qualified_name,
                 "file_path": e.file_path,
-                "line_number": e.line_number,
-                "end_line_number": e.end_line_number,
-                "properties": e.properties or {},
+                "line_start": e.line_start,
+                "line_end": e.line_end,
+                "docstring": e.docstring,
             }
+
+            # Add repo_id and repo_slug for multi-tenant isolation
+            if e.repo_id:
+                entity_dict["repo_id"] = e.repo_id
+            if e.repo_slug:
+                entity_dict["repo_slug"] = e.repo_slug
+
+            # Add type-specific fields (matching FalkorDB client)
+            for attr in ["is_external", "package", "loc", "hash", "language",
+                         "exports", "is_abstract", "complexity", "parameters",
+                         "return_type", "is_async", "decorators", "is_method",
+                         "is_static", "is_classmethod", "is_property"]:
+                if hasattr(e, attr):
+                    val = getattr(e, attr)
+                    if val is not None:
+                        entity_dict[attr] = val
+
             entity_dicts.append(entity_dict)
 
         response = self._request(
@@ -149,9 +166,9 @@ class CloudProxyClient(DatabaseClient):
         rel_dicts = []
         for r in relationships:
             rel_dict = {
-                "source": r.source,
-                "target": r.target,
-                "relationship_type": r.relationship_type,
+                "source_id": r.source_id,
+                "target_id": r.target_id,
+                "rel_type": r.rel_type.value if hasattr(r.rel_type, 'value') else str(r.rel_type),
                 "properties": r.properties or {},
             }
             rel_dicts.append(rel_dict)

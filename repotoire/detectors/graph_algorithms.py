@@ -150,7 +150,7 @@ class GraphAlgorithms:
             True if GDS is available, False otherwise
         """
         # FalkorDB doesn't have GDS - skip immediately without retry
-        if type(self.client).__name__ == "FalkorDBClient":
+        if getattr(self.client, "is_falkordb", False) or type(self.client).__name__ == "FalkorDBClient":
             logger.info("FalkorDB detected - GDS not available (using Rust algorithms)")
             return False
 

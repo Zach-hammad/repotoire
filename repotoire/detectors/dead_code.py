@@ -36,7 +36,7 @@ class DeadCodeDetector(CodeSmellDetector):
         self.validated_confidence = 0.95  # When Vulture confirms
 
         # FalkorDB doesn't support EXISTS {} subqueries
-        self.is_falkordb = type(neo4j_client).__name__ == "FalkorDBClient"
+        self.is_falkordb = getattr(neo4j_client, "is_falkordb", False) or type(neo4j_client).__name__ == "FalkorDBClient"
 
     @property
     def needs_previous_findings(self) -> bool:
