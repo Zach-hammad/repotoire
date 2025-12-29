@@ -54,7 +54,9 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
-        run: uv pip install --system bump-my-version git-cliff
+        run: |
+          uv tool install bump-my-version
+          uv tool install git-cliff
 
       - name: Update changelog
         run: |
@@ -230,7 +232,7 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Install git-cliff
-        run: uv pip install --system git-cliff
+        run: uv tool install git-cliff
 
       - name: Generate changelog for release
         run: |
