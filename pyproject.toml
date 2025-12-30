@@ -118,7 +118,7 @@ timescale = [
 ]
 
 graphiti = [
-    "graphiti-core>=0.24.1",  # Temporal knowledge graph for git history tracking
+    "graphiti-core[falkordb]>=0.24.1",  # Temporal knowledge graph with FalkorDB backend
 ]
 
 security = [

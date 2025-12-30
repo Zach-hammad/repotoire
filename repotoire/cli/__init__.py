@@ -3808,7 +3808,7 @@ def historical() -> None:
     Commands for integrating git commit history with Graphiti temporal knowledge
     graph, enabling natural language queries about code evolution.
 
-    Requires Graphiti to be configured via OPENAI_API_KEY and Neo4j connection.
+    Requires Graphiti to be configured via OPENAI_API_KEY and FalkorDB connection.
 
     Examples:
         repotoire historical ingest-git /path/to/repo --since 2024-01-01
@@ -3825,24 +3825,24 @@ def historical() -> None:
 @click.option("--branch", "-b", default="main", help="Git branch to analyze")
 @click.option("--max-commits", "-m", type=int, default=1000, help="Maximum commits to process")
 @click.option("--batch-size", type=int, default=10, help="Commits to process in parallel")
-@click.option("--neo4j-uri", envvar="REPOTOIRE_NEO4J_URI", default="bolt://localhost:7687", help="Neo4j connection URI")
-@click.option("--neo4j-password", envvar="REPOTOIRE_NEO4J_PASSWORD", help="Neo4j password")
-@click.pass_context
+@click.option("--falkor-uri", envvar="REPOTOIRE_FALKOR_URI", default="falkor://localhost:6379", help="FalkorDB connection URI")
+@click.option("--falkor-password", envvar="REPOTOIRE_FALKOR_PASSWORD", help="FalkorDB password (optional for local)")
 def ingest_git(
-    ctx: click.Context,
     repository: str,
     since: Optional[str],
     until: Optional[str],
     branch: str,
     max_commits: int,
     batch_size: int,
-    neo4j_uri: str,
-    neo4j_password: Optional[str],
+    falkor_uri: str,
+    falkor_password: Optional[str],
 ) -> None:
     """Ingest git commit history into Graphiti temporal knowledge graph.
 
     Analyzes git repository and creates Graphiti episodes for each commit,
     enabling natural language queries about code evolution over time.
+
+    Uses FalkorDB as the graph database backend for Graphiti.
 
     Example:
         repotoire historical ingest-git /path/to/repo --since 2024-01-01 --max-commits 500
@@ -3858,7 +3858,7 @@ def ingest_git(
         except ImportError as e:
             console.print("\n[red]❌ Graphiti not installed[/red]")
             console.print(
-                "[dim]Install with: uv pip install 'repotoire[graphiti]' or pip install graphiti-core[/dim]"
+                "[dim]Install with: uv pip install 'repotoire[graphiti]' or pip install graphiti-core[falkordb][/dim]"
             )
             raise click.Abort()
 
@@ -3867,12 +3867,6 @@ def ingest_git(
         if not os.getenv("OPENAI_API_KEY"):
             console.print("\n[red]❌ OPENAI_API_KEY not set[/red]")
             console.print("[dim]Graphiti requires an OpenAI API key for LLM processing[/dim]")
-            raise click.Abort()
-
-        # Check for Neo4j password
-        if not neo4j_password:
-            console.print("\n[red]❌ Neo4j password not provided[/red]")
-            console.print("[dim]Set REPOTOIRE_NEO4J_PASSWORD or use --neo4j-password[/dim]")
             raise click.Abort()
 
         # Parse dates if provided
@@ -3904,9 +3898,9 @@ def ingest_git(
             console.print(f"Until: {until_dt.date()}")
         console.print(f"Max commits: {max_commits}")
 
-        # Initialize Graphiti
-        with console.status("[bold]Initializing Graphiti...[/bold]"):
-            graphiti = Graphiti(neo4j_uri, neo4j_password, "neo4j")
+        # Initialize Graphiti with FalkorDB
+        with console.status("[bold]Initializing Graphiti with FalkorDB...[/bold]"):
+            graphiti = Graphiti(uri=falkor_uri, password=falkor_password)
 
         # Initialize integration
         integration = GitGraphitiIntegration(repository, graphiti)
@@ -3943,22 +3937,22 @@ def ingest_git(
 @click.argument("repository", type=click.Path(exists=True))
 @click.option("--since", "-s", help="Filter results after this date (YYYY-MM-DD)")
 @click.option("--until", "-u", help="Filter results before this date (YYYY-MM-DD)")
-@click.option("--neo4j-uri", envvar="REPOTOIRE_NEO4J_URI", default="bolt://localhost:7687", help="Neo4j connection URI")
-@click.option("--neo4j-password", envvar="REPOTOIRE_NEO4J_PASSWORD", help="Neo4j password")
-@click.pass_context
+@click.option("--falkor-uri", envvar="REPOTOIRE_FALKOR_URI", default="falkor://localhost:6379", help="FalkorDB connection URI")
+@click.option("--falkor-password", envvar="REPOTOIRE_FALKOR_PASSWORD", help="FalkorDB password (optional for local)")
 def query(
-    ctx: click.Context,
     query: str,
     repository: str,
     since: Optional[str],
     until: Optional[str],
-    neo4j_uri: str,
-    neo4j_password: Optional[str],
+    falkor_uri: str,
+    falkor_password: Optional[str],
 ) -> None:
     """Query git history using natural language.
 
     Ask questions about code evolution, when features were added, who made changes,
     and other historical questions about the codebase.
+
+    Uses FalkorDB as the graph database backend for Graphiti.
 
     Examples:
         repotoire historical query "When did we add OAuth authentication?" /path/to/repo
@@ -3976,14 +3970,8 @@ def query(
         except ImportError:
             console.print("\n[red]❌ Graphiti not installed[/red]")
             console.print(
-                "[dim]Install with: uv pip install 'repotoire[graphiti]' or pip install graphiti-core[/dim]"
+                "[dim]Install with: uv pip install 'repotoire[graphiti]' or pip install graphiti-core[falkordb][/dim]"
             )
-            raise click.Abort()
-
-        # Check for Neo4j password
-        if not neo4j_password:
-            console.print("\n[red]❌ Neo4j password not provided[/red]")
-            console.print("[dim]Set REPOTOIRE_NEO4J_PASSWORD or use --neo4j-password[/dim]")
             raise click.Abort()
 
         # Parse dates if provided
@@ -4007,9 +3995,9 @@ def query(
         console.print(f"\n[bold]🔍 Querying Git History[/bold]")
         console.print(f"Query: {query}")
 
-        # Initialize Graphiti
+        # Initialize Graphiti with FalkorDB
         with console.status("[bold]Querying Graphiti...[/bold]"):
-            graphiti = Graphiti(neo4j_uri, neo4j_password, "neo4j")
+            graphiti = Graphiti(uri=falkor_uri, password=falkor_password)
             integration = GitGraphitiIntegration(repository, graphiti)
 
             # Run query
@@ -4036,21 +4024,21 @@ def query(
 @click.argument("entity_name")
 @click.argument("repository", type=click.Path(exists=True))
 @click.option("--entity-type", "-t", default="function", help="Type of entity (function, class, module)")
-@click.option("--neo4j-uri", envvar="REPOTOIRE_NEO4J_URI", default="bolt://localhost:7687", help="Neo4j connection URI")
-@click.option("--neo4j-password", envvar="REPOTOIRE_NEO4J_PASSWORD", help="Neo4j password")
-@click.pass_context
+@click.option("--falkor-uri", envvar="REPOTOIRE_FALKOR_URI", default="falkor://localhost:6379", help="FalkorDB connection URI")
+@click.option("--falkor-password", envvar="REPOTOIRE_FALKOR_PASSWORD", help="FalkorDB password (optional for local)")
 def timeline(
-    ctx: click.Context,
     entity_name: str,
     repository: str,
     entity_type: str,
-    neo4j_uri: str,
-    neo4j_password: Optional[str],
+    falkor_uri: str,
+    falkor_password: Optional[str],
 ) -> None:
     """Get timeline of changes for a specific code entity.
 
     Shows all commits that modified a particular function, class, or module
     over time, helping understand how that code evolved.
+
+    Uses FalkorDB as the graph database backend for Graphiti.
 
     Examples:
         repotoire historical timeline authenticate_user /path/to/repo --entity-type function
@@ -4066,21 +4054,15 @@ def timeline(
         except ImportError:
             console.print("\n[red]❌ Graphiti not installed[/red]")
             console.print(
-                "[dim]Install with: uv pip install 'repotoire[graphiti]' or pip install graphiti-core[/dim]"
+                "[dim]Install with: uv pip install 'repotoire[graphiti]' or pip install graphiti-core[falkordb][/dim]"
             )
-            raise click.Abort()
-
-        # Check for Neo4j password
-        if not neo4j_password:
-            console.print("\n[red]❌ Neo4j password not provided[/red]")
-            console.print("[dim]Set REPOTOIRE_NEO4J_PASSWORD or use --neo4j-password[/dim]")
             raise click.Abort()
 
         console.print(f"\n[bold]📅 Timeline for {entity_type}: {entity_name}[/bold]")
 
-        # Initialize Graphiti
+        # Initialize Graphiti with FalkorDB
         with console.status("[bold]Retrieving timeline...[/bold]"):
-            graphiti = Graphiti(neo4j_uri, neo4j_password, "neo4j")
+            graphiti = Graphiti(uri=falkor_uri, password=falkor_password)
             integration = GitGraphitiIntegration(repository, graphiti)
 
             # Get timeline
