@@ -782,6 +782,50 @@ def ingest(
                         f"https://repotoire.com/repos/{repo_id[:8]}...[/link]"
                     )
 
+                # Ingest git history automatically if this is a git repository
+                try:
+                    from repotoire.historical.git_extractor import is_git_repository, extract_commits
+
+                    if is_git_repository(validated_repo_path):
+                        if not quiet:
+                            console.print("\n[bold cyan]📜 Extracting git history...[/bold cyan]")
+
+                        commits = extract_commits(
+                            validated_repo_path,
+                            max_commits=100,  # Reasonable default for initial ingestion
+                        )
+
+                        if commits and repo_id and repo_slug:
+                            # Send to cloud API for Graphiti processing
+                            if hasattr(db, 'ingest_git_commits'):
+                                result = db.ingest_git_commits(
+                                    repo_id=repo_id,
+                                    repo_slug=repo_slug,
+                                    commits=commits,
+                                )
+                                console.print(
+                                    f"[green]✓ Ingested {result.get('commits_processed', len(commits))} "
+                                    f"commits into temporal graph[/green]"
+                                )
+                            else:
+                                if not quiet:
+                                    console.print(
+                                        "[dim]Git history extracted but temporal graph requires cloud API[/dim]"
+                                    )
+                        elif commits:
+                            if not quiet:
+                                console.print(
+                                    f"[dim]Found {len(commits)} commits (login to sync git history)[/dim]"
+                                )
+                except ImportError:
+                    # GitPython not installed - skip silently
+                    pass
+                except Exception as e:
+                    # Non-fatal - git history is enhancement, not required
+                    logger.warning(f"Git history extraction failed: {e}")
+                    if not quiet:
+                        console.print(f"[yellow]⚠️  Git history skipped: {e}[/yellow]")
+
                 # Generate graph embeddings (Node2Vec) - the differentiator!
                 # Uses parallel Rust backend for fast training
                 function_count = stats.get("total_functions", 0)
