@@ -102,7 +102,7 @@ class TimelineResponse(BaseModel):
 
 
 def _get_graphiti_instance():
-    """Get a Graphiti instance configured for FalkorDB.
+    """Get a Graphiti instance configured for Neo4j/FalkorDB.
 
     Returns:
         Initialized Graphiti instance
@@ -127,12 +127,19 @@ def _get_graphiti_instance():
             detail="OPENAI_API_KEY environment variable not set"
         )
 
-    # Get FalkorDB credentials (cloud internal)
-    falkor_uri = os.getenv("REPOTOIRE_FALKOR_URI", "falkor://localhost:6379")
-    falkor_password = os.getenv("REPOTOIRE_FALKOR_PASSWORD")
+    # Get database connection - use REPOTOIRE_FALKOR_URI if set, else REPOTOIRE_NEO4J_URI
+    # Both FalkorDB and Neo4j use bolt/neo4j protocol
+    db_uri = os.getenv("REPOTOIRE_FALKOR_URI") or os.getenv("REPOTOIRE_NEO4J_URI")
+    db_password = os.getenv("REPOTOIRE_FALKOR_PASSWORD") or os.getenv("REPOTOIRE_NEO4J_PASSWORD")
 
-    # Initialize Graphiti with FalkorDB backend
-    return Graphiti(falkor_uri, falkor_password)
+    if not db_uri:
+        raise HTTPException(
+            status_code=500,
+            detail="No graph database URI configured (REPOTOIRE_FALKOR_URI or REPOTOIRE_NEO4J_URI)"
+        )
+
+    # Initialize Graphiti with Neo4j-compatible backend
+    return Graphiti(db_uri, db_password)
 
 
 @router.post("/ingest-commits", response_model=IngestGitResponse)
