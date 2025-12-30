@@ -24,19 +24,19 @@ except ImportError:
 
 
 def is_git_repository(repo_path: str | Path) -> bool:
-    """Check if a path is a git repository.
+    """Check if a path is within a git repository.
 
     Args:
-        repo_path: Path to check
+        repo_path: Path to check (can be a subdirectory)
 
     Returns:
-        True if the path is a git repository
+        True if the path is within a git repository
     """
     if not GIT_AVAILABLE:
         return False
 
     try:
-        git.Repo(repo_path)
+        git.Repo(repo_path, search_parent_directories=True)
         return True
     except (git.exc.InvalidGitRepositoryError, git.exc.NoSuchPathError):
         return False
@@ -69,7 +69,7 @@ def extract_commits(
             "Install with: pip install gitpython"
         )
 
-    repo = git.Repo(repo_path)
+    repo = git.Repo(repo_path, search_parent_directories=True)
     commits_data = []
 
     try:
