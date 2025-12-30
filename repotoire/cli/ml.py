@@ -683,13 +683,13 @@ def generate_embeddings(
         repotoire ml generate-embeddings --return-factor 2.0 --in-out-factor 0.5
     """
     from repotoire.ml.node2vec_embeddings import Node2VecEmbedder, Node2VecConfig
-    from repotoire.graph.client import Neo4jClient
+    from repotoire.graph.factory import create_client
 
     console.print(f"[bold blue]Generating {embedding_type} embeddings[/bold blue]")
     console.print(f"[dim]Dimension: {dimension}, Walk length: {walk_length}[/dim]\n")
 
     try:
-        client = Neo4jClient.from_env()
+        client = create_client()
         config = Node2VecConfig(
             embedding_dimension=dimension,
             walk_length=walk_length,
@@ -871,14 +871,14 @@ def fine_tune_embeddings(
         ContrastivePairGenerator,
         ContrastiveTrainer,
     )
-    from repotoire.graph.client import Neo4jClient
+    from repotoire.graph.factory import create_client
 
     console.print("[bold blue]Fine-tuning embeddings with contrastive learning[/bold blue]")
     console.print(f"[dim]Base model: {base_model}[/dim]")
     console.print(f"[dim]Epochs: {epochs}, Batch size: {batch_size}[/dim]\n")
 
     try:
-        client = Neo4jClient.from_env()
+        client = create_client()
 
         # Create configuration
         config = ContrastiveConfig(
@@ -1037,7 +1037,7 @@ def train_bug_predictor(
     """
     from repotoire.ml.bug_predictor import BugPredictor, BugPredictorConfig
     from repotoire.ml.training_data import TrainingDataset
-    from repotoire.graph.client import Neo4jClient
+    from repotoire.graph.factory import create_client
 
     console.print("[bold blue]Training bug prediction model[/bold blue]\n")
 
@@ -1052,7 +1052,7 @@ def train_bug_predictor(
         console.print(f"[dim]Buggy: {buggy_count}, Clean: {len(dataset.examples) - buggy_count}[/dim]\n")
 
         # Initialize predictor
-        client = Neo4jClient.from_env()
+        client = create_client()
         config = BugPredictorConfig(
             n_estimators=n_estimators,
             max_depth=max_depth,
@@ -1186,12 +1186,12 @@ def predict_bugs(
         repotoire ml predict-bugs -m model.pkl -f mymodule.MyClass.risky_method
     """
     from repotoire.ml.bug_predictor import BugPredictor
-    from repotoire.graph.client import Neo4jClient
+    from repotoire.graph.factory import create_client
 
     console.print("[bold blue]Predicting bug-prone functions[/bold blue]\n")
 
     try:
-        client = Neo4jClient.from_env()
+        client = create_client()
         predictor = BugPredictor.load(Path(model), client)
 
         # Show model info
@@ -1381,7 +1381,7 @@ def prepare_multimodal_data(
     """
     import pickle
 
-    from repotoire.graph.client import Neo4jClient
+    from repotoire.graph.factory import create_client
     from repotoire.ml.multimodal_analyzer import MultimodalAnalyzer
 
     console.print("[bold blue]Preparing multimodal training data[/bold blue]\n")
@@ -1391,7 +1391,7 @@ def prepare_multimodal_data(
         raise click.Abort()
 
     try:
-        client = Neo4jClient.from_env()
+        client = create_client()
         analyzer = MultimodalAnalyzer(client)
 
         with Progress(
@@ -1513,7 +1513,7 @@ def train_multimodal(
     """
     import pickle
 
-    from repotoire.graph.client import Neo4jClient
+    from repotoire.graph.factory import create_client
     from repotoire.ml.multimodal_analyzer import MultimodalAnalyzer, TrainingConfig
 
     console.print("[bold blue]Training multimodal fusion model[/bold blue]\n")
@@ -1531,7 +1531,7 @@ def train_multimodal(
         console.print(f"[dim]Tasks: {', '.join(tasks)}[/dim]\n")
 
         # Initialize
-        client = Neo4jClient.from_env()
+        client = create_client()
         config = TrainingConfig(
             epochs=epochs,
             batch_size=batch_size,
@@ -1657,13 +1657,13 @@ def multimodal_predict(
         # Export results
         repotoire ml multimodal-predict -m model.pt -o predictions.json --top-n 50
     """
-    from repotoire.graph.client import Neo4jClient
+    from repotoire.graph.factory import create_client
     from repotoire.ml.multimodal_analyzer import MultimodalAnalyzer
 
     console.print(f"[bold blue]Running {task} predictions[/bold blue]\n")
 
     try:
-        client = Neo4jClient.from_env()
+        client = create_client()
         analyzer = MultimodalAnalyzer.load(Path(model), client)
 
         # Single function prediction
@@ -2045,7 +2045,7 @@ def train_graphsage(
             CrossProjectTrainingConfig,
         )
         from repotoire.ml.graphsage_predictor import GraphSAGEConfig
-        from repotoire.graph.client import Neo4jClient
+        from repotoire.graph.factory import create_client
     except ImportError as e:
         console.print(f"[red]Error: {e}[/red]")
         console.print("[yellow]Install with: pip install torch torch-geometric[/yellow]")
@@ -2087,7 +2087,7 @@ def train_graphsage(
     console.print("[dim]Loading graph data from Neo4j...[/dim]")
 
     try:
-        client = Neo4jClient.from_env()
+        client = create_client()
 
         # Combine all labels (assuming single graph with all projects)
         all_labels: Dict[str, int] = {}
@@ -2217,7 +2217,7 @@ def zero_shot_predict(
     try:
         from repotoire.ml.cross_project_trainer import CrossProjectTrainer
         from repotoire.ml.graphsage_predictor import GraphFeatureExtractor
-        from repotoire.graph.client import Neo4jClient
+        from repotoire.graph.factory import create_client
     except ImportError as e:
         console.print(f"[red]Error: {e}[/red]")
         console.print("[yellow]Install with: pip install torch torch-geometric[/yellow]")
@@ -2237,7 +2237,7 @@ def zero_shot_predict(
     console.print("[dim]Extracting graph features...[/dim]")
 
     try:
-        client = Neo4jClient.from_env()
+        client = create_client()
         extractor = GraphFeatureExtractor(client)
         data, node_mapping = extractor.extract_graph_data()
     except Exception as e:
@@ -2368,7 +2368,7 @@ def export_graph_data(
         repotoire ingest /path/to/repo --generate-embeddings
         repotoire ml export-graph-data -o ./exports -n myproject
     """
-    from repotoire.graph.client import Neo4jClient
+    from repotoire.graph.factory import create_client
 
     console.print(f"[bold blue]Exporting graph data for {project_name}[/bold blue]")
 
@@ -2376,7 +2376,7 @@ def export_graph_data(
     output_path.mkdir(parents=True, exist_ok=True)
 
     try:
-        client = Neo4jClient.from_env()
+        client = create_client()
 
         # Export nodes
         node_query = """

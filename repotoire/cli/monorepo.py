@@ -16,7 +16,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.tree import Tree
 
-from repotoire.graph import Neo4jClient
+from repotoire.graph.factory import create_client
 from repotoire.monorepo import (
     PackageDetector,
     PackageAnalyzer,
@@ -109,24 +109,12 @@ def detect_packages(repository_path, output):
     help="Analyze specific package (path or name)",
 )
 @click.option(
-    "--neo4j-uri",
-    envvar="REPOTOIRE_NEO4J_URI",
-    default="bolt://localhost:7687",
-    help="Neo4j connection URI",
-)
-@click.option(
-    "--neo4j-password",
-    envvar="REPOTOIRE_NEO4J_PASSWORD",
-    required=True,
-    help="Neo4j password",
-)
-@click.option(
     "--output",
     "-o",
     type=click.Path(),
     help="Output file for results (JSON format)",
 )
-def analyze_monorepo(repository_path, package, neo4j_uri, neo4j_password, output):
+def analyze_monorepo(repository_path, package, output):
     """Analyze monorepo packages with per-package health scores.
 
     Provides detailed health analysis for each package in the monorepo,
@@ -139,8 +127,8 @@ def analyze_monorepo(repository_path, package, neo4j_uri, neo4j_password, output
     console.print("[bold blue]🔍 Analyzing monorepo packages...[/bold blue]\n")
 
     try:
-        # Connect to Neo4j
-        client = Neo4jClient(uri=neo4j_uri, password=neo4j_password)
+        # Connect to graph database
+        client = create_client()
 
         # Detect packages
         detector = PackageDetector(Path(repository_path))
