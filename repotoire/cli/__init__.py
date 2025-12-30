@@ -3066,34 +3066,22 @@ def generate_mcp(
 def schema() -> None:
     """Manage and inspect graph schema.
 
-    Tools for exploring the Neo4j graph structure, validating integrity,
-    and debugging without opening Neo4j Browser.
+    Tools for exploring the graph structure, validating integrity,
+    and debugging.
 
     Examples:
-        falkor schema inspect           # Show graph statistics
-        falkor schema visualize         # ASCII art graph structure
-        falkor schema sample Class --limit 3  # Sample Class nodes
-        falkor schema validate          # Check schema integrity
+        repotoire schema inspect           # Show graph statistics
+        repotoire schema sample Class --limit 3  # Sample Class nodes
+        repotoire schema validate          # Check schema integrity
     """
     pass
 
 
 @schema.command()
-@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
-@click.option("--neo4j-user", default=None, help="Neo4j username (overrides config)")
-@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
 @click.option("--format", type=click.Choice(["table", "json"]), default="table", help="Output format")
-@click.pass_context
-def inspect(
-    ctx: click.Context,
-    neo4j_uri: str | None,
-    neo4j_user: str | None,
-    neo4j_password: str | None,
-    format: str,
-) -> None:
+def inspect(format: str) -> None:
     """Show graph statistics and schema overview."""
     try:
-        # In cloud mode, skip Neo4j config and use cloud client directly
         client = _get_db_client()
 
         # Get statistics
@@ -3154,29 +3142,9 @@ def inspect(
 
 
 @schema.command()
-@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
-@click.option("--neo4j-user", default=None, help="Neo4j username (overrides config)")
-@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
-@click.pass_context
-def visualize(
-    ctx: click.Context,
-    neo4j_uri: str | None,
-    neo4j_user: str | None,
-    neo4j_password: str | None,
-) -> None:
+def visualize() -> None:
     """Visualize graph schema structure with ASCII art."""
     try:
-        config = get_config()
-
-        # Override config with CLI args
-        uri = neo4j_uri or config.neo4j_uri
-        user = neo4j_user or config.neo4j_user
-        password = neo4j_password or config.neo4j_password
-
-        if not password:
-            password = click.prompt("Neo4j password", hide_input=True)
-
-        # Connect to Neo4j
         client = _get_db_client()
 
         # Get relationship type counts to understand schema
@@ -3231,34 +3199,12 @@ def visualize(
 @schema.command()
 @click.argument("node_type")
 @click.option("--limit", default=3, help="Number of samples to show")
-@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
-@click.option("--neo4j-user", default=None, help="Neo4j username (overrides config)")
-@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
-@click.pass_context
-def sample(
-    ctx: click.Context,
-    node_type: str,
-    limit: int,
-    neo4j_uri: str | None,
-    neo4j_user: str | None,
-    neo4j_password: str | None,
-) -> None:
+def sample(node_type: str, limit: int) -> None:
     """Show sample nodes of a specific type.
 
     NODE_TYPE: The node label to sample (e.g., Class, Function, File)
     """
     try:
-        config = get_config()
-
-        # Override config with CLI args
-        uri = neo4j_uri or config.neo4j_uri
-        user = neo4j_user or config.neo4j_user
-        password = neo4j_password or config.neo4j_password
-
-        if not password:
-            password = click.prompt("Neo4j password", hide_input=True)
-
-        # Connect to Neo4j
         client = _get_db_client()
 
         # Get total count
@@ -3311,19 +3257,9 @@ def sample(
 
 
 @schema.command()
-@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
-@click.option("--neo4j-user", default=None, help="Neo4j username (overrides config)")
-@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
-@click.pass_context
-def validate(
-    ctx: click.Context,
-    neo4j_uri: str | None,
-    neo4j_user: str | None,
-    neo4j_password: str | None,
-) -> None:
+def validate() -> None:
     """Validate graph schema integrity."""
     try:
-        # In cloud mode, skip Neo4j config and use cloud client directly
         client = _get_db_client()
 
         console.print()

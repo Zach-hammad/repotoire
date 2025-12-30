@@ -236,25 +236,11 @@ def generate_sbom(repository_path, format, output, requirements):
     type=click.Path(),
     help="Generate markdown report",
 )
-@click.option(
-    "--neo4j-uri",
-    envvar="REPOTOIRE_NEO4J_URI",
-    default="bolt://localhost:7687",
-    help="Neo4j connection URI",
-)
-@click.option(
-    "--neo4j-password",
-    envvar="REPOTOIRE_NEO4J_PASSWORD",
-    required=True,
-    help="Neo4j password",
-)
 def compliance_report(
     repository_path,
     framework,
     output,
     markdown,
-    neo4j_uri,
-    neo4j_password,
 ):
     """Generate compliance report for security frameworks.
 
@@ -268,9 +254,8 @@ def compliance_report(
     console.print(f"[bold blue]📋 Generating {framework.upper()} compliance report...[/bold blue]")
 
     try:
-        # Get findings from analysis
-        # For now, run a quick dependency scan
-        client = Neo4jClient(uri=neo4j_uri, password=neo4j_password)
+        # Initialize cloud client (requires REPOTOIRE_API_KEY)
+        client = create_client()
         scanner = DependencyScanner(
             client,
             detector_config={"repository_path": repository_path}
@@ -330,24 +315,12 @@ def compliance_report(
 @security.command("audit")
 @click.argument("repository_path", type=click.Path(exists=True))
 @click.option(
-    "--neo4j-uri",
-    envvar="REPOTOIRE_NEO4J_URI",
-    default="bolt://localhost:7687",
-    help="Neo4j connection URI",
-)
-@click.option(
-    "--neo4j-password",
-    envvar="REPOTOIRE_NEO4J_PASSWORD",
-    required=True,
-    help="Neo4j password",
-)
-@click.option(
     "--output-dir",
     "-o",
     type=click.Path(),
     help="Output directory for all reports",
 )
-def audit(repository_path, neo4j_uri, neo4j_password, output_dir):
+def audit(repository_path, output_dir):
     """Run comprehensive security audit.
 
     Performs:
@@ -370,7 +343,7 @@ def audit(repository_path, neo4j_uri, neo4j_password, output_dir):
     # 1. Dependency scan
     console.print("[bold]1. Scanning dependencies...[/bold]")
     try:
-        client = Neo4jClient(uri=neo4j_uri, password=neo4j_password)
+        client = create_client()
         scanner = DependencyScanner(
             client,
             detector_config={"repository_path": str(repo_path)}
