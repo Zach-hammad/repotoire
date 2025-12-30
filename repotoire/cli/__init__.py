@@ -1297,33 +1297,21 @@ def _display_findings_tree(findings, severity_colors, severity_emoji):
 
 
 @cli.command()
-@click.option(
-    "--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)"
-)
-@click.option("--neo4j-user", default=None, help="Neo4j username (overrides config)")
-@click.option(
-    "--neo4j-password",
-    default=None,
-    help="Neo4j password (overrides config, prompts if not provided)",
-)
 @click.pass_context
-def validate(
-    ctx: click.Context,
-    neo4j_uri: str | None,
-    neo4j_user: str | None,
-    neo4j_password: str | None,
-) -> None:
-    """Validate configuration and connectivity without running operations.
+def validate(ctx: click.Context) -> None:
+    """Validate configuration and API connectivity.
 
     Checks:
+    - API key is set (REPOTOIRE_API_KEY)
+    - API connectivity (server is reachable)
     - Configuration file validity (if present)
-    - Neo4j connection URI format
-    - Neo4j credentials
-    - Neo4j connectivity (database is reachable)
-    - All required settings are present
+    - Ingestion settings are valid
 
     Exits with non-zero code if any validation fails.
     """
+    import os
+    from repotoire.graph.factory import get_api_key
+
     config: FalkorConfig = ctx.obj['config']
 
     console.print("\n[bold cyan]🎼 Repotoire Configuration Validation[/bold cyan]\n")
@@ -1331,10 +1319,39 @@ def validate(
     validation_results = []
     all_passed = True
 
-    # 1. Validate configuration file
+    # 1. Check API key
+    console.print("[dim]Checking API key...[/dim]")
+    api_key = get_api_key()
+    if api_key:
+        # Mask the key for display
+        masked_key = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
+        validation_results.append(("API key", f"✓ {masked_key}", "green"))
+        console.print(f"[green]✓[/green] API key found: {masked_key}\n")
+    else:
+        validation_results.append(("API key", "✗ Not set", "red"))
+        console.print("[red]✗[/red] API key not set")
+        console.print("[yellow]💡 Set REPOTOIRE_API_KEY or run: repotoire login[/yellow]\n")
+        all_passed = False
+        _print_validation_summary(validation_results, all_passed)
+        raise click.Abort()
+
+    # 2. Test API connectivity
+    console.print("[dim]Testing API connectivity...[/dim]")
+    try:
+        client = _get_db_client()
+        stats = client.get_stats()
+        client.close()
+        validation_results.append(("API connectivity", "✓ Connected successfully", "green"))
+        console.print("[green]✓[/green] API connection successful\n")
+    except Exception as e:
+        validation_results.append(("API connectivity", f"✗ {e}", "red"))
+        console.print(f"[red]✗[/red] API connection failed: {e}")
+        console.print("[yellow]💡 Check your API key and network connection[/yellow]\n")
+        all_passed = False
+
+    # 3. Validate configuration file
     console.print("[dim]Checking configuration file...[/dim]")
     try:
-        # Config is already loaded in the parent command
         validation_results.append(("Configuration file", "✓ Valid", "green"))
         console.print("[green]✓[/green] Configuration file valid\n")
     except Exception as e:
@@ -1342,61 +1359,7 @@ def validate(
         console.print(f"[red]✗[/red] Configuration file error: {e}\n")
         all_passed = False
 
-    # 2. Validate Neo4j URI
-    console.print("[dim]Validating Neo4j URI...[/dim]")
-    final_neo4j_uri = neo4j_uri or config.neo4j.uri
-    try:
-        validated_uri = validate_neo4j_uri(final_neo4j_uri)
-        validation_results.append(("Neo4j URI", f"✓ {validated_uri}", "green"))
-        console.print(f"[green]✓[/green] Neo4j URI valid: {validated_uri}\n")
-    except ValidationError as e:
-        validation_results.append(("Neo4j URI", f"✗ {e.message}", "red"))
-        console.print(f"[red]✗[/red] {e.message}")
-        if e.suggestion:
-            console.print(f"[yellow]💡 {e.suggestion}[/yellow]\n")
-        all_passed = False
-        # Can't proceed without valid URI
-        _print_validation_summary(validation_results, all_passed)
-        raise click.Abort()
-
-    # 3. Validate Neo4j credentials
-    console.print("[dim]Validating Neo4j credentials...[/dim]")
-    final_neo4j_user = neo4j_user or config.neo4j.user
-    final_neo4j_password = neo4j_password or config.neo4j.password
-
-    # Prompt for password if not provided
-    if not final_neo4j_password:
-        final_neo4j_password = click.prompt("Neo4j password", hide_input=True)
-
-    try:
-        validated_user, validated_password = validate_neo4j_credentials(
-            final_neo4j_user, final_neo4j_password
-        )
-        validation_results.append(("Neo4j credentials", f"✓ User: {validated_user}", "green"))
-        console.print(f"[green]✓[/green] Neo4j credentials valid (user: {validated_user})\n")
-    except ValidationError as e:
-        validation_results.append(("Neo4j credentials", f"✗ {e.message}", "red"))
-        console.print(f"[red]✗[/red] {e.message}")
-        if e.suggestion:
-            console.print(f"[yellow]💡 {e.suggestion}[/yellow]\n")
-        all_passed = False
-        _print_validation_summary(validation_results, all_passed)
-        raise click.Abort()
-
-    # 4. Test Neo4j connectivity
-    console.print("[dim]Testing Neo4j connectivity...[/dim]")
-    try:
-        validate_neo4j_connection(validated_uri, validated_user, validated_password)
-        validation_results.append(("Neo4j connectivity", "✓ Connected successfully", "green"))
-        console.print("[green]✓[/green] Neo4j connection successful\n")
-    except ValidationError as e:
-        validation_results.append(("Neo4j connectivity", f"✗ {e.message}", "red"))
-        console.print(f"[red]✗[/red] {e.message}")
-        if e.suggestion:
-            console.print(f"[yellow]💡 {e.suggestion}[/yellow]\n")
-        all_passed = False
-
-    # 5. Validate ingestion settings
+    # 4. Validate ingestion settings
     console.print("[dim]Validating ingestion settings...[/dim]")
     try:
         validate_file_size_limit(config.ingestion.max_file_size_mb)
@@ -1405,23 +1368,6 @@ def validate(
         console.print("[green]✓[/green] Ingestion settings valid\n")
     except ValidationError as e:
         validation_results.append(("Ingestion settings", f"✗ {e.message}", "red"))
-        console.print(f"[red]✗[/red] {e.message}")
-        if e.suggestion:
-            console.print(f"[yellow]💡 {e.suggestion}[/yellow]\n")
-        all_passed = False
-
-    # 6. Validate retry configuration
-    console.print("[dim]Validating retry configuration...[/dim]")
-    try:
-        validate_retry_config(
-            config.neo4j.max_retries,
-            config.neo4j.retry_backoff_factor,
-            config.neo4j.retry_base_delay
-        )
-        validation_results.append(("Retry configuration", "✓ Valid", "green"))
-        console.print("[green]✓[/green] Retry configuration valid\n")
-    except ValidationError as e:
-        validation_results.append(("Retry configuration", f"✗ {e.message}", "red"))
         console.print(f"[red]✗[/red] {e.message}")
         if e.suggestion:
             console.print(f"[yellow]💡 {e.suggestion}[/yellow]\n")
@@ -1987,56 +1933,20 @@ def init(format: str, output: str | None, force: bool) -> None:
 def migrate() -> None:
     """Manage database schema migrations.
 
-    Schema migrations allow you to safely evolve the Neo4j database schema
+    Schema migrations allow you to safely evolve the graph database schema
     over time with version tracking and rollback capabilities.
 
     Examples:
-        falkor migrate status              # Show current migration state
-        falkor migrate up                  # Apply pending migrations
-        falkor migrate down --to-version 1 # Rollback to version 1
+        repotoire migrate status              # Show current migration state
+        repotoire migrate up                  # Apply pending migrations
+        repotoire migrate down --to-version 1 # Rollback to version 1
     """
     pass
 
 
 @migrate.command()
-@click.option(
-    "--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)"
-)
-@click.option("--neo4j-user", default=None, help="Neo4j username (overrides config)")
-@click.option(
-    "--neo4j-password",
-    default=None,
-    help="Neo4j password (overrides config, prompts if not provided)",
-)
-@click.pass_context
-def status(
-    ctx: click.Context,
-    neo4j_uri: str | None,
-    neo4j_user: str | None,
-    neo4j_password: str | None,
-) -> None:
+def status() -> None:
     """Show current migration status and pending migrations."""
-    config: FalkorConfig = ctx.obj['config']
-
-    # Validate and get credentials
-    try:
-        final_neo4j_uri = validate_neo4j_uri(neo4j_uri or config.neo4j.uri)
-        final_neo4j_user = neo4j_user or config.neo4j.user
-        final_neo4j_password = neo4j_password or config.neo4j.password
-
-        if not final_neo4j_password:
-            final_neo4j_password = click.prompt("Neo4j password", hide_input=True)
-
-        final_neo4j_user, final_neo4j_password = validate_neo4j_credentials(
-            final_neo4j_user, final_neo4j_password
-        )
-
-    except ValidationError as e:
-        console.print(f"\n[red]❌ Validation Error:[/red] {e.message}")
-        if e.suggestion:
-            console.print(f"\n[yellow]{e.suggestion}[/yellow]")
-        raise click.Abort()
-
     console.print(f"\n[bold cyan]🎼 Repotoire Migration Status[/bold cyan]\n")
 
     try:
@@ -2107,50 +2017,13 @@ def status(
 
 @migrate.command()
 @click.option(
-    "--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)"
-)
-@click.option("--neo4j-user", default=None, help="Neo4j username (overrides config)")
-@click.option(
-    "--neo4j-password",
-    default=None,
-    help="Neo4j password (overrides config, prompts if not provided)",
-)
-@click.option(
     "--to-version",
     type=int,
     default=None,
     help="Target version to migrate to (default: latest)",
 )
-@click.pass_context
-def up(
-    ctx: click.Context,
-    neo4j_uri: str | None,
-    neo4j_user: str | None,
-    neo4j_password: str | None,
-    to_version: int | None,
-) -> None:
+def up(to_version: int | None) -> None:
     """Apply pending migrations to upgrade schema."""
-    config: FalkorConfig = ctx.obj['config']
-
-    # Validate and get credentials
-    try:
-        final_neo4j_uri = validate_neo4j_uri(neo4j_uri or config.neo4j.uri)
-        final_neo4j_user = neo4j_user or config.neo4j.user
-        final_neo4j_password = neo4j_password or config.neo4j.password
-
-        if not final_neo4j_password:
-            final_neo4j_password = click.prompt("Neo4j password", hide_input=True)
-
-        final_neo4j_user, final_neo4j_password = validate_neo4j_credentials(
-            final_neo4j_user, final_neo4j_password
-        )
-
-    except ValidationError as e:
-        console.print(f"\n[red]❌ Validation Error:[/red] {e.message}")
-        if e.suggestion:
-            console.print(f"\n[yellow]{e.suggestion}[/yellow]")
-        raise click.Abort()
-
     console.print(f"\n[bold cyan]🎼 Repotoire Migration: Upgrading Schema[/bold cyan]\n")
 
     try:
@@ -2196,15 +2069,6 @@ def up(
 
 @migrate.command()
 @click.option(
-    "--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)"
-)
-@click.option("--neo4j-user", default=None, help="Neo4j username (overrides config)")
-@click.option(
-    "--neo4j-password",
-    default=None,
-    help="Neo4j password (overrides config, prompts if not provided)",
-)
-@click.option(
     "--to-version",
     type=int,
     required=True,
@@ -2216,41 +2080,12 @@ def up(
     default=False,
     help="Skip confirmation prompt",
 )
-@click.pass_context
-def down(
-    ctx: click.Context,
-    neo4j_uri: str | None,
-    neo4j_user: str | None,
-    neo4j_password: str | None,
-    to_version: int,
-    force: bool,
-) -> None:
+def down(to_version: int, force: bool) -> None:
     """Rollback migrations to a previous version.
 
     WARNING: This operation may result in data loss. Use with caution!
     """
-    config: FalkorConfig = ctx.obj['config']
-
-    # Validate and get credentials
-    try:
-        final_neo4j_uri = validate_neo4j_uri(neo4j_uri or config.neo4j.uri)
-        final_neo4j_user = neo4j_user or config.neo4j.user
-        final_neo4j_password = neo4j_password or config.neo4j.password
-
-        if not final_neo4j_password:
-            final_neo4j_password = click.prompt("Neo4j password", hide_input=True)
-
-        final_neo4j_user, final_neo4j_password = validate_neo4j_credentials(
-            final_neo4j_user, final_neo4j_password
-        )
-
-    except ValidationError as e:
-        console.print(f"\n[red]❌ Validation Error:[/red] {e.message}")
-        if e.suggestion:
-            console.print(f"\n[yellow]{e.suggestion}[/yellow]")
-        raise click.Abort()
-
-    console.print(f"\n[bold red]⚠️  Falkor Migration: Rollback Schema[/bold red]\n")
+    console.print(f"\n[bold red]⚠️  Repotoire Migration: Rollback Schema[/bold red]\n")
 
     try:
         db = _get_db_client()
@@ -2309,32 +2144,14 @@ def down(
     help="Output file path (JSON or .json.gz)"
 )
 @click.option(
-    "--neo4j-uri", default=None, help="Neo4j/FalkorDB connection URI"
-)
-@click.option("--neo4j-user", default=None, help="Neo4j username")
-@click.option(
-    "--neo4j-password",
-    default=None,
-    help="Neo4j password (prompts if not provided)",
-)
-@click.option(
     "--compress/--no-compress",
     default=True,
     help="Compress output with gzip (default: true)"
 )
-@click.pass_context
-def export_data(
-    ctx: click.Context,
-    output: str,
-    neo4j_uri: str | None,
-    neo4j_user: str | None,
-    neo4j_password: str | None,
-    compress: bool,
-) -> None:
+def export_data(output: str, compress: bool) -> None:
     """Export graph data to a portable JSON format.
 
-    Exports all nodes and relationships for migration between
-    Neo4j and FalkorDB or for backup purposes.
+    Exports all nodes and relationships for backup purposes.
 
     Example:
         repotoire migrate export -o backup.json.gz
@@ -2342,31 +2159,11 @@ def export_data(
     """
     from pathlib import Path
     from repotoire.graph.migration import GraphMigration
-    from repotoire.graph.factory import create_client as create_database_client
-
-    config: FalkorConfig = ctx.obj['config']
-
-    # Get connection details
-    try:
-        final_neo4j_uri = validate_neo4j_uri(neo4j_uri or config.neo4j.uri)
-        final_neo4j_user = neo4j_user or config.neo4j.user
-        final_neo4j_password = neo4j_password or config.neo4j.password
-
-        if not final_neo4j_password:
-            final_neo4j_password = click.prompt("Database password", hide_input=True)
-
-    except ValidationError as e:
-        console.print(f"\n[red]❌ Validation Error:[/red] {e.message}")
-        raise click.Abort()
 
     console.print(f"\n[bold cyan]📦 Exporting Graph Data[/bold cyan]\n")
 
     try:
-        client = create_database_client(
-            uri=final_neo4j_uri,
-            username=final_neo4j_user,
-            password=final_neo4j_password
-        )
+        client = _get_db_client()
 
         with client:
             migration = GraphMigration(client)
@@ -2403,15 +2200,6 @@ def export_data(
     help="Input file path (JSON or .json.gz)"
 )
 @click.option(
-    "--neo4j-uri", default=None, help="Neo4j/FalkorDB connection URI"
-)
-@click.option("--neo4j-user", default=None, help="Neo4j username")
-@click.option(
-    "--neo4j-password",
-    default=None,
-    help="Neo4j password (prompts if not provided)",
-)
-@click.option(
     "--clear/--no-clear",
     default=False,
     help="Clear existing data before import (default: false)"
@@ -2422,20 +2210,10 @@ def export_data(
     default=100,
     help="Batch size for import operations (default: 100)"
 )
-@click.pass_context
-def import_data(
-    ctx: click.Context,
-    input_file: str,
-    neo4j_uri: str | None,
-    neo4j_user: str | None,
-    neo4j_password: str | None,
-    clear: bool,
-    batch_size: int,
-) -> None:
+def import_data(input_file: str, clear: bool, batch_size: int) -> None:
     """Import graph data from a portable JSON format.
 
-    Imports nodes and relationships from an export file,
-    useful for migration between Neo4j and FalkorDB.
+    Imports nodes and relationships from an export file.
 
     Example:
         repotoire migrate import -i backup.json.gz
@@ -2443,22 +2221,6 @@ def import_data(
     """
     from pathlib import Path
     from repotoire.graph.migration import GraphMigration
-    from repotoire.graph.factory import create_client as create_database_client
-
-    config: FalkorConfig = ctx.obj['config']
-
-    # Get connection details
-    try:
-        final_neo4j_uri = validate_neo4j_uri(neo4j_uri or config.neo4j.uri)
-        final_neo4j_user = neo4j_user or config.neo4j.user
-        final_neo4j_password = neo4j_password or config.neo4j.password
-
-        if not final_neo4j_password:
-            final_neo4j_password = click.prompt("Database password", hide_input=True)
-
-    except ValidationError as e:
-        console.print(f"\n[red]❌ Validation Error:[/red] {e.message}")
-        raise click.Abort()
 
     console.print(f"\n[bold cyan]📥 Importing Graph Data[/bold cyan]\n")
 
@@ -2469,11 +2231,7 @@ def import_data(
             return
 
     try:
-        client = create_database_client(
-            uri=final_neo4j_uri,
-            username=final_neo4j_user,
-            password=final_neo4j_password
-        )
+        client = _get_db_client()
 
         with client:
             migration = GraphMigration(client)
@@ -2505,22 +2263,7 @@ def import_data(
 
 
 @migrate.command("validate")
-@click.option(
-    "--neo4j-uri", default=None, help="Neo4j/FalkorDB connection URI"
-)
-@click.option("--neo4j-user", default=None, help="Neo4j username")
-@click.option(
-    "--neo4j-password",
-    default=None,
-    help="Neo4j password (prompts if not provided)",
-)
-@click.pass_context
-def validate_migration(
-    ctx: click.Context,
-    neo4j_uri: str | None,
-    neo4j_user: str | None,
-    neo4j_password: str | None,
-) -> None:
+def validate_migration() -> None:
     """Validate graph data integrity after migration.
 
     Checks node counts, relationship counts, and schema integrity
@@ -2530,31 +2273,11 @@ def validate_migration(
         repotoire migrate validate
     """
     from repotoire.graph.migration import GraphMigration
-    from repotoire.graph.factory import create_client as create_database_client
-
-    config: FalkorConfig = ctx.obj['config']
-
-    # Get connection details
-    try:
-        final_neo4j_uri = validate_neo4j_uri(neo4j_uri or config.neo4j.uri)
-        final_neo4j_user = neo4j_user or config.neo4j.user
-        final_neo4j_password = neo4j_password or config.neo4j.password
-
-        if not final_neo4j_password:
-            final_neo4j_password = click.prompt("Database password", hide_input=True)
-
-    except ValidationError as e:
-        console.print(f"\n[red]❌ Validation Error:[/red] {e.message}")
-        raise click.Abort()
 
     console.print(f"\n[bold cyan]🔍 Validating Graph Data[/bold cyan]\n")
 
     try:
-        client = create_database_client(
-            uri=final_neo4j_uri,
-            username=final_neo4j_user,
-            password=final_neo4j_password
-        )
+        client = _get_db_client()
 
         with client:
             migration = GraphMigration(client)
@@ -2595,13 +2318,9 @@ def validate_migration(
 
 @cli.command()
 @click.argument("repo_path", type=click.Path(exists=True))
-@click.option("--neo4j-uri", default=None, help="Neo4j connection URI")
-@click.option("--neo4j-user", default=None, help="Neo4j username")
-@click.option("--neo4j-password", default=None, help="Neo4j password")
 @click.option("--window", type=int, default=90, help="Time window in days (default: 90)")
 @click.option("--min-churn", type=int, default=5, help="Minimum modifications to qualify as hotspot (default: 5)")
-@click.pass_context
-def hotspots(ctx, repo_path: str, neo4j_uri, neo4j_user, neo4j_password, window: int, min_churn: int) -> None:
+def hotspots(repo_path: str, window: int, min_churn: int) -> None:
     """Find code hotspots with high churn and complexity.
 
     Analyzes Git history to find files with:
@@ -2610,18 +2329,10 @@ def hotspots(ctx, repo_path: str, neo4j_uri, neo4j_user, neo4j_password, window:
     - High risk scores requiring attention
 
     Example:
-        falkor hotspots /path/to/repo --window 90 --min-churn 5
+        repotoire hotspots /path/to/repo --window 90 --min-churn 5
     """
-    config = ctx.obj['config']
-
     with console.status(f"[bold green]Finding code hotspots in last {window} days...", spinner="dots"):
         try:
-            # Get Neo4j connection details
-            uri = neo4j_uri or config.neo4j.uri
-            user = neo4j_user or config.neo4j.user
-            password = neo4j_password or config.neo4j.password or click.prompt("Neo4j password", hide_input=True)
-
-            # Connect to Neo4j
             client = _get_db_client()
 
             # Create temporal metrics analyzer
@@ -2671,15 +2382,11 @@ def hotspots(ctx, repo_path: str, neo4j_uri, neo4j_user, neo4j_password, window:
 
 @cli.command()
 @click.argument("repo_path", type=click.Path(exists=True))
-@click.option("--neo4j-uri", default=None, help="Neo4j connection URI")
-@click.option("--neo4j-user", default=None, help="Neo4j username")
-@click.option("--neo4j-password", default=None, help="Neo4j password")
 @click.option("--strategy", type=click.Choice(["recent", "all", "milestones"]), default="recent", help="Commit selection strategy")
 @click.option("--max-commits", type=int, default=10, help="Maximum commits to analyze (default: 10)")
 @click.option("--branch", default="HEAD", help="Branch to analyze (default: HEAD)")
 @click.option("--generate-clues", is_flag=True, default=False, help="Generate semantic clues for each commit")
-@click.pass_context
-def history(ctx, repo_path: str, neo4j_uri, neo4j_user, neo4j_password, strategy: str, max_commits: int, branch: str, generate_clues: bool) -> None:
+def history(repo_path: str, strategy: str, max_commits: int, branch: str, generate_clues: bool) -> None:
     """Ingest Git history for temporal analysis.
 
     Analyzes code evolution across Git commits to track:
@@ -2693,22 +2400,14 @@ def history(ctx, repo_path: str, neo4j_uri, neo4j_user, neo4j_password, strategy
       all         - All commits (expensive)
 
     Example:
-        falkor history /path/to/repo --strategy recent --max-commits 10
+        repotoire history /path/to/repo --strategy recent --max-commits 10
     """
-    config = ctx.obj['config']
-
     console.print(f"\n[bold cyan]📊 Temporal Code Analysis[/bold cyan]\n")
     console.print(f"Repository: [yellow]{repo_path}[/yellow]")
     console.print(f"Strategy: [cyan]{strategy}[/cyan]")
     console.print(f"Max commits: [cyan]{max_commits}[/cyan]\n")
 
     try:
-        # Get Neo4j connection details
-        uri = neo4j_uri or config.neo4j.uri
-        user = neo4j_user or config.neo4j.user
-        password = neo4j_password or config.neo4j.password or click.prompt("Neo4j password", hide_input=True)
-
-        # Connect to Neo4j
         client = _get_db_client()
 
         # Create temporal ingestion pipeline
@@ -2762,11 +2461,7 @@ def history(ctx, repo_path: str, neo4j_uri, neo4j_user, neo4j_password, strategy
 @cli.command()
 @click.argument("before_commit")
 @click.argument("after_commit")
-@click.option("--neo4j-uri", default=None, help="Neo4j connection URI")
-@click.option("--neo4j-user", default=None, help="Neo4j username")
-@click.option("--neo4j-password", default=None, help="Neo4j password")
-@click.pass_context
-def compare(ctx, before_commit: str, after_commit: str, neo4j_uri, neo4j_user, neo4j_password) -> None:
+def compare(before_commit: str, after_commit: str) -> None:
     """Compare code metrics between two commits.
 
     Shows how code quality metrics changed between commits:
@@ -2775,17 +2470,9 @@ def compare(ctx, before_commit: str, after_commit: str, neo4j_uri, neo4j_user, n
     - Percentage changes
 
     Example:
-        falkor compare abc123 def456
+        repotoire compare abc123 def456
     """
-    config = ctx.obj['config']
-
     try:
-        # Get Neo4j connection details
-        uri = neo4j_uri or config.neo4j.uri
-        user = neo4j_user or config.neo4j.user
-        password = neo4j_password or config.neo4j.password or click.prompt("Neo4j password", hide_input=True)
-
-        # Connect to Neo4j
         client = _get_db_client()
 
         # Create temporal metrics analyzer
@@ -2840,23 +2527,15 @@ def compare(ctx, before_commit: str, after_commit: str, neo4j_uri, neo4j_user, n
 @cli.command()
 @click.option("--output-dir", "-o", type=click.Path(), default="./mcp_server", help="Output directory for generated server")
 @click.option("--server-name", default="mcp_server", help="Name for the generated MCP server")
-@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
-@click.option("--neo4j-user", default=None, help="Neo4j username (overrides config)")
-@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
 @click.option("--enable-rag", is_flag=True, default=False, help="Enable RAG enhancements (requires OpenAI API key)")
 @click.option("--min-params", default=2, help="Minimum parameters for public functions")
 @click.option("--max-params", default=10, help="Maximum parameters for public functions")
 @click.option("--max-routes", default=None, type=int, help="Maximum FastAPI routes to include")
 @click.option("--max-commands", default=None, type=int, help="Maximum Click commands to include")
 @click.option("--max-functions", default=None, type=int, help="Maximum public functions to include")
-@click.pass_context
 def generate_mcp(
-    ctx: click.Context,
     output_dir: str,
     server_name: str,
-    neo4j_uri: str | None,
-    neo4j_user: str | None,
-    neo4j_password: str | None,
     enable_rag: bool,
     min_params: int,
     max_params: int,
@@ -2886,17 +2565,7 @@ def generate_mcp(
     import os
 
     try:
-        config = get_config()
-
-        # Get Neo4j connection details
-        uri = neo4j_uri or config.neo4j.uri
-        user = neo4j_user or config.neo4j.user
-        password = neo4j_password or config.neo4j.password
-
-        if not password:
-            password = click.prompt("Neo4j password", hide_input=True)
-
-        # Get repository path (assume current directory or from config)
+        # Get repository path (assume current directory)
         repository_path = os.getcwd()
 
         console.print()
@@ -2904,11 +2573,11 @@ def generate_mcp(
         console.print("[dim]Generating Model Context Protocol server from codebase[/dim]")
         console.print()
 
-        # Connect to Neo4j
-        with console.status("[bold green]Connecting to Neo4j...", spinner="dots"):
+        # Connect to graph database
+        with console.status("[bold green]Connecting to graph database...", spinner="dots"):
             client = _get_db_client()
 
-        console.print("[green]✓[/green] Connected to Neo4j")
+        console.print("[green]✓[/green] Connected to graph database")
 
         # Check if embeddings exist for RAG
         if enable_rag:
@@ -3318,28 +2987,16 @@ def rule() -> None:
 @click.option("--tags", multiple=True, help="Filter by tags")
 @click.option("--sort-by", type=click.Choice(["priority", "name", "last-used"]), default="priority", help="Sort order")
 @click.option("--limit", type=int, help="Maximum rules to show")
-@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
-@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
-@click.pass_context
 def list(
-    ctx: click.Context,
     enabled_only: bool,
     tags: tuple,
     sort_by: str,
     limit: int | None,
-    neo4j_uri: str | None,
-    neo4j_password: str | None,
 ) -> None:
     """List all custom rules with priority scores."""
     try:
         from repotoire.rules.engine import RuleEngine
 
-        # Get Neo4j config
-        config = ctx.obj or get_config()
-        uri = neo4j_uri or config.neo4j_uri
-        password = neo4j_password or config.neo4j_password
-
-        # Connect
         client = _get_db_client()
         engine = RuleEngine(client)
 
@@ -3429,15 +3086,7 @@ def list(
 
 @rule.command()
 @click.argument("file_path", type=click.Path(exists=True))
-@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
-@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
-@click.pass_context
-def add(
-    ctx: click.Context,
-    file_path: str,
-    neo4j_uri: str | None,
-    neo4j_password: str | None,
-) -> None:
+def add(file_path: str) -> None:
     """Add rules from a YAML file.
 
     The YAML file should contain a list of rules with the following structure:
@@ -3463,12 +3112,6 @@ def add(
         from repotoire.rules.validator import RuleValidator
         from repotoire.models import Rule, Severity
 
-        # Get Neo4j config
-        config = ctx.obj or get_config()
-        uri = neo4j_uri or config.neo4j_uri
-        password = neo4j_password or config.neo4j_password
-
-        # Connect
         client = _get_db_client()
         engine = RuleEngine(client)
         validator = RuleValidator(client)
@@ -3545,28 +3188,16 @@ def add(
 @click.option("--name", help="Update rule name")
 @click.option("--priority", type=int, help="Update user priority (0-1000)")
 @click.option("--enable/--disable", default=None, help="Enable or disable rule")
-@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
-@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
-@click.pass_context
 def edit(
-    ctx: click.Context,
     rule_id: str,
     name: str | None,
     priority: int | None,
     enable: bool | None,
-    neo4j_uri: str | None,
-    neo4j_password: str | None,
 ) -> None:
     """Edit an existing rule."""
     try:
         from repotoire.rules.engine import RuleEngine
 
-        # Get Neo4j config
-        config = ctx.obj or get_config()
-        uri = neo4j_uri or config.neo4j_uri
-        password = neo4j_password or config.neo4j_password
-
-        # Connect
         client = _get_db_client()
         engine = RuleEngine(client)
 
@@ -3607,25 +3238,11 @@ def edit(
 @rule.command()
 @click.argument("rule_id")
 @click.confirmation_option(prompt="Are you sure you want to delete this rule?")
-@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
-@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
-@click.pass_context
-def delete(
-    ctx: click.Context,
-    rule_id: str,
-    neo4j_uri: str | None,
-    neo4j_password: str | None,
-) -> None:
+def delete(rule_id: str) -> None:
     """Delete a rule."""
     try:
         from repotoire.rules.engine import RuleEngine
 
-        # Get Neo4j config
-        config = ctx.obj or get_config()
-        uri = neo4j_uri or config.neo4j_uri
-        password = neo4j_password or config.neo4j_password
-
-        # Connect
         client = _get_db_client()
         engine = RuleEngine(client)
 
@@ -3647,25 +3264,11 @@ def delete(
 
 @rule.command()
 @click.argument("rule_id")
-@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
-@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
-@click.pass_context
-def test(
-    ctx: click.Context,
-    rule_id: str,
-    neo4j_uri: str | None,
-    neo4j_password: str | None,
-) -> None:
+def test(rule_id: str) -> None:
     """Test a rule (dry-run) to see what it would find."""
     try:
         from repotoire.rules.engine import RuleEngine
 
-        # Get Neo4j config
-        config = ctx.obj or get_config()
-        uri = neo4j_uri or config.neo4j_uri
-        password = neo4j_password or config.neo4j_password
-
-        # Connect
         client = _get_db_client()
         engine = RuleEngine(client)
 
@@ -3709,24 +3312,11 @@ def test(
 
 
 @rule.command()
-@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
-@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
-@click.pass_context
-def stats(
-    ctx: click.Context,
-    neo4j_uri: str | None,
-    neo4j_password: str | None,
-) -> None:
+def stats() -> None:
     """Show rule usage statistics."""
     try:
         from repotoire.rules.engine import RuleEngine
 
-        # Get Neo4j config
-        config = ctx.obj or get_config()
-        uri = neo4j_uri or config.neo4j_uri
-        password = neo4j_password or config.neo4j_password
-
-        # Connect
         client = _get_db_client()
         engine = RuleEngine(client)
 
@@ -3767,16 +3357,10 @@ def stats(
 @click.option("--decay-threshold", default=7, help="Days before decaying stale rules (default: 7)")
 @click.option("--decay-factor", default=0.9, help="Priority decay multiplier (default: 0.9)")
 @click.option("--auto-archive", is_flag=True, help="Archive rules unused for >90 days")
-@click.option("--neo4j-uri", default=None, help="Neo4j connection URI (overrides config)")
-@click.option("--neo4j-password", default=None, help="Neo4j password (overrides config)")
-@click.pass_context
 def daemon_refresh(
-    ctx: click.Context,
     decay_threshold: int,
     decay_factor: float,
     auto_archive: bool,
-    neo4j_uri: str | None,
-    neo4j_password: str | None,
 ) -> None:
     """Force immediate priority refresh for all rules.
 
@@ -3798,12 +3382,6 @@ def daemon_refresh(
     try:
         from repotoire.rules.daemon import RuleRefreshDaemon
 
-        # Get Neo4j config
-        config = ctx.obj or get_config()
-        uri = neo4j_uri or config.neo4j_uri
-        password = neo4j_password or config.neo4j_password
-
-        # Connect
         client = _get_db_client()
 
         # Create daemon
@@ -4538,11 +4116,7 @@ def timeline(
 @click.option("--test-command", default="pytest", help="Test command to run")
 @click.option("--local-tests", is_flag=True, help="Run tests locally (SECURITY WARNING: full host access)")
 @click.option("--test-timeout", type=int, default=300, help="Test execution timeout in seconds (default: 300)")
-@click.option("--neo4j-uri", envvar="REPOTOIRE_NEO4J_URI", default="bolt://localhost:7687", help="Neo4j connection URI")
-@click.option("--neo4j-password", envvar="REPOTOIRE_NEO4J_PASSWORD", help="Neo4j password")
-@click.pass_context
 def auto_fix(
-    ctx: click.Context,
     repository: str,
     max_fixes: int,
     severity: Optional[str],
@@ -4556,8 +4130,6 @@ def auto_fix(
     test_command: str,
     local_tests: bool,
     test_timeout: int,
-    neo4j_uri: str,
-    neo4j_password: Optional[str],
 ) -> None:
     """AI-powered automatic code fixing with human-in-the-loop approval.
 
@@ -4610,12 +4182,6 @@ def auto_fix(
         if not os.getenv("OPENAI_API_KEY"):
             console.print("\n[red]❌ OPENAI_API_KEY not set[/red]")
             console.print("[dim]Auto-fix requires an OpenAI API key for fix generation[/dim]")
-            raise click.Abort()
-
-        # Check for Neo4j password
-        if not neo4j_password:
-            console.print("\n[red]❌ Neo4j password not provided[/red]")
-            console.print("[dim]Set REPOTOIRE_NEO4J_PASSWORD or use --neo4j-password[/dim]")
             raise click.Abort()
 
         repo_path = Path(repository)
@@ -5001,25 +4567,12 @@ cli.add_command(ml)
     default=50,
     help="Maximum results to return (default: 50)",
 )
-@click.option(
-    "--neo4j-uri",
-    envvar="REPOTOIRE_NEO4J_URI",
-    default="bolt://localhost:7687",
-    help="Neo4j connection URI",
-)
-@click.option(
-    "--neo4j-password",
-    envvar="REPOTOIRE_NEO4J_PASSWORD",
-    help="Neo4j password",
-)
 def hotspots(
     min_detectors: int,
     min_confidence: float,
     severity: Optional[str],
     file: Optional[str],
     limit: int,
-    neo4j_uri: str,
-    neo4j_password: Optional[str],
 ) -> None:
     """Find code hotspots flagged by multiple detectors.
 
@@ -5042,12 +4595,12 @@ def hotspots(
 
     console.print("\n🔥 [bold]Code Hotspot Analysis[/bold]\n")
 
-    # Connect to Neo4j
+    # Connect to graph database
     try:
         neo4j_client = _get_db_client()
         enricher = GraphEnricher(neo4j_client)
     except Exception as e:
-        console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
+        console.print(f"[red]Failed to connect to graph database: {e}[/red]")
         raise click.Abort()
 
     try:
@@ -5173,22 +4726,9 @@ def embeddings() -> None:
     default=False,
     help="Regenerate even if embeddings exist",
 )
-@click.option(
-    "--neo4j-uri",
-    envvar="REPOTOIRE_NEO4J_URI",
-    default="bolt://localhost:7687",
-    help="Neo4j connection URI",
-)
-@click.option(
-    "--neo4j-password",
-    envvar="REPOTOIRE_NEO4J_PASSWORD",
-    help="Neo4j password",
-)
 def embeddings_generate(
     dimension: int,
     force: bool,
-    neo4j_uri: str,
-    neo4j_password: Optional[str],
 ) -> None:
     """Generate FastRP graph embeddings for structural similarity.
 
@@ -5208,11 +4748,11 @@ def embeddings_generate(
 
     console.print("\n🔮 [bold]FastRP Graph Embedding Generation[/bold]\n")
 
-    # Connect to Neo4j
+    # Connect to graph database
     try:
         neo4j_client = _get_db_client()
     except Exception as e:
-        console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
+        console.print(f"[red]Failed to connect to graph database: {e}[/red]")
         raise click.Abort()
 
     try:
@@ -5269,21 +4809,7 @@ def embeddings_generate(
 
 
 @embeddings.command("stats")
-@click.option(
-    "--neo4j-uri",
-    envvar="REPOTOIRE_NEO4J_URI",
-    default="bolt://localhost:7687",
-    help="Neo4j connection URI",
-)
-@click.option(
-    "--neo4j-password",
-    envvar="REPOTOIRE_NEO4J_PASSWORD",
-    help="Neo4j password",
-)
-def embeddings_stats(
-    neo4j_uri: str,
-    neo4j_password: Optional[str],
-) -> None:
+def embeddings_stats() -> None:
     """Show statistics about generated graph embeddings.
 
     Examples:
@@ -5296,7 +4822,7 @@ def embeddings_stats(
     try:
         neo4j_client = _get_db_client()
     except Exception as e:
-        console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
+        console.print(f"[red]Failed to connect to graph database: {e}[/red]")
         raise click.Abort()
 
     try:
@@ -5343,23 +4869,10 @@ def embeddings_stats(
     default=None,
     help="Filter by node type",
 )
-@click.option(
-    "--neo4j-uri",
-    envvar="REPOTOIRE_NEO4J_URI",
-    default="bolt://localhost:7687",
-    help="Neo4j connection URI",
-)
-@click.option(
-    "--neo4j-password",
-    envvar="REPOTOIRE_NEO4J_PASSWORD",
-    help="Neo4j password",
-)
 def embeddings_similar(
     qualified_name: str,
     top_k: int,
     node_type: Optional[str],
-    neo4j_uri: str,
-    neo4j_password: Optional[str],
 ) -> None:
     """Find entities structurally similar to the given entity.
 
@@ -5378,7 +4891,7 @@ def embeddings_similar(
     try:
         neo4j_client = _get_db_client()
     except Exception as e:
-        console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
+        console.print(f"[red]Failed to connect to graph database: {e}[/red]")
         raise click.Abort()
 
     try:
@@ -5453,22 +4966,9 @@ def embeddings_similar(
     default=50,
     help="Maximum results (default: 50)",
 )
-@click.option(
-    "--neo4j-uri",
-    envvar="REPOTOIRE_NEO4J_URI",
-    default="bolt://localhost:7687",
-    help="Neo4j connection URI",
-)
-@click.option(
-    "--neo4j-password",
-    envvar="REPOTOIRE_NEO4J_PASSWORD",
-    help="Neo4j password",
-)
 def embeddings_clones(
     threshold: float,
     limit: int,
-    neo4j_uri: str,
-    neo4j_password: Optional[str],
 ) -> None:
     """Find potential code clones based on structural similarity.
 
@@ -5487,7 +4987,7 @@ def embeddings_clones(
     try:
         neo4j_client = _get_db_client()
     except Exception as e:
-        console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
+        console.print(f"[red]Failed to connect to graph database: {e}[/red]")
         raise click.Abort()
 
     try:
@@ -5702,17 +5202,6 @@ cli.add_command(marketplace)
 @cli.command()
 @click.argument("query")
 @click.option(
-    "--neo4j-uri",
-    envvar="REPOTOIRE_NEO4J_URI",
-    default="bolt://localhost:7687",
-    help="Neo4j connection URI",
-)
-@click.option(
-    "--neo4j-password",
-    envvar="REPOTOIRE_NEO4J_PASSWORD",
-    help="Neo4j password",
-)
-@click.option(
     "--embedding-backend",
     type=click.Choice(["auto", "openai", "local", "deepinfra", "voyage"], case_sensitive=False),
     default="auto",
@@ -5759,8 +5248,6 @@ cli.add_command(marketplace)
 )
 def ask(
     query: str,
-    neo4j_uri: str,
-    neo4j_password: Optional[str],
     embedding_backend: str,
     llm_backend: str,
     llm_model: Optional[str],
@@ -5798,12 +5285,12 @@ def ask(
     console.print("\n[bold cyan]RAG Code Q&A[/bold cyan]\n")
     console.print(f"[dim]Query:[/dim] {query}\n")
 
-    # Connect to Neo4j
+    # Connect to graph database
     try:
         client = _get_db_client()
     except Exception as e:
-        console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
-        console.print("[dim]Make sure Neo4j is running and credentials are correct[/dim]")
+        console.print(f"[red]Failed to connect to graph database: {e}[/red]")
+        console.print("[dim]Make sure REPOTOIRE_API_KEY is set correctly[/dim]")
         raise click.Abort()
 
     try:
