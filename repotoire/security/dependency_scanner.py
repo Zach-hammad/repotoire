@@ -219,7 +219,13 @@ class DependencyScanner(CodeSmellDetector):
             List of vulnerability dictionaries in pip-audit format
         """
         try:
-            data = json.loads(uv_secure_output)
+            # uv-secure wraps long lines for terminal display even in JSON mode,
+            # inserting unescaped newlines. Fix by removing newlines that aren't
+            # part of escaped sequences (\\n stays, bare \n becomes space)
+            import re
+            # Replace unescaped newlines (not preceded by backslash) with space
+            cleaned = re.sub(r'(?<!\\)\n', ' ', uv_secure_output)
+            data = json.loads(cleaned)
             result = []
 
             # uv-secure format: {"files": [{"file_path": "...", "dependencies": [...]}]}
