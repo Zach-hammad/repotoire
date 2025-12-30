@@ -75,6 +75,8 @@ dependencies = [
     "radon>=6.0.0",  # Complexity metrics detector
     "vulture>=2.0.0",  # Dead code detector
     "semgrep>=1.0.0",  # Advanced security pattern detector
+    # Temporal knowledge graph (git history)
+    "graphiti-core[falkordb]>=0.24.1",  # Temporal knowledge graph with FalkorDB backend
 ]
 
 [project.optional-dependencies]
@@ -118,7 +120,7 @@ timescale = [
 ]
 
 graphiti = [
-    "graphiti-core[falkordb]>=0.24.1",  # Temporal knowledge graph with FalkorDB backend
+    # graphiti-core[falkordb] now in core deps
 ]
 
 security = [
