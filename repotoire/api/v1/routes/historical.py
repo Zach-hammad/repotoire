@@ -102,7 +102,7 @@ class TimelineResponse(BaseModel):
 
 
 def _get_graphiti_instance():
-    """Get a Graphiti instance configured for Neo4j/FalkorDB.
+    """Get a Graphiti instance configured for FalkorDB.
 
     Returns:
         Initialized Graphiti instance
@@ -114,6 +114,7 @@ def _get_graphiti_instance():
 
     try:
         from graphiti_core import Graphiti
+        from graphiti_core.driver.falkordb_driver import FalkorDriver
     except ImportError:
         raise HTTPException(
             status_code=500,
@@ -127,19 +128,23 @@ def _get_graphiti_instance():
             detail="OPENAI_API_KEY environment variable not set"
         )
 
-    # Get database connection - use REPOTOIRE_FALKOR_URI if set, else REPOTOIRE_NEO4J_URI
-    # Both FalkorDB and Neo4j use bolt/neo4j protocol
-    db_uri = os.getenv("REPOTOIRE_FALKOR_URI") or os.getenv("REPOTOIRE_NEO4J_URI")
-    db_password = os.getenv("REPOTOIRE_FALKOR_PASSWORD") or os.getenv("REPOTOIRE_NEO4J_PASSWORD")
+    # Get FalkorDB connection parameters
+    # On Fly.io: repotoire-falkor.internal:6379
+    # Local: localhost:6379
+    falkor_host = os.getenv("FALKORDB_HOST", "repotoire-falkor.internal")
+    falkor_port = int(os.getenv("FALKORDB_PORT", "6379"))
+    falkor_password = os.getenv("FALKORDB_PASSWORD")
 
-    if not db_uri:
-        raise HTTPException(
-            status_code=500,
-            detail="No graph database URI configured (REPOTOIRE_FALKOR_URI or REPOTOIRE_NEO4J_URI)"
-        )
+    # Create FalkorDriver with direct connection parameters
+    driver = FalkorDriver(
+        host=falkor_host,
+        port=falkor_port,
+        password=falkor_password,
+        database="graphiti_commits",  # Separate database for git history
+    )
 
-    # Initialize Graphiti with Neo4j-compatible backend
-    return Graphiti(db_uri, db_password)
+    # Initialize Graphiti with FalkorDB driver
+    return Graphiti(graph_driver=driver)
 
 
 @router.post("/ingest-commits", response_model=IngestGitResponse)
@@ -433,18 +438,25 @@ async def historical_health_check():
     """
     import os
 
+    # FalkorDB is configured if we have a host (defaults to repotoire-falkor.internal on Fly.io)
+    falkor_host = os.getenv("FALKORDB_HOST", "repotoire-falkor.internal")
+
     status = {
         "status": "healthy",
         "graphiti_available": False,
         "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
-        "falkordb_configured": bool(os.getenv("REPOTOIRE_FALKOR_URI")),
+        "falkordb_host": falkor_host,
+        "falkordb_password_set": bool(os.getenv("FALKORDB_PASSWORD")),
     }
 
     try:
         from graphiti_core import Graphiti
+        from graphiti_core.driver.falkordb_driver import FalkorDriver
         status["graphiti_available"] = True
-    except ImportError:
-        pass
+        status["falkordb_driver_available"] = True
+    except ImportError as e:
+        status["falkordb_driver_available"] = False
+        status["import_error"] = str(e)
 
     # Determine overall status
     if not status["graphiti_available"]:
@@ -453,9 +465,9 @@ async def historical_health_check():
     elif not status["openai_configured"]:
         status["status"] = "degraded"
         status["message"] = "OPENAI_API_KEY not configured"
-    elif not status["falkordb_configured"]:
+    elif not status.get("falkordb_driver_available"):
         status["status"] = "degraded"
-        status["message"] = "REPOTOIRE_FALKOR_URI not configured"
+        status["message"] = "FalkorDB driver not available"
     else:
         status["message"] = "All dependencies available"
 
