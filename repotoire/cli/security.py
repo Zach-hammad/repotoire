@@ -13,7 +13,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-from repotoire.graph import Neo4jClient
+from repotoire.graph.factory import create_client
 from repotoire.security import (
     DependencyScanner,
     SBOMGenerator,
@@ -48,18 +48,6 @@ def security():
     help="Maximum findings to report (default: 100)",
 )
 @click.option(
-    "--neo4j-uri",
-    envvar="REPOTOIRE_NEO4J_URI",
-    default="bolt://localhost:7687",
-    help="Neo4j connection URI",
-)
-@click.option(
-    "--neo4j-password",
-    envvar="REPOTOIRE_NEO4J_PASSWORD",
-    required=True,
-    help="Neo4j password (or set REPOTOIRE_NEO4J_PASSWORD)",
-)
-@click.option(
     "--output",
     "-o",
     type=click.Path(),
@@ -69,8 +57,6 @@ def scan_dependencies(
     repository_path,
     requirements,
     max_findings,
-    neo4j_uri,
-    neo4j_password,
     output,
 ):
     """Scan dependencies for known vulnerabilities.
@@ -85,8 +71,8 @@ def scan_dependencies(
     console.print("[bold blue]🔍 Scanning dependencies for vulnerabilities...[/bold blue]")
 
     try:
-        # Initialize Neo4j client
-        client = Neo4jClient(uri=neo4j_uri, password=neo4j_password)
+        # Initialize cloud client (requires REPOTOIRE_API_KEY)
+        client = create_client()
 
         # Initialize scanner
         scanner = DependencyScanner(

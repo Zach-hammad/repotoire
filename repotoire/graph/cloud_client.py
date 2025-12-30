@@ -213,3 +213,72 @@ class CloudProxyClient(DatabaseClient):
         """Delete a file and its related entities."""
         response = self._request("DELETE", f"/files/{file_path}")
         return response.get("deleted", 0)
+
+    def get_node_label_counts(self) -> Dict[str, int]:
+        """Get counts for each node label."""
+        query = """
+        MATCH (n)
+        RETURN labels(n)[0] as label, count(n) as count
+        ORDER BY count DESC
+        """
+        result = self.execute_query(query)
+        return {record["label"]: record["count"] for record in result if record.get("label")}
+
+    def get_relationship_type_counts(self) -> Dict[str, int]:
+        """Get counts for each relationship type."""
+        query = """
+        MATCH ()-[r]->()
+        RETURN type(r) as rel_type, count(r) as count
+        ORDER BY count DESC
+        """
+        result = self.execute_query(query)
+        return {record["rel_type"]: record["count"] for record in result}
+
+    def validate_schema_integrity(self) -> Dict[str, Any]:
+        """Validate graph schema integrity.
+
+        Returns:
+            Dictionary with 'valid' boolean and 'issues' dict with counts
+        """
+        issues = {}
+
+        # Check for orphaned nodes (no relationships)
+        query = """
+        MATCH (n)
+        WHERE NOT (n)--()
+        AND NOT n:File AND NOT n:Module
+        RETURN count(n) as count
+        """
+        result = self.execute_query(query)
+        orphaned = result[0]["count"] if result else 0
+        if orphaned > 0:
+            issues["orphaned_nodes"] = orphaned
+
+        # Check for nodes missing qualified_name
+        query = """
+        MATCH (n)
+        WHERE n.qualifiedName IS NULL
+        RETURN count(n) as count
+        """
+        result = self.execute_query(query)
+        missing_qn = result[0]["count"] if result else 0
+        if missing_qn > 0:
+            issues["missing_qualified_name"] = missing_qn
+
+        return {
+            "valid": len(issues) == 0,
+            "issues": issues,
+        }
+
+    def sample_nodes(self, label: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Get sample nodes of a specific label."""
+        # Basic validation to prevent injection
+        if not label.replace("_", "").isalnum():
+            raise ValueError(f"Invalid label: {label}")
+        query = f"""
+        MATCH (n:{label})
+        RETURN n
+        LIMIT {limit}
+        """
+        result = self.execute_query(query)
+        return [dict(record["n"]) for record in result if "n" in record]

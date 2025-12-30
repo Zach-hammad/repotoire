@@ -6,9 +6,12 @@ operations without direct database access.
 
 All operations are authenticated via API key and scoped to the user's
 organization graph.
+
+Server-side embeddings are automatically generated using DeepInfra + Qwen3-Embedding-8B.
 """
 
 import asyncio
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -299,7 +302,11 @@ async def batch_create_nodes(
     request: BatchNodesRequest,
     user: APIKeyUser = Depends(get_current_api_key_user),
 ) -> BatchNodesResponse:
-    """Batch create nodes in the graph."""
+    """Batch create nodes in the graph with automatic embedding generation.
+
+    Embeddings are generated server-side using DeepInfra + Qwen3-Embedding-8B
+    for semantic code search. This happens automatically - no client config needed.
+    """
     client = _get_client_for_user(user)
     try:
         # Convert dicts to appropriate Entity subclass
@@ -372,7 +379,30 @@ async def batch_create_nodes(
 
             entities.append(entity)
 
+        # Create nodes in graph
         created = client.batch_create_nodes(entities)
+
+        # Generate and store embeddings server-side (async to not block)
+        # Only for Function and Class entities (most useful for semantic search)
+        embeddable_entities = [
+            e for e in entities
+            if e.node_type in (NodeType.FUNCTION, NodeType.CLASS)
+        ]
+
+        if embeddable_entities and os.getenv("DEEPINFRA_API_KEY"):
+            try:
+                await _generate_and_store_embeddings(client, embeddable_entities)
+                logger.info(
+                    f"Generated embeddings for {len(embeddable_entities)} entities",
+                    org_id=user.org_id
+                )
+            except Exception as embed_error:
+                # Non-fatal - log but don't fail the request
+                logger.warning(
+                    f"Embedding generation failed (non-fatal): {embed_error}",
+                    org_id=user.org_id
+                )
+
         return BatchNodesResponse(created=created, count=len(created))
     except Exception as e:
         logger.error(f"Batch create nodes failed: {e}", org_id=user.org_id)
@@ -382,6 +412,38 @@ async def batch_create_nodes(
         )
     finally:
         client.close()
+
+
+async def _generate_and_store_embeddings(client, entities: List[Entity]) -> None:
+    """Generate embeddings using DeepInfra Qwen3 and store on nodes.
+
+    Args:
+        client: Graph database client
+        entities: Entities to generate embeddings for
+    """
+    from repotoire.ai.embeddings import CodeEmbedder
+
+    # Use DeepInfra backend with Qwen3-Embedding-8B
+    embedder = CodeEmbedder(backend="deepinfra")
+
+    # Generate embeddings in thread pool (CPU-bound serialization)
+    embeddings = await asyncio.to_thread(
+        embedder.embed_entities_batch, entities
+    )
+
+    # Store embeddings on nodes
+    for entity, embedding in zip(entities, embeddings):
+        query = """
+        MATCH (n {qualifiedName: $qualified_name})
+        SET n.embedding = $embedding
+        """
+        client.execute_query(
+            query,
+            parameters={
+                "qualified_name": entity.qualified_name,
+                "embedding": embedding,
+            }
+        )
 
 
 @router.post("/batch/relationships", response_model=BatchRelationshipsResponse)

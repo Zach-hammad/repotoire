@@ -59,6 +59,16 @@ def _get_db_client(quiet: bool = False):
     return create_client(show_cloud_indicator=not quiet)
 
 
+def _is_cloud_mode() -> bool:
+    """Check if running in cloud mode (API key available).
+
+    Returns:
+        True if API key is configured and cloud mode is active
+    """
+    from repotoire.graph.factory import get_api_key
+    return get_api_key() is not None
+
+
 def _extract_git_info(repo_path: Path) -> dict[str, str | None]:
     """Extract git branch and commit SHA from repository.
 
@@ -3083,17 +3093,7 @@ def inspect(
 ) -> None:
     """Show graph statistics and schema overview."""
     try:
-        config = get_config()
-
-        # Override config with CLI args
-        uri = neo4j_uri or config.neo4j_uri
-        user = neo4j_user or config.neo4j_user
-        password = neo4j_password or config.neo4j_password
-
-        if not password:
-            password = click.prompt("Neo4j password", hide_input=True)
-
-        # Connect to Neo4j
+        # In cloud mode, skip Neo4j config and use cloud client directly
         client = _get_db_client()
 
         # Get statistics
@@ -3323,17 +3323,7 @@ def validate(
 ) -> None:
     """Validate graph schema integrity."""
     try:
-        config = get_config()
-
-        # Override config with CLI args
-        uri = neo4j_uri or config.neo4j_uri
-        user = neo4j_user or config.neo4j_user
-        password = neo4j_password or config.neo4j_password
-
-        if not password:
-            password = click.prompt("Neo4j password", hide_input=True)
-
-        # Connect to Neo4j
+        # In cloud mode, skip Neo4j config and use cloud client directly
         client = _get_db_client()
 
         console.print()
