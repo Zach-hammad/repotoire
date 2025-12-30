@@ -125,6 +125,8 @@ async def create_override(
     """Create a new quota override for an organization.
 
     Requires admin role. Creates full audit trail.
+
+    Note: Admin can only create overrides for their own organization.
     """
     # Get the admin's database user
     db_user = await _get_db_user(db, admin.user_id)
@@ -140,6 +142,14 @@ async def create_override(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Organization not found: {body.organization_id}",
+        )
+
+    # Security: Verify admin belongs to the target organization
+    # Admin can only create overrides for their own organization
+    if admin.org_id and org.clerk_org_id != admin.org_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot create quota override for another organization",
         )
 
     # Get original limit from tier

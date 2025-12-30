@@ -7,19 +7,37 @@ import {
   useTriggerAnalysisById,
   useGenerateFixes,
   useFindingsSummary,
+  useCommitHistory,
+  useHistoricalQuery,
 } from '@/lib/hooks';
 import { RepoStatusBadge } from '@/components/repos/repo-status-badge';
 import { HealthScoreBadge } from '@/components/repos/health-score-badge';
 import { AnalysisProgress } from '@/components/repos/analysis-progress';
 import { AnalysisHistoryTable } from '@/components/repos/analysis-history-table';
 import { RepoSettings } from '@/components/repos/repo-settings';
+import { ProvenanceCard, ProvenanceCardSkeleton } from '@/components/repos/provenance-card';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ExternalLink, RefreshCw, ArrowLeft, AlertTriangle, XCircle, Clock, CheckCircle2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import {
+  ExternalLink,
+  RefreshCw,
+  ArrowLeft,
+  AlertTriangle,
+  XCircle,
+  Clock,
+  CheckCircle2,
+  GitCommit,
+  Search,
+  MessageSquare,
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -140,6 +158,215 @@ function FindingsOverview({ repositoryId }: FindingsOverviewProps) {
           View All {summary.total} Findings
         </Button>
       </Link>
+    </div>
+  );
+}
+
+interface GitHistoryProps {
+  repositoryId: string;
+  repositoryFullName: string;
+}
+
+function GitHistory({ repositoryId, repositoryFullName }: GitHistoryProps) {
+  const [page, setPage] = useState(0);
+  const [query, setQuery] = useState('');
+  const pageSize = 10;
+
+  const { data: history, isLoading: historyLoading, error: historyError } = useCommitHistory(
+    repositoryId,
+    pageSize,
+    page * pageSize
+  );
+  const { trigger: runQuery, isMutating: isQuerying, data: queryResult, reset: resetQuery } = useHistoricalQuery();
+
+  const handleQuery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!query.trim()) return;
+    try {
+      await runQuery({ question: query, repositoryId });
+    } catch (error: any) {
+      toast.error('Query failed', {
+        description: error?.message || 'Failed to query code history',
+      });
+    }
+  };
+
+  const handleClearQuery = () => {
+    setQuery('');
+    resetQuery();
+  };
+
+  const totalPages = history ? Math.ceil(history.total_count / pageSize) : 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Natural Language Query */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <MessageSquare className="h-5 w-5" />
+            Ask about code history
+          </CardTitle>
+          <CardDescription>
+            Query the repository's git history using natural language
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleQuery} className="flex gap-2">
+            <Input
+              placeholder="e.g., When did we add authentication? Who worked on the API?"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="flex-1"
+              disabled={isQuerying}
+            />
+            <Button type="submit" disabled={isQuerying || !query.trim()}>
+              {isQuerying ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
+              <span className="ml-2">Ask</span>
+            </Button>
+          </form>
+
+          {/* Query Result */}
+          {queryResult && (
+            <div className="mt-4 p-4 bg-muted rounded-lg">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      'mb-2',
+                      queryResult.confidence === 'high' && 'bg-green-500/10 text-green-700 dark:text-green-400',
+                      queryResult.confidence === 'medium' && 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-400',
+                      queryResult.confidence === 'low' && 'bg-gray-500/10 text-gray-700 dark:text-gray-400'
+                    )}
+                  >
+                    {queryResult.confidence} confidence
+                  </Badge>
+                  <p className="text-sm leading-relaxed">{queryResult.answer}</p>
+
+                  {/* Referenced Commits */}
+                  {queryResult.referenced_commits && queryResult.referenced_commits.length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-xs text-muted-foreground mb-2">
+                        Referenced commits ({queryResult.referenced_commits.length})
+                      </p>
+                      <div className="space-y-2">
+                        {queryResult.referenced_commits.slice(0, 3).map((commit) => (
+                          <div
+                            key={commit.commit_sha}
+                            className="flex items-center gap-2 text-xs"
+                          >
+                            <GitCommit className="h-3 w-3 text-muted-foreground" />
+                            <a
+                              href={`https://github.com/${repositoryFullName}/commit/${commit.commit_sha}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-mono text-primary hover:underline"
+                            >
+                              {commit.commit_sha.slice(0, 7)}
+                            </a>
+                            <span className="text-muted-foreground truncate">
+                              {commit.message.split('\n')[0]}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <Button variant="ghost" size="sm" onClick={handleClearQuery}>
+                  Clear
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Commit History */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <GitCommit className="h-5 w-5" />
+            Recent Commits
+          </CardTitle>
+          <CardDescription>
+            {history ? (
+              <>Showing {Math.min((page + 1) * pageSize, history.total_count)} of {history.total_count} commits</>
+            ) : (
+              'Loading commit history...'
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {historyLoading ? (
+            <div className="space-y-4">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <ProvenanceCardSkeleton key={i} />
+              ))}
+            </div>
+          ) : historyError ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <AlertTriangle className="h-12 w-12 text-yellow-500 mb-4" />
+              <p className="text-muted-foreground mb-4">Failed to load commit history</p>
+              <p className="text-sm text-muted-foreground">
+                Git history may not be available for this repository.
+                <br />
+                Run <code className="bg-muted px-1 rounded">repotoire historical ingest-git</code> to enable.
+              </p>
+            </div>
+          ) : history && history.commits.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <GitCommit className="h-12 w-12 text-muted-foreground mb-4" />
+              <p className="text-muted-foreground">No commits found</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {history?.commits.map((commit) => (
+                <ProvenanceCard
+                  key={commit.commit_sha}
+                  commit={commit}
+                  repositoryFullName={repositoryFullName}
+                  showFileChanges
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {history && totalPages > 1 && (
+            <div className="flex items-center justify-between mt-6">
+              <p className="text-sm text-muted-foreground">
+                Page {page + 1} of {totalPages}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -270,10 +497,14 @@ export default function RepoDetailPage({ params }: RepoDetailPageProps) {
         </Card>
       )}
 
-      {/* Tabs: History, Findings, Settings */}
+      {/* Tabs: Findings, Git History, Analysis History, Settings */}
       <Tabs defaultValue="findings">
         <TabsList>
           <TabsTrigger value="findings">Findings</TabsTrigger>
+          <TabsTrigger value="git-history">
+            <GitCommit className="h-4 w-4 mr-1" />
+            Git History
+          </TabsTrigger>
           <TabsTrigger value="history">Analysis History</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
@@ -297,6 +528,25 @@ export default function RepoDetailPage({ params }: RepoDetailPageProps) {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="git-history" className="mt-6">
+          {repo.repository_id ? (
+            <GitHistory
+              repositoryId={repo.repository_id}
+              repositoryFullName={repo.full_name}
+            />
+          ) : (
+            <Card>
+              <CardContent className="py-12">
+                <div className="text-center text-muted-foreground">
+                  <GitCommit className="mx-auto h-12 w-12 text-gray-400 mb-3" />
+                  <p>No repository data available yet.</p>
+                  <p className="text-sm mt-1">Run your first analysis to enable git history.</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="history" className="mt-6">

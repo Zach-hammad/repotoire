@@ -100,9 +100,9 @@ class QuotaOverride(Base, UUIDPrimaryKeyMixin):
         nullable=False,
         comment="Why this override was granted",
     )
-    created_by_id: Mapped[UUID] = mapped_column(
+    created_by_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=False,
+        nullable=True,
         comment="Admin who created this override",
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -140,7 +140,7 @@ class QuotaOverride(Base, UUIDPrimaryKeyMixin):
         "Organization",
         back_populates="quota_overrides",
     )
-    created_by: Mapped["User"] = relationship(
+    created_by: Mapped["User | None"] = relationship(
         "User",
         foreign_keys=[created_by_id],
     )

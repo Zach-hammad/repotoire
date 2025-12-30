@@ -175,6 +175,11 @@ def require_org_admin(user: ClerkUser = Depends(get_current_user)) -> ClerkUser:
     """
     Dependency that requires the user to be an organization admin.
 
+    Handles multiple org_role formats from Clerk:
+    - "admin" (older format)
+    - "org:admin" (newer format)
+    - Role names are case-insensitive
+
     Usage:
         @router.get("/admin-only")
         async def admin_route(user: ClerkUser = Depends(require_org_admin)):
@@ -185,7 +190,14 @@ def require_org_admin(user: ClerkUser = Depends(get_current_user)) -> ClerkUser:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Organization membership required",
         )
-    if user.org_role not in ("admin", "org:admin"):
+
+    # Normalize role for comparison (case-insensitive, handle various formats)
+    role = (user.org_role or "").lower().strip()
+
+    # Accept various admin role formats from Clerk
+    admin_roles = {"admin", "org:admin", "owner", "org:owner"}
+
+    if role not in admin_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Organization admin role required",

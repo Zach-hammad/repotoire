@@ -15,8 +15,10 @@ from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin, generate_repr
 if TYPE_CHECKING:
     from .changelog import ChangelogEntry
     from .email import EmailPreferences
+    from .fix import FixComment
     from .gdpr import ConsentRecord, DataExport
     from .organization import OrganizationMembership
+    from .provenance_settings import ProvenanceSettings
 
 
 class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -100,6 +102,16 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     changelog_entries: Mapped[List["ChangelogEntry"]] = relationship(
         "ChangelogEntry",
         back_populates="author",
+    )
+    provenance_settings: Mapped["ProvenanceSettings | None"] = relationship(
+        "ProvenanceSettings",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    fix_comments: Mapped[List["FixComment"]] = relationship(
+        "FixComment",
+        back_populates="user",
     )
 
     __table_args__ = (

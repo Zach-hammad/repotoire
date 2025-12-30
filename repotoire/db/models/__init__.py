@@ -39,6 +39,7 @@ from .billing import (
 )
 from .email import EmailPreferences
 from .gdpr import ConsentRecord, ConsentType, DataExport, ExportStatus
+from .provenance_settings import ProvenanceSettings
 from .github import GitHubInstallation, GitHubRepository
 from .organization import (
     InviteStatus,
@@ -107,6 +108,7 @@ __all__ = [
     "DataExport",
     "ConsentRecord",
     "EmailPreferences",
+    "ProvenanceSettings",
     # Enums
     "PlanTier",
     "MemberRole",

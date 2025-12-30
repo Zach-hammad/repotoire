@@ -1,15 +1,21 @@
 import {
   AnalyticsSummary,
   ApiResponse,
+  BackfillJobStatus,
   CheckoutRequest,
   CheckoutResponse,
+  CommitHistoryResponse,
+  CommitProvenance,
   FileHotspot,
   Finding,
   FindingFilters,
   FixComment,
   FixFilters,
   FixProposal,
+  GitHistoryStatus,
   HealthScore,
+  HistoricalQueryResponse,
+  IssueOrigin,
   PaginatedResponse,
   PlanTier,
   PlansResponse,
@@ -17,6 +23,7 @@ import {
   PreviewResult,
   PriceCalculationRequest,
   PriceCalculationResponse,
+  ProvenanceSettings,
   SortOptions,
   Subscription,
   TrendDataPoint,
@@ -489,6 +496,118 @@ export const billingApi = {
     return request<PriceCalculationResponse>('/billing/calculate-price', {
       method: 'POST',
       body: JSON.stringify({ tier, seats } as PriceCalculationRequest),
+    });
+  },
+};
+
+// Historical (Git Provenance) API
+export const historicalApi = {
+  /**
+   * Get the origin commit that introduced a finding
+   */
+  getIssueOrigin: async (findingId: string): Promise<IssueOrigin> => {
+    return request<IssueOrigin>(`/historical/issue-origin?finding_id=${encodeURIComponent(findingId)}`);
+  },
+
+  /**
+   * Query code history using natural language
+   */
+  query: async (
+    question: string,
+    repositoryId?: string
+  ): Promise<HistoricalQueryResponse> => {
+    const params = new URLSearchParams({ question });
+    if (repositoryId) {
+      params.set('repository_id', repositoryId);
+    }
+    return request<HistoricalQueryResponse>(`/historical/query?${params}`);
+  },
+
+  /**
+   * Get commit history for a repository
+   */
+  getCommitHistory: async (
+    repositoryId: string,
+    limit: number = 20,
+    offset: number = 0
+  ): Promise<CommitHistoryResponse> => {
+    const params = new URLSearchParams({
+      repository_id: repositoryId,
+      limit: String(limit),
+      offset: String(offset),
+    });
+    return request<CommitHistoryResponse>(`/historical/commits?${params}`);
+  },
+
+  /**
+   * Get a single commit by SHA
+   */
+  getCommit: async (
+    repositoryId: string,
+    commitSha: string
+  ): Promise<CommitProvenance> => {
+    return request<CommitProvenance>(
+      `/historical/commits/${encodeURIComponent(commitSha)}?repository_id=${encodeURIComponent(repositoryId)}`
+    );
+  },
+
+  /**
+   * Get git history status for a repository
+   */
+  getGitHistoryStatus: async (repositoryId: string): Promise<GitHistoryStatus> => {
+    return request<GitHistoryStatus>(`/historical/status/${encodeURIComponent(repositoryId)}`);
+  },
+
+  /**
+   * Trigger backfill of historical commits for a repository
+   */
+  backfillHistory: async (
+    repositoryId: string,
+    maxCommits: number = 500
+  ): Promise<{ job_id: string }> => {
+    return request<{ job_id: string }>(`/historical/backfill/${encodeURIComponent(repositoryId)}`, {
+      method: 'POST',
+      body: JSON.stringify({ max_commits: maxCommits }),
+    });
+  },
+
+  /**
+   * Get status of a backfill job
+   */
+  getBackfillStatus: async (jobId: string): Promise<BackfillJobStatus> => {
+    return request<BackfillJobStatus>(`/historical/backfill/status/${encodeURIComponent(jobId)}`);
+  },
+
+  /**
+   * Correct an incorrect attribution for a finding
+   */
+  correctAttribution: async (
+    findingId: string,
+    correctCommitSha: string
+  ): Promise<IssueOrigin> => {
+    return request<IssueOrigin>(`/historical/correct/${encodeURIComponent(findingId)}`, {
+      method: 'POST',
+      body: JSON.stringify({ commit_sha: correctCommitSha }),
+    });
+  },
+};
+
+// Provenance Settings API
+export const provenanceSettingsApi = {
+  /**
+   * Get user's provenance display preferences
+   */
+  get: async (): Promise<ProvenanceSettings> => {
+    return request<ProvenanceSettings>('/account/provenance-settings');
+  },
+
+  /**
+   * Update user's provenance display preferences
+   */
+  update: async (settings: Partial<ProvenanceSettings>): Promise<ProvenanceSettings> => {
+    return request<ProvenanceSettings>('/account/provenance-settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
     });
   },
 };

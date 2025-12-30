@@ -383,3 +383,130 @@ export interface ApiKeyCreateRequest {
   scopes: ApiKeyScope[];
   expires_in_days?: number;  // Optional expiration
 }
+
+// ==========================================
+// Git Provenance Types
+// ==========================================
+
+/** Confidence level for provenance detection */
+export type ProvenanceConfidence = 'high' | 'medium' | 'low' | 'unknown';
+
+/**
+ * Information about a git commit that introduced or modified code
+ */
+export interface CommitProvenance {
+  /** Full commit SHA */
+  commit_sha: string;
+  /** Author's display name */
+  author_name: string;
+  /** Author's email address */
+  author_email: string;
+  /** ISO 8601 timestamp when the commit was made */
+  committed_date: string;
+  /** Commit message (first line or full) */
+  message: string;
+  /** List of files changed in this commit */
+  changed_files: string[];
+  /** Number of lines added */
+  insertions: number;
+  /** Number of lines deleted */
+  deletions: number;
+}
+
+/**
+ * Origin information for a code finding, showing when the issue was introduced
+ */
+export interface IssueOrigin {
+  /** ID of the finding this origin relates to */
+  finding_id: string;
+  /** The commit that introduced the issue (null if unknown) */
+  introduced_in: CommitProvenance | null;
+  /** Confidence level of the origin detection */
+  confidence: ProvenanceConfidence;
+  /** Explanation of why this confidence level was assigned */
+  confidence_reason: string;
+  /** Related commits that may have affected this issue */
+  related_commits: CommitProvenance[];
+  /** Whether a user has manually corrected this attribution */
+  user_corrected?: boolean;
+  /** The SHA of the user-corrected commit (if corrected) */
+  corrected_commit_sha?: string;
+}
+
+/**
+ * User preferences for provenance display (privacy-first defaults)
+ */
+export interface ProvenanceSettings {
+  /** Show real author names (default: false for privacy) */
+  show_author_names: boolean;
+  /** Show author avatars/gravatars (default: false for privacy) */
+  show_author_avatars: boolean;
+  /** Show confidence level badges (default: true) */
+  show_confidence_badges: boolean;
+  /** Automatically query provenance on page load (default: false for performance) */
+  auto_query_provenance: boolean;
+}
+
+/**
+ * Git history status for a repository
+ */
+export interface GitHistoryStatus {
+  /** Whether git history has been ingested */
+  has_git_history: boolean;
+  /** Number of commits that have been ingested */
+  commits_ingested: number;
+  /** Date of the oldest ingested commit */
+  oldest_commit_date: string | null;
+  /** Date of the newest ingested commit */
+  newest_commit_date: string | null;
+  /** Percentage of findings with provenance data */
+  coverage_percent: number;
+  /** Whether more history can be backfilled */
+  can_backfill: boolean;
+  /** Estimated number of additional commits available */
+  backfill_estimate_commits: number;
+}
+
+/**
+ * Status of a backfill job
+ */
+export interface BackfillJobStatus {
+  /** Unique job ID */
+  job_id: string;
+  /** Current status */
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  /** Number of commits processed so far */
+  commits_processed: number;
+  /** Total commits to process */
+  commits_total: number;
+  /** Error message if failed */
+  error_message?: string;
+  /** Timestamp when job started */
+  started_at?: string;
+  /** Timestamp when job completed */
+  completed_at?: string;
+}
+
+/**
+ * Response from historical query endpoint
+ */
+export interface HistoricalQueryResponse {
+  /** Natural language answer to the query */
+  answer: string;
+  /** Commits referenced in the answer */
+  referenced_commits: CommitProvenance[];
+  /** Confidence in the answer */
+  confidence: ProvenanceConfidence;
+}
+
+/**
+ * Response from commit history endpoint
+ */
+export interface CommitHistoryResponse {
+  /** List of recent commits */
+  commits: CommitProvenance[];
+  /** Total number of commits available */
+  total_count: number;
+  /** Whether there are more commits to fetch */
+  has_more: boolean;
+}

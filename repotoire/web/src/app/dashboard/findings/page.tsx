@@ -23,9 +23,11 @@ import {
   FileCode2,
   Clock,
   Wrench,
+  GitCommit,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Finding, FindingFilters, Severity } from '@/types';
+import { IssueOriginBadge } from '@/components/findings/issue-origin-badge';
 
 function Skeleton({ className }: { className?: string }) {
   return <div className={cn('animate-pulse rounded-md bg-muted', className)} />;
@@ -55,7 +57,13 @@ const severityIcons: Record<Severity, React.ElementType> = {
   info: Info,
 };
 
-function FindingCard({ finding }: { finding: Finding }) {
+interface FindingCardProps {
+  finding: Finding;
+  /** Repository full name for GitHub links (e.g., "owner/repo") */
+  repositoryFullName?: string;
+}
+
+function FindingCard({ finding, repositoryFullName }: FindingCardProps) {
   const Icon = severityIcons[finding.severity];
 
   return (
@@ -99,6 +107,12 @@ function FindingCard({ finding }: { finding: Finding }) {
                   {finding.estimated_effort}
                 </Badge>
               )}
+              {/* Git Provenance Badge */}
+              <IssueOriginBadge
+                findingId={finding.id}
+                repositoryFullName={repositoryFullName}
+                compact
+              />
             </div>
             {finding.suggested_fix && (
               <div className="mt-3 p-2 bg-muted rounded text-sm">
@@ -297,9 +311,17 @@ export default function FindingsPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {findings?.items.map((finding) => (
-                <FindingCard key={finding.id} finding={finding} />
-              ))}
+              {findings?.items.map((finding) => {
+                // Get the repository full name for GitHub links
+                const repo = repositories?.find(r => r.id === repositoryFilter);
+                return (
+                  <FindingCard
+                    key={finding.id}
+                    finding={finding}
+                    repositoryFullName={repo?.full_name}
+                  />
+                );
+              })}
             </div>
           )}
 

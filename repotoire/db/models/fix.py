@@ -266,6 +266,7 @@ class FixComment(Base, UUIDPrimaryKeyMixin):
     )
     user: Mapped["User"] = relationship(
         "User",
+        back_populates="fix_comments",
     )
 
     __table_args__ = (

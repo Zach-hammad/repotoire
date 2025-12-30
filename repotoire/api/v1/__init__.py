@@ -24,6 +24,7 @@ from repotoire.api.v1.routes import (
     marketplace,
     notifications,
     organizations,
+    provenance_settings,
     sandbox,
     status,
     team,
@@ -153,6 +154,11 @@ V1_OPENAPI_TAGS = [
         "description": "Repotoire Marketplace for AI skills, commands, styles, and prompts. "
         "Browse, install, publish, and manage marketplace assets.",
     },
+    {
+        "name": "settings",
+        "description": "User settings and preferences. Configure display options, privacy "
+        "settings, and provenance display preferences.",
+    },
 ]
 
 # Create v1 FastAPI sub-application
@@ -229,6 +235,7 @@ v1_app.include_router(historical.router)
 v1_app.include_router(marketplace.router)
 v1_app.include_router(notifications.router)
 v1_app.include_router(organizations.router)
+v1_app.include_router(provenance_settings.router)
 v1_app.include_router(sandbox.router)
 v1_app.include_router(team.router)
 v1_app.include_router(usage.router)

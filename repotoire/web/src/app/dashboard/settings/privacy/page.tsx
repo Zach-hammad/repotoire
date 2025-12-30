@@ -21,6 +21,7 @@ import {
   Loader2,
 } from "lucide-react";
 import Link from "next/link";
+import { ProvenanceSettingsCard } from "@/components/settings/provenance-settings-card";
 
 // API Response Types
 interface ConsentResponse {
@@ -372,6 +373,9 @@ function PrivacySettingsContent() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Issue Origin / Provenance Settings */}
+        <ProvenanceSettingsCard />
 
         {/* Data Export */}
         <Card>

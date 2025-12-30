@@ -3,28 +3,34 @@ import useSWRMutation from 'swr/mutation';
 import {
   AnalyticsSummary,
   AnalysisRunStatus,
+  BackfillJobStatus,
   CheckoutResponse,
+  CommitHistoryResponse,
   FileHotspot,
   Finding,
   FindingFilters,
   FixComment,
   FixFilters,
   FixProposal,
+  GitHistoryStatus,
   GitHubAvailableRepo,
   GitHubInstallation,
   HealthScore,
+  HistoricalQueryResponse,
+  IssueOrigin,
   PaginatedResponse,
   PlanTier,
   PlansResponse,
   PortalResponse,
   PreviewResult,
   PriceCalculationResponse,
+  ProvenanceSettings,
   Repository,
   SortOptions,
   Subscription,
   TrendDataPoint,
 } from '@/types';
-import { analyticsApi, billingApi, findingsApi, fixesApi, repositoriesApi, RepositoryInfo, request } from './api';
+import { analyticsApi, billingApi, findingsApi, fixesApi, historicalApi, provenanceSettingsApi, repositoriesApi, RepositoryInfo, request } from './api';
 import { useApiAuth } from '@/components/providers/api-auth-provider';
 
 // Generic fetcher for SWR
@@ -591,5 +597,231 @@ export function useRevokeApiKey() {
         throw new Error(error.detail || 'Failed to revoke API key');
       }
     }
+  );
+}
+
+// ==========================================
+// Git Provenance Hooks
+// ==========================================
+
+/** Default provenance settings (privacy-first) */
+const DEFAULT_PROVENANCE_SETTINGS: ProvenanceSettings = {
+  show_author_names: false,
+  show_author_avatars: false,
+  show_confidence_badges: true,
+  auto_query_provenance: false,
+};
+
+/**
+ * Hook to fetch user's provenance display preferences.
+ * Returns privacy-first defaults if not set.
+ */
+export function useProvenanceSettings() {
+  const { isAuthReady } = useApiAuth();
+
+  const { data, error, isLoading, mutate } = useSWR<ProvenanceSettings>(
+    isAuthReady ? 'provenance-settings' : null,
+    () => provenanceSettingsApi.get(),
+    {
+      revalidateOnFocus: false,
+      fallbackData: DEFAULT_PROVENANCE_SETTINGS,
+      onError: () => {
+        // Return defaults on error (settings may not exist yet)
+      },
+    }
+  );
+
+  return {
+    settings: data ?? DEFAULT_PROVENANCE_SETTINGS,
+    isLoading: !isAuthReady || isLoading,
+    error,
+    refresh: mutate,
+  };
+}
+
+/**
+ * Hook to update provenance settings.
+ */
+export function useUpdateProvenanceSettings() {
+  return useSWRMutation<
+    ProvenanceSettings,
+    Error,
+    string,
+    Partial<ProvenanceSettings>
+  >(
+    'provenance-settings',
+    async (_key, { arg }) => {
+      return provenanceSettingsApi.update(arg);
+    }
+  );
+}
+
+/**
+ * Hook to fetch the origin commit that introduced a finding.
+ * Returns information about when and who introduced the code issue.
+ * Respects user's auto_query_provenance setting.
+ *
+ * @param findingId - The ID of the finding to get provenance for
+ * @param autoFetch - Override to force fetching regardless of settings
+ */
+export function useIssueProvenance(findingId: string | null, autoFetch: boolean = false) {
+  const { isAuthReady } = useApiAuth();
+  const { settings } = useProvenanceSettings();
+
+  // Only auto-fetch if user has opted in or explicitly requested
+  const shouldFetch = autoFetch || settings.auto_query_provenance;
+
+  return useSWR<IssueOrigin>(
+    isAuthReady && findingId && shouldFetch ? ['issue-provenance', findingId] : null,
+    () => historicalApi.getIssueOrigin(findingId!),
+    {
+      // Provenance queries can be slow (10-20s), cache aggressively
+      revalidateOnFocus: false,
+      dedupingInterval: 300000, // 5 minutes
+      errorRetryCount: 1, // Only retry once
+    }
+  );
+}
+
+/**
+ * Hook to manually trigger provenance fetch (for on-demand loading).
+ */
+export function useFetchProvenance(findingId: string) {
+  return useSWRMutation<IssueOrigin, Error, string[]>(
+    ['issue-provenance', findingId],
+    () => historicalApi.getIssueOrigin(findingId)
+  );
+}
+
+/**
+ * Hook to fetch git history status for a repository.
+ * Shows whether git history is available and coverage stats.
+ *
+ * @param repositoryId - The repository ID to get status for
+ */
+export function useGitHistoryStatus(repositoryId: string | null) {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR<GitHistoryStatus>(
+    isAuthReady && repositoryId ? ['git-history-status', repositoryId] : null,
+    () => historicalApi.getGitHistoryStatus(repositoryId!),
+    {
+      revalidateOnFocus: false,
+    }
+  );
+}
+
+/**
+ * Hook to fetch commit history for a repository.
+ * Supports pagination with limit and offset.
+ *
+ * @param repositoryId - The repository ID to get history for
+ * @param limit - Maximum number of commits to fetch (default: 20)
+ * @param offset - Number of commits to skip (default: 0)
+ */
+export function useCommitHistory(
+  repositoryId: string | null,
+  limit: number = 20,
+  offset: number = 0
+) {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR<CommitHistoryResponse>(
+    isAuthReady && repositoryId ? ['commit-history', repositoryId, limit, offset] : null,
+    () => historicalApi.getCommitHistory(repositoryId!, limit, offset),
+    {
+      revalidateOnFocus: false,
+    }
+  );
+}
+
+/**
+ * Hook to query code history using natural language.
+ * Returns AI-generated answers about code evolution.
+ */
+export function useHistoricalQuery() {
+  return useSWRMutation<
+    HistoricalQueryResponse,
+    Error,
+    string,
+    { question: string; repositoryId?: string }
+  >(
+    'historical-query',
+    async (_key, { arg }) => {
+      return historicalApi.query(arg.question, arg.repositoryId);
+    }
+  );
+}
+
+/**
+ * Hook to get a single commit by SHA.
+ *
+ * @param repositoryId - The repository ID
+ * @param commitSha - The commit SHA to fetch
+ */
+export function useCommit(repositoryId: string | null, commitSha: string | null) {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR(
+    isAuthReady && repositoryId && commitSha ? ['commit', repositoryId, commitSha] : null,
+    () => historicalApi.getCommit(repositoryId!, commitSha!),
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 300000, // 5 minutes - commit data is immutable
+    }
+  );
+}
+
+/**
+ * Hook to trigger backfill of historical commits.
+ *
+ * @param repositoryId - The repository ID to backfill
+ */
+export function useBackfillHistory(repositoryId: string) {
+  return useSWRMutation<
+    { job_id: string },
+    Error,
+    string[],
+    number | undefined
+  >(
+    ['backfill', repositoryId],
+    (_key, { arg: maxCommits }) => historicalApi.backfillHistory(repositoryId, maxCommits)
+  );
+}
+
+/**
+ * Hook to poll backfill job status.
+ *
+ * @param jobId - The backfill job ID to poll
+ */
+export function useBackfillStatus(jobId: string | null) {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR<BackfillJobStatus>(
+    isAuthReady && jobId ? ['backfill-status', jobId] : null,
+    () => historicalApi.getBackfillStatus(jobId!),
+    {
+      refreshInterval: (data) => {
+        if (!data) return 3000;
+        if (data.status === 'completed' || data.status === 'failed') {
+          return 0; // Stop polling
+        }
+        return 3000; // Poll every 3 seconds
+      },
+      revalidateOnFocus: false,
+    }
+  );
+}
+
+/**
+ * Hook to correct an incorrect attribution.
+ *
+ * @param findingId - The finding ID to correct
+ */
+export function useCorrectAttribution(findingId: string) {
+  return useSWRMutation<IssueOrigin, Error, string[], string>(
+    ['issue-provenance', findingId],
+    (_key, { arg: correctCommitSha }) =>
+      historicalApi.correctAttribution(findingId, correctCommitSha)
   );
 }

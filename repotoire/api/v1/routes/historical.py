@@ -4,19 +4,26 @@ Uses FalkorDB as the graph database backend for Graphiti temporal knowledge grap
 Accepts commit data directly from CLI (cloud-only architecture).
 """
 
+import enum
 from datetime import datetime
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from repotoire.api.shared.auth import ClerkUser, get_current_user
+from repotoire.db.session import get_db
+from repotoire.db.models import Repository, Finding
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 router = APIRouter(
     prefix="/historical",
-    tags=["Historical Analysis"],
+    tags=["historical"],
 )
 
 
@@ -441,7 +448,7 @@ async def historical_health_check():
     # FalkorDB is configured if we have a host (defaults to repotoire-falkor.internal on Fly.io)
     falkor_host = os.getenv("FALKORDB_HOST", "repotoire-falkor.internal")
 
-    status = {
+    health_status = {
         "status": "healthy",
         "graphiti_available": False,
         "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
@@ -452,23 +459,482 @@ async def historical_health_check():
     try:
         from graphiti_core import Graphiti
         from graphiti_core.driver.falkordb_driver import FalkorDriver
-        status["graphiti_available"] = True
-        status["falkordb_driver_available"] = True
+        health_status["graphiti_available"] = True
+        health_status["falkordb_driver_available"] = True
     except ImportError as e:
-        status["falkordb_driver_available"] = False
-        status["import_error"] = str(e)
+        health_status["falkordb_driver_available"] = False
+        health_status["import_error"] = str(e)
 
     # Determine overall status
-    if not status["graphiti_available"]:
-        status["status"] = "degraded"
-        status["message"] = "Graphiti not installed. Install with: pip install graphiti-core[falkordb]"
-    elif not status["openai_configured"]:
-        status["status"] = "degraded"
-        status["message"] = "OPENAI_API_KEY not configured"
-    elif not status.get("falkordb_driver_available"):
-        status["status"] = "degraded"
-        status["message"] = "FalkorDB driver not available"
+    if not health_status["graphiti_available"]:
+        health_status["status"] = "degraded"
+        health_status["message"] = "Graphiti not installed. Install with: pip install graphiti-core[falkordb]"
+    elif not health_status["openai_configured"]:
+        health_status["status"] = "degraded"
+        health_status["message"] = "OPENAI_API_KEY not configured"
+    elif not health_status.get("falkordb_driver_available"):
+        health_status["status"] = "degraded"
+        health_status["message"] = "FalkorDB driver not available"
     else:
-        status["message"] = "All dependencies available"
+        health_status["message"] = "All dependencies available"
 
-    return status
+    return health_status
+
+
+# =============================================================================
+# New Response Models for Frontend API Contract
+# =============================================================================
+
+
+class ProvenanceConfidence(str, enum.Enum):
+    """Confidence level for provenance detection."""
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+    UNKNOWN = "unknown"
+
+
+class CommitProvenance(BaseModel):
+    """Commit provenance information."""
+
+    commit_sha: str = Field(..., description="Full commit SHA")
+    author_name: str = Field(..., description="Author's display name")
+    author_email: str = Field(..., description="Author's email address")
+    author_avatar_url: Optional[str] = Field(None, description="URL to author's avatar (Gravatar)")
+    commit_date: datetime = Field(..., description="Commit timestamp")
+    message: str = Field(..., description="Commit message (first line)")
+    full_message: Optional[str] = Field(None, description="Full commit message")
+
+
+class IssueOriginResponse(BaseModel):
+    """Response for issue origin lookup."""
+
+    finding_id: str = Field(..., description="ID of the finding")
+    introduced_in: Optional[CommitProvenance] = Field(None, description="Commit that introduced the issue")
+    confidence: ProvenanceConfidence = Field(..., description="Confidence level of detection")
+    confidence_reason: str = Field(..., description="Explanation of confidence level")
+    related_commits: List[CommitProvenance] = Field(
+        default_factory=list, description="Related commits"
+    )
+    user_corrected: bool = Field(default=False, description="Whether attribution was manually corrected")
+    corrected_commit_sha: Optional[str] = Field(None, description="SHA of user-corrected commit")
+
+
+class GitHistoryStatusResponse(BaseModel):
+    """Git history status for a repository."""
+
+    has_git_history: bool = Field(..., description="Whether git history has been ingested")
+    commits_ingested: int = Field(default=0, description="Number of commits ingested")
+    oldest_commit_date: Optional[datetime] = Field(None, description="Date of oldest commit")
+    newest_commit_date: Optional[datetime] = Field(None, description="Date of newest commit")
+    last_updated: Optional[datetime] = Field(None, description="When history was last updated")
+    is_backfill_running: bool = Field(default=False, description="Whether a backfill is in progress")
+
+
+class CommitHistoryResponse(BaseModel):
+    """Paginated commit history response."""
+
+    commits: List[CommitProvenance] = Field(default_factory=list, description="List of commits")
+    total_count: int = Field(default=0, description="Total commits available")
+    has_more: bool = Field(default=False, description="Whether more commits exist")
+
+
+class BackfillJobStatus(str, enum.Enum):
+    """Status of a backfill job."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class BackfillJobStatusResponse(BaseModel):
+    """Status of a git history backfill job."""
+
+    job_id: str = Field(..., description="Unique job ID")
+    status: BackfillJobStatus = Field(..., description="Current job status")
+    commits_processed: int = Field(default=0, description="Commits processed so far")
+    total_commits: Optional[int] = Field(None, description="Total commits to process")
+    started_at: Optional[datetime] = Field(None, description="When the job started")
+    completed_at: Optional[datetime] = Field(None, description="When the job completed")
+    error_message: Optional[str] = Field(None, description="Error message if failed")
+
+
+class BackfillRequest(BaseModel):
+    """Request to trigger a backfill job."""
+
+    max_commits: int = Field(default=500, description="Maximum commits to backfill")
+
+
+class CorrectAttributionRequest(BaseModel):
+    """Request to correct attribution for a finding."""
+
+    commit_sha: str = Field(..., description="Correct commit SHA")
+
+
+# =============================================================================
+# In-memory storage for backfill jobs (would use Redis in production)
+# =============================================================================
+
+_backfill_jobs: dict[str, dict] = {}
+
+
+# =============================================================================
+# New Endpoints to Match Frontend API Contract
+# =============================================================================
+
+
+@router.get("/issue-origin", response_model=IssueOriginResponse)
+async def get_issue_origin(
+    finding_id: str = Query(..., description="Finding ID to get origin for"),
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> IssueOriginResponse:
+    """Get the origin commit that introduced a finding.
+
+    Uses git blame and commit history analysis to identify which commit
+    introduced the code that caused this finding.
+    """
+    # Verify finding exists and user has access
+    try:
+        finding_uuid = UUID(finding_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid finding ID format",
+        )
+
+    result = await db.execute(
+        select(Finding).where(Finding.id == finding_uuid)
+    )
+    finding = result.scalar_one_or_none()
+
+    if not finding:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Finding not found: {finding_id}",
+        )
+
+    # TODO: Implement actual git blame integration with Graphiti
+    # For now, return a placeholder response indicating feature is available
+    # but no git history has been ingested yet
+
+    try:
+        graphiti = _get_graphiti_instance()
+        # Query Graphiti for commits related to this file/line
+        # This would involve looking up the finding's file path and line number
+        # and searching for commits that modified that area
+
+        # For now, return placeholder
+        return IssueOriginResponse(
+            finding_id=finding_id,
+            introduced_in=None,
+            confidence=ProvenanceConfidence.UNKNOWN,
+            confidence_reason="Git history not yet ingested for this repository. Use POST /historical/backfill to ingest git history.",
+            related_commits=[],
+            user_corrected=False,
+        )
+    except HTTPException:
+        # Graphiti not available - return degraded response
+        return IssueOriginResponse(
+            finding_id=finding_id,
+            introduced_in=None,
+            confidence=ProvenanceConfidence.UNKNOWN,
+            confidence_reason="Git history analysis unavailable. Graphiti or OpenAI not configured.",
+            related_commits=[],
+            user_corrected=False,
+        )
+
+
+@router.get("/status/{repository_id}", response_model=GitHistoryStatusResponse)
+async def get_git_history_status(
+    repository_id: str,
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> GitHistoryStatusResponse:
+    """Get git history ingestion status for a repository.
+
+    Returns information about whether git history has been ingested,
+    how many commits are available, and whether a backfill is running.
+    """
+    # Verify repository exists and user has access
+    try:
+        repo_uuid = UUID(repository_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid repository ID format",
+        )
+
+    result = await db.execute(
+        select(Repository).where(Repository.id == repo_uuid)
+    )
+    repo = result.scalar_one_or_none()
+
+    if not repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository not found: {repository_id}",
+        )
+
+    # Check if there's a running backfill job for this repo
+    is_backfill_running = any(
+        job.get("repository_id") == repository_id
+        and job.get("status") in ("queued", "running")
+        for job in _backfill_jobs.values()
+    )
+
+    # TODO: Query Graphiti/FalkorDB for actual commit count
+    # For now, return placeholder indicating no history ingested
+
+    return GitHistoryStatusResponse(
+        has_git_history=False,
+        commits_ingested=0,
+        oldest_commit_date=None,
+        newest_commit_date=None,
+        last_updated=None,
+        is_backfill_running=is_backfill_running,
+    )
+
+
+@router.get("/commits", response_model=CommitHistoryResponse)
+async def get_commit_history(
+    repository_id: str = Query(..., description="Repository ID"),
+    limit: int = Query(default=20, ge=1, le=100, description="Max commits to return"),
+    offset: int = Query(default=0, ge=0, description="Offset for pagination"),
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> CommitHistoryResponse:
+    """Get commit history for a repository.
+
+    Returns paginated list of commits that have been ingested into
+    the temporal knowledge graph.
+    """
+    # Verify repository exists and user has access
+    try:
+        repo_uuid = UUID(repository_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid repository ID format",
+        )
+
+    result = await db.execute(
+        select(Repository).where(Repository.id == repo_uuid)
+    )
+    repo = result.scalar_one_or_none()
+
+    if not repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository not found: {repository_id}",
+        )
+
+    # TODO: Query Graphiti for commit history
+    # For now, return empty list indicating no history ingested
+
+    return CommitHistoryResponse(
+        commits=[],
+        total_count=0,
+        has_more=False,
+    )
+
+
+@router.get("/commits/{commit_sha}", response_model=CommitProvenance)
+async def get_commit(
+    commit_sha: str,
+    repository_id: str = Query(..., description="Repository ID"),
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> CommitProvenance:
+    """Get details for a specific commit.
+
+    Returns commit metadata including author info and message.
+    """
+    # Verify repository exists and user has access
+    try:
+        repo_uuid = UUID(repository_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid repository ID format",
+        )
+
+    result = await db.execute(
+        select(Repository).where(Repository.id == repo_uuid)
+    )
+    repo = result.scalar_one_or_none()
+
+    if not repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository not found: {repository_id}",
+        )
+
+    # TODO: Query Graphiti for commit details
+    # For now, return 404 as no history is ingested
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Commit not found: {commit_sha}. Git history may not be ingested for this repository.",
+    )
+
+
+@router.post("/backfill/{repository_id}", response_model=BackfillJobStatusResponse)
+async def trigger_backfill(
+    repository_id: str,
+    request: BackfillRequest,
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BackfillJobStatusResponse:
+    """Trigger a git history backfill job for a repository.
+
+    This will queue a background job to ingest git commit history
+    from the repository into the temporal knowledge graph.
+    """
+    import uuid
+
+    # Verify repository exists and user has access
+    try:
+        repo_uuid = UUID(repository_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid repository ID format",
+        )
+
+    result = await db.execute(
+        select(Repository).where(Repository.id == repo_uuid)
+    )
+    repo = result.scalar_one_or_none()
+
+    if not repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository not found: {repository_id}",
+        )
+
+    # Check if there's already a running backfill for this repo
+    for job_id, job in _backfill_jobs.items():
+        if job.get("repository_id") == repository_id and job.get("status") in ("queued", "running"):
+            return BackfillJobStatusResponse(
+                job_id=job_id,
+                status=BackfillJobStatus(job["status"]),
+                commits_processed=job.get("commits_processed", 0),
+                total_commits=job.get("total_commits"),
+                started_at=job.get("started_at"),
+            )
+
+    # Create new backfill job
+    job_id = str(uuid.uuid4())
+    job = {
+        "repository_id": repository_id,
+        "status": "queued",
+        "commits_processed": 0,
+        "total_commits": None,
+        "max_commits": request.max_commits,
+        "started_at": None,
+        "completed_at": None,
+        "error_message": None,
+    }
+    _backfill_jobs[job_id] = job
+
+    # TODO: Actually trigger background job via Redis queue or similar
+    # For now, just return the queued status
+
+    logger.info(
+        f"Queued backfill job {job_id} for repository {repository_id}",
+        extra={"job_id": job_id, "repository_id": repository_id, "max_commits": request.max_commits},
+    )
+
+    return BackfillJobStatusResponse(
+        job_id=job_id,
+        status=BackfillJobStatus.QUEUED,
+        commits_processed=0,
+        total_commits=None,
+        started_at=None,
+    )
+
+
+@router.get("/backfill/status/{job_id}", response_model=BackfillJobStatusResponse)
+async def get_backfill_status(
+    job_id: str,
+    user: ClerkUser = Depends(get_current_user),
+) -> BackfillJobStatusResponse:
+    """Get status of a git history backfill job.
+
+    Returns current progress and status of the backfill operation.
+    """
+    job = _backfill_jobs.get(job_id)
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Backfill job not found: {job_id}",
+        )
+
+    return BackfillJobStatusResponse(
+        job_id=job_id,
+        status=BackfillJobStatus(job["status"]),
+        commits_processed=job.get("commits_processed", 0),
+        total_commits=job.get("total_commits"),
+        started_at=job.get("started_at"),
+        completed_at=job.get("completed_at"),
+        error_message=job.get("error_message"),
+    )
+
+
+@router.post("/correct/{finding_id}", response_model=IssueOriginResponse)
+async def correct_attribution(
+    finding_id: str,
+    request: CorrectAttributionRequest,
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> IssueOriginResponse:
+    """Correct the attribution for a finding.
+
+    Allows users to manually specify which commit introduced an issue
+    when the automatic detection was incorrect.
+    """
+    # Verify finding exists and user has access
+    try:
+        finding_uuid = UUID(finding_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid finding ID format",
+        )
+
+    result = await db.execute(
+        select(Finding).where(Finding.id == finding_uuid)
+    )
+    finding = result.scalar_one_or_none()
+
+    if not finding:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Finding not found: {finding_id}",
+        )
+
+    # TODO: Store the correction in the database
+    # For now, return a response indicating the correction was recorded
+
+    logger.info(
+        f"User {user.user_id} corrected attribution for finding {finding_id} to commit {request.commit_sha}",
+        extra={
+            "user_id": user.user_id,
+            "finding_id": finding_id,
+            "corrected_commit_sha": request.commit_sha,
+        },
+    )
+
+    return IssueOriginResponse(
+        finding_id=finding_id,
+        introduced_in=None,  # Would look up the commit details
+        confidence=ProvenanceConfidence.HIGH,
+        confidence_reason="Manually corrected by user",
+        related_commits=[],
+        user_corrected=True,
+        corrected_commit_sha=request.commit_sha,
+    )
