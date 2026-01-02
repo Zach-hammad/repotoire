@@ -34,14 +34,14 @@ const faqs = [
       "We accept all major credit cards (Visa, Mastercard, American Express) through Stripe. Enterprise customers can pay via invoice.",
   },
   {
-    question: "Is there a free trial for Pro?",
+    question: "Is there a free trial?",
     answer:
-      "Yes! Pro comes with a 14-day free trial. No credit card required to start. You'll get full access to all Pro features during the trial.",
+      "Yes! Pro comes with a 7-day free trial. You'll get full access to all Pro features during the trial. After 7 days, you can subscribe or your access will pause until you do.",
   },
   {
-    question: "What happens if I exceed my limits?",
+    question: "Do I need a credit card to start the trial?",
     answer:
-      "On the Free plan, additional analyses will be queued until your limit resets at the start of each month. We'll notify you when you're approaching limits so you can upgrade if needed.",
+      "No credit card is required to start your 7-day trial. You'll only be asked for payment details if you decide to continue after the trial ends.",
   },
   {
     question: "How does the AI auto-fix work?",

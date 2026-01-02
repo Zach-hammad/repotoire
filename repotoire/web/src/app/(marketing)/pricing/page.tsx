@@ -4,10 +4,10 @@ import { PricingFAQ } from "@/components/marketing/pricing-faq"
 
 export const metadata: Metadata = {
   title: "Pricing - Repotoire",
-  description: "Simple, transparent pricing. Start free, upgrade when you need more.",
+  description: "Simple, transparent pricing. Try free for 7 days, cancel anytime.",
   openGraph: {
     title: "Pricing - Repotoire",
-    description: "Simple, transparent pricing. Start free, upgrade when you need more.",
+    description: "Simple, transparent pricing. Try free for 7 days, cancel anytime.",
     type: "website",
   },
 }
@@ -25,7 +25,7 @@ export default function PricingPage() {
               Simple, <span className="text-gradient">transparent</span> pricing
             </h1>
             <p className="mt-6 text-lg text-muted-foreground max-w-2xl mx-auto">
-              Start free, upgrade when you need more. No hidden fees, no surprises.
+              Try free for 7 days. Cancel anytime. No hidden fees.
             </p>
           </div>
 

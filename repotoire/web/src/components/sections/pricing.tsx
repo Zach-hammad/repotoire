@@ -1,34 +1,42 @@
 "use client"
 
+/**
+ * Pricing Section - Clerk Billing Integration
+ *
+ * This component displays pricing information for the marketing page.
+ * When Clerk Billing is fully configured, replace the static tiers
+ * with Clerk's <PricingTable /> component.
+ *
+ * Migration Note (2026-01):
+ * - Kept static pricing display for SEO and marketing
+ * - CTA buttons now link to sign-up (Clerk handles checkout)
+ * - Enable PricingTable when Clerk Billing is configured
+ */
+
 import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
+// Clerk Billing PricingTable - uncomment when configured
+// import { PricingTable } from '@clerk/nextjs';
+
 const tiers = [
   {
-    name: "Free",
-    price: { monthly: "0", annual: "0" },
-    description: "For open source projects",
-    features: ["1 repository", "10 analyses/month", "All 8 detectors", "HTML & CLI reports"],
-    cta: "Start Free",
-    href: "/sign-up",
-    highlighted: false,
-  },
-  {
     name: "Pro",
-    price: { monthly: "29", annual: "23" },
+    price: { monthly: "33", annual: "26" },
     description: "For professional developers",
-    features: ["10 repositories", "Unlimited analyses", "AI auto-fix", "Private repos", "PR comments"],
-    cta: "Start Free Trial",
+    features: ["5 repos per seat", "Unlimited analyses", "AI auto-fix", "Best-of-N sampling", "Private repos", "Priority support"],
+    cta: "Start 7-Day Free Trial",
     href: "/sign-up?plan=pro",
     highlighted: true,
+    trial: "7 days free, then $33/mo",
   },
   {
     name: "Enterprise",
-    price: { monthly: "99", annual: "79" },
+    price: { monthly: "199", annual: "159" },
     description: "For organizations",
-    features: ["Unlimited repos", "SSO/SAML", "Custom rules", "Dedicated support"],
+    features: ["Unlimited repos", "SSO/SAML", "Custom rules", "Dedicated support", "SLA guarantee", "Best-of-N unlimited"],
     cta: "Contact Sales",
     href: "/contact",
     highlighted: false,
@@ -62,7 +70,7 @@ export function Pricing() {
             <span className="text-gradient font-display font-semibold">pricing</span>
           </h2>
           <p className={`text-muted-foreground mb-6 opacity-0 ${isVisible ? "animate-fade-up delay-100" : ""}`}>
-            Free forever for personal projects.
+            Try free for 7 days. Cancel anytime.
           </p>
 
           <div
@@ -89,7 +97,8 @@ export function Pricing() {
           </div>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-6">
+        {/* Static pricing cards (for SEO) - Replace with <PricingTable /> when Clerk Billing is configured */}
+        <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
           {tiers.map((tier, i) => (
             <div
               key={tier.name}
@@ -111,15 +120,12 @@ export function Pricing() {
               </div>
 
               <div className="mb-6">
-                {tier.price.monthly !== "Custom" ? (
-                  <>
-                    <span className="text-4xl font-display font-bold text-foreground">
-                      ${annual ? tier.price.annual : tier.price.monthly}
-                    </span>
-                    <span className="text-muted-foreground text-sm">/month</span>
-                  </>
-                ) : (
-                  <span className="text-4xl font-display font-bold text-foreground">Custom</span>
+                <span className="text-4xl font-display font-bold text-foreground">
+                  ${annual ? tier.price.annual : tier.price.monthly}
+                </span>
+                <span className="text-muted-foreground text-sm">/month</span>
+                {tier.trial && (
+                  <p className="text-sm text-primary mt-2 font-medium">{tier.trial}</p>
                 )}
               </div>
 

@@ -8,53 +8,34 @@ import { cn } from "@/lib/utils"
 
 const plans = [
   {
-    name: "Free",
-    price: { monthly: "0", annual: "0" },
-    description: "Perfect for open source projects",
-    features: [
-      "1 repository",
-      "10 analyses per month",
-      "All 8 hybrid detectors",
-      "HTML & CLI reports",
-      "Public repositories only",
-      "Community support",
-    ],
-    cta: "Get Started",
-    href: "/sign-up",
-    popular: false,
-  },
-  {
     name: "Pro",
-    price: { monthly: "29", annual: "23" },
-    description: "For developers and small teams (per seat)",
+    price: { monthly: "33", annual: "26" },
+    description: "For professional developers",
     features: [
-      "10 repositories",
+      "5 repositories per seat",
       "Unlimited analyses",
       "AI-powered auto-fix",
+      "Best-of-N sampling",
       "Private repositories",
-      "PR comments & status checks",
-      "Natural language search",
-      "Trend analytics",
       "Priority support",
     ],
-    cta: "Start Free Trial",
+    cta: "Start 7-Day Free Trial",
     href: "/sign-up?plan=pro",
     popular: true,
+    trial: "7 days free, then $33/mo",
   },
   {
     name: "Enterprise",
-    price: { monthly: "99", annual: "79" },
-    description: "For organizations with advanced needs",
+    price: { monthly: "199", annual: "159" },
+    description: "For organizations",
     features: [
       "Unlimited repositories",
-      "Unlimited analyses",
       "Everything in Pro",
       "SSO/SAML authentication",
       "Custom quality rules",
-      "Self-hosted option",
       "SLA guarantee",
       "Dedicated support",
-      "Custom integrations",
+      "Best-of-N unlimited",
     ],
     cta: "Contact Sales",
     href: "/contact",
@@ -92,7 +73,7 @@ export function PricingCards() {
       </div>
 
       {/* Pricing cards */}
-      <div className="grid gap-6 md:grid-cols-3 max-w-5xl mx-auto">
+      <div className="grid gap-6 md:grid-cols-2 max-w-3xl mx-auto">
         {plans.map((plan, index) => (
           <div
             key={plan.name}
@@ -122,10 +103,13 @@ export function PricingCards() {
                     ${annual ? plan.price.annual : plan.price.monthly}
                   </span>
                   <span className="text-muted-foreground ml-1">/month</span>
-                  {annual && plan.price.monthly !== "0" && (
+                  {annual && (
                     <p className="text-sm text-muted-foreground mt-2">
                       Billed annually (${parseInt(plan.price.annual) * 12}/year)
                     </p>
+                  )}
+                  {plan.trial && (
+                    <p className="text-sm text-primary mt-2 font-medium">{plan.trial}</p>
                   )}
                 </>
               ) : (
@@ -162,7 +146,7 @@ export function PricingCards() {
 
       {/* Trust note */}
       <p className="mt-10 text-center text-sm text-muted-foreground">
-        Free forever for public repos. No credit card required.
+        Try free for 7 days. Cancel anytime. No commitment.
       </p>
     </div>
   )

@@ -401,6 +401,12 @@ async def check_usage_limit(
 def has_feature(org: Organization, feature: str) -> bool:
     """Check if an organization has access to a specific feature.
 
+    This is the primary entitlement check used throughout the application.
+    It checks against the organization's current plan tier, which is synced
+    from Clerk Billing via webhooks.
+
+    For real-time Clerk API entitlement checks, use has_clerk_entitlement() instead.
+
     Args:
         org: Organization to check
         feature: Feature key to check
@@ -411,3 +417,119 @@ def has_feature(org: Organization, feature: str) -> bool:
     tier = get_current_tier(org)
     limits = get_plan_limits(tier)
     return feature in limits.features
+
+
+async def has_clerk_entitlement(
+    clerk_org_id: str | None,
+    clerk_user_id: str | None,
+    feature: str,
+) -> bool:
+    """Check if a user/org has an entitlement via Clerk API (real-time).
+
+    This performs a real-time check against Clerk's entitlement API.
+    Use this when you need guaranteed fresh entitlement data, at the cost
+    of an additional API call.
+
+    For most use cases, use has_feature() instead which checks against
+    the locally synced subscription data.
+
+    Args:
+        clerk_org_id: Clerk organization ID (for org-level entitlements)
+        clerk_user_id: Clerk user ID (for user-level entitlements)
+        feature: Entitlement/feature key to check
+
+    Returns:
+        True if the user/org has the entitlement
+    """
+    import os
+
+    from repotoire.logging_config import get_logger
+
+    logger = get_logger(__name__)
+
+    secret_key = os.environ.get("CLERK_SECRET_KEY")
+    if not secret_key:
+        logger.warning("CLERK_SECRET_KEY not set, falling back to local check")
+        return False
+
+    try:
+        from clerk_backend_api import Clerk
+
+        clerk = Clerk(bearer_auth=secret_key)
+
+        # Check organization entitlements
+        if clerk_org_id:
+            # Get organization with entitlements
+            org_data = clerk.organizations.get(organization_id=clerk_org_id)
+            if org_data and hasattr(org_data, "public_metadata"):
+                # Check entitlements in public_metadata
+                metadata = org_data.public_metadata or {}
+                entitlements = metadata.get("entitlements", [])
+                if feature in entitlements:
+                    return True
+
+                # Also check plan-based features
+                plan = metadata.get("plan", "free")
+                if plan == "enterprise" and feature in [
+                    "basic_analysis",
+                    "advanced_analysis",
+                    "sso",
+                    "sla",
+                    "dedicated_support",
+                    "api_access",
+                    "auto_fix",
+                    "custom_rules",
+                    "audit_logs",
+                ]:
+                    return True
+                elif plan == "pro" and feature in [
+                    "basic_analysis",
+                    "advanced_analysis",
+                    "priority_support",
+                    "api_access",
+                    "auto_fix",
+                ]:
+                    return True
+                elif feature in ["basic_analysis", "community_support"]:
+                    return True
+
+        # Check user entitlements (for personal plans)
+        if clerk_user_id:
+            user_data = clerk.users.get(user_id=clerk_user_id)
+            if user_data and hasattr(user_data, "public_metadata"):
+                metadata = user_data.public_metadata or {}
+                entitlements = metadata.get("entitlements", [])
+                if feature in entitlements:
+                    return True
+
+        return False
+
+    except Exception as e:
+        logger.error(f"Failed to check Clerk entitlement: {e}")
+        return False
+
+
+def get_feature_from_entitlement(entitlement: str) -> str:
+    """Map a Clerk entitlement name to our internal feature key.
+
+    Clerk entitlements use different naming conventions. This maps them
+    to our internal feature keys for consistency.
+
+    Args:
+        entitlement: Clerk entitlement name (e.g., "org:billing:pro")
+
+    Returns:
+        Internal feature key (e.g., "advanced_analysis")
+    """
+    # Map Clerk entitlement patterns to features
+    mapping = {
+        "org:billing:enterprise": "sso",
+        "org:billing:pro": "advanced_analysis",
+        "org:feature:api_access": "api_access",
+        "org:feature:auto_fix": "auto_fix",
+        "org:feature:sso": "sso",
+        "org:feature:audit_logs": "audit_logs",
+        "org:feature:custom_rules": "custom_rules",
+    }
+
+    return mapping.get(entitlement, entitlement)

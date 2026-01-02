@@ -6,8 +6,11 @@ test pass rate and quality metrics.
 
 Feature Availability:
 - Free tier: Unavailable
-- Pro tier: Available as paid add-on ($29/month), up to 5 candidates
-- Enterprise tier: Included free, up to 10 candidates
+- Pro tier: Included, up to 5 candidates, 100 runs/month
+- Enterprise tier: Included, up to 10 candidates, unlimited runs
+
+Migration Note (2026-01):
+- Best-of-N is now included in Pro/Enterprise tiers (no separate add-on)
 
 Example:
     ```python
@@ -104,18 +107,10 @@ class BestOfNNotAvailableError(Exception):
                 "Upgrade to Pro or Enterprise to access this feature."
             )
             self.upgrade_url = "https://repotoire.dev/pricing"
-            self.addon_url = None
-        elif access == FeatureAccess.ADDON:
-            self.message = (
-                "Best-of-N sampling requires the Pro Add-on. "
-                "Enable it in your account settings for $29/month."
-            )
-            self.upgrade_url = None
-            self.addon_url = "https://repotoire.dev/account/addons"
         else:
+            # Fallback for any unexpected access level
             self.message = "Best-of-N sampling is not available."
             self.upgrade_url = None
-            self.addon_url = None
 
         super().__init__(self.message)
 

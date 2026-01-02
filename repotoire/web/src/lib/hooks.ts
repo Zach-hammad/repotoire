@@ -4,7 +4,6 @@ import {
   AnalyticsSummary,
   AnalysisRunStatus,
   BackfillJobStatus,
-  CheckoutResponse,
   CommitHistoryResponse,
   FileHotspot,
   Finding,
@@ -20,16 +19,16 @@ import {
   IssueOrigin,
   PaginatedResponse,
   PlanTier,
-  PlansResponse,
-  PortalResponse,
   PreviewResult,
-  PriceCalculationResponse,
   ProvenanceSettings,
   Repository,
   SortOptions,
   Subscription,
   TrendDataPoint,
 } from '@/types';
+
+// NOTE: Removed billing types (CheckoutResponse, PlansResponse, PortalResponse, PriceCalculationResponse)
+// as part of Clerk Billing migration. These are no longer used by frontend hooks.
 import { analyticsApi, billingApi, findingsApi, fixesApi, historicalApi, provenanceSettingsApi, repositoriesApi, RepositoryInfo, request } from './api';
 import { useApiAuth } from '@/components/providers/api-auth-provider';
 
@@ -242,38 +241,14 @@ export function useSubscription() {
   };
 }
 
-export function usePlans() {
-  const { isAuthReady } = useApiAuth();
-
-  return useSWR<PlansResponse>(
-    // Only fetch when auth is ready
-    isAuthReady ? 'billing-plans' : null,
-    () => billingApi.getPlans()
-  );
-}
-
-export function useCreateCheckout() {
-  return useSWRMutation(
-    'billing-checkout',
-    (_key, { arg }: { arg: { tier: PlanTier; seats: number } }) =>
-      billingApi.createCheckout(arg.tier, arg.seats)
-  );
-}
-
-export function useCreatePortal() {
-  return useSWRMutation('billing-portal', () => billingApi.createPortal());
-}
-
-export function useCalculatePrice(tier: PlanTier | null, seats: number) {
-  const { isAuthReady } = useApiAuth();
-
-  return useSWR<PriceCalculationResponse>(
-    // Only fetch when auth is ready and tier is valid
-    isAuthReady && tier && tier !== 'free' ? ['billing-price', tier, seats] : null,
-    () => billingApi.calculatePrice(tier!, seats),
-    { revalidateOnFocus: false }
-  );
-}
+// NOTE: The following billing hooks have been removed as part of the Clerk Billing migration (2026-01):
+// - usePlans() - Plans are now managed in Clerk Dashboard
+// - useCreateCheckout() - Checkout is handled by Clerk's PricingTable component
+// - useCreatePortal() - Portal is handled by Clerk's AccountPortal component
+// - useCalculatePrice() - Pricing is managed in Clerk Dashboard
+//
+// Subscription data is now synced via Clerk webhooks.
+// Use the useSubscription() hook for current plan and usage information.
 
 // Analysis hooks
 

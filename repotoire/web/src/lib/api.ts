@@ -2,8 +2,6 @@ import {
   AnalyticsSummary,
   ApiResponse,
   BackfillJobStatus,
-  CheckoutRequest,
-  CheckoutResponse,
   CommitHistoryResponse,
   CommitProvenance,
   FileHotspot,
@@ -17,17 +15,16 @@ import {
   HistoricalQueryResponse,
   IssueOrigin,
   PaginatedResponse,
-  PlanTier,
-  PlansResponse,
-  PortalResponse,
   PreviewResult,
-  PriceCalculationRequest,
-  PriceCalculationResponse,
   ProvenanceSettings,
   SortOptions,
   Subscription,
   TrendDataPoint,
 } from '@/types';
+
+// NOTE: Removed billing types (CheckoutRequest, CheckoutResponse, PlansResponse, PortalResponse,
+// PriceCalculationRequest, PriceCalculationResponse, PlanTier) as part of Clerk Billing migration.
+// Subscription management is now handled by Clerk components.
 import {
   getMockFixes,
   getMockFix,
@@ -465,38 +462,12 @@ export const repositoriesApi = {
 };
 
 // Billing API
+// NOTE: Checkout, portal, plans, and price calculation endpoints removed as part of Clerk Billing migration.
+// Use Clerk's <PricingTable /> and <AccountPortal /> components for subscription management.
 export const billingApi = {
-  // Get current subscription and usage
+  // Get current subscription and usage (still fetched from our API for usage tracking)
   getSubscription: async (): Promise<Subscription> => {
     return request<Subscription>('/billing/subscription');
-  },
-
-  // Get available plans
-  getPlans: async (): Promise<PlansResponse> => {
-    return request<PlansResponse>('/billing/plans');
-  },
-
-  // Create checkout session for upgrade with seats
-  createCheckout: async (tier: PlanTier, seats: number): Promise<CheckoutResponse> => {
-    return request<CheckoutResponse>('/billing/checkout', {
-      method: 'POST',
-      body: JSON.stringify({ tier, seats } as CheckoutRequest),
-    });
-  },
-
-  // Create customer portal session
-  createPortal: async (): Promise<PortalResponse> => {
-    return request<PortalResponse>('/billing/portal', {
-      method: 'POST',
-    });
-  },
-
-  // Calculate price for a tier and seat count
-  calculatePrice: async (tier: PlanTier, seats: number): Promise<PriceCalculationResponse> => {
-    return request<PriceCalculationResponse>('/billing/calculate-price', {
-      method: 'POST',
-      body: JSON.stringify({ tier, seats } as PriceCalculationRequest),
-    });
   },
 };
 

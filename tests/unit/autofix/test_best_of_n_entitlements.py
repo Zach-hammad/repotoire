@@ -2,10 +2,13 @@
 
 Tests cover:
 - Tier-based feature access (FREE, PRO, ENTERPRISE)
-- Add-on enablement for Pro tier
 - Monthly usage limits and tracking
 - Entitlement checks and error handling
 - Scoring and ranking of fix candidates
+
+Migration Note (2026-01):
+- Best-of-N is now included in Pro/Enterprise tiers (no separate add-on)
+- Tests updated to reflect tier-based entitlement model
 """
 
 from datetime import date, datetime
@@ -47,8 +50,8 @@ class TestFeatureAccess:
     def test_feature_access_values(self):
         """Test FeatureAccess enum has expected values."""
         assert FeatureAccess.UNAVAILABLE.value == "unavailable"
-        assert FeatureAccess.ADDON.value == "addon"
         assert FeatureAccess.INCLUDED.value == "included"
+        # NOTE: ADDON access level removed - Best-of-N is now tier-based (2026-01)
 
 
 class TestTierConfigs:
@@ -60,15 +63,13 @@ class TestTierConfigs:
         assert config.access == FeatureAccess.UNAVAILABLE
         assert config.max_n == 0
         assert config.monthly_runs_limit == 0
-        assert config.addon_price_monthly is None
 
     def test_pro_tier_config(self):
-        """Test PRO tier has Best-of-N as add-on."""
+        """Test PRO tier has Best-of-N included."""
         config = TIER_BEST_OF_N_CONFIG[PlanTier.PRO]
-        assert config.access == FeatureAccess.ADDON
+        assert config.access == FeatureAccess.INCLUDED
         assert config.max_n == 5
         assert config.monthly_runs_limit == 100
-        assert config.addon_price_monthly == 29.00
 
     def test_enterprise_tier_config(self):
         """Test ENTERPRISE tier has Best-of-N included."""
@@ -76,7 +77,6 @@ class TestTierConfigs:
         assert config.access == FeatureAccess.INCLUDED
         assert config.max_n == 10
         assert config.monthly_runs_limit == -1  # Unlimited
-        assert config.addon_price_monthly is None
 
     def test_get_tier_config(self):
         """Test get_tier_config returns correct config."""
@@ -99,34 +99,17 @@ class TestBestOfNEntitlement:
         )
         assert not entitlement.is_available
         assert entitlement.upgrade_url == "https://repotoire.dev/pricing"
-        assert entitlement.addon_url is None
 
-    def test_pro_tier_without_addon(self):
-        """Test PRO tier without add-on is not available."""
+    def test_pro_tier_available(self):
+        """Test PRO tier is available (included in tier)."""
         entitlement = BestOfNEntitlement(
             tier=PlanTier.PRO,
-            access=FeatureAccess.ADDON,
-            addon_enabled=False,
-            max_n=5,
-            monthly_runs_limit=100,
-            addon_price="$29/month",
-        )
-        assert not entitlement.is_available
-        assert entitlement.upgrade_url is None
-        assert entitlement.addon_url == "https://repotoire.dev/account/addons"
-
-    def test_pro_tier_with_addon(self):
-        """Test PRO tier with add-on is available."""
-        entitlement = BestOfNEntitlement(
-            tier=PlanTier.PRO,
-            access=FeatureAccess.ADDON,
-            addon_enabled=True,
+            access=FeatureAccess.INCLUDED,
             max_n=5,
             monthly_runs_limit=100,
         )
         assert entitlement.is_available
         assert entitlement.upgrade_url is None
-        assert entitlement.addon_url is None
 
     def test_enterprise_tier_available(self):
         """Test ENTERPRISE tier is always available."""
@@ -138,7 +121,6 @@ class TestBestOfNEntitlement:
         )
         assert entitlement.is_available
         assert entitlement.upgrade_url is None
-        assert entitlement.addon_url is None
 
     def test_remaining_runs_unlimited(self):
         """Test remaining_runs for unlimited tier."""
@@ -154,8 +136,7 @@ class TestBestOfNEntitlement:
         """Test remaining_runs calculation."""
         entitlement = BestOfNEntitlement(
             tier=PlanTier.PRO,
-            access=FeatureAccess.ADDON,
-            addon_enabled=True,
+            access=FeatureAccess.INCLUDED,
             monthly_runs_limit=100,
             monthly_runs_used=75,
         )
@@ -165,8 +146,7 @@ class TestBestOfNEntitlement:
         """Test remaining_runs when exhausted."""
         entitlement = BestOfNEntitlement(
             tier=PlanTier.PRO,
-            access=FeatureAccess.ADDON,
-            addon_enabled=True,
+            access=FeatureAccess.INCLUDED,
             monthly_runs_limit=100,
             monthly_runs_used=100,
         )
@@ -200,17 +180,17 @@ class TestGetCustomerEntitlement:
         assert not entitlement.is_available
 
     @pytest.mark.asyncio
-    async def test_pro_tier_entitlement_no_db(self):
-        """Test entitlement for PRO tier without DB (no add-on info)."""
+    async def test_pro_tier_entitlement(self):
+        """Test entitlement for PRO tier (included in tier)."""
         entitlement = await get_customer_entitlement(
             customer_id="cust_pro",
             tier=PlanTier.PRO,
             db=None,
         )
         assert entitlement.tier == PlanTier.PRO
-        assert entitlement.access == FeatureAccess.ADDON
-        assert not entitlement.addon_enabled  # Can't know without DB
-        assert entitlement.addon_price == "$29/month"
+        assert entitlement.access == FeatureAccess.INCLUDED
+        assert entitlement.is_available
+        assert entitlement.monthly_runs_limit == 100
 
     @pytest.mark.asyncio
     async def test_enterprise_tier_entitlement(self):
@@ -232,8 +212,8 @@ class TestGetCustomerEntitlement:
             tier=PlanTier.PRO,
         )
         assert entitlement.tier == PlanTier.PRO
-        assert entitlement.access == FeatureAccess.ADDON
-        assert not entitlement.addon_enabled
+        assert entitlement.access == FeatureAccess.INCLUDED
+        assert entitlement.is_available
 
 
 class TestBestOfNNotAvailableError:
@@ -247,18 +227,7 @@ class TestBestOfNNotAvailableError:
         )
         assert "not available on the Free plan" in error.message
         assert error.upgrade_url == "https://repotoire.dev/pricing"
-        assert error.addon_url is None
-
-    def test_pro_addon_error(self):
-        """Test error message for PRO tier without add-on."""
-        error = BestOfNNotAvailableError(
-            tier=PlanTier.PRO,
-            access=FeatureAccess.ADDON,
-        )
-        assert "requires the Pro Add-on" in error.message
-        assert "$29/month" in error.message
-        assert error.upgrade_url is None
-        assert error.addon_url == "https://repotoire.dev/account/addons"
+        # NOTE: addon_url removed - Best-of-N is now tier-based (2026-01)
 
 
 class TestBestOfNUsageLimitError:
@@ -326,12 +295,13 @@ class TestBestOfNGenerator:
         assert exc_info.value.tier == PlanTier.FREE
         assert exc_info.value.access == FeatureAccess.UNAVAILABLE
 
-    def test_check_entitlement_pro_no_addon(self):
-        """Test entitlement check fails for PRO without add-on."""
+    def test_check_entitlement_pro_passes(self):
+        """Test entitlement check passes for PRO (included in tier)."""
         entitlement = BestOfNEntitlement(
             tier=PlanTier.PRO,
-            access=FeatureAccess.ADDON,
-            addon_enabled=False,
+            access=FeatureAccess.INCLUDED,
+            max_n=5,
+            monthly_runs_limit=100,
         )
         generator = BestOfNGenerator(
             config=BestOfNConfig(),
@@ -340,11 +310,8 @@ class TestBestOfNGenerator:
             entitlement=entitlement,
         )
 
-        with pytest.raises(BestOfNNotAvailableError) as exc_info:
-            generator._check_entitlement()
-
-        assert exc_info.value.tier == PlanTier.PRO
-        assert exc_info.value.access == FeatureAccess.ADDON
+        # Should not raise
+        generator._check_entitlement()
 
     def test_check_entitlement_enterprise_passes(self):
         """Test entitlement check passes for ENTERPRISE."""
@@ -388,8 +355,7 @@ class TestBestOfNGenerator:
         """Test usage limit check fails when exceeded."""
         entitlement = BestOfNEntitlement(
             tier=PlanTier.PRO,
-            access=FeatureAccess.ADDON,
-            addon_enabled=True,
+            access=FeatureAccess.INCLUDED,
             monthly_runs_limit=100,
             monthly_runs_used=100,
         )

@@ -806,7 +806,279 @@ async def stripe_connect_webhook(
 
 
 # ============================================================================
-# Clerk Webhook Handlers
+# Clerk Billing Webhook Handlers
+# ============================================================================
+
+
+def map_clerk_plan_to_tier(plan_id: str, plan_slug: str | None = None) -> PlanTier:
+    """Map a Clerk plan ID or slug to our PlanTier enum.
+
+    Clerk plans are configured in the Clerk Dashboard with IDs like "plan_xxx".
+    We use the slug (e.g., "pro", "enterprise") to determine the tier.
+
+    Args:
+        plan_id: The Clerk plan ID
+        plan_slug: Optional plan slug from metadata
+
+    Returns:
+        The corresponding PlanTier
+    """
+    # Check slug first (more reliable)
+    if plan_slug:
+        slug_lower = plan_slug.lower()
+        if "enterprise" in slug_lower:
+            return PlanTier.ENTERPRISE
+        elif "pro" in slug_lower:
+            return PlanTier.PRO
+
+    # Fallback: check plan_id patterns
+    plan_id_lower = plan_id.lower()
+    if "enterprise" in plan_id_lower:
+        return PlanTier.ENTERPRISE
+    elif "pro" in plan_id_lower:
+        return PlanTier.PRO
+
+    return PlanTier.FREE
+
+
+async def handle_clerk_subscription_created(
+    db: AsyncSession,
+    data: dict[str, Any],
+) -> None:
+    """Handle subscription.created event from Clerk Billing.
+
+    Creates or updates subscription record when a user subscribes via Clerk.
+
+    Args:
+        db: Database session
+        data: Clerk subscription event data
+    """
+    clerk_subscription_id = data.get("id")
+    clerk_org_id = data.get("organization_id")
+    clerk_user_id = data.get("user_id")
+    plan_id = data.get("plan_id", "")
+    plan_slug = data.get("plan", {}).get("slug") if isinstance(data.get("plan"), dict) else None
+    status = data.get("status", "active")
+
+    logger.info(f"Handling Clerk subscription.created: {clerk_subscription_id}")
+
+    # Find organization
+    org = None
+    if clerk_org_id:
+        org = await get_org_by_clerk_org_id(db, clerk_org_id)
+    elif clerk_user_id:
+        # Personal subscription - find user's default org
+        user = await get_user_by_clerk_id(db, clerk_user_id)
+        if user:
+            # Try to find user's personal org
+            from repotoire.db.models import OrganizationMembership
+
+            result = await db.execute(
+                select(Organization)
+                .join(OrganizationMembership)
+                .where(OrganizationMembership.user_id == user.id)
+                .limit(1)
+            )
+            org = result.scalar_one_or_none()
+
+    if not org:
+        logger.warning(
+            f"No organization found for Clerk subscription {clerk_subscription_id}"
+        )
+        return
+
+    # Map Clerk status to our SubscriptionStatus
+    status_map = {
+        "active": SubscriptionStatus.ACTIVE,
+        "past_due": SubscriptionStatus.PAST_DUE,
+        "canceled": SubscriptionStatus.CANCELED,
+        "trialing": SubscriptionStatus.TRIALING,
+        "incomplete": SubscriptionStatus.INCOMPLETE,
+        "paused": SubscriptionStatus.PAUSED,
+    }
+    sub_status = status_map.get(status, SubscriptionStatus.ACTIVE)
+
+    # Determine tier from plan
+    tier = map_clerk_plan_to_tier(plan_id, plan_slug)
+
+    # Get period dates from Clerk data
+    period_start = data.get("current_period_start")
+    period_end = data.get("current_period_end")
+
+    now = datetime.now(timezone.utc)
+    current_period_start = (
+        datetime.fromtimestamp(period_start, tz=timezone.utc)
+        if period_start
+        else now
+    )
+    current_period_end = (
+        datetime.fromtimestamp(period_end, tz=timezone.utc)
+        if period_end
+        else now.replace(month=now.month + 1 if now.month < 12 else 1)
+    )
+
+    # Get seat count from metadata or quantity
+    seats = data.get("quantity", 1)
+    if isinstance(data.get("metadata"), dict):
+        seats = int(data["metadata"].get("seats", seats))
+
+    # Check if subscription exists (by Clerk subscription ID stored in metadata)
+    # We'll store clerk_subscription_id in a new field or in stripe_subscription_id for now
+    existing_sub = None
+    if org.stripe_subscription_id and org.stripe_subscription_id.startswith("clerk_"):
+        existing_sub = await get_subscription_by_stripe_id(db, org.stripe_subscription_id)
+
+    if existing_sub:
+        # Update existing
+        existing_sub.status = sub_status
+        existing_sub.current_period_start = current_period_start
+        existing_sub.current_period_end = current_period_end
+        existing_sub.seat_count = seats
+    else:
+        # Create new subscription
+        subscription = Subscription(
+            organization_id=org.id,
+            stripe_subscription_id=f"clerk_{clerk_subscription_id}",  # Prefix to identify Clerk subs
+            stripe_price_id=plan_id,  # Store Clerk plan ID here
+            status=sub_status,
+            current_period_start=current_period_start,
+            current_period_end=current_period_end,
+            seat_count=seats,
+        )
+        db.add(subscription)
+
+    # Update organization tier
+    org.plan_tier = tier
+    org.stripe_subscription_id = f"clerk_{clerk_subscription_id}"
+
+    await db.commit()
+    logger.info(
+        f"Clerk subscription created for org {org.id}: tier={tier.value}, seats={seats}"
+    )
+
+
+async def handle_clerk_subscription_updated(
+    db: AsyncSession,
+    data: dict[str, Any],
+) -> None:
+    """Handle subscription.updated event from Clerk Billing.
+
+    Updates subscription when plan, seats, or status changes.
+
+    Args:
+        db: Database session
+        data: Clerk subscription event data
+    """
+    clerk_subscription_id = data.get("id")
+    plan_id = data.get("plan_id", "")
+    plan_slug = data.get("plan", {}).get("slug") if isinstance(data.get("plan"), dict) else None
+    status = data.get("status", "active")
+
+    logger.info(f"Handling Clerk subscription.updated: {clerk_subscription_id}")
+
+    # Find subscription by Clerk ID
+    clerk_sub_id = f"clerk_{clerk_subscription_id}"
+    subscription = await get_subscription_by_stripe_id(db, clerk_sub_id)
+
+    if not subscription:
+        # Subscription not found, treat as creation
+        logger.info(f"Subscription {clerk_sub_id} not found, treating as creation")
+        await handle_clerk_subscription_created(db, data)
+        return
+
+    # Map status
+    status_map = {
+        "active": SubscriptionStatus.ACTIVE,
+        "past_due": SubscriptionStatus.PAST_DUE,
+        "canceled": SubscriptionStatus.CANCELED,
+        "trialing": SubscriptionStatus.TRIALING,
+        "incomplete": SubscriptionStatus.INCOMPLETE,
+        "paused": SubscriptionStatus.PAUSED,
+    }
+    subscription.status = status_map.get(status, SubscriptionStatus.ACTIVE)
+
+    # Update period dates
+    period_start = data.get("current_period_start")
+    period_end = data.get("current_period_end")
+    if period_start:
+        subscription.current_period_start = datetime.fromtimestamp(
+            period_start, tz=timezone.utc
+        )
+    if period_end:
+        subscription.current_period_end = datetime.fromtimestamp(
+            period_end, tz=timezone.utc
+        )
+
+    # Update seats
+    seats = data.get("quantity", subscription.seat_count)
+    if isinstance(data.get("metadata"), dict):
+        seats = int(data["metadata"].get("seats", seats))
+    subscription.seat_count = seats
+
+    # Update price/plan ID
+    if plan_id:
+        subscription.stripe_price_id = plan_id
+
+    # Update cancel_at_period_end
+    subscription.cancel_at_period_end = data.get("cancel_at_period_end", False)
+
+    # Handle cancellation timestamp
+    if data.get("canceled_at"):
+        subscription.canceled_at = datetime.fromtimestamp(
+            data["canceled_at"], tz=timezone.utc
+        )
+
+    # Update org tier if plan changed
+    new_tier = map_clerk_plan_to_tier(plan_id, plan_slug)
+    org = await db.get(Organization, subscription.organization_id)
+    if org and org.plan_tier != new_tier:
+        org.plan_tier = new_tier
+        logger.info(f"Updated org {org.id} tier to {new_tier.value}")
+
+    await db.commit()
+    logger.info(f"Clerk subscription updated: {clerk_sub_id}, seats={seats}")
+
+
+async def handle_clerk_subscription_deleted(
+    db: AsyncSession,
+    data: dict[str, Any],
+) -> None:
+    """Handle subscription.deleted event from Clerk Billing.
+
+    Downgrades organization to free tier when subscription is deleted.
+
+    Args:
+        db: Database session
+        data: Clerk subscription event data
+    """
+    clerk_subscription_id = data.get("id")
+    logger.info(f"Handling Clerk subscription.deleted: {clerk_subscription_id}")
+
+    # Find subscription
+    clerk_sub_id = f"clerk_{clerk_subscription_id}"
+    subscription = await get_subscription_by_stripe_id(db, clerk_sub_id)
+
+    if not subscription:
+        logger.warning(f"Subscription {clerk_sub_id} not found for deletion")
+        return
+
+    # Mark as canceled
+    subscription.status = SubscriptionStatus.CANCELED
+    subscription.canceled_at = datetime.now(timezone.utc)
+
+    # Downgrade org to free
+    org = await db.get(Organization, subscription.organization_id)
+    if org:
+        org.plan_tier = PlanTier.FREE
+        org.stripe_subscription_id = None
+        logger.info(f"Downgraded org {org.id} to free tier")
+
+    await db.commit()
+    logger.info(f"Clerk subscription deleted: {clerk_sub_id}")
+
+
+# ============================================================================
+# Clerk User/Org Webhook Handlers
 # ============================================================================
 
 
@@ -1172,6 +1444,16 @@ async def clerk_webhook(
 
     elif event_type == "organization.deleted":
         await handle_organization_deleted(db, data)
+
+    # Clerk Billing events
+    elif event_type == "subscription.created":
+        await handle_clerk_subscription_created(db, data)
+
+    elif event_type == "subscription.updated":
+        await handle_clerk_subscription_updated(db, data)
+
+    elif event_type == "subscription.deleted":
+        await handle_clerk_subscription_deleted(db, data)
 
     else:
         logger.debug(f"Unhandled Clerk event type: {event_type}")
