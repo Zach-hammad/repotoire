@@ -57,7 +57,7 @@ export function FinalCTA() {
         </div>
 
         <p className={`text-sm text-muted-foreground opacity-0 ${isVisible ? "animate-fade-up delay-300" : ""}`}>
-          Free for open source. 14-day trial for private repos.
+          7-day free trial. No credit card required.
         </p>
       </div>
     </section>
