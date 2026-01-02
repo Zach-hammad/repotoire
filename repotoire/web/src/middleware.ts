@@ -19,6 +19,8 @@ const isPublicRoute = createRouteMatcher([
   "/marketplace(.*)",
   "/status(.*)",
   "/changelog(.*)",
+  "/features",
+  "/how-it-works",
   "/api/webhooks(.*)",
 ]);
 
