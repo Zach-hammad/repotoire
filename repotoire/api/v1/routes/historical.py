@@ -230,7 +230,7 @@ async def ingest_commits(request: IngestCommitsRequest, user: ClerkUser = Depend
         logger.error(f"Failed to ingest commits: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to ingest commits: {str(e)}"
+            detail="Failed to ingest commits. Please try again."
         )
 
 
@@ -347,7 +347,7 @@ async def ingest_git_history(request: IngestGitRequest, user: ClerkUser = Depend
         logger.error(f"Failed to ingest git history: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to ingest git history: {str(e)}"
+            detail="Failed to ingest git history. Please try again."
         )
 
 
@@ -391,7 +391,7 @@ async def query_history(request: QueryHistoryRequest, user: ClerkUser = Depends(
         logger.error(f"Failed to query git history: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to query git history: {str(e)}"
+            detail="Failed to query git history. Please try again."
         )
 
 
@@ -432,7 +432,7 @@ async def get_entity_timeline(request: TimelineRequest, user: ClerkUser = Depend
         logger.error(f"Failed to get entity timeline: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get entity timeline: {str(e)}"
+            detail="Failed to retrieve entity timeline."
         )
 
 
@@ -815,45 +815,12 @@ async def trigger_backfill(
             detail=f"Repository not found: {repository_id}",
         )
 
-    # Check if there's already a running backfill for this repo
-    for job_id, job in _backfill_jobs.items():
-        if job.get("repository_id") == repository_id and job.get("status") in ("queued", "running"):
-            return BackfillJobStatusResponse(
-                job_id=job_id,
-                status=BackfillJobStatus(job["status"]),
-                commits_processed=job.get("commits_processed", 0),
-                total_commits=job.get("total_commits"),
-                started_at=job.get("started_at"),
-            )
-
-    # Create new backfill job
-    job_id = str(uuid.uuid4())
-    job = {
-        "repository_id": repository_id,
-        "status": "queued",
-        "commits_processed": 0,
-        "total_commits": None,
-        "max_commits": request.max_commits,
-        "started_at": None,
-        "completed_at": None,
-        "error_message": None,
-    }
-    _backfill_jobs[job_id] = job
-
-    # TODO: Actually trigger background job via Redis queue or similar
-    # For now, just return the queued status
-
-    logger.info(
-        f"Queued backfill job {job_id} for repository {repository_id}",
-        extra={"job_id": job_id, "repository_id": repository_id, "max_commits": request.max_commits},
-    )
-
-    return BackfillJobStatusResponse(
-        job_id=job_id,
-        status=BackfillJobStatus.QUEUED,
-        commits_processed=0,
-        total_commits=None,
-        started_at=None,
+    # Background job processing is not yet implemented
+    # Return 501 Not Implemented to be honest about feature status
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Git history backfill is not yet fully implemented. "
+               "Use POST /api/v1/historical/ingest-git to manually ingest git history.",
     )
 
 
@@ -865,23 +832,13 @@ async def get_backfill_status(
     """Get status of a git history backfill job.
 
     Returns current progress and status of the backfill operation.
+
+    Note: Background backfill jobs are not yet implemented.
     """
-    job = _backfill_jobs.get(job_id)
-
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Backfill job not found: {job_id}",
-        )
-
-    return BackfillJobStatusResponse(
-        job_id=job_id,
-        status=BackfillJobStatus(job["status"]),
-        commits_processed=job.get("commits_processed", 0),
-        total_commits=job.get("total_commits"),
-        started_at=job.get("started_at"),
-        completed_at=job.get("completed_at"),
-        error_message=job.get("error_message"),
+    # Backfill jobs are not yet implemented - always return 404
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Backfill job not found: {job_id}. Background backfill is not yet implemented.",
     )
 
 
@@ -917,24 +874,9 @@ async def correct_attribution(
             detail=f"Finding not found: {finding_id}",
         )
 
-    # TODO: Store the correction in the database
-    # For now, return a response indicating the correction was recorded
-
-    logger.info(
-        f"User {user.user_id} corrected attribution for finding {finding_id} to commit {request.commit_sha}",
-        extra={
-            "user_id": user.user_id,
-            "finding_id": finding_id,
-            "corrected_commit_sha": request.commit_sha,
-        },
-    )
-
-    return IssueOriginResponse(
-        finding_id=finding_id,
-        introduced_in=None,  # Would look up the commit details
-        confidence=ProvenanceConfidence.HIGH,
-        confidence_reason="Manually corrected by user",
-        related_commits=[],
-        user_corrected=True,
-        corrected_commit_sha=request.commit_sha,
+    # Attribution correction storage is not yet implemented
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Attribution correction is not yet implemented. "
+               "User corrections cannot be persisted at this time.",
     )

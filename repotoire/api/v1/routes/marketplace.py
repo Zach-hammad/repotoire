@@ -2289,7 +2289,7 @@ async def resolve_dependencies(
         logger.exception(f"Dependency resolution failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail="Dependency resolution failed. Please check your requirements.",
         )
 
 
@@ -2349,7 +2349,7 @@ async def check_outdated(
         logger.exception(f"Outdated check failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail="Failed to check for outdated packages. Please try again.",
         )
 
 

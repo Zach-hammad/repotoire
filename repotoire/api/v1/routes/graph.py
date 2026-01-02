@@ -261,7 +261,7 @@ async def execute_query(
         logger.error(f"Query failed: {e}", org_id=user.org_id)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Query failed: {str(e)}",
+            detail="Query execution failed. Please check your query syntax.",
         )
     finally:
         client.close()
@@ -408,7 +408,7 @@ async def batch_create_nodes(
         logger.error(f"Batch create nodes failed: {e}", org_id=user.org_id)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Batch create failed: {str(e)}",
+            detail="Batch node creation failed. Please check your input.",
         )
     finally:
         client.close()
@@ -478,7 +478,7 @@ async def batch_create_relationships(
         logger.error(f"Batch create relationships failed: {e}", org_id=user.org_id)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Batch create failed: {str(e)}",
+            detail="Batch relationship creation failed. Please check your input.",
         )
     finally:
         client.close()

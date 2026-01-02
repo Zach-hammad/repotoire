@@ -494,22 +494,30 @@ class QuotaOverrideRepository:
         )
         return result.scalars().all()
 
-    async def cleanup_expired(self) -> int:
+    async def cleanup_expired(self, organization_id: UUID | None = None) -> int:
         """Mark expired overrides as revoked for cleanup.
 
         This is for maintenance - expired overrides are already inactive
         but this marks them with revoke_reason for clarity.
 
+        Args:
+            organization_id: If provided, only cleanup overrides for this org.
+                             If None, cleanup all expired overrides (for system tasks).
+
         Returns:
             Number of overrides marked as expired
         """
         now = datetime.utcnow()
-        result = await self.db.execute(
+        query = (
             select(QuotaOverride)
             .where(QuotaOverride.revoked_at.is_(None))
             .where(QuotaOverride.expires_at.isnot(None))
             .where(QuotaOverride.expires_at <= now)
         )
+        if organization_id:
+            query = query.where(QuotaOverride.organization_id == organization_id)
+
+        result = await self.db.execute(query)
         expired = result.scalars().all()
 
         count = 0

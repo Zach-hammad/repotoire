@@ -202,7 +202,29 @@ async def list_overrides(
     db: AsyncSession = Depends(get_db),
     admin: ClerkUser = Depends(require_org_admin),
 ) -> QuotaOverrideListResponse:
-    """List quota overrides with filters for audit dashboard."""
+    """List quota overrides with filters for audit dashboard.
+
+    Note: Admin can only view overrides for their own organization.
+    """
+    # Security: If organization_id provided, verify admin belongs to that org
+    # If not provided, default to admin's own organization
+    if organization_id:
+        org = await _get_organization(db, organization_id)
+        if org and admin.org_id and org.clerk_org_id != admin.org_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot view quota overrides for another organization",
+            )
+    else:
+        # Default to admin's organization - find org by clerk_org_id
+        if admin.org_id:
+            result = await db.execute(
+                select(Organization).where(Organization.clerk_org_id == admin.org_id)
+            )
+            admin_org = result.scalar_one_or_none()
+            if admin_org:
+                organization_id = admin_org.id
+
     repo = QuotaOverrideRepository(db)
 
     overrides, total = await repo.search(
@@ -235,13 +257,24 @@ async def get_override(
     db: AsyncSession = Depends(get_db),
     admin: ClerkUser = Depends(require_org_admin),
 ) -> QuotaOverrideResponse:
-    """Get details of a specific quota override."""
+    """Get details of a specific quota override.
+
+    Note: Admin can only view overrides for their own organization.
+    """
     repo = QuotaOverrideRepository(db)
 
     try:
         override = await repo.get_by_id_or_raise(
             override_id, include_relationships=True
         )
+
+        # Security: Verify admin belongs to the override's organization
+        if admin.org_id and override.organization.clerk_org_id != admin.org_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot view quota override for another organization",
+            )
+
         return QuotaOverrideResponse.from_db_model(override)
     except QuotaOverrideNotFoundError:
         raise HTTPException(
@@ -265,6 +298,8 @@ async def revoke_override(
     """Revoke an active quota override.
 
     Requires admin role. Creates audit trail entry.
+
+    Note: Admin can only revoke overrides for their own organization.
     """
     # Get the admin's database user
     db_user = await _get_db_user(db, admin.user_id)
@@ -272,6 +307,23 @@ async def revoke_override(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Admin user not found in database",
+        )
+
+    # Security: Verify admin belongs to the override's organization
+    repo_check = QuotaOverrideRepository(db)
+    try:
+        override_check = await repo_check.get_by_id_or_raise(
+            override_id, include_relationships=True
+        )
+        if admin.org_id and override_check.organization.clerk_org_id != admin.org_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot revoke quota override for another organization",
+            )
+    except QuotaOverrideNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Quota override not found: {override_id}",
         )
 
     # Get Redis client for cache invalidation
@@ -315,13 +367,23 @@ async def get_active_overrides(
     db: AsyncSession = Depends(get_db),
     admin: ClerkUser = Depends(require_org_admin),
 ) -> ActiveOverridesResponse:
-    """Get all active quota overrides for an organization."""
+    """Get all active quota overrides for an organization.
+
+    Note: Admin can only view overrides for their own organization.
+    """
     # Verify organization exists
     org = await _get_organization(db, organization_id)
     if not org:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Organization not found: {organization_id}",
+        )
+
+    # Security: Verify admin belongs to the target organization
+    if admin.org_id and org.clerk_org_id != admin.org_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot view quota overrides for another organization",
         )
 
     repo = QuotaOverrideRepository(db)
@@ -348,13 +410,23 @@ async def get_override_history(
     db: AsyncSession = Depends(get_db),
     admin: ClerkUser = Depends(require_org_admin),
 ) -> List[QuotaOverrideResponse]:
-    """Get full audit history of overrides for an organization."""
+    """Get full audit history of overrides for an organization.
+
+    Note: Admin can only view history for their own organization.
+    """
     # Verify organization exists
     org = await _get_organization(db, organization_id)
     if not org:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Organization not found: {organization_id}",
+        )
+
+    # Security: Verify admin belongs to the target organization
+    if admin.org_id and org.clerk_org_id != admin.org_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot view quota override history for another organization",
         )
 
     repo = QuotaOverrideRepository(db)
@@ -366,19 +438,39 @@ async def get_override_history(
 @router.post(
     "/cleanup-expired",
     summary="Cleanup expired overrides",
-    description="Mark expired overrides as revoked (maintenance task).",
+    description="Mark expired overrides as revoked for admin's organization only.",
 )
 async def cleanup_expired_overrides(
     db: AsyncSession = Depends(get_db),
     admin: ClerkUser = Depends(require_org_admin),
 ) -> dict:
-    """Mark expired overrides as revoked for cleanup.
+    """Mark expired overrides as revoked for admin's organization.
 
     This is a maintenance task that marks expired overrides with
     revoke_reason = "Expired" for clarity in audit logs.
+
+    Note: Only cleans up overrides for the admin's own organization.
     """
+    # Security: Only cleanup overrides for admin's organization
+    if not admin.org_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required for cleanup",
+        )
+
+    # Find admin's organization
+    result = await db.execute(
+        select(Organization).where(Organization.clerk_org_id == admin.org_id)
+    )
+    admin_org = result.scalar_one_or_none()
+    if not admin_org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Admin organization not found",
+        )
+
     repo = QuotaOverrideRepository(db)
-    count = await repo.cleanup_expired()
+    count = await repo.cleanup_expired(organization_id=admin_org.id)
 
     return {
         "message": f"Marked {count} expired overrides as revoked",

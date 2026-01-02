@@ -89,7 +89,7 @@ class StripeService:
             logger.error(f"Failed to create Stripe customer: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to create billing account: {str(e)}",
+                detail="Failed to create billing account. Please try again.",
             )
 
     @staticmethod
@@ -222,7 +222,7 @@ class StripeService:
             logger.error(f"Failed to create checkout session: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to create checkout session: {str(e)}",
+                detail="Failed to create checkout session. Please try again.",
             )
 
     @staticmethod
@@ -253,7 +253,7 @@ class StripeService:
             logger.error(f"Failed to create portal session: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to create billing portal session: {str(e)}",
+                detail="Failed to access billing portal. Please try again.",
             )
 
     @staticmethod
@@ -292,7 +292,7 @@ class StripeService:
             logger.error(f"Failed to cancel subscription: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to cancel subscription: {str(e)}",
+                detail="Failed to cancel subscription. Please try again.",
             )
 
     @staticmethod
@@ -314,7 +314,7 @@ class StripeService:
             logger.error(f"Failed to retrieve subscription: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to retrieve subscription: {str(e)}",
+                detail="Failed to retrieve subscription details.",
             )
 
     @staticmethod
@@ -419,7 +419,7 @@ class StripeConnectService:
             logger.error(f"Failed to create Stripe Connect account: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to create payment account: {str(e)}",
+                detail="Failed to create payment account. Please try again.",
             )
 
     @staticmethod
@@ -462,7 +462,7 @@ class StripeConnectService:
             logger.error(f"Failed to create onboarding link: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to create onboarding link: {str(e)}",
+                detail="Failed to create onboarding link. Please try again.",
             )
 
     @staticmethod
@@ -486,7 +486,7 @@ class StripeConnectService:
             logger.error(f"Failed to create login link: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to create dashboard link: {str(e)}",
+                detail="Failed to access dashboard. Please try again.",
             )
 
     @staticmethod
@@ -526,7 +526,7 @@ class StripeConnectService:
             logger.error(f"Failed to get account status: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to get account status: {str(e)}",
+                detail="Failed to retrieve account status.",
             )
 
     @staticmethod
@@ -590,7 +590,7 @@ class StripeConnectService:
             logger.error(f"Failed to create PaymentIntent: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to create payment: {str(e)}",
+                detail="Failed to process payment. Please try again.",
             )
 
     @staticmethod
@@ -626,7 +626,7 @@ class StripeConnectService:
             logger.error(f"Failed to get balance: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to get balance: {str(e)}",
+                detail="Failed to retrieve balance information.",
             )
 
     @staticmethod
@@ -663,7 +663,7 @@ class StripeConnectService:
             logger.error(f"Failed to list payouts: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to list payouts: {str(e)}",
+                detail="Failed to retrieve payout history.",
             )
 
     @staticmethod

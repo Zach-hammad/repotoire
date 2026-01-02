@@ -89,14 +89,12 @@ dev = [
     "pytest-timeout>=2.2.0",  # Test timeout support
     "hypothesis>=6.100.0",  # Property-based testing for differential tests
     "factory-boy>=3.3.0",  # Test data factories for SQLAlchemy models
-    "httpx>=0.27.0",  # Async HTTP client for API tests
+    # Note: httpx, mypy, redis already in core dependencies
     "black>=23.0.0",
     "ruff>=0.1.0",
-    "mypy>=1.7.0",
     "pyyaml>=6.0",  # For YAML config support in tests
     "tomli>=2.0.0",  # For TOML support on Python <3.11
     "tenacity>=8.2.0",  # Retry logic for flaky tests (REPO-366)
-    "redis>=5.0.0",  # Redis client for FalkorDB readiness checks
 ]
 
 config = [
@@ -116,7 +114,7 @@ all-languages = [
 ]
 
 timescale = [
-    "psycopg2-binary>=2.9.9",  # PostgreSQL adapter for TimescaleDB metrics storage
+    # Note: psycopg2-binary already in core dependencies
 ]
 
 graphiti = [
@@ -137,7 +135,7 @@ observability = [
     "opentelemetry-api>=1.20.0",  # OpenTelemetry tracing API
     "opentelemetry-sdk>=1.20.0",  # OpenTelemetry SDK
     "opentelemetry-exporter-otlp>=1.20.0",  # OTLP exporter for distributed tracing
-    "sentry-sdk[fastapi,celery,sqlalchemy]>=2.0.0",  # Error tracking and performance monitoring (REPO-271)
+    # Note: sentry-sdk already in core dependencies
 ]
 
 ml = [

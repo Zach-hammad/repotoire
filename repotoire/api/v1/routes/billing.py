@@ -383,9 +383,10 @@ async def create_checkout(
         clerk_user = clerk.users.get(user_id=user.user_id)
         email = clerk_user.email_addresses[0].email_address if clerk_user.email_addresses else ""
     except Exception as e:
+        logger.error(f"Failed to fetch user from Clerk: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch user details from Clerk: {e}",
+            detail="Failed to fetch user details. Please try again.",
         )
     if not email:
         raise HTTPException(
