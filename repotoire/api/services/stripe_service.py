@@ -88,7 +88,7 @@ class StripeService:
             logger.error(f"Failed to create Stripe customer: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to create billing account: {str(e)}",
+                detail="Failed to create billing account. Please try again.",
             )
 
     @staticmethod
@@ -221,7 +221,7 @@ class StripeService:
             logger.error(f"Failed to create checkout session: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to create checkout session: {str(e)}",
+                detail="Failed to create checkout session. Please try again.",
             )
 
     @staticmethod
@@ -252,7 +252,7 @@ class StripeService:
             logger.error(f"Failed to create portal session: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to create billing portal session: {str(e)}",
+                detail="Failed to create billing portal session. Please try again.",
             )
 
     @staticmethod
@@ -291,7 +291,7 @@ class StripeService:
             logger.error(f"Failed to cancel subscription: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to cancel subscription: {str(e)}",
+                detail="Failed to cancel subscription. Please try again.",
             )
 
     @staticmethod
@@ -313,7 +313,7 @@ class StripeService:
             logger.error(f"Failed to retrieve subscription: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to retrieve subscription: {str(e)}",
+                detail="Failed to retrieve subscription. Please try again.",
             )
 
     @staticmethod

@@ -4,8 +4,11 @@ This module provides API endpoints for managing subscriptions,
 creating checkout sessions, and accessing the customer portal.
 """
 
+import logging
 import os
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field

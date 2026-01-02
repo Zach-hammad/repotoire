@@ -1,10 +1,6 @@
 """Unit tests for CLI authentication module."""
 
-import json
 import os
-import tempfile
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,195 +9,44 @@ from repotoire.cli.auth import (
     CLIAuth,
     CLICredentials,
     AuthenticationError,
-    CREDENTIALS_DIR,
-    CREDENTIALS_FILE,
-    _save_credentials,
-    _load_credentials,
     is_offline_mode,
+    CALLBACK_PORT,
+    CALLBACK_PATH,
+    DEFAULT_WEB_URL,
 )
 
 
 class TestCLICredentials:
     """Tests for CLICredentials dataclass."""
 
-    def test_to_dict(self):
-        """Test serialization to dict."""
-        expires_at = datetime(2024, 12, 1, 12, 0, 0, tzinfo=timezone.utc)
+    def test_credentials_basic(self):
+        """Test basic credential creation."""
         creds = CLICredentials(
             access_token="test_token",
-            refresh_token="refresh_token",
-            expires_at=expires_at,
-            user_id="user_123",
-            user_email="test@example.com",
             org_id="org_456",
             org_slug="test-org",
-            tier="pro",
+            plan="pro",
+            user_email="test@example.com",
+            user_id="user_123",
         )
-
-        data = creds.to_dict()
-
-        assert data["access_token"] == "test_token"
-        assert data["refresh_token"] == "refresh_token"
-        assert data["user_id"] == "user_123"
-        assert data["user_email"] == "test@example.com"
-        assert data["org_id"] == "org_456"
-        assert data["org_slug"] == "test-org"
-        assert data["tier"] == "pro"
-        assert "2024-12-01" in data["expires_at"]
-
-    def test_from_dict(self):
-        """Test deserialization from dict."""
-        data = {
-            "access_token": "test_token",
-            "refresh_token": "refresh_token",
-            "expires_at": "2024-12-01T12:00:00+00:00",
-            "user_id": "user_123",
-            "user_email": "test@example.com",
-            "org_id": "org_456",
-            "org_slug": "test-org",
-            "tier": "enterprise",
-        }
-
-        creds = CLICredentials.from_dict(data)
 
         assert creds.access_token == "test_token"
-        assert creds.refresh_token == "refresh_token"
-        assert creds.user_id == "user_123"
-        assert creds.user_email == "test@example.com"
         assert creds.org_id == "org_456"
         assert creds.org_slug == "test-org"
-        assert creds.tier == "enterprise"
-        assert creds.expires_at.year == 2024
+        assert creds.plan == "pro"
+        assert creds.user_email == "test@example.com"
+        assert creds.user_id == "user_123"
 
-    def test_from_dict_defaults(self):
-        """Test deserialization with missing optional fields."""
-        data = {
-            "access_token": "test_token",
-            "refresh_token": None,
-            "expires_at": "2024-12-01T12:00:00+00:00",
-            "user_id": "user_123",
-            "user_email": "test@example.com",
-        }
+    def test_credentials_defaults(self):
+        """Test credential default values."""
+        creds = CLICredentials(access_token="test_token")
 
-        creds = CLICredentials.from_dict(data)
-
-        assert creds.refresh_token is None
+        assert creds.access_token == "test_token"
         assert creds.org_id is None
         assert creds.org_slug is None
-        assert creds.tier == "free"
-
-    def test_is_expired_not_expired(self):
-        """Test is_expired returns False for valid token."""
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-        creds = CLICredentials(
-            access_token="test_token",
-            refresh_token=None,
-            expires_at=expires_at,
-            user_id="user_123",
-            user_email="test@example.com",
-            org_id=None,
-            org_slug=None,
-            tier="free",
-        )
-
-        assert not creds.is_expired()
-
-    def test_is_expired_expired(self):
-        """Test is_expired returns True for expired token."""
-        expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        creds = CLICredentials(
-            access_token="test_token",
-            refresh_token=None,
-            expires_at=expires_at,
-            user_id="user_123",
-            user_email="test@example.com",
-            org_id=None,
-            org_slug=None,
-            tier="free",
-        )
-
-        assert creds.is_expired()
-
-    def test_is_expired_within_buffer(self):
-        """Test is_expired returns True when within 5-minute buffer."""
-        # Token expires in 3 minutes (within 5-minute buffer)
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=3)
-        creds = CLICredentials(
-            access_token="test_token",
-            refresh_token=None,
-            expires_at=expires_at,
-            user_id="user_123",
-            user_email="test@example.com",
-            org_id=None,
-            org_slug=None,
-            tier="free",
-        )
-
-        assert creds.is_expired()
-
-
-class TestCredentialStorage:
-    """Tests for credential storage functions."""
-
-    def test_save_and_load_credentials(self, tmp_path):
-        """Test saving and loading credentials."""
-        # Patch the credentials file location
-        creds_file = tmp_path / "credentials.json"
-
-        with patch("repotoire.cli.auth.CREDENTIALS_DIR", tmp_path):
-            with patch("repotoire.cli.auth.CREDENTIALS_FILE", creds_file):
-                expires_at = datetime(2024, 12, 1, 12, 0, 0, tzinfo=timezone.utc)
-                creds = CLICredentials(
-                    access_token="test_token",
-                    refresh_token="refresh_token",
-                    expires_at=expires_at,
-                    user_id="user_123",
-                    user_email="test@example.com",
-                    org_id="org_456",
-                    org_slug="test-org",
-                    tier="pro",
-                )
-
-                _save_credentials(creds)
-
-                # Verify file was created
-                assert creds_file.exists()
-
-                # Verify file permissions (owner read/write only)
-                assert oct(creds_file.stat().st_mode)[-3:] == "600"
-
-                # Load and verify
-                loaded = _load_credentials()
-                assert loaded is not None
-                assert loaded.access_token == "test_token"
-                assert loaded.user_email == "test@example.com"
-                assert loaded.tier == "pro"
-
-    def test_load_credentials_no_file(self, tmp_path):
-        """Test loading credentials when file doesn't exist."""
-        creds_file = tmp_path / "credentials.json"
-
-        with patch("repotoire.cli.auth.CREDENTIALS_FILE", creds_file):
-            result = _load_credentials()
-            assert result is None
-
-    def test_load_credentials_invalid_json(self, tmp_path):
-        """Test loading credentials with invalid JSON."""
-        creds_file = tmp_path / "credentials.json"
-        creds_file.write_text("not valid json")
-
-        with patch("repotoire.cli.auth.CREDENTIALS_FILE", creds_file):
-            result = _load_credentials()
-            assert result is None
-
-    def test_load_credentials_missing_fields(self, tmp_path):
-        """Test loading credentials with missing required fields."""
-        creds_file = tmp_path / "credentials.json"
-        creds_file.write_text('{"access_token": "test"}')
-
-        with patch("repotoire.cli.auth.CREDENTIALS_FILE", creds_file):
-            result = _load_credentials()
-            assert result is None
+        assert creds.plan is None
+        assert creds.user_email is None
+        assert creds.user_id is None
 
 
 class TestOfflineMode:
@@ -235,167 +80,145 @@ class TestOfflineMode:
             assert is_offline_mode() is False
 
 
-class TestCLIAuth:
-    """Tests for CLIAuth class."""
+class TestCLIAuthInit:
+    """Tests for CLIAuth initialization."""
 
     def test_init_default_url(self):
-        """Test default API URL."""
-        with patch.dict(os.environ, {}, clear=True):
-            auth = CLIAuth()
-            assert auth.api_url == "https://api.repotoire.dev"
+        """Test default web URL."""
+        with patch.dict(os.environ, {}, clear=False):
+            # Remove env var if set
+            env = os.environ.copy()
+            env.pop("REPOTOIRE_WEB_URL", None)
+            with patch.dict(os.environ, env, clear=True):
+                with patch("repotoire.cli.auth.CredentialStore"):
+                    auth = CLIAuth()
+                    assert auth.web_url == DEFAULT_WEB_URL
 
     def test_init_custom_url(self):
-        """Test custom API URL via constructor."""
-        auth = CLIAuth(api_url="https://custom.api.com")
-        assert auth.api_url == "https://custom.api.com"
+        """Test custom web URL via constructor."""
+        with patch("repotoire.cli.auth.CredentialStore"):
+            auth = CLIAuth(web_url="https://custom.web.com")
+            assert auth.web_url == "https://custom.web.com"
 
     def test_init_url_from_env(self):
+        """Test web URL from environment variable."""
+        with patch.dict(os.environ, {"REPOTOIRE_WEB_URL": "https://env.web.com"}):
+            with patch("repotoire.cli.auth.CredentialStore"):
+                auth = CLIAuth()
+                assert auth.web_url == "https://env.web.com"
+
+    def test_api_url_default(self):
+        """Test default API URL."""
+        env = os.environ.copy()
+        env.pop("REPOTOIRE_API_URL", None)
+        with patch.dict(os.environ, env, clear=True):
+            with patch("repotoire.cli.auth.CredentialStore"):
+                auth = CLIAuth()
+                assert auth.api_url == "https://repotoire-api.fly.dev"
+
+    def test_api_url_from_env(self):
         """Test API URL from environment variable."""
-        with patch.dict(os.environ, {"REPOTOIRE_API_URL": "https://env.api.com"}):
+        with patch.dict(os.environ, {"REPOTOIRE_API_URL": "https://custom.api.com"}):
+            with patch("repotoire.cli.auth.CredentialStore"):
+                auth = CLIAuth()
+                assert auth.api_url == "https://custom.api.com"
+
+
+class TestCLIAuthCredentials:
+    """Tests for CLIAuth credential methods."""
+
+    def test_get_api_key_returns_stored_key(self):
+        """Test get_api_key returns stored key."""
+        mock_store = MagicMock()
+        mock_store.get_api_key.return_value = "ak_test123"
+
+        with patch("repotoire.cli.auth.CredentialStore", return_value=mock_store):
             auth = CLIAuth()
-            assert auth.api_url == "https://env.api.com"
+            result = auth.get_api_key()
 
-    def test_logout_clears_credentials(self, tmp_path):
-        """Test logout removes credential file."""
-        creds_file = tmp_path / "credentials.json"
-        creds_file.write_text('{"test": "data"}')
+            assert result == "ak_test123"
+            mock_store.get_api_key.assert_called_once()
 
-        with patch("repotoire.cli.auth.CREDENTIALS_FILE", creds_file):
+    def test_get_api_key_returns_none_when_not_stored(self):
+        """Test get_api_key returns None when no key stored."""
+        mock_store = MagicMock()
+        mock_store.get_api_key.return_value = None
+
+        with patch("repotoire.cli.auth.CredentialStore", return_value=mock_store):
             auth = CLIAuth()
-            auth.logout()
+            result = auth.get_api_key()
 
-            assert not creds_file.exists()
-
-    def test_logout_no_file(self, tmp_path):
-        """Test logout when no credential file exists."""
-        creds_file = tmp_path / "credentials.json"
-
-        with patch("repotoire.cli.auth.CREDENTIALS_FILE", creds_file):
-            auth = CLIAuth()
-            # Should not raise
-            auth.logout()
-
-    def test_get_current_user_no_credentials(self, tmp_path):
-        """Test get_current_user returns None when not logged in."""
-        creds_file = tmp_path / "credentials.json"
-
-        with patch("repotoire.cli.auth.CREDENTIALS_FILE", creds_file):
-            auth = CLIAuth()
-            result = auth.get_current_user()
             assert result is None
 
-    def test_get_current_user_valid_credentials(self, tmp_path):
-        """Test get_current_user returns credentials when valid."""
-        creds_file = tmp_path / "credentials.json"
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-        creds_data = {
-            "access_token": "test_token",
-            "refresh_token": None,
-            "expires_at": expires_at.isoformat(),
-            "user_id": "user_123",
-            "user_email": "test@example.com",
-            "org_id": None,
-            "org_slug": None,
-            "tier": "free",
-        }
-        creds_file.write_text(json.dumps(creds_data))
+    def test_get_current_user_returns_credentials(self):
+        """Test get_current_user returns credentials when authenticated."""
+        mock_store = MagicMock()
+        mock_store.get_api_key.return_value = "ak_test123"
 
-        with patch("repotoire.cli.auth.CREDENTIALS_FILE", creds_file):
+        with patch("repotoire.cli.auth.CredentialStore", return_value=mock_store):
             auth = CLIAuth()
             result = auth.get_current_user()
 
             assert result is not None
-            assert result.user_email == "test@example.com"
-            assert result.access_token == "test_token"
+            assert result.access_token == "ak_test123"
 
-    def test_get_current_user_expired_no_refresh(self, tmp_path):
-        """Test get_current_user returns expired credentials without refresh token.
+    def test_get_current_user_returns_none_when_not_authenticated(self):
+        """Test get_current_user returns None when not authenticated."""
+        mock_store = MagicMock()
+        mock_store.get_api_key.return_value = None
 
-        The caller should check is_expired() to determine if login is needed.
-        """
-        creds_file = tmp_path / "credentials.json"
-        expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        creds_data = {
-            "access_token": "test_token",
-            "refresh_token": None,
-            "expires_at": expires_at.isoformat(),
-            "user_id": "user_123",
-            "user_email": "test@example.com",
-            "org_id": None,
-            "org_slug": None,
-            "tier": "free",
-        }
-        creds_file.write_text(json.dumps(creds_data))
-
-        with patch("repotoire.cli.auth.CREDENTIALS_FILE", creds_file):
+        with patch("repotoire.cli.auth.CredentialStore", return_value=mock_store):
             auth = CLIAuth()
             result = auth.get_current_user()
 
-            # Credentials are returned even if expired - caller checks is_expired()
-            assert result is not None
-            assert result.access_token == "test_token"
-            assert result.is_expired() is True
+            assert result is None
 
-    @patch("httpx.Client")
-    def test_refresh_token_success(self, mock_client_class, tmp_path):
-        """Test successful token refresh."""
-        creds_file = tmp_path / "credentials.json"
+    def test_logout_clears_credentials(self):
+        """Test logout clears stored credentials."""
+        mock_store = MagicMock()
+        mock_store.clear.return_value = True
 
-        # Setup mock response
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "access_token": "new_token",
-            "refresh_token": "new_refresh",
-            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
-            "user_id": "user_123",
-            "user_email": "test@example.com",
-            "org_id": None,
-            "org_slug": None,
-            "tier": "free",
-        }
-        mock_response.raise_for_status = MagicMock()
+        with patch("repotoire.cli.auth.CredentialStore", return_value=mock_store):
+            auth = CLIAuth()
+            result = auth.logout()
 
-        mock_client = MagicMock()
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
-        mock_client.post.return_value = mock_response
-        mock_client_class.return_value = mock_client
+            assert result is True
+            mock_store.clear.assert_called_once()
 
-        # Create initial credentials
-        expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        old_creds = CLICredentials(
-            access_token="old_token",
-            refresh_token="old_refresh",
-            expires_at=expires_at,
-            user_id="user_123",
-            user_email="test@example.com",
-            org_id=None,
-            org_slug=None,
-            tier="free",
-        )
+    def test_logout_returns_false_when_no_credentials(self):
+        """Test logout returns False when no credentials to clear."""
+        mock_store = MagicMock()
+        mock_store.clear.return_value = False
 
-        with patch("repotoire.cli.auth.CREDENTIALS_DIR", tmp_path):
-            with patch("repotoire.cli.auth.CREDENTIALS_FILE", creds_file):
-                auth = CLIAuth()
-                new_creds = auth.refresh_token(old_creds)
+        with patch("repotoire.cli.auth.CredentialStore", return_value=mock_store):
+            auth = CLIAuth()
+            result = auth.logout()
 
-                assert new_creds.access_token == "new_token"
-                assert new_creds.refresh_token == "new_refresh"
+            assert result is False
 
-    def test_refresh_token_no_refresh_token(self, tmp_path):
-        """Test refresh fails when no refresh token available."""
-        creds = CLICredentials(
-            access_token="old_token",
-            refresh_token=None,  # No refresh token
-            expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
-            user_id="user_123",
-            user_email="test@example.com",
-            org_id=None,
-            org_slug=None,
-            tier="free",
-        )
+    def test_get_credential_source(self):
+        """Test get_credential_source returns source description."""
+        mock_store = MagicMock()
+        mock_store.get_source.return_value = "system keyring"
 
-        auth = CLIAuth()
+        with patch("repotoire.cli.auth.CredentialStore", return_value=mock_store):
+            auth = CLIAuth()
+            result = auth.get_credential_source()
 
-        with pytest.raises(AuthenticationError, match="No refresh token available"):
-            auth.refresh_token(creds)
+            assert result == "system keyring"
+
+
+class TestConstants:
+    """Tests for module constants."""
+
+    def test_callback_port(self):
+        """Test callback port is set correctly."""
+        assert CALLBACK_PORT == 8787
+
+    def test_callback_path(self):
+        """Test callback path is set correctly."""
+        assert CALLBACK_PATH == "/callback"
+
+    def test_default_web_url(self):
+        """Test default web URL is set correctly."""
+        assert DEFAULT_WEB_URL == "https://repotoire.com"

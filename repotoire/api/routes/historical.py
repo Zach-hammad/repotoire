@@ -157,7 +157,7 @@ async def ingest_git_history(request: IngestGitRequest, user: ClerkUser = Depend
         logger.error(f"Failed to ingest git history: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to ingest git history: {str(e)}"
+            detail="Failed to ingest git history. Please try again."
         )
 
 
@@ -230,7 +230,7 @@ async def query_history(request: QueryHistoryRequest, user: ClerkUser = Depends(
         logger.error(f"Failed to query git history: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to query git history: {str(e)}"
+            detail="Failed to query git history. Please try again."
         )
 
 
@@ -297,7 +297,7 @@ async def get_entity_timeline(request: TimelineRequest, user: ClerkUser = Depend
         logger.error(f"Failed to get entity timeline: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get entity timeline: {str(e)}"
+            detail="Failed to get entity timeline. Please try again."
         )
 
 

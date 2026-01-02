@@ -229,7 +229,7 @@ async def get_metrics_summary(
         return CostSummary(**summary)
     except Exception as e:
         logger.error(f"Failed to get metrics summary: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
     finally:
         await collector.close()
 
@@ -257,7 +257,7 @@ async def get_cost_breakdown(
         return [OperationTypeCost(**item) for item in breakdown]
     except Exception as e:
         logger.error(f"Failed to get cost breakdown: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
     finally:
         await collector.close()
 
@@ -308,7 +308,7 @@ async def get_usage_statistics(
         )
     except Exception as e:
         logger.error(f"Failed to get usage statistics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
     finally:
         await collector.close()
 
@@ -334,7 +334,7 @@ async def get_failure_rate(
         return FailureRate(**rate)
     except Exception as e:
         logger.error(f"Failed to get failure rate: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
     finally:
         await collector.close()
 
@@ -365,7 +365,7 @@ async def admin_get_all_metrics(
         return CostSummary(**summary)
     except Exception as e:
         logger.error(f"Failed to get admin metrics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
     finally:
         await collector.close()
 
@@ -393,7 +393,7 @@ async def admin_get_customer_costs(
         return [CustomerCost(**item) for item in customers]
     except Exception as e:
         logger.error(f"Failed to get customer costs: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
     finally:
         await collector.close()
 
@@ -420,7 +420,7 @@ async def admin_get_slow_operations(
         return [SlowOperation(**item) for item in slow_ops]
     except Exception as e:
         logger.error(f"Failed to get slow operations: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
     finally:
         await collector.close()
 
@@ -443,7 +443,7 @@ async def admin_get_recent_failures(
         return [FailedOperation(**item) for item in failures]
     except Exception as e:
         logger.error(f"Failed to get recent failures: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
     finally:
         await collector.close()
 
@@ -521,7 +521,7 @@ async def get_quota(
         return _status_to_response(status)
     except Exception as e:
         logger.error(f"Failed to get quota status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
     finally:
         await enforcer.close()
 
@@ -573,7 +573,7 @@ async def admin_get_customer_quota(
         return _status_to_response(status)
     except Exception as e:
         logger.error(f"Failed to get customer quota: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
     finally:
         await enforcer.close()
 
@@ -623,7 +623,7 @@ async def admin_set_quota_override(
         )
     except Exception as e:
         logger.error(f"Failed to set quota override: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
     finally:
         await enforcer.close()
 
@@ -658,7 +658,7 @@ async def admin_remove_quota_override(
         raise
     except Exception as e:
         logger.error(f"Failed to remove quota override: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
     finally:
         await enforcer.close()
 
@@ -694,6 +694,6 @@ async def admin_get_quota_override(
         )
     except Exception as e:
         logger.error(f"Failed to get quota override: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
     finally:
         await enforcer.close()

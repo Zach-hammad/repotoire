@@ -127,7 +127,7 @@ async def search_code(
         logger.error(f"Code search error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Search failed: {str(e)}"
+            detail="Code search failed. Please try again."
         )
 
 
@@ -289,7 +289,7 @@ async def ask_code_question(
         logger.error(f"Code Q&A error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Question answering failed: {str(e)}"
+            detail="Question answering failed. Please try again."
         )
 
 
@@ -359,5 +359,5 @@ async def get_embeddings_status(
         logger.error(f"Embeddings status error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve embeddings status: {str(e)}"
+            detail="Failed to retrieve embeddings status. Please try again."
         )
