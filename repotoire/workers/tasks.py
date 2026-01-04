@@ -31,6 +31,7 @@ from repotoire.db.models import (
     AnalysisRun,
     AnalysisStatus,
     Organization,
+    PlanTier,
     Repository,
 )
 from repotoire.db.models.finding import Finding as FindingDB
@@ -38,6 +39,7 @@ from repotoire.db.models.finding import FindingSeverity
 from repotoire.db.session import get_sync_session
 from repotoire.logging_config import get_logger
 from repotoire.workers.celery_app import celery_app
+from repotoire.api.shared.services.billing import get_plan_limits
 from repotoire.workers.limits import with_concurrency_limit
 from repotoire.workers.progress import ProgressTracker
 
@@ -106,9 +108,15 @@ def analyze_repository(
             repo_github_installation_id = repo.github_installation_id
             org_id = repo.organization_id
 
-            # Get org slug for multi-tenant graph naming
+            # Get org slug and plan tier for multi-tenant graph naming and feature checks
             org = repo.organization
             org_slug = org.slug if org else None
+            org_plan_tier = org.plan_tier if org else PlanTier.FREE
+
+            # Check if org has graph_embeddings feature (Pro/Enterprise)
+            plan_limits = get_plan_limits(org_plan_tier)
+            enable_embeddings = "graph_embeddings" in plan_limits.features
+            logger.info(f"Embeddings enabled: {enable_embeddings} (plan: {org_plan_tier.value})")
 
             # Update status to running
             progress.update(
@@ -156,11 +164,13 @@ def analyze_repository(
         from repotoire.pipeline.ingestion import IngestionPipeline
 
         # Run ingestion pipeline with repo context for multi-tenant isolation
+        # Enable embeddings for Pro/Enterprise plans (graph_embeddings feature)
         pipeline = IngestionPipeline(
             repo_path=str(clone_dir),
             neo4j_client=graph_client,
             repo_id=repo_id,  # Pass repo UUID for node tagging
             repo_slug=repo_full_name,  # Pass full name (owner/repo)
+            generate_embeddings=enable_embeddings,
         )
 
         def ingestion_progress(pct: float) -> None:
@@ -318,6 +328,11 @@ def analyze_pr(
             org = repo.organization
             org_id = org.id
             repo_full_name = repo.full_name
+            org_plan_tier = org.plan_tier if org else PlanTier.FREE
+
+            # Check if org has graph_embeddings feature (Pro/Enterprise)
+            plan_limits = get_plan_limits(org_plan_tier)
+            enable_embeddings = "graph_embeddings" in plan_limits.features
 
             progress.update(
                 status=AnalysisStatus.RUNNING,
@@ -368,11 +383,13 @@ def analyze_pr(
             from repotoire.pipeline.ingestion import IngestionPipeline
 
             # Run incremental ingestion on changed files only
+            # Enable embeddings for Pro/Enterprise plans (graph_embeddings feature)
             pipeline = IngestionPipeline(
                 repo_path=str(clone_dir),
                 neo4j_client=graph_client,
                 repo_id=repo_id,  # Pass repo UUID for node tagging
                 repo_slug=repo_full_name,  # Pass full name (owner/repo)
+                generate_embeddings=enable_embeddings,
             )
 
             # Ingest only changed files

@@ -20,7 +20,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from repotoire.api.shared.auth import ClerkUser, get_current_user, require_org
+from repotoire.api.shared.auth import ClerkUser, get_current_user, get_current_user_or_api_key, require_org
+from repotoire.api.shared.middleware.usage import enforce_feature_for_api
 from repotoire.db.models import (
     AnalysisRun,
     AnalysisStatus,
@@ -323,7 +324,8 @@ Trigger a new code health analysis for a repository.
 )
 async def trigger_analysis(
     request: TriggerAnalysisRequest,
-    user: ClerkUser = Depends(require_org),
+    org: Organization = Depends(enforce_feature_for_api("api_access")),
+    user: ClerkUser = Depends(get_current_user_or_api_key),
     session: AsyncSession = Depends(get_db),
 ) -> TriggerAnalysisResponse:
     """Trigger a new repository analysis."""
@@ -335,8 +337,8 @@ async def trigger_analysis(
             detail="Repository not found",
         )
 
-    # Verify user belongs to the organization that owns this repo
-    if not await _user_has_repo_access(session, user, repo):
+    # Verify the repo belongs to the authenticated org
+    if repo.organization_id != org.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied to this repository",

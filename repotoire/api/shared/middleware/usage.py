@@ -13,8 +13,11 @@ from sqlalchemy.orm import selectinload
 
 from repotoire.api.shared.auth import ClerkUser, get_current_user_or_api_key, require_org
 from repotoire.api.shared.services.billing import check_usage_limit, has_feature
-from repotoire.db.models import Organization
+from repotoire.db.models import Organization, OrganizationMembership, User
 from repotoire.db.session import async_session_factory, get_db
+from repotoire.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 async def get_org_from_user_flexible(
@@ -256,17 +259,64 @@ def enforce_feature_for_api(feature: str):
             )
             return result.scalar_one_or_none()
 
+    async def _get_org_from_user_scoped_key(clerk_user_id: str) -> Organization | None:
+        """Look up organization from a user-scoped API key.
+
+        For user-scoped API keys (subject = "user_xxx"), we look up the user
+        in our database and find their organization membership.
+
+        Args:
+            clerk_user_id: The Clerk user ID from the API key subject
+
+        Returns:
+            Organization if found, None otherwise
+        """
+        async with async_session_factory() as session:
+            # Find user by Clerk user ID
+            result = await session.execute(
+                select(User).where(User.clerk_user_id == clerk_user_id)
+            )
+            db_user = result.scalar_one_or_none()
+
+            if not db_user:
+                logger.debug(f"User not found for clerk_user_id: {clerk_user_id}")
+                return None
+
+            # Find user's organization membership (take first if multiple)
+            result = await session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == db_user.id
+                ).limit(1)
+            )
+            membership = result.scalar_one_or_none()
+
+            if not membership:
+                logger.debug(f"No org membership found for user: {clerk_user_id}")
+                return None
+
+            # Get the organization with subscription eagerly loaded
+            result = await session.execute(
+                select(Organization)
+                .options(selectinload(Organization.subscription))
+                .where(Organization.id == membership.organization_id)
+            )
+            return result.scalar_one_or_none()
+
     async def _enforce(
         user: ClerkUser = Depends(get_current_user_or_api_key),
     ) -> Organization:
-        if not user.org_id and not user.org_slug:
-            raise HTTPException(
-                status_code=403,
-                detail="Organization context required. Use an org-scoped API key or select an organization.",
-            )
+        org = None
 
-        # Look up organization in database
-        org = await _get_org_async(user.org_id, user.org_slug)
+        # Try to get org from org context first (org-scoped key or JWT with org)
+        if user.org_id or user.org_slug:
+            org = await _get_org_async(user.org_id, user.org_slug)
+
+        # If no org context but this is a user-scoped API key, look up user's org
+        if not org and user.user_id and user.user_id.startswith("user_"):
+            is_api_key = user.claims and user.claims.get("auth_method") == "api_key"
+            if is_api_key:
+                logger.debug(f"Looking up org for user-scoped API key: {user.user_id}")
+                org = await _get_org_from_user_scoped_key(user.user_id)
 
         if not org:
             raise HTTPException(

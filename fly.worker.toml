@@ -5,7 +5,7 @@ app = 'repotoire-worker'
 primary_region = 'iad'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = "Dockerfile.api"
 
 [env]
   ENVIRONMENT = "production"

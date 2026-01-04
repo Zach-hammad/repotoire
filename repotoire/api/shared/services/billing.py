@@ -76,6 +76,8 @@ PLAN_LIMITS: dict[PlanTier, PlanLimits] = {
             "priority_support",
             "api_access",
             "auto_fix",
+            "graph_embeddings",
+            "rag_search",
         ],
     ),
     PlanTier.ENTERPRISE: PlanLimits(
@@ -95,6 +97,8 @@ PLAN_LIMITS: dict[PlanTier, PlanLimits] = {
             "auto_fix",
             "custom_rules",
             "audit_logs",
+            "graph_embeddings",
+            "rag_search",
         ],
     ),
 }

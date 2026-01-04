@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
-from repotoire.db.session import get_async_session
+from repotoire.db.session import async_session_factory
 from repotoire.logging_config import get_logger
 from repotoire.workers.celery_app import celery_app
 
@@ -49,7 +49,7 @@ def aggregate_daily_stats(self, target_date: str | None = None) -> dict[str, Any
     logger.info("Starting daily stats aggregation", date=str(dt))
 
     async def run():
-        async with get_async_session() as db:
+        async with async_session_factory() as db:
             return await do_aggregate(db, target_date=dt)
 
     processed = asyncio.run(run())
@@ -84,7 +84,7 @@ def update_rolling_stats(self) -> dict[str, Any]:
     logger.info("Starting rolling stats update")
 
     async def run():
-        async with get_async_session() as db:
+        async with async_session_factory() as db:
             return await do_update(db)
 
     updated = asyncio.run(run())
@@ -118,7 +118,7 @@ def update_publisher_stats(self) -> dict[str, Any]:
     logger.info("Starting publisher stats update")
 
     async def run():
-        async with get_async_session() as db:
+        async with async_session_factory() as db:
             return await do_update(db)
 
     updated = asyncio.run(run())
@@ -156,7 +156,7 @@ def cleanup_old_events(self, days_to_keep: int = 90) -> dict[str, Any]:
     logger.info("Starting event cleanup", days_to_keep=days_to_keep)
 
     async def run():
-        async with get_async_session() as db:
+        async with async_session_factory() as db:
             return await do_cleanup(db, days_to_keep=days_to_keep)
 
     deleted = asyncio.run(run())
