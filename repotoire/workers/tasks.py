@@ -171,6 +171,7 @@ def analyze_repository(
             repo_id=repo_id,  # Pass repo UUID for node tagging
             repo_slug=repo_full_name,  # Pass full name (owner/repo)
             generate_embeddings=enable_embeddings,
+            embedding_backend="deepinfra",  # Qwen3-Embedding-8B (best quality, cheap)
         )
 
         def ingestion_progress(pct: float) -> None:
@@ -390,6 +391,7 @@ def analyze_pr(
                 repo_id=repo_id,  # Pass repo UUID for node tagging
                 repo_slug=repo_full_name,  # Pass full name (owner/repo)
                 generate_embeddings=enable_embeddings,
+                embedding_backend="deepinfra",  # Qwen3-Embedding-8B (best quality, cheap)
             )
 
             # Ingest only changed files
