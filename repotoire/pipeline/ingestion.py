@@ -1182,9 +1182,10 @@ class IngestionPipeline:
             # Graph uses: /path/to/file.py::Class.method:123
 
             # Get all Functions with their qualified names and simple names
+            # Note: All internal Function nodes have '::' in qualifiedName (file.py::func:line)
             funcs_query = """
             MATCH (f:Function)
-            WHERE f.qualifiedName IS NOT NULL AND f.qualifiedName CONTAINS '::'
+            WHERE f.qualifiedName IS NOT NULL
             RETURN f.qualifiedName as qn, f.name as name
             """
             funcs = self.db.execute_query(funcs_query)
@@ -1444,9 +1445,10 @@ class IngestionPipeline:
                     file_to_community = {path: comm for path, comm in zip(file_paths, file_communities)}
 
                     # Now map functions to their file's community
+                    # Use multi-hop to include class methods (File->Class->Method)
                     func_file_query = """
-                    MATCH (f:File)-[:CONTAINS]->(func:Function)
-                    WHERE func.qualifiedName IS NOT NULL AND func.qualifiedName CONTAINS '::'
+                    MATCH (f:File)-[:CONTAINS*1..2]->(func:Function)
+                    WHERE func.qualifiedName IS NOT NULL
                     RETURN func.qualifiedName as qn, f.filePath as file_path
                     """
                     func_files = self.db.execute_query(func_file_query)
@@ -1829,9 +1831,10 @@ class IngestionPipeline:
 
         try:
             # Step 1: Get all internal Function nodes with indices
+            # Note: All internal Function nodes have '::' in qualifiedName
             nodes_query = """
             MATCH (f:Function)
-            WHERE f.qualifiedName IS NOT NULL AND f.qualifiedName CONTAINS '::'
+            WHERE f.qualifiedName IS NOT NULL
             RETURN f.qualifiedName as qn
             ORDER BY f.qualifiedName
             """
@@ -1851,8 +1854,8 @@ class IngestionPipeline:
             # Step 2: Get all CALLS edges between internal Functions
             edges_query = """
             MATCH (caller:Function)-[:CALLS]->(callee:Function)
-            WHERE caller.qualifiedName IS NOT NULL AND caller.qualifiedName CONTAINS '::'
-              AND callee.qualifiedName IS NOT NULL AND callee.qualifiedName CONTAINS '::'
+            WHERE caller.qualifiedName IS NOT NULL
+              AND callee.qualifiedName IS NOT NULL
             RETURN caller.qualifiedName as caller_qn, callee.qualifiedName as callee_qn
             """
             edges_result = self.db.execute_query(edges_query)
