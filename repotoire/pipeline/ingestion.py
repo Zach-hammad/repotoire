@@ -1364,14 +1364,18 @@ class IngestionPipeline:
         """
         calls_resolved = 0
         type_inferred_count = 0
+        import time as time_module
+        step_start = time_module.time()
 
         # Run type inference first (highest accuracy)
         type_inferred_calls = self._run_type_inference()
+        logger.info(f"[TIMING] Type inference completed in {time_module.time() - step_start:.1f}s")
 
         # Pre-compute community memberships for graph-aware fallback selection
         # Use File-level IMPORTS relationships (which exist before call resolution)
         # to compute communities, then propagate to all functions in each file
         qn_to_community: Dict[str, int] = {}
+        step_start = time_module.time()
         try:
             import repotoire_fast as rf
 
@@ -1389,44 +1393,45 @@ class IngestionPipeline:
 
                 # Get import relationships between files (via External* nodes)
                 # File A imports module X, File B defines module X -> A imports B
-                # Note: FalkorDB has issues with CONTAINS/ENDS WITH returning string instead of boolean
-                # This is wrapped in try/except as it's a non-critical optimization for community detection
+                # Use Rust for fast O(n) matching instead of slow O(n²) Cypher queries
                 import_edges = []
                 try:
-                    # Note: Use size(split()) > 1 instead of CONTAINS, and right() instead of ENDS WITH
-                    # for FalkorDB compatibility
-                    import_edges_query = """
-                    MATCH (importer:File)-[:IMPORTS]->(ext:ExternalClass)
-                    WITH importer, ext.qualifiedName as imported_qn, '::' + split(ext.qualifiedName, '.')[-1] as suffix
-                    MATCH (definer:File)-[:CONTAINS]->(entity:Function)
-                    WHERE size(split(entity.qualifiedName, '::')) > 1
-                      AND right(entity.qualifiedName, size(suffix)) = suffix
-                    RETURN DISTINCT importer.filePath as src, definer.filePath as dst
-                    UNION
-                    MATCH (importer:File)-[:IMPORTS]->(ext:ExternalClass)
-                    WITH importer, ext.qualifiedName as imported_qn, '::' + split(ext.qualifiedName, '.')[-1] as suffix
-                    MATCH (definer:File)-[:CONTAINS]->(entity:Class)
-                    WHERE size(split(entity.qualifiedName, '::')) > 1
-                      AND right(entity.qualifiedName, size(suffix)) = suffix
-                    RETURN DISTINCT importer.filePath as src, definer.filePath as dst
-                    UNION
-                    MATCH (importer:File)-[:IMPORTS]->(ext:ExternalFunction)
-                    WITH importer, ext.qualifiedName as imported_qn, '::' + split(ext.qualifiedName, '.')[-1] as suffix
-                    MATCH (definer:File)-[:CONTAINS]->(entity:Function)
-                    WHERE size(split(entity.qualifiedName, '::')) > 1
-                      AND right(entity.qualifiedName, size(suffix)) = suffix
-                    RETURN DISTINCT importer.filePath as src, definer.filePath as dst
-                    UNION
-                    MATCH (importer:File)-[:IMPORTS]->(ext:ExternalFunction)
-                    WITH importer, ext.qualifiedName as imported_qn, '::' + split(ext.qualifiedName, '.')[-1] as suffix
-                    MATCH (definer:File)-[:CONTAINS]->(entity:Class)
-                    WHERE size(split(entity.qualifiedName, '::')) > 1
-                      AND right(entity.qualifiedName, size(suffix)) = suffix
-                    RETURN DISTINCT importer.filePath as src, definer.filePath as dst
+                    logger.info(f"[TIMING] Running import edge matching (Rust)...")
+                    query_start = time_module.time()
+
+                    # Get imports: (src_file, imported_name)
+                    imports_query = """
+                    MATCH (f:File)-[:IMPORTS]->(ext)
+                    WHERE (ext:ExternalClass OR ext:ExternalFunction)
+                      AND ext.qualifiedName IS NOT NULL
+                    RETURN f.filePath as src, split(ext.qualifiedName, '.')[-1] as name
                     """
-                    import_edges = self.db.execute_query(import_edges_query)
+                    imports_data = self.db.execute_query(imports_query)
+                    imports = [(r["src"], r["name"]) for r in imports_data if r["src"] and r["name"]]
+                    logger.info(f"[TIMING] Fetched {len(imports)} imports in {time_module.time() - query_start:.1f}s")
+
+                    # Get entities: (dst_file, entity_name)
+                    # Note: Don't filter by '::' - Python uses '.' separators
+                    entities_query = """
+                    MATCH (f:File)-[:CONTAINS]->(e)
+                    WHERE (e:Function OR e:Class)
+                      AND e.qualifiedName IS NOT NULL
+                      AND e.name IS NOT NULL
+                    RETURN f.filePath as dst, e.name as name
+                    """
+                    entity_start = time_module.time()
+                    entities_data = self.db.execute_query(entities_query)
+                    entities = [(r["dst"], r["name"]) for r in entities_data if r["dst"] and r["name"]]
+                    logger.info(f"[TIMING] Fetched {len(entities)} entities in {time_module.time() - entity_start:.1f}s")
+
+                    # Match in Rust (O(n) with HashMap vs O(n²) in Cypher)
+                    match_start = time_module.time()
+                    matched_edges = rf.match_import_edges_parallel(imports, entities)
+                    import_edges = [{"src": src, "dst": dst} for src, dst in matched_edges]
+                    logger.info(f"[TIMING] Rust matching: {len(import_edges)} edges in {time_module.time() - match_start:.3f}s")
+                    logger.info(f"[TIMING] Total import_edges: {time_module.time() - query_start:.1f}s")
                 except Exception as e:
-                    logger.debug(f"Import edges query failed (FalkorDB string operator issue, non-critical): {e}")
+                    logger.warning(f"Import edges matching failed (non-critical): {e}")
                 edges = []
                 for e in import_edges:
                     if e["src"] in file_to_idx and e["dst"] in file_to_idx:
@@ -1457,7 +1462,9 @@ class IngestionPipeline:
             pass  # repotoire_fast not available
         except Exception as e:
             logger.debug(f"Community pre-computation failed (will use random fallback): {e}")
+        logger.info(f"[TIMING] Community pre-computation completed in {time_module.time() - step_start:.1f}s")
 
+        step_start = time_module.time()
         try:
             # Step 1: Build a map of simple names to internal qualified names
             # Query all internal Functions and Classes
@@ -1472,6 +1479,7 @@ class IngestionPipeline:
             RETURN e.name as name, e.qualifiedName as qualified_name, 'Class' as label
             """
             internal_entities = self.db.execute_query(internal_entities_query)
+            logger.info(f"[TIMING] internal_entities_query: {len(internal_entities)} entities in {time_module.time() - step_start:.1f}s")
 
             # Build name -> list of qualified names (multiple entities can have same name)
             name_to_qualified: Dict[str, List[Dict]] = defaultdict(list)
@@ -1495,7 +1503,9 @@ class IngestionPipeline:
             MATCH (f:File)-[:IMPORTS]->(imported:ExternalFunction)
             RETURN f.filePath as importer_path, imported.qualifiedName as imported_qn
             """
+            query_start = time_module.time()
             imports_result = self.db.execute_query(imports_query)
+            logger.info(f"[TIMING] imports_query: {len(imports_result)} imports in {time_module.time() - query_start:.1f}s")
 
             # Map: file_path -> set of imported module prefixes (e.g., "repotoire.mcp.models")
             file_import_modules: Dict[str, set] = defaultdict(set)
@@ -1570,11 +1580,13 @@ class IngestionPipeline:
                 r.call_name as call_name,
                 r.is_self_call as is_self_call
             """
+            query_start = time_module.time()
             external_calls = self.db.execute_query(external_calls_query)
-            logger.debug(f"Found {len(external_calls)} external calls to potentially resolve")
+            logger.info(f"[TIMING] external_calls_query: {len(external_calls)} calls in {time_module.time() - query_start:.1f}s")
 
             # Step 3: For each external call, try to resolve to internal entity
             # Collect all resolutions for batch processing (performance optimization)
+            loop_start = time_module.time()
             resolutions = []  # List of dicts with resolution data
             fallback_count = 0
             community_guided_fallback = 0
@@ -1710,8 +1722,11 @@ class IngestionPipeline:
                         "is_self_call": is_self_call,
                     })
 
+            logger.info(f"[TIMING] Resolution matching loop: {len(resolutions)} resolutions in {time_module.time() - loop_start:.1f}s")
+
             # Step 4: Execute batch resolution query
             # Using UNWIND for efficient bulk processing instead of per-call queries
+            batch_start = time_module.time()
             if resolutions:
                 BATCH_SIZE = 10000  # Chunk to avoid memory issues with huge batches
                 resolve_query = """
@@ -1751,6 +1766,7 @@ class IngestionPipeline:
                                 calls_resolved += 1
                         except Exception as inner_e:
                             logger.debug(f"Individual resolution failed for {res['caller_qn']}: {inner_e}")
+            logger.info(f"[TIMING] Batch resolution: {calls_resolved} resolved in {time_module.time() - batch_start:.1f}s")
 
             # Log resolution quality metrics
             if calls_resolved > 0:
