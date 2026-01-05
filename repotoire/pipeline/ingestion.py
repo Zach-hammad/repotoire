@@ -1389,18 +1389,44 @@ class IngestionPipeline:
 
                 # Get import relationships between files (via External* nodes)
                 # File A imports module X, File B defines module X -> A imports B
-                import_edges_query = """
-                MATCH (importer:File)-[:IMPORTS]->(ext)
-                WHERE ext:ExternalClass OR ext:ExternalFunction
-                WITH importer, ext.qualifiedName as imported_qn
-                // Find internal files that define this module
-                MATCH (definer:File)-[:CONTAINS]->(entity)
-                WHERE (entity:Function OR entity:Class)
-                  AND entity.qualifiedName CONTAINS '::'
-                  AND entity.qualifiedName ENDS WITH '::' + split(imported_qn, '.')[-1]
-                RETURN DISTINCT importer.filePath as src, definer.filePath as dst
-                """
-                import_edges = self.db.execute_query(import_edges_query)
+                # Note: FalkorDB has issues with CONTAINS/ENDS WITH returning string instead of boolean
+                # This is wrapped in try/except as it's a non-critical optimization for community detection
+                import_edges = []
+                try:
+                    # Note: Use size(split()) > 1 instead of CONTAINS, and right() instead of ENDS WITH
+                    # for FalkorDB compatibility
+                    import_edges_query = """
+                    MATCH (importer:File)-[:IMPORTS]->(ext:ExternalClass)
+                    WITH importer, ext.qualifiedName as imported_qn, '::' + split(ext.qualifiedName, '.')[-1] as suffix
+                    MATCH (definer:File)-[:CONTAINS]->(entity:Function)
+                    WHERE size(split(entity.qualifiedName, '::')) > 1
+                      AND right(entity.qualifiedName, size(suffix)) = suffix
+                    RETURN DISTINCT importer.filePath as src, definer.filePath as dst
+                    UNION
+                    MATCH (importer:File)-[:IMPORTS]->(ext:ExternalClass)
+                    WITH importer, ext.qualifiedName as imported_qn, '::' + split(ext.qualifiedName, '.')[-1] as suffix
+                    MATCH (definer:File)-[:CONTAINS]->(entity:Class)
+                    WHERE size(split(entity.qualifiedName, '::')) > 1
+                      AND right(entity.qualifiedName, size(suffix)) = suffix
+                    RETURN DISTINCT importer.filePath as src, definer.filePath as dst
+                    UNION
+                    MATCH (importer:File)-[:IMPORTS]->(ext:ExternalFunction)
+                    WITH importer, ext.qualifiedName as imported_qn, '::' + split(ext.qualifiedName, '.')[-1] as suffix
+                    MATCH (definer:File)-[:CONTAINS]->(entity:Function)
+                    WHERE size(split(entity.qualifiedName, '::')) > 1
+                      AND right(entity.qualifiedName, size(suffix)) = suffix
+                    RETURN DISTINCT importer.filePath as src, definer.filePath as dst
+                    UNION
+                    MATCH (importer:File)-[:IMPORTS]->(ext:ExternalFunction)
+                    WITH importer, ext.qualifiedName as imported_qn, '::' + split(ext.qualifiedName, '.')[-1] as suffix
+                    MATCH (definer:File)-[:CONTAINS]->(entity:Class)
+                    WHERE size(split(entity.qualifiedName, '::')) > 1
+                      AND right(entity.qualifiedName, size(suffix)) = suffix
+                    RETURN DISTINCT importer.filePath as src, definer.filePath as dst
+                    """
+                    import_edges = self.db.execute_query(import_edges_query)
+                except Exception as e:
+                    logger.debug(f"Import edges query failed (FalkorDB string operator issue, non-critical): {e}")
                 edges = []
                 for e in import_edges:
                     if e["src"] in file_to_idx and e["dst"] in file_to_idx:
@@ -1435,10 +1461,15 @@ class IngestionPipeline:
         try:
             # Step 1: Build a map of simple names to internal qualified names
             # Query all internal Functions and Classes
+            # Note: Use UNION instead of WHERE label checks for FalkorDB compatibility
             internal_entities_query = """
-            MATCH (e)
-            WHERE (e:Function OR e:Class) AND e.qualifiedName IS NOT NULL
-            RETURN e.name as name, e.qualifiedName as qualified_name, labels(e)[0] as label
+            MATCH (e:Function)
+            WHERE e.qualifiedName IS NOT NULL
+            RETURN e.name as name, e.qualifiedName as qualified_name, 'Function' as label
+            UNION
+            MATCH (e:Class)
+            WHERE e.qualifiedName IS NOT NULL
+            RETURN e.name as name, e.qualifiedName as qualified_name, 'Class' as label
             """
             internal_entities = self.db.execute_query(internal_entities_query)
 
@@ -1456,9 +1487,12 @@ class IngestionPipeline:
             # Step 1b: Build import map using IMPORTS relationships in the graph
             # IMPORTS go from File -> External* nodes with module paths like "repotoire.mcp.models.Class"
             # We need to convert these to file paths and map to internal entities
+            # Note: Use UNION instead of WHERE label checks for FalkorDB compatibility
             imports_query = """
-            MATCH (f:File)-[:IMPORTS]->(imported)
-            WHERE imported:ExternalClass OR imported:ExternalFunction
+            MATCH (f:File)-[:IMPORTS]->(imported:ExternalClass)
+            RETURN f.filePath as importer_path, imported.qualifiedName as imported_qn
+            UNION
+            MATCH (f:File)-[:IMPORTS]->(imported:ExternalFunction)
             RETURN f.filePath as importer_path, imported.qualifiedName as imported_qn
             """
             imports_result = self.db.execute_query(imports_query)
@@ -1501,15 +1535,37 @@ class IngestionPipeline:
             logger.debug(f"Built import map for {len(file_import_modules)} files, {len(module_to_file)} module mappings")
 
             # Step 2: Find CALLS relationships where target is External*
+            # Note: Use UNION instead of WHERE label checks for FalkorDB compatibility
             external_calls_query = """
-            MATCH (caller:Function)-[r:CALLS]->(target)
-            WHERE (target:ExternalFunction OR target:ExternalClass OR target:BuiltinFunction)
-              AND target.name IS NOT NULL
+            MATCH (caller:Function)-[r:CALLS]->(target:ExternalFunction)
+            WHERE target.name IS NOT NULL
             RETURN
                 caller.qualifiedName as caller_qn,
                 target.name as target_name,
                 target.qualifiedName as target_qn,
-                labels(target)[0] as target_label,
+                'ExternalFunction' as target_label,
+                r.line as line,
+                r.call_name as call_name,
+                r.is_self_call as is_self_call
+            UNION
+            MATCH (caller:Function)-[r:CALLS]->(target:ExternalClass)
+            WHERE target.name IS NOT NULL
+            RETURN
+                caller.qualifiedName as caller_qn,
+                target.name as target_name,
+                target.qualifiedName as target_qn,
+                'ExternalClass' as target_label,
+                r.line as line,
+                r.call_name as call_name,
+                r.is_self_call as is_self_call
+            UNION
+            MATCH (caller:Function)-[r:CALLS]->(target:BuiltinFunction)
+            WHERE target.name IS NOT NULL
+            RETURN
+                caller.qualifiedName as caller_qn,
+                target.name as target_name,
+                target.qualifiedName as target_qn,
+                'BuiltinFunction' as target_label,
                 r.line as line,
                 r.call_name as call_name,
                 r.is_self_call as is_self_call
@@ -1601,7 +1657,10 @@ class IngestionPipeline:
 
                 # Priority 3: Check if it's a method call on a class we use (via USES relationship)
                 # This handles cases like: obj = SomeClass(); obj.method()
-                if not best_match and call.get("is_self_call"):
+                is_self_call_val = call.get("is_self_call", False)
+                is_self_call_check = (is_self_call_val if isinstance(is_self_call_val, bool)
+                                      else str(is_self_call_val).lower() == "true")
+                if not best_match and is_self_call_check:
                     # For self calls, prefer methods from classes in same file
                     for candidate in candidates:
                         if candidate["label"] == "Function":
@@ -1639,13 +1698,16 @@ class IngestionPipeline:
 
                 if best_match:
                     # Collect resolution data for batch processing
+                    # Ensure is_self_call is a proper boolean (FalkorDB may return it as string)
+                    is_self_call_raw = call.get("is_self_call", False)
+                    is_self_call = bool(is_self_call_raw) if not isinstance(is_self_call_raw, str) else is_self_call_raw.lower() == "true"
                     resolutions.append({
                         "caller_qn": caller_qn,
                         "old_target_qn": call["target_qn"],
                         "new_target_qn": best_match["qualified_name"],
                         "line": call.get("line"),
                         "call_name": call.get("call_name"),
-                        "is_self_call": call.get("is_self_call", False),
+                        "is_self_call": is_self_call,
                     })
 
             # Step 4: Execute batch resolution query
@@ -1706,19 +1768,23 @@ class IngestionPipeline:
                 )
 
             # Step 5: Clean up orphaned external nodes (no incoming or outgoing relationships)
-            cleanup_query = """
-            MATCH (n)
-            WHERE (n:ExternalFunction OR n:ExternalClass)
-              AND NOT (n)-[]-()
-            DELETE n
-            RETURN count(n) as deleted
-            """
-            try:
-                cleanup_result = self.db.execute_query(cleanup_query)
-                if cleanup_result and cleanup_result[0]["deleted"] > 0:
-                    logger.debug(f"Cleaned up {cleanup_result[0]['deleted']} orphaned external nodes")
-            except Exception as e:
-                logger.debug(f"Cleanup query failed (non-critical): {e}")
+            # Note: Run separate queries for each label for FalkorDB compatibility
+            total_deleted = 0
+            for label in ["ExternalFunction", "ExternalClass"]:
+                cleanup_query = f"""
+                MATCH (n:{label})
+                WHERE NOT (n)-[]-()
+                DELETE n
+                RETURN count(n) as deleted
+                """
+                try:
+                    cleanup_result = self.db.execute_query(cleanup_query)
+                    if cleanup_result and cleanup_result[0]["deleted"] > 0:
+                        total_deleted += cleanup_result[0]["deleted"]
+                except Exception as e:
+                    logger.debug(f"Cleanup query for {label} failed (non-critical): {e}")
+            if total_deleted > 0:
+                logger.debug(f"Cleaned up {total_deleted} orphaned external nodes")
 
         except Exception as e:
             logger.warning(f"Failed to resolve internal calls: {e}")
