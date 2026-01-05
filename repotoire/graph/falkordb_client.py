@@ -156,6 +156,8 @@ class FalkorDBClient(DatabaseClient):
                 attempt += 1
                 if attempt > self.max_retries:
                     logger.error(f"Query failed after {self.max_retries} retries: {e}")
+                    logger.error(f"Failed query: {query}")  # Log full query
+                    logger.error(f"Failed params: {params}")  # Log params
                     raise
                 delay = self.retry_base_delay * (self.retry_backoff_factor ** (attempt - 1))
                 logger.warning(f"Query attempt {attempt} failed: {e}. Retrying in {delay:.1f}s...")
@@ -243,7 +245,10 @@ class FalkorDBClient(DatabaseClient):
         )
 
     def batch_create_nodes(self, entities: List[Entity]) -> Dict[str, str]:
-        """Create multiple nodes.
+        """Create multiple nodes using batched UNWIND queries.
+
+        Performance fix: Uses UNWIND to batch all nodes of a type in a single query
+        instead of one query per node. This reduces network round-trips from N to 1.
 
         Args:
             entities: List of entities to create
@@ -267,6 +272,8 @@ class FalkorDBClient(DatabaseClient):
 
             validated_node_type = validate_identifier(node_type, "node type")
 
+            # Build batch of node data
+            nodes_data = []
             for e in entities_of_type:
                 entity_dict = {
                     "name": e.name,
@@ -295,38 +302,72 @@ class FalkorDBClient(DatabaseClient):
                         elif val is not None:
                             entity_dict[attr] = val
 
-                # Use MERGE to handle re-ingestion without constraint violations
-                # File nodes use filePath as unique key, all others use qualifiedName
-                if node_type == "File":
-                    query = f"""
-                    MERGE (n:{validated_node_type} {{filePath: $filePath}})
-                    ON CREATE SET n = $props
-                    ON MATCH SET n += $props
-                    RETURN n.qualifiedName as qualifiedName
-                    """
-                else:
-                    query = f"""
-                    MERGE (n:{validated_node_type} {{qualifiedName: $qualifiedName}})
-                    ON CREATE SET n = $props
-                    ON MATCH SET n += $props
-                    RETURN n.qualifiedName as qualifiedName
-                    """
+                nodes_data.append(entity_dict)
 
-                params = {"qualifiedName": e.qualified_name, "props": entity_dict}
-                if node_type == "File":
-                    params["filePath"] = e.file_path
-                result = self.execute_query(query, params)
-                if result:
-                    id_mapping[e.qualified_name] = e.qualified_name
+            # Use UNWIND to batch all nodes in a single query
+            # File nodes use filePath as unique key, all others use qualifiedName
+            if node_type == "File":
+                query = f"""
+                UNWIND $nodes AS node
+                MERGE (n:{validated_node_type} {{filePath: node.filePath}})
+                ON CREATE SET n = node
+                ON MATCH SET n += node
+                RETURN n.qualifiedName as qualifiedName
+                """
+            else:
+                query = f"""
+                UNWIND $nodes AS node
+                MERGE (n:{validated_node_type} {{qualifiedName: node.qualifiedName}})
+                ON CREATE SET n = node
+                ON MATCH SET n += node
+                RETURN n.qualifiedName as qualifiedName
+                """
+
+            try:
+                result = self.execute_query(query, {"nodes": nodes_data})
+                for row in result:
+                    qn = row.get("qualifiedName")
+                    if qn:
+                        id_mapping[qn] = qn
+            except Exception as e:
+                # Fallback to individual queries if UNWIND fails
+                logger.warning(f"Batch UNWIND failed, falling back to individual queries: {e}")
+                for e_data in nodes_data:
+                    try:
+                        if node_type == "File":
+                            fallback_query = f"""
+                            MERGE (n:{validated_node_type} {{filePath: $filePath}})
+                            ON CREATE SET n = $props
+                            ON MATCH SET n += $props
+                            RETURN n.qualifiedName as qualifiedName
+                            """
+                            params = {"filePath": e_data["filePath"], "props": e_data}
+                        else:
+                            fallback_query = f"""
+                            MERGE (n:{validated_node_type} {{qualifiedName: $qualifiedName}})
+                            ON CREATE SET n = $props
+                            ON MATCH SET n += $props
+                            RETURN n.qualifiedName as qualifiedName
+                            """
+                            params = {"qualifiedName": e_data["qualifiedName"], "props": e_data}
+                        result = self.execute_query(fallback_query, params)
+                        if result:
+                            id_mapping[e_data["qualifiedName"]] = e_data["qualifiedName"]
+                    except Exception as inner_e:
+                        logger.warning(f"Failed to create node {e_data.get('qualifiedName')}: {inner_e}")
 
         logger.info(f"Created {len(id_mapping)} nodes")
         return id_mapping
 
     def batch_create_relationships(self, relationships: List[Relationship]) -> int:
-        """Create multiple relationships.
+        """Create multiple relationships using batched UNWIND queries.
+
+        Performance fix: Uses UNWIND to batch all relationships of a type in a single query
+        instead of one query per relationship. This reduces network round-trips from N to 1.
 
         KG-1 Fix: External nodes now get proper labels (BuiltinFunction, ExternalFunction, ExternalClass)
         KG-2 Fix: Uses MERGE instead of CREATE to prevent duplicate relationships
+        KG-3 Fix: Internal targets (with ::) use MATCH, not MERGE with External* label
 
         Args:
             relationships: List of relationships to create
@@ -334,11 +375,12 @@ class FalkorDBClient(DatabaseClient):
         Returns:
             Number of relationships created
         """
-        from repotoire.graph.external_labels import get_external_node_label
+        from repotoire.graph.external_labels import get_external_node_label, is_likely_external_reference
 
         if not relationships:
             return 0
 
+        # Group by relationship type first
         by_type: Dict[str, List[Relationship]] = {}
         for rel in relationships:
             assert isinstance(rel.rel_type, RelationshipType)
@@ -350,41 +392,99 @@ class FalkorDBClient(DatabaseClient):
         total_created = 0
 
         for rel_type, rels_of_type in by_type.items():
-            # KG-1 Fix: Group by external label for proper node creation
-            by_external_label: Dict[str, List[Relationship]] = {
+            # KG-3 Fix: Separate internal (target has ::) from external relationships
+            internal_rels: List[Dict] = []
+            by_external_label: Dict[str, List[Dict]] = {
                 "BuiltinFunction": [],
                 "ExternalFunction": [],
                 "ExternalClass": [],
             }
 
             for r in rels_of_type:
-                target_name = r.target_id.split(".")[-1] if "." in r.target_id else r.target_id.split("::")[-1]
-                external_label = get_external_node_label(target_name, r.target_id)
-                by_external_label[external_label].append(r)
-
-            # Process each external label group
-            for external_label, rels in by_external_label.items():
-                for r in rels:
+                # KG-3 Fix: Check if target is internal (has :: separator)
+                if not is_likely_external_reference(r.target_id):
+                    # Internal target - both source and target already exist
+                    internal_rels.append({
+                        "source_id": r.source_id,
+                        "target_id": r.target_id,
+                    })
+                else:
+                    # External target - need to MERGE the target node
                     target_name = r.target_id.split(".")[-1] if "." in r.target_id else r.target_id.split("::")[-1]
+                    external_label = get_external_node_label(target_name, r.target_id)
+                    by_external_label[external_label].append({
+                        "source_id": r.source_id,
+                        "target_id": r.target_id,
+                        "target_name": target_name,
+                    })
 
-                    # KG-1 Fix: MERGE with specific label for external nodes
-                    # KG-2 Fix: Use MERGE for relationships to prevent duplicates
-                    query = f"""
-                    MATCH (source {{qualifiedName: $source_id}})
-                    MERGE (target:{external_label} {{qualifiedName: $target_id}})
-                    ON CREATE SET target.name = $target_name, target.external = true
-                    MERGE (source)-[r:{rel_type}]->(target)
-                    """
+            # KG-3 Fix: Process internal relationships (MATCH both nodes)
+            if internal_rels:
+                query = f"""
+                UNWIND $rels AS rel
+                MATCH (source {{qualifiedName: rel.source_id}})
+                MATCH (target {{qualifiedName: rel.target_id}})
+                MERGE (source)-[r:{rel_type}]->(target)
+                RETURN count(r) as created
+                """
+                try:
+                    result = self.execute_query(query, {"rels": internal_rels})
+                    if result and len(result) > 0:
+                        created = result[0].get("created", 0)
+                        total_created += created
+                        logger.debug(f"Batch created {created} {rel_type} relationships (internal)")
+                except Exception as e:
+                    logger.warning(f"Batch UNWIND failed for internal {rel_type}, falling back: {e}")
+                    for rel_data in internal_rels:
+                        fallback_query = f"""
+                        MATCH (source {{qualifiedName: $source_id}})
+                        MATCH (target {{qualifiedName: $target_id}})
+                        MERGE (source)-[r:{rel_type}]->(target)
+                        """
+                        try:
+                            self.execute_query(fallback_query, rel_data)
+                            total_created += 1
+                        except Exception as inner_e:
+                            logger.debug(f"Failed to create internal relationship: {inner_e}")
 
-                    try:
-                        self.execute_query(query, {
-                            "source_id": r.source_id,
-                            "target_id": r.target_id,
-                            "target_name": target_name,
-                        })
-                        total_created += 1
-                    except Exception as e:
-                        logger.warning(f"Failed to create relationship: {e}")
+            # Process external relationships (MERGE target node with External* label)
+            for external_label, rels_data in by_external_label.items():
+                if not rels_data:
+                    continue
+
+                # Use UNWIND to batch all relationships of this type in a single query
+                # KG-1 Fix: MERGE with specific label for external nodes
+                # KG-2 Fix: Use MERGE for relationships to prevent duplicates
+                query = f"""
+                UNWIND $rels AS rel
+                MATCH (source {{qualifiedName: rel.source_id}})
+                MERGE (target:{external_label} {{qualifiedName: rel.target_id}})
+                ON CREATE SET target.name = rel.target_name, target.external = true
+                MERGE (source)-[r:{rel_type}]->(target)
+                RETURN count(r) as created
+                """
+
+                try:
+                    result = self.execute_query(query, {"rels": rels_data})
+                    if result and len(result) > 0:
+                        created = result[0].get("created", 0)
+                        total_created += created
+                        logger.debug(f"Batch created {created} {rel_type} relationships to {external_label} nodes")
+                except Exception as e:
+                    logger.warning(f"Batch UNWIND failed for {rel_type}->{external_label}, falling back to individual queries: {e}")
+                    # Fallback to individual queries if UNWIND fails
+                    for rel_data in rels_data:
+                        fallback_query = f"""
+                        MATCH (source {{qualifiedName: $source_id}})
+                        MERGE (target:{external_label} {{qualifiedName: $target_id}})
+                        ON CREATE SET target.name = $target_name, target.external = true
+                        MERGE (source)-[r:{rel_type}]->(target)
+                        """
+                        try:
+                            self.execute_query(fallback_query, rel_data)
+                            total_created += 1
+                        except Exception as inner_e:
+                            logger.warning(f"Failed to create relationship: {inner_e}")
 
         logger.info(f"Created {total_created} relationships")
         return total_created
