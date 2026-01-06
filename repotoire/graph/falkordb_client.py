@@ -356,7 +356,6 @@ class FalkorDBClient(DatabaseClient):
                     except Exception as inner_e:
                         logger.warning(f"Failed to create node {e_data.get('qualifiedName')}: {inner_e}")
 
-        logger.info(f"Created {len(id_mapping)} nodes")
         return id_mapping
 
     def batch_create_relationships(self, relationships: List[Relationship]) -> int:
@@ -486,7 +485,6 @@ class FalkorDBClient(DatabaseClient):
                         except Exception as inner_e:
                             logger.warning(f"Failed to create relationship: {inner_e}")
 
-        logger.info(f"Created {total_created} relationships")
         return total_created
 
     def clear_graph(self) -> None:
