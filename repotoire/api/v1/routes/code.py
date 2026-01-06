@@ -1,26 +1,29 @@
 """API routes for code Q&A and search."""
 
-import os
 import time
 from typing import Optional
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from openai import OpenAI
 
 from repotoire.api.models import (
+    ArchitectureResponse,
     CodeSearchRequest,
     CodeSearchResponse,
     CodeAskRequest,
     CodeAskResponse,
     EmbeddingsStatusResponse,
     CodeEntity,
-    ErrorResponse
+    ErrorResponse,
+    ModuleStats,
 )
 from repotoire.api.shared.auth import ClerkUser, get_current_user_or_api_key
 from repotoire.api.shared.middleware.usage import enforce_feature_for_api
 from repotoire.ai.retrieval import GraphRAGRetriever, RetrievalResult
 from repotoire.ai.embeddings import CodeEmbedder
 from repotoire.db.models import Organization
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph.base import DatabaseClient
+from repotoire.graph.tenant_factory import get_factory
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -28,26 +31,37 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/code", tags=["code"])
 
 
-# Dependency injection for Neo4j client
-def get_neo4j_client() -> Neo4jClient:
-    """Get Neo4j client instance."""
-    uri = os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7688")
-    password = os.getenv("REPOTOIRE_NEO4J_PASSWORD", "falkor-password")
-    return Neo4jClient(uri=uri, password=password)
+def get_graph_client_for_org(org: Organization) -> DatabaseClient:
+    """Get tenant-isolated graph client for the organization.
+
+    Uses the tenant factory to connect to the correct FalkorDB instance
+    with proper multi-tenant isolation.
+    """
+    factory = get_factory()
+    return factory.get_client(org_id=org.id, org_slug=org.slug)
 
 
 def get_embedder() -> CodeEmbedder:
-    """Get CodeEmbedder instance."""
-    return CodeEmbedder()
+    """Get CodeEmbedder instance.
+
+    Respects REPOTOIRE_EMBEDDING_BACKEND env var to force a specific backend.
+    """
+    import os
+    backend = os.getenv("REPOTOIRE_EMBEDDING_BACKEND", "auto")
+    return CodeEmbedder(backend=backend)
 
 
-def get_retriever(
-    client: Neo4jClient = Depends(get_neo4j_client),
-    embedder: CodeEmbedder = Depends(get_embedder)
+def get_retriever_for_org(
+    org: Organization,
+    embedder: CodeEmbedder,
 ) -> GraphRAGRetriever:
-    """Get GraphRAGRetriever instance."""
+    """Get GraphRAGRetriever instance for an organization.
+
+    Creates a tenant-isolated retriever using the org's graph client.
+    """
+    graph_client = get_graph_client_for_org(org)
     return GraphRAGRetriever(
-        neo4j_client=client,
+        client=graph_client,
         embedder=embedder
     )
 
@@ -84,7 +98,7 @@ def _retrieval_result_to_code_entity(result: RetrievalResult) -> CodeEntity:
 async def search_code(
     request: CodeSearchRequest,
     org: Organization = Depends(enforce_feature_for_api("api_access")),
-    retriever: GraphRAGRetriever = Depends(get_retriever)
+    embedder: CodeEmbedder = Depends(get_embedder),
 ) -> CodeSearchResponse:
     """
     Search codebase using hybrid vector + graph retrieval.
@@ -101,8 +115,11 @@ async def search_code(
     """
     start_time = time.time()
 
+    # Create org-isolated retriever
+    retriever = get_retriever_for_org(org, embedder)
+
     try:
-        logger.info(f"Code search request: {request.query}")
+        logger.info(f"Code search request: {request.query}", extra={"org_id": str(org.id)})
 
         # Perform hybrid retrieval
         results = retriever.retrieve(
@@ -148,7 +165,7 @@ async def search_code(
 async def ask_code_question(
     request: CodeAskRequest,
     org: Organization = Depends(enforce_feature_for_api("api_access")),
-    retriever: GraphRAGRetriever = Depends(get_retriever)
+    embedder: CodeEmbedder = Depends(get_embedder),
 ) -> CodeAskResponse:
     """
     Ask natural language questions about the codebase.
@@ -166,8 +183,11 @@ async def ask_code_question(
     """
     start_time = time.time()
 
+    # Create org-isolated retriever
+    retriever = get_retriever_for_org(org, embedder)
+
     try:
-        logger.info(f"Code Q&A request: {request.question}")
+        logger.info(f"Code Q&A request: {request.question}", extra={"org_id": str(org.id)})
 
         # Step 1: Retrieve relevant code
         retrieval_results = retriever.retrieve(
@@ -309,15 +329,17 @@ async def ask_code_question(
 )
 async def get_embeddings_status(
     org: Organization = Depends(enforce_feature_for_api("api_access")),
-    client: Neo4jClient = Depends(get_neo4j_client)
 ) -> EmbeddingsStatusResponse:
     """
     Get status of vector embeddings in the knowledge graph.
 
     Returns counts of total entities and how many have embeddings generated.
     """
+    # Get org-isolated graph client
+    client = get_graph_client_for_org(org)
+
     try:
-        logger.info("Fetching embeddings status")
+        logger.info("Fetching embeddings status", extra={"org_id": str(org.id)})
 
         # Count total entities
         total_query = """
@@ -365,3 +387,118 @@ async def get_embeddings_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve embeddings status."
         )
+    finally:
+        client.close()
+
+
+@router.get(
+    "/architecture",
+    response_model=ArchitectureResponse,
+    summary="Get codebase architecture",
+    description="Get an overview of the codebase architecture including modules, dependencies, and patterns. Requires Pro or Enterprise subscription.",
+    responses={
+        200: {"description": "Architecture overview retrieved successfully"},
+        403: {"model": ErrorResponse, "description": "Feature not available on current plan"},
+        500: {"model": ErrorResponse, "description": "Internal server error"}
+    }
+)
+async def get_architecture(
+    depth: int = 2,
+    org: Organization = Depends(enforce_feature_for_api("api_access")),
+) -> ArchitectureResponse:
+    """
+    Get codebase architecture overview.
+
+    Returns module statistics, detected patterns, and dependencies.
+    The depth parameter controls how deep into the directory structure to analyze.
+    """
+    # Get org-isolated graph client
+    client = get_graph_client_for_org(org)
+
+    try:
+        logger.info("Fetching architecture overview", extra={"org_id": str(org.id), "depth": depth})
+
+        # Query module/directory statistics from the graph
+        # Group by directory path at the specified depth
+        module_query = """
+        MATCH (f:File)
+        WITH f,
+             split(f.path, '/') as parts
+        WITH f,
+             CASE WHEN size(parts) > $depth THEN
+                 reduce(s='', i IN range(0, $depth - 1) | s + '/' + parts[i])
+             ELSE
+                 '/' + reduce(s='', p IN parts[0..-1] | s + '/' + p)
+             END as module_path
+        WITH module_path,
+             count(f) as file_count,
+             sum(CASE WHEN f.function_count IS NOT NULL THEN f.function_count ELSE 0 END) as total_functions,
+             sum(CASE WHEN f.class_count IS NOT NULL THEN f.class_count ELSE 0 END) as total_classes
+        WHERE module_path <> ''
+        RETURN module_path, file_count, total_functions, total_classes
+        ORDER BY file_count DESC
+        LIMIT 50
+        """
+
+        module_results = client.execute_query(module_query, {"depth": depth})
+
+        # Build modules dict
+        modules: dict[str, ModuleStats] = {}
+        for row in module_results:
+            path = row.get("module_path", "unknown").lstrip("/")
+            if path:
+                modules[path] = ModuleStats(
+                    file_count=row.get("file_count", 0),
+                    functions=row.get("total_functions", 0),
+                    classes=row.get("total_classes", 0),
+                )
+
+        # Query top-level dependencies (IMPORTS relationships)
+        dep_query = """
+        MATCH (f:File)-[:IMPORTS]->(m:Module)
+        WHERE NOT m.name STARTS WITH '.'
+        RETURN DISTINCT m.name as dependency
+        ORDER BY m.name
+        LIMIT 30
+        """
+
+        dep_results = client.execute_query(dep_query)
+        dependencies = [row["dependency"] for row in dep_results if row.get("dependency")]
+
+        # Detect patterns based on graph structure
+        patterns: list[str] = []
+
+        # Check for common patterns
+        pattern_checks = [
+            ("MATCH (c:Class)-[:INHERITS]->(:Class {name: 'BaseModel'}) RETURN count(c) as cnt",
+             "Pydantic Models", 3),
+            ("MATCH (f:File) WHERE f.path CONTAINS '/routes/' OR f.path CONTAINS '/api/' RETURN count(f) as cnt",
+             "REST API", 5),
+            ("MATCH (c:Class) WHERE c.name CONTAINS 'Repository' OR c.name CONTAINS 'DAO' RETURN count(c) as cnt",
+             "Repository Pattern", 2),
+            ("MATCH (f:File) WHERE f.path CONTAINS '/tests/' RETURN count(f) as cnt",
+             "Test Suite", 5),
+        ]
+
+        for query, pattern_name, threshold in pattern_checks:
+            try:
+                result = client.execute_query(query)
+                if result and result[0].get("cnt", 0) >= threshold:
+                    patterns.append(pattern_name)
+            except Exception:
+                pass  # Skip pattern detection on query errors
+
+        return ArchitectureResponse(
+            modules=modules,
+            patterns=patterns if patterns else None,
+            dependencies=dependencies if dependencies else None,
+        )
+
+    except Exception as e:
+        logger.error(f"Architecture retrieval error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve architecture overview."
+        )
+    finally:
+        client.close()
