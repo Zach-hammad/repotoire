@@ -1,10 +1,11 @@
 """API routes for code Q&A and search."""
 
+import asyncio
 import time
 from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from repotoire.api.models import (
     ArchitectureResponse,
@@ -223,8 +224,6 @@ async def ask_code_question(
         hot_rules_context = retriever.get_hot_rules_context(top_k=5)
 
         # Step 3: Generate answer with GPT-4o
-        client = OpenAI()
-
         # Build conversation messages
         messages = []
 
@@ -267,29 +266,37 @@ async def ask_code_question(
         messages.append({"role": "system", "content": system_message})
         messages.append({"role": "user", "content": request.question})
 
-        # Call OpenAI
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=messages,
-            temperature=0.3,
-            max_tokens=1000
+        # Call OpenAI - run main answer and follow-up questions in parallel
+        client = AsyncOpenAI()
+
+        async def generate_answer():
+            response = await client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                temperature=0.3,
+                max_tokens=1000
+            )
+            return response.choices[0].message.content
+
+        async def generate_follow_ups():
+            # Base follow-ups on question + context (not answer) to enable parallelism
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "Based on the code context, suggest 2-3 follow-up questions the user might want to ask. Just list the questions, one per line."},
+                    {"role": "user", "content": f"Question: {request.question}\n\nCode context summary: {context[:1000]}"}
+                ],
+                temperature=0.5,
+                max_tokens=100
+            )
+            text = response.choices[0].message.content
+            return [q.strip("- ").strip() for q in text.split("\n") if q.strip()]
+
+        # Run both in parallel
+        answer, follow_up_questions = await asyncio.gather(
+            generate_answer(),
+            generate_follow_ups()
         )
-
-        answer = response.choices[0].message.content
-
-        # Step 4: Generate follow-up questions
-        follow_up_response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "Generate 2-3 relevant follow-up questions based on the conversation."},
-                {"role": "user", "content": f"Question: {request.question}\nAnswer: {answer}"}
-            ],
-            temperature=0.5,
-            max_tokens=150
-        )
-
-        follow_up_text = follow_up_response.choices[0].message.content
-        follow_up_questions = [q.strip("- ").strip() for q in follow_up_text.split("\n") if q.strip()]
 
         # Convert sources
         sources = [_retrieval_result_to_code_entity(r) for r in retrieval_results[:5]]

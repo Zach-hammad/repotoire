@@ -1,0 +1,49 @@
+{
+  "name": "repotoire-mcp",
+  "version": "0.1.3",
+  "description": "Repotoire MCP server for Claude Code, Cursor, and other AI agents",
+  "author": "Repotoire <support@repotoire.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/repotoire/repotoire.git",
+    "directory": "packages/mcp-server"
+  },
+  "homepage": "https://repotoire.com",
+  "bugs": {
+    "url": "https://github.com/repotoire/repotoire/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "claude-code",
+    "cursor",
+    "ai",
+    "code-analysis",
+    "repotoire"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "repotoire-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
