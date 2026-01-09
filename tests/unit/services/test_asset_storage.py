@@ -1,6 +1,5 @@
 """Unit tests for asset storage service."""
 
-import asyncio
 import gzip
 import io
 import json
@@ -26,11 +25,6 @@ from repotoire.api.services.asset_storage import (
     is_storage_configured,
 )
 from repotoire.db.models.marketplace import AssetType
-
-
-def run_async(coro):
-    """Helper to run async coroutines in sync tests."""
-    return asyncio.get_event_loop().run_until_complete(coro)
 
 
 # =============================================================================
@@ -309,16 +303,17 @@ class TestAssetStorageService:
                 service._client = mock_s3_client
                 return service
 
-    def test_upload_version(self, storage_service, mock_s3_client):
+    @pytest.mark.asyncio
+    async def test_upload_version(self, storage_service, mock_s3_client):
         """Test uploading a version."""
         content = b"test tarball content"
 
-        result = run_async(storage_service.upload_version(
+        result = await storage_service.upload_version(
             publisher_slug="acme",
             asset_slug="review",
             version="1.0.0",
             content=content,
-        ))
+        )
 
         assert isinstance(result, UploadResult)
         assert result.url == "assets/@acme/review/1.0.0.tar.gz"
@@ -326,86 +321,96 @@ class TestAssetStorageService:
         assert result.size == len(content)
         mock_s3_client.put_object.assert_called_once()
 
-    def test_download_version(self, storage_service, mock_s3_client):
+    @pytest.mark.asyncio
+    async def test_download_version(self, storage_service, mock_s3_client):
         """Test downloading a version."""
         mock_s3_client.get_object.return_value = {
             "Body": MagicMock(read=lambda: b"tarball data")
         }
 
-        data = run_async(storage_service.download_version("acme", "review", "1.0.0"))
+        data = await storage_service.download_version("acme", "review", "1.0.0")
 
         assert data == b"tarball data"
         mock_s3_client.get_object.assert_called_once()
 
-    def test_download_version_not_found(self, storage_service, mock_s3_client):
+    @pytest.mark.asyncio
+    async def test_download_version_not_found(self, storage_service, mock_s3_client):
         """Test downloading non-existent version."""
         mock_s3_client.get_object.side_effect = Exception("NoSuchKey")
 
         with pytest.raises(AssetNotFoundError):
-            run_async(storage_service.download_version("acme", "review", "9.9.9"))
+            await storage_service.download_version("acme", "review", "9.9.9")
 
-    def test_get_presigned_url(self, storage_service, mock_s3_client):
+    @pytest.mark.asyncio
+    async def test_get_presigned_url(self, storage_service, mock_s3_client):
         """Test generating presigned URL."""
         mock_s3_client.generate_presigned_url.return_value = "https://presigned.url/path"
 
-        url = run_async(storage_service.get_presigned_url("acme", "review", "1.0.0"))
+        url = await storage_service.get_presigned_url("acme", "review", "1.0.0")
 
         assert url == "https://presigned.url/path"
         mock_s3_client.generate_presigned_url.assert_called_once()
 
-    def test_get_presigned_url_custom_expiry(self, storage_service, mock_s3_client):
+    @pytest.mark.asyncio
+    async def test_get_presigned_url_custom_expiry(self, storage_service, mock_s3_client):
         """Test presigned URL with custom expiry."""
         mock_s3_client.generate_presigned_url.return_value = "https://url"
 
-        run_async(storage_service.get_presigned_url("acme", "review", "1.0.0", expires_in=7200))
+        await storage_service.get_presigned_url("acme", "review", "1.0.0", expires_in=7200)
 
         call_kwargs = mock_s3_client.generate_presigned_url.call_args
         assert call_kwargs[1]["ExpiresIn"] == 7200
 
-    def test_delete_version(self, storage_service, mock_s3_client):
+    @pytest.mark.asyncio
+    async def test_delete_version(self, storage_service, mock_s3_client):
         """Test deleting a version."""
-        run_async(storage_service.delete_version("acme", "review", "1.0.0"))
+        await storage_service.delete_version("acme", "review", "1.0.0")
 
         mock_s3_client.delete_object.assert_called_once()
 
-    def test_upload_icon(self, storage_service, mock_s3_client):
+    @pytest.mark.asyncio
+    async def test_upload_icon(self, storage_service, mock_s3_client):
         """Test uploading an icon."""
         image_bytes = b"PNG image data"
 
-        key = run_async(storage_service.upload_icon(
+        key = await storage_service.upload_icon(
             asset_id="abc123",
             image_bytes=image_bytes,
             content_type="image/png",
-        ))
+        )
 
         assert key == "icons/abc123.png"
         mock_s3_client.put_object.assert_called_once()
         call_kwargs = mock_s3_client.put_object.call_args[1]
         assert call_kwargs["CacheControl"] == "public, max-age=31536000, immutable"
 
-    def test_delete_icon(self, storage_service, mock_s3_client):
+    @pytest.mark.asyncio
+    async def test_delete_icon(self, storage_service, mock_s3_client):
         """Test deleting an icon."""
-        run_async(storage_service.delete_icon("abc123"))
+        await storage_service.delete_icon("abc123")
 
         mock_s3_client.delete_object.assert_called_once()
 
-    def test_version_exists_true(self, storage_service, mock_s3_client):
+    @pytest.mark.asyncio
+    async def test_version_exists_true(self, storage_service, mock_s3_client):
         """Test version_exists returns True when exists."""
         mock_s3_client.head_object.return_value = {}
 
-        exists = run_async(storage_service.version_exists("acme", "review", "1.0.0"))
+        exists = await storage_service.version_exists("acme", "review", "1.0.0")
 
         assert exists is True
 
-    def test_version_exists_false(self, storage_service, mock_s3_client):
+    @pytest.mark.asyncio
+    async def test_version_exists_false(self, storage_service, mock_s3_client):
         """Test version_exists returns False when not found."""
         mock_s3_client.head_object.side_effect = Exception("Not found")
 
-        exists = run_async(storage_service.version_exists("acme", "review", "9.9.9"))
+        exists = await storage_service.version_exists("acme", "review", "9.9.9")
 
         assert exists is False
 
-    def test_get_version_metadata(self, storage_service, mock_s3_client):
+    @pytest.mark.asyncio
+    async def test_get_version_metadata(self, storage_service, mock_s3_client):
         """Test getting version metadata."""
         mock_s3_client.head_object.return_value = {
             "ContentLength": 12345,
@@ -414,7 +419,7 @@ class TestAssetStorageService:
             "Metadata": {"checksum": "abc123"},
         }
 
-        meta = run_async(storage_service.get_version_metadata("acme", "review", "1.0.0"))
+        meta = await storage_service.get_version_metadata("acme", "review", "1.0.0")
 
         assert meta["size"] == 12345
         assert meta["content_type"] == "application/gzip"
