@@ -997,11 +997,11 @@ def _get_fix_hash(fix: FixProposal) -> str:
     return hashlib.md5(content.encode()).hexdigest()[:16]
 
 
-def _get_preview_cache():
+async def _get_preview_cache():
     """Lazy import to avoid circular dependency."""
     from repotoire.cache import get_preview_cache
 
-    return get_preview_cache
+    return await get_preview_cache()
 
 
 @router.post(
