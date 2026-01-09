@@ -222,7 +222,11 @@ def validate_module(code: str, module_name: str, file_path: str, project_root: s
             parts = parent_dir.split(os.sep)
             current = ""
             for part in parts:
+                if not part:  # Skip empty parts (from leading /)
+                    continue
                 current = os.path.join(current, part) if current else part
+                # Ensure directory exists before creating __init__.py
+                os.makedirs(current, exist_ok=True)
                 init_file = os.path.join(current, "__init__.py")
                 if not os.path.exists(init_file):
                     open(init_file, "w").close()
