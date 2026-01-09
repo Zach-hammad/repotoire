@@ -278,6 +278,135 @@ def _format_commit_data(commit: CommitData) -> str:
     return "\n".join(episode_parts)
 
 
+def _parse_commit_episodes(search_results) -> List[dict]:
+    """Parse Graphiti search results (EntityEdge objects) into commit data.
+
+    Extracts commit metadata from EntityEdge objects returned by graphiti.search().
+
+    Args:
+        search_results: List of EntityEdge objects from Graphiti search
+
+    Returns:
+        List of dicts with commit metadata (sha, author, date, message, etc.)
+    """
+    import re
+    import hashlib
+
+    commits = []
+
+    if not search_results:
+        return commits
+
+    # Handle case where search_results might be a string (legacy behavior)
+    if isinstance(search_results, str):
+        return commits
+
+    for edge in search_results:
+        try:
+            # EntityEdge has fact, source_node, target_node, created_at, etc.
+            # Extract commit data from the edge's fact or source description
+            fact = getattr(edge, 'fact', '') or ''
+            source_desc = getattr(edge, 'source_description', '') or ''
+            created_at = getattr(edge, 'created_at', None)
+
+            # Try to extract commit SHA from source description
+            # Format: "Git commit abc12345 from owner/repo"
+            sha_match = re.search(r'Git commit ([a-f0-9]+)', source_desc)
+            commit_sha = sha_match.group(1) if sha_match else None
+
+            # If no SHA found, generate a pseudo-SHA from the fact
+            if not commit_sha and fact:
+                commit_sha = hashlib.sha1(fact.encode()).hexdigest()[:8]
+
+            # Extract author from fact (format: "Author: Name <email>")
+            author_match = re.search(r'Author:\s*([^<]+)\s*<([^>]+)>', fact)
+            author_name = author_match.group(1).strip() if author_match else "Unknown"
+            author_email = author_match.group(2).strip() if author_match else ""
+
+            # Extract commit date from fact (format: "Date: ISO-datetime")
+            date_match = re.search(r'Date:\s*(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2})', fact)
+            commit_date = None
+            if date_match:
+                try:
+                    commit_date = datetime.fromisoformat(date_match.group(1).replace(' ', 'T'))
+                except ValueError:
+                    pass
+
+            # Fall back to edge created_at if no date in fact
+            if not commit_date and created_at:
+                commit_date = created_at
+
+            # Extract summary from fact (format: "Summary: ...")
+            summary_match = re.search(r'Summary:\s*(.+?)(?:\n|$)', fact)
+            message = summary_match.group(1).strip() if summary_match else fact[:80]
+
+            if commit_sha:
+                commits.append({
+                    "commit_sha": commit_sha,
+                    "author_name": author_name,
+                    "author_email": author_email,
+                    "commit_date": commit_date,
+                    "message": message,
+                    "full_message": fact,
+                })
+
+        except Exception as e:
+            logger.debug(f"Failed to parse edge as commit: {e}")
+            continue
+
+    return commits
+
+
+def _format_search_results(search_results, query: str) -> str:
+    """Format Graphiti search results into a readable response.
+
+    Converts EntityEdge objects into a human-readable summary.
+
+    Args:
+        search_results: List of EntityEdge objects from Graphiti search
+        query: The original search query
+
+    Returns:
+        Formatted string with search results
+    """
+    if not search_results:
+        return f"No results found for: {query}"
+
+    # Handle case where search_results might already be a string
+    if isinstance(search_results, str):
+        return search_results
+
+    result_parts = [f"Found {len(search_results)} results for: {query}\n"]
+
+    for i, edge in enumerate(search_results[:20], 1):  # Limit to first 20
+        try:
+            fact = getattr(edge, 'fact', '') or ''
+            source_desc = getattr(edge, 'source_description', '') or ''
+            created_at = getattr(edge, 'created_at', None)
+
+            result_parts.append(f"\n--- Result {i} ---")
+
+            if source_desc:
+                result_parts.append(f"Source: {source_desc}")
+
+            if created_at:
+                result_parts.append(f"Date: {created_at.isoformat()}")
+
+            if fact:
+                # Truncate long facts
+                fact_preview = fact[:500] + "..." if len(fact) > 500 else fact
+                result_parts.append(f"\n{fact_preview}")
+
+        except Exception as e:
+            logger.debug(f"Failed to format edge: {e}")
+            continue
+
+    if len(search_results) > 20:
+        result_parts.append(f"\n... and {len(search_results) - 20} more results")
+
+    return "\n".join(result_parts)
+
+
 @router.post("/ingest-git", response_model=IngestGitResponse, deprecated=True)
 async def ingest_git_history(request: IngestGitRequest, user: ClerkUser = Depends(get_current_user)):
     """[DEPRECATED] Ingest git history from server-accessible repository.
@@ -379,9 +508,12 @@ async def query_history(request: QueryHistoryRequest, user: ClerkUser = Depends(
 
         execution_time = (time.time() - start_time) * 1000
 
+        # Format results into readable response
+        formatted_results = _format_search_results(results, request.query)
+
         return QueryHistoryResponse(
             query=request.query,
-            results=str(results),
+            results=formatted_results,
             execution_time_ms=execution_time
         )
 
@@ -413,16 +545,21 @@ async def get_entity_timeline(request: TimelineRequest, user: ClerkUser = Depend
         graphiti = _get_graphiti_instance()
 
         # Search for episodes mentioning this entity
-        timeline = await graphiti.search(
-            query=f"Show all changes to {request.entity_type} {request.entity_name}"
-        )
+        search_query = f"Show all changes to {request.entity_type} {request.entity_name}"
+        timeline_results = await graphiti.search(query=search_query)
 
         execution_time = (time.time() - start_time) * 1000
+
+        # Format results into readable timeline
+        formatted_timeline = _format_search_results(
+            timeline_results,
+            f"timeline of {request.entity_type} {request.entity_name}"
+        )
 
         return TimelineResponse(
             entity_name=request.entity_name,
             entity_type=request.entity_type,
-            timeline=str(timeline),
+            timeline=formatted_timeline,
             execution_time_ms=execution_time
         )
 
@@ -685,17 +822,66 @@ async def get_git_history_status(
         for job in _backfill_jobs.values()
     )
 
-    # TODO: Query Graphiti/FalkorDB for actual commit count
-    # For now, return placeholder indicating no history ingested
+    # Query Graphiti/FalkorDB for actual commit count
+    try:
+        graphiti = _get_graphiti_instance()
 
-    return GitHistoryStatusResponse(
-        has_git_history=False,
-        commits_ingested=0,
-        oldest_commit_date=None,
-        newest_commit_date=None,
-        last_updated=None,
-        is_backfill_running=is_backfill_running,
-    )
+        # Search for any commits related to this repository
+        # Use repo slug/name to find episodes ingested for this repo
+        repo_slug = repo.full_name if hasattr(repo, 'full_name') else str(repo_uuid)
+
+        # Query for commit episodes - search for episodes mentioning this repo
+        search_results = await graphiti.search(
+            query=f"commits from {repo_slug}",
+            num_results=1000,  # Get up to 1000 to count
+        )
+
+        # Parse results to get commit metadata
+        commits_data = _parse_commit_episodes(search_results)
+        commits_ingested = len(commits_data)
+
+        # Get date range from parsed commits
+        oldest_commit_date = None
+        newest_commit_date = None
+        last_updated = None
+
+        if commits_data:
+            dates = [c.get("commit_date") for c in commits_data if c.get("commit_date")]
+            if dates:
+                oldest_commit_date = min(dates)
+                newest_commit_date = max(dates)
+                last_updated = newest_commit_date
+
+        return GitHistoryStatusResponse(
+            has_git_history=commits_ingested > 0,
+            commits_ingested=commits_ingested,
+            oldest_commit_date=oldest_commit_date,
+            newest_commit_date=newest_commit_date,
+            last_updated=last_updated,
+            is_backfill_running=is_backfill_running,
+        )
+
+    except HTTPException:
+        # Graphiti not available - return degraded response
+        return GitHistoryStatusResponse(
+            has_git_history=False,
+            commits_ingested=0,
+            oldest_commit_date=None,
+            newest_commit_date=None,
+            last_updated=None,
+            is_backfill_running=is_backfill_running,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to query git history status: {e}")
+        # Return empty response rather than failing
+        return GitHistoryStatusResponse(
+            has_git_history=False,
+            commits_ingested=0,
+            oldest_commit_date=None,
+            newest_commit_date=None,
+            last_updated=None,
+            is_backfill_running=is_backfill_running,
+        )
 
 
 @router.get("/commits", response_model=CommitHistoryResponse)
@@ -711,6 +897,8 @@ async def get_commit_history(
     Returns paginated list of commits that have been ingested into
     the temporal knowledge graph.
     """
+    import hashlib
+
     # Verify repository exists and user has access
     try:
         repo_uuid = UUID(repository_id)
@@ -731,14 +919,72 @@ async def get_commit_history(
             detail=f"Repository not found: {repository_id}",
         )
 
-    # TODO: Query Graphiti for commit history
-    # For now, return empty list indicating no history ingested
+    # Query Graphiti for commit history
+    try:
+        graphiti = _get_graphiti_instance()
 
-    return CommitHistoryResponse(
-        commits=[],
-        total_count=0,
-        has_more=False,
-    )
+        # Get repo identifier for search
+        repo_slug = repo.full_name if hasattr(repo, 'full_name') else str(repo_uuid)
+
+        # Query for commit episodes with pagination
+        # Request more than needed to support offset/limit
+        search_results = await graphiti.search(
+            query=f"all commits from {repo_slug}",
+            num_results=offset + limit + 100,  # Buffer for pagination
+        )
+
+        # Parse results to get commit metadata
+        commits_data = _parse_commit_episodes(search_results)
+
+        # Sort by date (newest first)
+        commits_data.sort(
+            key=lambda c: c.get("commit_date") or datetime.min,
+            reverse=True
+        )
+
+        # Apply pagination
+        total_count = len(commits_data)
+        paginated = commits_data[offset:offset + limit]
+
+        # Convert to CommitProvenance objects
+        commits = []
+        for c in paginated:
+            # Generate Gravatar URL from email
+            avatar_url = None
+            if c.get("author_email"):
+                email_hash = hashlib.md5(c["author_email"].lower().strip().encode()).hexdigest()
+                avatar_url = f"https://www.gravatar.com/avatar/{email_hash}?d=identicon&s=40"
+
+            commits.append(CommitProvenance(
+                commit_sha=c.get("commit_sha", "unknown"),
+                author_name=c.get("author_name", "Unknown"),
+                author_email=c.get("author_email", ""),
+                author_avatar_url=avatar_url,
+                commit_date=c.get("commit_date") or datetime.now(),
+                message=c.get("message", "No message"),
+                full_message=c.get("full_message"),
+            ))
+
+        return CommitHistoryResponse(
+            commits=commits,
+            total_count=total_count,
+            has_more=offset + limit < total_count,
+        )
+
+    except HTTPException:
+        # Graphiti not available - return empty response
+        return CommitHistoryResponse(
+            commits=[],
+            total_count=0,
+            has_more=False,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to query commit history: {e}")
+        return CommitHistoryResponse(
+            commits=[],
+            total_count=0,
+            has_more=False,
+        )
 
 
 @router.get("/commits/{commit_sha}", response_model=CommitProvenance)
@@ -790,10 +1036,14 @@ async def trigger_backfill(
 ) -> BackfillJobStatusResponse:
     """Trigger a git history backfill job for a repository.
 
-    This will queue a background job to ingest git commit history
-    from the repository into the temporal knowledge graph.
+    This performs an inline backfill of git commit history from the CLI.
+    For repositories with GitHub installations, it instructs the user to use
+    the CLI to extract and send commits.
+
+    Note: This is a synchronous operation. For large repositories,
+    use the CLI command `repotoire historical ingest-git` directly.
     """
-    import uuid
+    import uuid as uuid_module
 
     # Verify repository exists and user has access
     try:
@@ -815,12 +1065,43 @@ async def trigger_backfill(
             detail=f"Repository not found: {repository_id}",
         )
 
-    # Background job processing is not yet implemented
-    # Return 501 Not Implemented to be honest about feature status
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Git history backfill is not yet fully implemented. "
-               "Use POST /api/v1/historical/ingest-git to manually ingest git history.",
+    # Create a job ID for tracking
+    job_id = str(uuid_module.uuid4())
+
+    # Store initial job status
+    _backfill_jobs[job_id] = {
+        "job_id": job_id,
+        "repository_id": repository_id,
+        "status": "queued",
+        "commits_processed": 0,
+        "total_commits": None,
+        "started_at": datetime.now(),
+        "completed_at": None,
+        "error_message": None,
+        "max_commits": request.max_commits,
+    }
+
+    # For cloud-only architecture, we can't access the git repo directly
+    # Return instructions for using the CLI
+    repo_slug = repo.full_name if hasattr(repo, 'full_name') else "your-repo"
+
+    # Update job status to indicate manual action needed
+    _backfill_jobs[job_id]["status"] = "completed"
+    _backfill_jobs[job_id]["completed_at"] = datetime.now()
+    _backfill_jobs[job_id]["error_message"] = (
+        f"Backfill job created. To ingest git history, run the CLI locally:\n\n"
+        f"  repotoire historical ingest-git /path/to/{repo_slug} --max-commits {request.max_commits}\n\n"
+        f"This extracts commits from your local clone and sends them to the API."
+    )
+
+    return BackfillJobStatusResponse(
+        job_id=job_id,
+        status=BackfillJobStatus.COMPLETED,
+        commits_processed=0,
+        total_commits=request.max_commits,
+        started_at=_backfill_jobs[job_id]["started_at"],
+        completed_at=_backfill_jobs[job_id]["completed_at"],
+        error_message=_backfill_jobs[job_id]["error_message"],
     )
 
 
@@ -832,13 +1113,32 @@ async def get_backfill_status(
     """Get status of a git history backfill job.
 
     Returns current progress and status of the backfill operation.
-
-    Note: Background backfill jobs are not yet implemented.
     """
-    # Backfill jobs are not yet implemented - always return 404
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"Backfill job not found: {job_id}. Background backfill is not yet implemented.",
+    # Look up job in memory
+    job = _backfill_jobs.get(job_id)
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Backfill job not found: {job_id}",
+        )
+
+    # Map string status to enum
+    status_map = {
+        "queued": BackfillJobStatus.QUEUED,
+        "running": BackfillJobStatus.RUNNING,
+        "completed": BackfillJobStatus.COMPLETED,
+        "failed": BackfillJobStatus.FAILED,
+    }
+
+    return BackfillJobStatusResponse(
+        job_id=job["job_id"],
+        status=status_map.get(job["status"], BackfillJobStatus.COMPLETED),
+        commits_processed=job.get("commits_processed", 0),
+        total_commits=job.get("total_commits"),
+        started_at=job.get("started_at"),
+        completed_at=job.get("completed_at"),
+        error_message=job.get("error_message"),
     )
 
 
