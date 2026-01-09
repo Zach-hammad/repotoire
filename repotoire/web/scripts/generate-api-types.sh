@@ -96,15 +96,12 @@ echo -e "📝 Generating TypeScript types..."
 cd "$WEB_DIR"
 npx openapi-typescript "$SPEC_FILE" -o "$OUTPUT_FILE"
 
-# Add header comment
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+# Add header comment (no timestamp to avoid CI diffs)
 HEADER="/**
  * AUTO-GENERATED FILE - DO NOT EDIT DIRECTLY
  *
  * This file is generated from the FastAPI OpenAPI spec.
  * Run \`npm run generate:types\` to regenerate.
- *
- * Generated: ${TIMESTAMP}
  */
 
 "

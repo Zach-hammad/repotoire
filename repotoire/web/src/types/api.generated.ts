@@ -3,8 +3,6 @@
  *
  * This file is generated from the FastAPI OpenAPI spec.
  * Run `npm run generate:types` to regenerate.
- *
- * Generated: 2026-01-09T14:05:33Z
  */
 
 
