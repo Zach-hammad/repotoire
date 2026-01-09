@@ -25,11 +25,20 @@ except ImportError:
 NEIGHBOR_SAMPLER_AVAILABLE = False
 if TORCH_AVAILABLE:
     try:
-        from torch_geometric.loader import NeighborSampler
-        # Try to instantiate to verify dependencies
+        from torch_geometric.loader import NeighborLoader
+        # Create a minimal graph to test if NeighborLoader works
+        # (NeighborLoader replaced NeighborSampler in newer PyG versions)
+        test_data = Data(
+            x=torch.randn(10, 4),
+            edge_index=torch.tensor([[0, 1], [1, 0]]).long(),
+        )
+        # Try to instantiate loader - this will fail if pyg-lib/torch-sparse missing
+        loader = NeighborLoader(test_data, num_neighbors=[2], batch_size=2)
+        # Try to iterate - this actually triggers the dependency check
+        next(iter(loader))
         NEIGHBOR_SAMPLER_AVAILABLE = True
     except (ImportError, Exception):
-        # NeighborSampler requires pyg-lib or torch-sparse
+        # NeighborLoader requires pyg-lib or torch-sparse for sampling
         NEIGHBOR_SAMPLER_AVAILABLE = False
 
 
