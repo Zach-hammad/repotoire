@@ -4,6 +4,7 @@ These tests use an in-memory SQLite database to test the repository
 pattern without requiring a PostgreSQL connection.
 """
 
+import uuid
 from datetime import datetime
 from uuid import uuid4
 
@@ -30,6 +31,7 @@ from sqlalchemy.pool import StaticPool
 
 from repotoire.db.models.base import Base
 from repotoire.db.models.fix import Fix, FixComment, FixConfidence, FixStatus, FixType
+from repotoire.db.models.finding import Finding, FindingSeverity, FindingStatus
 from repotoire.db.models.user import User
 from repotoire.db.models.organization import Organization, PlanTier
 from repotoire.db.models.repository import Repository
@@ -140,9 +142,21 @@ def _create_sqlite_compatible_schema() -> MetaData:
         Column("analysis_run_id", String(36), ForeignKey("analysis_runs.id"), nullable=False),
         Column("detector", String(100), nullable=False),
         Column("severity", String(50), nullable=False),
+        Column("status", String(50), nullable=False, default="open"),
         Column("title", String(500), nullable=False),
         Column("description", Text, nullable=False),
+        Column("affected_files", JSON, nullable=False, default=[]),  # Use JSON for SQLite
+        Column("affected_nodes", JSON, nullable=False, default=[]),  # Use JSON for SQLite
+        Column("line_start", Integer, nullable=True),
+        Column("line_end", Integer, nullable=True),
+        Column("suggested_fix", Text, nullable=True),
+        Column("estimated_effort", String(100), nullable=True),
+        Column("graph_context", JSON, nullable=True),  # JSON for SQLite
+        Column("status_reason", Text, nullable=True),
+        Column("status_changed_by", String(255), nullable=True),
+        Column("status_changed_at", DateTime(timezone=True), nullable=True),
         Column("created_at", DateTime(timezone=True), server_default=func.now()),
+        Column("updated_at", DateTime(timezone=True), server_default=func.now()),
     )
 
     # Fixes table (using JSON instead of JSONB for SQLite)
@@ -1127,3 +1141,352 @@ async def test_get_stats_by_analysis_run(
     assert stats["by_confidence"]["high"] == 1
     assert stats["by_confidence"]["medium"] == 1
     assert stats["by_confidence"]["low"] == 1
+
+
+# =============================================================================
+# Data Consistency Tests
+# =============================================================================
+
+
+@pytest_asyncio.fixture
+async def sample_finding(
+    async_session: AsyncSession,
+    sample_analysis_run: AnalysisRun,
+) -> Finding:
+    """Create a sample finding using raw SQL with consistent UUID format.
+
+    SQLAlchemy stores UUIDs as hex strings without hyphens in SQLite.
+    We must match this format for JOINs to work correctly.
+    """
+    from sqlalchemy import text
+
+    finding_id = uuid4()
+    # SQLAlchemy's UUID type stores as hex without hyphens in SQLite
+    finding_id_hex = finding_id.hex
+
+    # Use raw SQL with the same UUID format that SQLAlchemy ORM uses
+    await async_session.execute(
+        text("""
+            INSERT INTO findings (
+                id, analysis_run_id, detector, severity, status,
+                title, description, affected_files, affected_nodes
+            ) VALUES (
+                :id, :analysis_run_id, :detector, :severity, :status,
+                :title, :description, :affected_files, :affected_nodes
+            )
+        """),
+        {
+            "id": finding_id_hex,  # Hex without hyphens to match ORM format
+            "analysis_run_id": sample_analysis_run.id.hex,  # Also hex format
+            "detector": "test_detector",
+            "severity": "high",
+            "status": "open",
+            "title": "Test Finding",
+            "description": "A test finding",
+            "affected_files": '["test.py"]',
+            "affected_nodes": '[]',
+        },
+    )
+    await async_session.flush()
+
+    # Return a Finding-like object with UUID id for test compatibility
+    class MockFinding:
+        def __init__(self):
+            self.id = finding_id
+            self.status = "open"
+
+    return MockFinding()
+
+
+@pytest.mark.asyncio
+async def test_find_orphaned_returns_fixes_without_finding(
+    fix_repository: FixRepository,
+    async_session: AsyncSession,
+    sample_analysis_run: AnalysisRun,
+):
+    """Test that find_orphaned returns fixes with NULL finding_id."""
+    # Create a fix without a finding (orphaned)
+    orphan_fix = await fix_repository.create(
+        analysis_run_id=sample_analysis_run.id,
+        file_path="orphan.py",
+        original_code="old",
+        fixed_code="new",
+        title="Orphan Fix",
+        description="Test",
+        explanation="Test",
+        fix_type=FixType.REFACTOR,
+        confidence=FixConfidence.HIGH,
+        confidence_score=0.9,
+        finding_id=None,  # Explicitly no finding
+    )
+
+    orphans = await fix_repository.find_orphaned()
+
+    assert len(orphans) == 1
+    assert orphans[0].id == orphan_fix.id
+
+
+@pytest.mark.asyncio
+async def test_find_orphaned_excludes_fixes_with_finding(
+    fix_repository: FixRepository,
+    async_session: AsyncSession,
+    sample_analysis_run: AnalysisRun,
+    sample_finding: Finding,
+):
+    """Test that find_orphaned excludes fixes that have a finding."""
+    # Create a fix WITH a finding (not orphaned)
+    await fix_repository.create(
+        analysis_run_id=sample_analysis_run.id,
+        file_path="linked.py",
+        original_code="old",
+        fixed_code="new",
+        title="Linked Fix",
+        description="Test",
+        explanation="Test",
+        fix_type=FixType.REFACTOR,
+        confidence=FixConfidence.HIGH,
+        confidence_score=0.9,
+        finding_id=sample_finding.id,
+    )
+
+    orphans = await fix_repository.find_orphaned()
+
+    assert len(orphans) == 0
+
+
+@pytest.mark.asyncio
+async def test_find_status_mismatches_detects_applied_with_open_finding(
+    fix_repository: FixRepository,
+    async_session: AsyncSession,
+    sample_analysis_run: AnalysisRun,
+    sample_finding: Finding,
+):
+    """Test that find_status_mismatches finds applied fixes with non-resolved findings."""
+    # Create a fix linked to the finding
+    fix = await fix_repository.create(
+        analysis_run_id=sample_analysis_run.id,
+        file_path="mismatch.py",
+        original_code="old",
+        fixed_code="new",
+        title="Mismatch Fix",
+        description="Test",
+        explanation="Test",
+        fix_type=FixType.REFACTOR,
+        confidence=FixConfidence.HIGH,
+        confidence_score=0.9,
+        finding_id=sample_finding.id,
+    )
+
+    # Manually set fix to APPLIED (bypassing normal status transitions for test)
+    fix.status = FixStatus.APPLIED
+    async_session.add(fix)
+    await async_session.commit()
+
+    # Finding is still OPEN (not RESOLVED) - this is a mismatch
+    mismatches = await fix_repository.find_status_mismatches()
+
+    assert len(mismatches) == 1
+    assert mismatches[0][0].id == fix.id
+    assert "APPLIED" in mismatches[0][1]
+
+
+@pytest.mark.asyncio
+async def test_sync_finding_status_on_apply(
+    fix_repository: FixRepository,
+    async_session: AsyncSession,
+    sample_analysis_run: AnalysisRun,
+    sample_finding: Finding,
+):
+    """Test that sync_finding_status_on_apply updates finding to RESOLVED."""
+    # Create a fix linked to the finding
+    fix = await fix_repository.create(
+        analysis_run_id=sample_analysis_run.id,
+        file_path="sync.py",
+        original_code="old",
+        fixed_code="new",
+        title="Sync Fix",
+        description="Test",
+        explanation="Test",
+        fix_type=FixType.REFACTOR,
+        confidence=FixConfidence.HIGH,
+        confidence_score=0.9,
+        finding_id=sample_finding.id,
+    )
+
+    # Sync finding status
+    result = await fix_repository.sync_finding_status_on_apply(
+        fix_id=fix.id,
+        changed_by="test_user",
+    )
+
+    assert result is True
+
+    # Verify finding was updated using raw SQL (MockFinding can't use ORM refresh)
+    from sqlalchemy import text
+    check_result = await async_session.execute(
+        text("SELECT status, status_changed_by FROM findings WHERE id = :id"),
+        {"id": sample_finding.id.hex},
+    )
+    row = check_result.mappings().one()
+    assert row["status"] == "resolved"
+    assert "test_user" in (row["status_changed_by"] or "")
+
+
+@pytest.mark.asyncio
+async def test_sync_finding_status_on_apply_returns_false_for_orphan(
+    fix_repository: FixRepository,
+    sample_analysis_run: AnalysisRun,
+):
+    """Test that sync_finding_status_on_apply returns False for orphaned fixes."""
+    # Create an orphaned fix
+    fix = await fix_repository.create(
+        analysis_run_id=sample_analysis_run.id,
+        file_path="orphan.py",
+        original_code="old",
+        fixed_code="new",
+        title="Orphan Fix",
+        description="Test",
+        explanation="Test",
+        fix_type=FixType.REFACTOR,
+        confidence=FixConfidence.HIGH,
+        confidence_score=0.9,
+        finding_id=None,
+    )
+
+    result = await fix_repository.sync_finding_status_on_apply(fix.id)
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_delete_orphaned_removes_old_orphans(
+    fix_repository: FixRepository,
+    async_session: AsyncSession,
+    sample_analysis_run: AnalysisRun,
+):
+    """Test that delete_orphaned removes orphans older than max_age_days."""
+    from datetime import timedelta
+
+    # Create an orphaned fix
+    fix = await fix_repository.create(
+        analysis_run_id=sample_analysis_run.id,
+        file_path="old_orphan.py",
+        original_code="old",
+        fixed_code="new",
+        title="Old Orphan",
+        description="Test",
+        explanation="Test",
+        fix_type=FixType.REFACTOR,
+        confidence=FixConfidence.HIGH,
+        confidence_score=0.9,
+        finding_id=None,
+    )
+
+    # Manually set created_at to 60 days ago
+    fix.created_at = datetime.utcnow() - timedelta(days=60)
+    async_session.add(fix)
+    await async_session.commit()
+
+    # Delete orphans older than 30 days
+    deleted_count = await fix_repository.delete_orphaned(max_age_days=30)
+
+    assert deleted_count == 1
+
+    # Verify it's gone
+    orphans = await fix_repository.find_orphaned()
+    assert len(orphans) == 0
+
+
+@pytest.mark.asyncio
+async def test_delete_orphaned_keeps_recent_orphans(
+    fix_repository: FixRepository,
+    sample_analysis_run: AnalysisRun,
+):
+    """Test that delete_orphaned keeps orphans newer than max_age_days."""
+    # Create a recent orphaned fix
+    await fix_repository.create(
+        analysis_run_id=sample_analysis_run.id,
+        file_path="recent_orphan.py",
+        original_code="old",
+        fixed_code="new",
+        title="Recent Orphan",
+        description="Test",
+        explanation="Test",
+        fix_type=FixType.REFACTOR,
+        confidence=FixConfidence.HIGH,
+        confidence_score=0.9,
+        finding_id=None,
+    )
+
+    # Delete orphans older than 30 days (this should keep the recent one)
+    deleted_count = await fix_repository.delete_orphaned(max_age_days=30)
+
+    assert deleted_count == 0
+
+    # Verify it's still there
+    orphans = await fix_repository.find_orphaned()
+    assert len(orphans) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_consistency_stats(
+    fix_repository: FixRepository,
+    async_session: AsyncSession,
+    sample_analysis_run: AnalysisRun,
+    sample_finding: Finding,
+):
+    """Test get_consistency_stats returns correct counts."""
+    # Create an orphaned fix
+    await fix_repository.create(
+        analysis_run_id=sample_analysis_run.id,
+        file_path="orphan.py",
+        original_code="old",
+        fixed_code="new",
+        title="Orphan",
+        description="Test",
+        explanation="Test",
+        fix_type=FixType.REFACTOR,
+        confidence=FixConfidence.HIGH,
+        confidence_score=0.9,
+        finding_id=None,
+    )
+
+    # Create a fix with status mismatch
+    fix = await fix_repository.create(
+        analysis_run_id=sample_analysis_run.id,
+        file_path="mismatch.py",
+        original_code="old",
+        fixed_code="new",
+        title="Mismatch",
+        description="Test",
+        explanation="Test",
+        fix_type=FixType.REFACTOR,
+        confidence=FixConfidence.HIGH,
+        confidence_score=0.9,
+        finding_id=sample_finding.id,
+    )
+    # Set to APPLIED but finding is still OPEN
+    fix.status = FixStatus.APPLIED
+    async_session.add(fix)
+    await async_session.commit()
+
+    stats = await fix_repository.get_consistency_stats()
+
+    assert stats["orphaned_fixes"] == 1
+    assert stats["status_mismatches"] == 1
+    assert stats["needs_attention"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_consistency_stats_no_issues(
+    fix_repository: FixRepository,
+    sample_analysis_run: AnalysisRun,
+):
+    """Test get_consistency_stats returns no issues when data is consistent."""
+    # Create a normal fix with a finding (if we had one)
+    # For this test, just verify empty state is consistent
+    stats = await fix_repository.get_consistency_stats()
+
+    assert stats["orphaned_fixes"] == 0
+    assert stats["status_mismatches"] == 0
+    assert stats["needs_attention"] is False

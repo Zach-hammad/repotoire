@@ -891,6 +891,14 @@ async def apply_fix(
     # Mark as applied in database
     fix = await repo.update_status(fix_uuid, FixStatus.APPLIED)
 
+    # Sync finding status to RESOLVED (maintains data consistency)
+    finding_synced = await repo.sync_finding_status_on_apply(
+        fix_id=fix_uuid,
+        changed_by=user.user_id,
+    )
+    if finding_synced:
+        logger.info(f"Synced finding status to RESOLVED for fix {fix_id}")
+
     return {"data": _fix_to_dict(fix), "success": True}
 
 
@@ -1551,6 +1559,14 @@ class GenerateFixesResponse(BaseModel):
     task_id: Optional[str] = Field(default=None, description="Celery task ID if queued")
 
 
+class ConsistencyStatsResponse(BaseModel):
+    """Response with data consistency statistics."""
+
+    orphaned_fixes: int = Field(..., description="Fixes with NULL finding_id")
+    status_mismatches: int = Field(..., description="Applied fixes where finding is not resolved")
+    needs_attention: bool = Field(..., description="Whether any consistency issues exist")
+
+
 @router.post("/generate/{analysis_run_id}")
 async def generate_fixes(
     analysis_run_id: str,
@@ -1623,4 +1639,144 @@ async def generate_fixes(
             status="error",
             message=f"Failed to queue task: {str(e)}",
             task_id=None,
+        )
+
+
+@router.get(
+    "/consistency/stats",
+    response_model=ConsistencyStatsResponse,
+    summary="Get data consistency statistics",
+    description="""
+Get statistics about data consistency between fixes and findings.
+
+**What This Shows:**
+- `orphaned_fixes`: Fixes where the linked finding was deleted (finding_id is NULL)
+- `status_mismatches`: Fixes marked as APPLIED but finding is not RESOLVED
+- `needs_attention`: True if any consistency issues exist
+
+**Use Cases:**
+- Monitor data health in production
+- Identify issues before they cause user-facing problems
+- Verify that sync tasks are working correctly
+
+**Note:** This is an admin/monitoring endpoint. Orphaned fixes older than 30 days
+are automatically cleaned up by the scheduled `cleanup_orphaned_fixes` task.
+    """,
+    responses={
+        200: {"description": "Consistency stats retrieved successfully"},
+    },
+)
+async def get_consistency_stats(
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ConsistencyStatsResponse:
+    """Get data consistency statistics for fixes and findings."""
+    repo = FixRepository(db)
+    stats = await repo.get_consistency_stats()
+
+    return ConsistencyStatsResponse(
+        orphaned_fixes=stats["orphaned_fixes"],
+        status_mismatches=stats["status_mismatches"],
+        needs_attention=stats["needs_attention"],
+    )
+
+
+@router.post(
+    "/consistency/sync",
+    summary="Trigger status sync for mismatches",
+    description="""
+Trigger a background task to sync status mismatches between fixes and findings.
+
+This finds all cases where a fix is APPLIED but the linked finding is not
+RESOLVED, and updates the finding status to RESOLVED.
+
+**When to Use:**
+- After discovering status mismatches via `/consistency/stats`
+- When migrating data from an older version
+- To repair inconsistencies caused by bugs
+
+**Note:** The sync is done asynchronously. Check the task status via the
+returned task_id.
+    """,
+    responses={
+        200: {"description": "Sync task queued successfully"},
+        500: {"description": "Failed to queue sync task"},
+    },
+)
+async def trigger_consistency_sync(
+    user: ClerkUser = Depends(get_current_user),
+) -> dict:
+    """Trigger background task to sync status mismatches."""
+    try:
+        from repotoire.workers.hooks import sync_fix_finding_status_mismatches
+
+        task = sync_fix_finding_status_mismatches.delay()
+
+        logger.info(
+            f"Queued status sync task",
+            extra={"task_id": task.id, "user_id": user.user_id},
+        )
+
+        return {
+            "status": "queued",
+            "message": "Status sync task queued",
+            "task_id": task.id,
+        }
+
+    except Exception as e:
+        logger.exception(f"Failed to queue status sync: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to queue sync task: {str(e)}",
+        )
+
+
+@router.post(
+    "/consistency/cleanup",
+    summary="Trigger orphan cleanup",
+    description="""
+Trigger a background task to clean up orphaned fixes.
+
+Orphaned fixes are those where the linked finding was deleted (finding_id is NULL).
+This task deletes orphaned fixes that are older than 30 days.
+
+**When to Use:**
+- After discovering orphaned fixes via `/consistency/stats`
+- During scheduled maintenance
+- After bulk finding deletions
+
+**Note:** The cleanup is done asynchronously. Check the task status via the
+returned task_id.
+    """,
+    responses={
+        200: {"description": "Cleanup task queued successfully"},
+        500: {"description": "Failed to queue cleanup task"},
+    },
+)
+async def trigger_orphan_cleanup(
+    user: ClerkUser = Depends(get_current_user),
+    max_age_days: int = Query(30, ge=1, le=365, description="Only delete orphans older than this many days"),
+) -> dict:
+    """Trigger background task to clean up orphaned fixes."""
+    try:
+        from repotoire.workers.hooks import cleanup_orphaned_fixes
+
+        task = cleanup_orphaned_fixes.delay(max_age_days=max_age_days)
+
+        logger.info(
+            f"Queued orphan cleanup task",
+            extra={"task_id": task.id, "user_id": user.user_id, "max_age_days": max_age_days},
+        )
+
+        return {
+            "status": "queued",
+            "message": f"Cleanup task queued (max_age_days={max_age_days})",
+            "task_id": task.id,
+        }
+
+    except Exception as e:
+        logger.exception(f"Failed to queue orphan cleanup: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to queue cleanup task: {str(e)}",
         )

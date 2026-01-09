@@ -1807,3 +1807,179 @@ def _store_fix(
 
     session.add(fix)
     session.commit()
+
+
+# =============================================================================
+# Data Consistency Tasks
+# =============================================================================
+
+
+@celery_app.task(
+    name="repotoire.workers.hooks.cleanup_orphaned_fixes",
+    soft_time_limit=120,
+    time_limit=180,
+)
+def cleanup_orphaned_fixes(
+    max_age_days: int = 30,
+    batch_size: int = 100,
+) -> dict[str, Any]:
+    """Clean up orphaned fixes (fixes with NULL finding_id).
+
+    Orphaned fixes occur when:
+    - A finding is deleted but ondelete="SET NULL" leaves the fix behind
+    - Manual data cleanup removed findings but not associated fixes
+
+    This task should be scheduled to run periodically (e.g., daily).
+
+    Args:
+        max_age_days: Only delete orphans older than this many days (default 30).
+        batch_size: Maximum number to delete per run (default 100).
+
+    Returns:
+        dict with cleanup statistics.
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import func
+
+    log = logger.bind(task="cleanup_orphaned_fixes")
+    log.info("starting_orphan_cleanup", max_age_days=max_age_days, batch_size=batch_size)
+
+    try:
+        with get_sync_session() as session:
+            # Count orphaned fixes
+            orphan_count_result = session.execute(
+                select(func.count())
+                .select_from(FixDB)
+                .where(FixDB.finding_id.is_(None))
+            )
+            orphan_count = orphan_count_result.scalar() or 0
+
+            # Count status mismatches (applied fixes with non-resolved findings)
+            mismatch_count_result = session.execute(
+                select(func.count())
+                .select_from(FixDB)
+                .join(FindingDB, FixDB.finding_id == FindingDB.id)
+                .where(FixDB.status == FixStatusDB.APPLIED)
+                .where(FindingDB.status != FindingDB.status.type.python_type.RESOLVED)
+            )
+            mismatch_count = mismatch_count_result.scalar() or 0
+
+            log.info(
+                "consistency_stats",
+                orphaned=orphan_count,
+                mismatches=mismatch_count,
+            )
+
+            # Find and delete old orphans
+            cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+            orphans_result = session.execute(
+                select(FixDB)
+                .where(FixDB.finding_id.is_(None))
+                .where(FixDB.created_at < cutoff)
+                .limit(batch_size)
+            )
+            orphans = list(orphans_result.scalars().all())
+
+            deleted_count = 0
+            for fix in orphans:
+                session.delete(fix)
+                deleted_count += 1
+
+            # Commit handled by context manager
+
+        log.info("orphan_cleanup_complete", deleted=deleted_count)
+
+        return {
+            "status": "completed",
+            "deleted_count": deleted_count,
+            "orphaned_before": orphan_count,
+            "status_mismatches": mismatch_count,
+        }
+
+    except Exception as e:
+        log.exception("orphan_cleanup_error", error=str(e))
+        return {
+            "status": "failed",
+            "error": str(e),
+        }
+
+
+@celery_app.task(
+    name="repotoire.workers.hooks.sync_fix_finding_status_mismatches",
+    soft_time_limit=300,
+    time_limit=360,
+)
+def sync_fix_finding_status_mismatches(
+    batch_size: int = 100,
+) -> dict[str, Any]:
+    """Sync status mismatches between fixes and findings.
+
+    Finds cases where a fix is APPLIED but the linked finding
+    is not RESOLVED, and updates the finding status.
+
+    This repairs data inconsistencies that may have occurred
+    before the automatic sync was implemented.
+
+    Args:
+        batch_size: Maximum number to process per run (default 100).
+
+    Returns:
+        dict with sync statistics.
+    """
+    from repotoire.db.models.finding import FindingStatus as FindingStatusEnum
+
+    log = logger.bind(task="sync_status_mismatches")
+    log.info("starting_status_sync", batch_size=batch_size)
+
+    try:
+        with get_sync_session() as session:
+            # Find applied fixes where finding is not resolved
+            mismatches_result = session.execute(
+                select(FixDB, FindingDB)
+                .join(FindingDB, FixDB.finding_id == FindingDB.id)
+                .where(FixDB.status == FixStatusDB.APPLIED)
+                .where(FindingDB.status != FindingStatusEnum.RESOLVED)
+                .limit(batch_size)
+            )
+            rows = list(mismatches_result.all())
+
+            log.info("found_mismatches", count=len(rows))
+
+            synced_count = 0
+            for fix, finding in rows:
+                try:
+                    # Update finding status to resolved
+                    finding.status = FindingStatusEnum.RESOLVED
+                    finding.status_reason = f"Resolved by applying fix {fix.id}"
+                    finding.status_changed_by = "system:status_sync"
+                    finding.status_changed_at = datetime.now(timezone.utc)
+                    synced_count += 1
+                    log.debug(
+                        "synced_finding_status",
+                        fix_id=str(fix.id),
+                        finding_id=str(finding.id),
+                    )
+                except Exception as e:
+                    log.warning(
+                        "sync_failed",
+                        fix_id=str(fix.id),
+                        error=str(e),
+                    )
+
+            # Commit handled by context manager
+
+        log.info("status_sync_complete", synced=synced_count)
+
+        return {
+            "status": "completed",
+            "mismatches_found": len(rows),
+            "synced_count": synced_count,
+        }
+
+    except Exception as e:
+        log.exception("status_sync_error", error=str(e))
+        return {
+            "status": "failed",
+            "error": str(e),
+        }

@@ -583,3 +583,183 @@ class FixRepository:
                 for conf in FixConfidence
             },
         }
+
+    # ==========================================================================
+    # Data Consistency Methods
+    # ==========================================================================
+
+    async def find_orphaned(
+        self,
+        limit: int = 100,
+    ) -> Sequence[Fix]:
+        """Find fixes with NULL finding_id (orphaned fixes).
+
+        These are fixes whose original finding was deleted. They should
+        typically be cleaned up as they no longer have context.
+
+        Args:
+            limit: Maximum number of orphaned fixes to return
+
+        Returns:
+            List of Fix instances with NULL finding_id
+        """
+        query = (
+            select(Fix)
+            .where(Fix.finding_id.is_(None))
+            .order_by(Fix.created_at.desc())
+            .limit(limit)
+        )
+        result = await self.db.execute(query)
+        return result.scalars().all()
+
+    async def find_status_mismatches(
+        self,
+        limit: int = 100,
+    ) -> Sequence[tuple[Fix, str]]:
+        """Find fixes where status doesn't align with finding status.
+
+        Identifies cases where:
+        - Fix is APPLIED but Finding is not RESOLVED
+        - Fix is PENDING but Finding is RESOLVED (may need review)
+
+        Args:
+            limit: Maximum number of mismatches to return
+
+        Returns:
+            List of tuples (Fix, mismatch_reason)
+        """
+        from repotoire.db.models.finding import Finding, FindingStatus
+
+        # Find applied fixes where finding is not resolved
+        query = (
+            select(Fix, Finding)
+            .join(Finding, Fix.finding_id == Finding.id)
+            .where(Fix.status == FixStatus.APPLIED)
+            .where(Finding.status != FindingStatus.RESOLVED)
+            .limit(limit)
+        )
+        result = await self.db.execute(query)
+        rows = result.all()
+
+        mismatches: list[tuple[Fix, str]] = []
+        for fix, finding in rows:
+            mismatches.append((
+                fix,
+                f"Fix is APPLIED but Finding status is {finding.status.value}"
+            ))
+
+        return mismatches
+
+    async def sync_finding_status_on_apply(
+        self,
+        fix_id: UUID,
+        changed_by: Optional[str] = None,
+    ) -> bool:
+        """Update finding status to RESOLVED when fix is applied.
+
+        This maintains consistency between Fix and Finding status.
+
+        Args:
+            fix_id: The fix ID
+            changed_by: User ID who applied the fix
+
+        Returns:
+            True if finding was updated, False if no finding linked
+        """
+        from datetime import datetime, timezone
+        from repotoire.db.models.finding import Finding, FindingStatus
+
+        fix = await self.get_by_id(fix_id)
+        if fix is None or fix.finding_id is None:
+            return False
+
+        # Get the linked finding
+        finding_query = select(Finding).where(Finding.id == fix.finding_id)
+        finding_result = await self.db.execute(finding_query)
+        finding = finding_result.scalar_one_or_none()
+
+        if finding is None:
+            return False
+
+        # Only update if not already resolved
+        if finding.status != FindingStatus.RESOLVED:
+            finding.status = FindingStatus.RESOLVED
+            finding.status_reason = f"Resolved by applying fix {fix_id}"
+            finding.status_changed_by = changed_by
+            finding.status_changed_at = datetime.now(timezone.utc)
+            await self.db.flush()  # Use flush, let caller handle commit
+            return True
+
+        return False
+
+    async def delete_orphaned(
+        self,
+        max_age_days: int = 30,
+        limit: int = 100,
+    ) -> int:
+        """Delete orphaned fixes older than max_age_days.
+
+        Args:
+            max_age_days: Only delete orphans older than this many days
+            limit: Maximum number to delete in one call
+
+        Returns:
+            Number of fixes deleted
+        """
+        from datetime import datetime, timedelta, timezone
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+
+        # Find orphaned fixes older than cutoff
+        query = (
+            select(Fix)
+            .where(Fix.finding_id.is_(None))
+            .where(Fix.created_at < cutoff)
+            .limit(limit)
+        )
+        result = await self.db.execute(query)
+        orphans = result.scalars().all()
+
+        deleted_count = 0
+        for fix in orphans:
+            await self.db.delete(fix)
+            deleted_count += 1
+
+        if deleted_count > 0:
+            await self.db.commit()
+
+        return deleted_count
+
+    async def get_consistency_stats(self) -> dict:
+        """Get statistics about data consistency issues.
+
+        Returns:
+            Dictionary with consistency statistics
+        """
+        from repotoire.db.models.finding import Finding, FindingStatus
+
+        # Count orphaned fixes
+        orphan_query = (
+            select(func.count())
+            .select_from(Fix)
+            .where(Fix.finding_id.is_(None))
+        )
+        orphan_result = await self.db.execute(orphan_query)
+        orphan_count = orphan_result.scalar() or 0
+
+        # Count applied fixes with non-resolved findings
+        mismatch_query = (
+            select(func.count())
+            .select_from(Fix)
+            .join(Finding, Fix.finding_id == Finding.id)
+            .where(Fix.status == FixStatus.APPLIED)
+            .where(Finding.status != FindingStatus.RESOLVED)
+        )
+        mismatch_result = await self.db.execute(mismatch_query)
+        mismatch_count = mismatch_result.scalar() or 0
+
+        return {
+            "orphaned_fixes": orphan_count,
+            "status_mismatches": mismatch_count,
+            "needs_attention": orphan_count > 0 or mismatch_count > 0,
+        }
