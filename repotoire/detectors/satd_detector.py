@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.logging_config import get_logger
 from repotoire.models import CollaborationMetadata, Finding, Severity
@@ -82,14 +82,14 @@ class SATDDetector(CodeSmellDetector):
 
     def __init__(
         self,
-        neo4j_client: Neo4jClient,
+        graph_client: FalkorDBClient,
         detector_config: Optional[Dict] = None,
         enricher: Optional[GraphEnricher] = None,
     ):
         """Initialize SATD detector.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
             detector_config: Configuration dictionary with:
                 - repository_path: Path to repository root (required)
                 - max_findings: Maximum findings to report
@@ -97,7 +97,7 @@ class SATDDetector(CodeSmellDetector):
                 - file_extensions: Extensions to scan
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
 
         config = detector_config or {}
         self.repository_path = Path(config.get("repository_path", "."))

@@ -360,21 +360,21 @@ async def readiness_check():
         all_healthy = False
         logger.warning(f"Redis health check failed: {e}")
 
-    # Check Neo4j
+    # Check FalkorDB
     try:
         from repotoire.graph.factory import create_client
 
         client = create_client()
         client.verify_connectivity()
-        checks["neo4j"] = True
+        checks["falkordb"] = True
         client.close()
     except ImportError:
-        checks["neo4j"] = "skipped"
+        checks["falkordb"] = "skipped"
     except Exception as e:
-        checks["neo4j"] = False
-        checks["neo4j_error"] = str(e)
+        checks["falkordb"] = False
+        checks["falkordb_error"] = str(e)
         all_healthy = False
-        logger.warning(f"Neo4j health check failed: {e}")
+        logger.warning(f"FalkorDB health check failed: {e}")
 
     status_code = 200 if all_healthy else 503
     return JSONResponse(

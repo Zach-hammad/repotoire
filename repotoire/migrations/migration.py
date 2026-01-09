@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 
 
 class MigrationError(Exception):
@@ -38,11 +38,11 @@ class Migration(ABC):
         pass
 
     @abstractmethod
-    def up(self, client: Neo4jClient) -> None:
+    def up(self, client: FalkorDBClient) -> None:
         """Apply the migration.
 
         Args:
-            client: Neo4j database client
+            client: FalkorDB database client
 
         Raises:
             MigrationError: If migration fails
@@ -50,24 +50,24 @@ class Migration(ABC):
         pass
 
     @abstractmethod
-    def down(self, client: Neo4jClient) -> None:
+    def down(self, client: FalkorDBClient) -> None:
         """Rollback the migration.
 
         Args:
-            client: Neo4j database client
+            client: FalkorDB database client
 
         Raises:
             MigrationError: If rollback fails
         """
         pass
 
-    def validate(self, client: Neo4jClient) -> bool:
+    def validate(self, client: FalkorDBClient) -> bool:
         """Validate that the migration can be safely applied.
 
         Override this method to add custom validation logic.
 
         Args:
-            client: Neo4j database client
+            client: FalkorDB database client
 
         Returns:
             True if migration can be safely applied

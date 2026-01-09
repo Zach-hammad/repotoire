@@ -18,7 +18,7 @@ from typing import List, Dict, Any, Optional
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.models import CollaborationMetadata, Finding, Severity
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -27,8 +27,8 @@ logger = get_logger(__name__)
 class RuffImportDetector(CodeSmellDetector):
     """Detects unused imports using ruff with graph-based enrichment."""
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict[str, Any]] = None, enricher: Optional[GraphEnricher] = None):
-        super().__init__(neo4j_client)
+    def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[Dict[str, Any]] = None, enricher: Optional[GraphEnricher] = None):
+        super().__init__(graph_client)
         config = detector_config or {}
         self.repository_path = config.get("repository_path", ".")
         self.enricher = enricher  # Graph enrichment for cross-detector collaboration

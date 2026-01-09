@@ -2,7 +2,7 @@
 
 import re
 from repotoire.migrations.migration import Migration, MigrationError
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -19,7 +19,7 @@ class InitialSchemaMigration(Migration):
     def description(self) -> str:
         return "Initial schema with constraints and indexes for File, Module, Class, Function, Concept nodes"
 
-    def validate(self, client: Neo4jClient) -> bool:
+    def validate(self, client: FalkorDBClient) -> bool:
         """Validate database is accessible and empty or has no conflicting schema."""
         try:
             # Check database connectivity
@@ -40,7 +40,7 @@ class InitialSchemaMigration(Migration):
         except Exception as e:
             raise MigrationError(f"Validation failed: {e}")
 
-    def up(self, client: Neo4jClient) -> None:
+    def up(self, client: FalkorDBClient) -> None:
         """Create initial schema constraints and indexes."""
         logger.info("Creating initial schema constraints and indexes")
 
@@ -148,7 +148,7 @@ class InitialSchemaMigration(Migration):
 
         logger.info("Initial schema created successfully")
 
-    def down(self, client: Neo4jClient) -> None:
+    def down(self, client: FalkorDBClient) -> None:
         """Drop all schema constraints and indexes."""
         logger.info("Rolling back initial schema")
 

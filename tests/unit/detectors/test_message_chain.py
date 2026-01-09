@@ -16,7 +16,7 @@ class TestMessageChainDetector:
     def mock_client(self):
         """Create a mock database client."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         return client
 
     @pytest.fixture
@@ -319,7 +319,7 @@ class TestMessageChainDetectorWithEnricher:
     def mock_client(self):
         """Create a mock database client."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         return client
 
     @pytest.fixture
@@ -380,7 +380,7 @@ class TestEdgeCases:
     def mock_client(self):
         """Create a mock database client."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         return client
 
     @pytest.fixture

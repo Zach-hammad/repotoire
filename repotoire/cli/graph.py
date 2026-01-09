@@ -1,7 +1,7 @@
 """Graph database management CLI commands.
 
-This module provides CLI commands for managing tenant graph storage,
-including provisioning, deprovisioning, and viewing statistics.
+This module provides CLI commands for managing tenant graph storage
+in FalkorDB, including provisioning, deprovisioning, and viewing statistics.
 
 Usage:
     repotoire graph provision <org_id> --slug <slug>
@@ -37,19 +37,14 @@ def graph():
     "--slug",
     "-s",
     required=True,
-    help="Organization slug for naming the graph/database",
+    help="Organization slug for naming the graph",
 )
-@click.option(
-    "--backend",
-    type=click.Choice(["neo4j", "falkordb"]),
-    default=None,
-    help="Graph database backend (defaults to REPOTOIRE_DB_TYPE env var or 'neo4j')",
-)
-def provision(org_id: str, slug: str, backend: str | None):
+def provision(org_id: str, slug: str):
     """Provision graph storage for an organization.
 
-    Creates a new graph (FalkorDB) or database (Neo4j Enterprise) for
-    the specified organization.
+    Creates a new graph in FalkorDB for the specified organization.
+    Note: FalkorDB graphs are created automatically on first use,
+    so this command primarily validates the configuration.
 
     ORG_ID: UUID of the organization
 
@@ -62,11 +57,7 @@ def provision(org_id: str, slug: str, backend: str | None):
         console.print(f"[red]Error:[/red] Invalid UUID format: {org_id}")
         raise click.Abort()
 
-    factory_kwargs = {}
-    if backend:
-        factory_kwargs["backend"] = backend
-
-    factory = GraphClientFactory(**factory_kwargs)
+    factory = GraphClientFactory()
 
     with console.status(f"Provisioning graph for {slug}..."):
         graph_name = asyncio.run(factory.provision_tenant(parsed_org_id, slug))
@@ -75,8 +66,7 @@ def provision(org_id: str, slug: str, backend: str | None):
         f"[green]Graph provisioned successfully![/green]\n\n"
         f"Organization ID: {org_id}\n"
         f"Organization Slug: {slug}\n"
-        f"Graph/Database Name: [cyan]{graph_name}[/cyan]\n"
-        f"Backend: {factory.backend}",
+        f"Graph Name: [cyan]{graph_name}[/cyan]",
         title="Graph Provisioned",
         border_style="green",
     ))
@@ -91,17 +81,11 @@ def provision(org_id: str, slug: str, backend: str | None):
     help="Organization slug",
 )
 @click.option(
-    "--backend",
-    type=click.Choice(["neo4j", "falkordb"]),
-    default=None,
-    help="Graph database backend",
-)
-@click.option(
     "--confirm",
     is_flag=True,
     help="Confirm deletion without prompting",
 )
-def deprovision(org_id: str, slug: str, backend: str | None, confirm: bool):
+def deprovision(org_id: str, slug: str, confirm: bool):
     """Remove graph storage for an organization.
 
     WARNING: This permanently deletes ALL graph data for the organization!
@@ -130,11 +114,7 @@ def deprovision(org_id: str, slug: str, backend: str | None, confirm: bool):
             console.print("[yellow]Aborted.[/yellow]")
             raise click.Abort()
 
-    factory_kwargs = {}
-    if backend:
-        factory_kwargs["backend"] = backend
-
-    factory = GraphClientFactory(**factory_kwargs)
+    factory = GraphClientFactory()
 
     with console.status(f"Deprovisioning graph for {slug}..."):
         asyncio.run(factory.deprovision_tenant(parsed_org_id, slug))
@@ -149,13 +129,7 @@ def deprovision(org_id: str, slug: str, backend: str | None, confirm: bool):
     "-s",
     help="Organization slug (optional, uses UUID prefix if not provided)",
 )
-@click.option(
-    "--backend",
-    type=click.Choice(["neo4j", "falkordb"]),
-    default=None,
-    help="Graph database backend",
-)
-def stats(org_id: str, slug: str | None, backend: str | None):
+def stats(org_id: str, slug: str | None):
     """Show graph statistics for an organization.
 
     ORG_ID: UUID of the organization
@@ -169,11 +143,7 @@ def stats(org_id: str, slug: str | None, backend: str | None):
         console.print(f"[red]Error:[/red] Invalid UUID format: {org_id}")
         raise click.Abort()
 
-    factory_kwargs = {}
-    if backend:
-        factory_kwargs["backend"] = backend
-
-    factory = GraphClientFactory(**factory_kwargs)
+    factory = GraphClientFactory()
 
     try:
         with console.status("Connecting to graph..."):
@@ -203,18 +173,11 @@ def stats(org_id: str, slug: str | None, backend: str | None):
     console.print(table)
 
     # Show client info
-    console.print(f"\n[dim]Backend: {factory.backend}[/dim]")
-    console.print(f"[dim]Multi-tenant: {client.is_multi_tenant}[/dim]")
+    console.print(f"\n[dim]Host: {factory.falkordb_host}:{factory.falkordb_port}[/dim]")
 
 
 @graph.command()
-@click.option(
-    "--backend",
-    type=click.Choice(["neo4j", "falkordb"]),
-    default=None,
-    help="Graph database backend",
-)
-def list_cached(backend: str | None):
+def list_cached():
     """List currently cached graph clients.
 
     Shows all organizations with active graph connections in the factory cache.
@@ -222,11 +185,7 @@ def list_cached(backend: str | None):
     Example:
         repotoire graph list-cached
     """
-    factory_kwargs = {}
-    if backend:
-        factory_kwargs["backend"] = backend
-
-    factory = get_factory(**factory_kwargs)
+    factory = get_factory()
 
     cached_orgs = factory.get_cached_org_ids()
 
@@ -252,13 +211,7 @@ def list_cached(backend: str | None):
 
 
 @graph.command()
-@click.option(
-    "--backend",
-    type=click.Choice(["neo4j", "falkordb"]),
-    default=None,
-    help="Graph database backend",
-)
-def close_all(backend: str | None):
+def close_all():
     """Close all cached graph clients.
 
     Releases all database connections held by the factory cache.
@@ -267,11 +220,7 @@ def close_all(backend: str | None):
     Example:
         repotoire graph close-all
     """
-    factory_kwargs = {}
-    if backend:
-        factory_kwargs["backend"] = backend
-
-    factory = get_factory(**factory_kwargs)
+    factory = get_factory()
 
     count = len(factory.get_cached_org_ids())
 
@@ -291,21 +240,15 @@ def close_all(backend: str | None):
     help="Organization slug",
 )
 @click.option(
-    "--backend",
-    type=click.Choice(["neo4j", "falkordb"]),
-    default=None,
-    help="Graph database backend",
-)
-@click.option(
     "--confirm",
     is_flag=True,
     help="Confirm without prompting",
 )
-def clear(org_id: str, slug: str | None, backend: str | None, confirm: bool):
+def clear(org_id: str, slug: str | None, confirm: bool):
     """Clear all data in an organization's graph.
 
     WARNING: This deletes all nodes and relationships in the graph!
-    The graph/database itself remains, only the data is deleted.
+    The graph itself remains, only the data is deleted.
 
     ORG_ID: UUID of the organization
 
@@ -318,11 +261,7 @@ def clear(org_id: str, slug: str | None, backend: str | None, confirm: bool):
         console.print(f"[red]Error:[/red] Invalid UUID format: {org_id}")
         raise click.Abort()
 
-    factory_kwargs = {}
-    if backend:
-        factory_kwargs["backend"] = backend
-
-    factory = GraphClientFactory(**factory_kwargs)
+    factory = GraphClientFactory()
     graph_name = factory._generate_graph_name(parsed_org_id, slug)
 
     if not confirm:
@@ -351,25 +290,16 @@ def clear(org_id: str, slug: str | None, backend: str | None, confirm: bool):
 
 
 @graph.command()
-@click.option(
-    "--backend",
-    type=click.Choice(["neo4j", "falkordb"]),
-    default=None,
-    help="Graph database backend to show config for",
-)
-def config(backend: str | None):
+def config():
     """Show current graph configuration.
 
-    Displays environment variables and settings used for graph connections.
+    Displays environment variables and settings used for FalkorDB connections.
 
     Example:
         repotoire graph config
     """
-    # Get current config from env vars
-    db_type = os.environ.get("REPOTOIRE_DB_TYPE", "neo4j")
-
     table = Table(
-        title="Graph Configuration",
+        title="FalkorDB Configuration",
         box=box.ROUNDED,
         show_header=True,
         header_style="bold cyan",
@@ -377,30 +307,6 @@ def config(backend: str | None):
     table.add_column("Setting", style="white")
     table.add_column("Value", style="green")
     table.add_column("Source", style="dim")
-
-    # Database type
-    table.add_row(
-        "Backend",
-        db_type,
-        "REPOTOIRE_DB_TYPE" if os.environ.get("REPOTOIRE_DB_TYPE") else "default",
-    )
-
-    # Neo4j settings
-    table.add_row(
-        "Neo4j URI",
-        os.environ.get("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
-        "REPOTOIRE_NEO4J_URI" if os.environ.get("REPOTOIRE_NEO4J_URI") else "default",
-    )
-    table.add_row(
-        "Neo4j Username",
-        os.environ.get("REPOTOIRE_NEO4J_USERNAME", "neo4j"),
-        "REPOTOIRE_NEO4J_USERNAME" if os.environ.get("REPOTOIRE_NEO4J_USERNAME") else "default",
-    )
-    table.add_row(
-        "Neo4j Password",
-        "***" if os.environ.get("REPOTOIRE_NEO4J_PASSWORD") else "(default)",
-        "REPOTOIRE_NEO4J_PASSWORD" if os.environ.get("REPOTOIRE_NEO4J_PASSWORD") else "default",
-    )
 
     # FalkorDB settings - check both FALKORDB_* and REPOTOIRE_FALKORDB_* env vars
     # On Fly.io, default host is repotoire-falkor.internal
@@ -417,7 +323,7 @@ def config(backend: str | None):
         else "fly.io default" if is_fly
         else "default"
     )
-    table.add_row("FalkorDB Host", falkordb_host, host_source)
+    table.add_row("Host", falkordb_host, host_source)
 
     falkordb_port = os.environ.get(
         "FALKORDB_PORT",
@@ -428,16 +334,16 @@ def config(backend: str | None):
         else "REPOTOIRE_FALKORDB_PORT" if os.environ.get("REPOTOIRE_FALKORDB_PORT")
         else "default"
     )
-    table.add_row("FalkorDB Port", falkordb_port, port_source)
+    table.add_row("Port", falkordb_port, port_source)
 
     has_falkordb_pw = os.environ.get("FALKORDB_PASSWORD") or os.environ.get("REPOTOIRE_FALKORDB_PASSWORD")
     pw_source = (
         "FALKORDB_PASSWORD" if os.environ.get("FALKORDB_PASSWORD")
         else "REPOTOIRE_FALKORDB_PASSWORD" if os.environ.get("REPOTOIRE_FALKORDB_PASSWORD")
-        else "default"
+        else "not set"
     )
     table.add_row(
-        "FalkorDB Password",
+        "Password",
         "***" if has_falkordb_pw else "(none)",
         pw_source,
     )
@@ -449,11 +355,11 @@ def config(backend: str | None):
         "FLY_APP_NAME" if is_fly else "not detected",
     )
 
-    # Multi-tenancy strategy
+    # Multi-tenancy info
     table.add_row(
-        "Neo4j Strategy",
-        os.environ.get("REPOTOIRE_NEO4J_STRATEGY", "database_per_tenant"),
-        "REPOTOIRE_NEO4J_STRATEGY" if os.environ.get("REPOTOIRE_NEO4J_STRATEGY") else "default",
+        "Multi-tenancy",
+        "Graph per tenant",
+        "default",
     )
 
     console.print(table)

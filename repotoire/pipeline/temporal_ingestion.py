@@ -17,7 +17,7 @@ from repotoire.models import (
     Relationship,
     RelationshipType,
 )
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -32,7 +32,7 @@ class TemporalIngestionPipeline:
     Example:
         >>> pipeline = TemporalIngestionPipeline(
         ...     repo_path="/path/to/repo",
-        ...     neo4j_client=client
+        ...     graph_client=client
         ... )
         >>> pipeline.ingest_with_history(
         ...     strategy="recent",
@@ -43,7 +43,7 @@ class TemporalIngestionPipeline:
     def __init__(
         self,
         repo_path: str,
-        neo4j_client: Neo4jClient,
+        graph_client: FalkorDBClient,
         language: str = "python",
         ignore_patterns: Optional[List[str]] = None,
         generate_clues: bool = False,
@@ -52,13 +52,13 @@ class TemporalIngestionPipeline:
 
         Args:
             repo_path: Path to Git repository
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
             language: Programming language (default: python)
             ignore_patterns: Additional glob patterns to ignore
             generate_clues: Whether to generate semantic clues
         """
         self.repo_path = Path(repo_path).resolve()
-        self.neo4j_client = neo4j_client
+        self.graph_client = graph_client
         self.language = language
         self.ignore_patterns = ignore_patterns
         self.generate_clues = generate_clues
@@ -228,7 +228,7 @@ class TemporalIngestionPipeline:
         )
 
         # Create Session node in Neo4j
-        self.neo4j_client.create_node(session)
+        self.graph_client.create_node(session)
 
         # Create PARENT_OF relationships to parent commits
         for parent_hash in commit.parent_hashes:
@@ -245,7 +245,7 @@ class TemporalIngestionPipeline:
             )
 
             try:
-                self.neo4j_client.create_relationship(rel)
+                self.graph_client.create_relationship(rel)
             except Exception as e:
                 logger.debug(f"Could not create PARENT_OF relationship: {e}")
 
@@ -273,7 +273,7 @@ class TemporalIngestionPipeline:
         # In production, you'd want to checkout the commit or use git show
         pipeline = IngestionPipeline(
             repo_path=str(self.repo_path),
-            neo4j_client=self.neo4j_client,
+            graph_client=self.graph_client,
             language=self.language,
             ignore_patterns=self.ignore_patterns,
             generate_clues=self.generate_clues,
@@ -303,7 +303,7 @@ class TemporalIngestionPipeline:
             )
 
             try:
-                self.neo4j_client.create_relationship(rel)
+                self.graph_client.create_relationship(rel)
                 relationships_created.append(rel)
             except Exception as e:
                 logger.debug(f"Could not create MODIFIED relationship for {file_path}: {e}")

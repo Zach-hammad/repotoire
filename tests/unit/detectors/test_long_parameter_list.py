@@ -14,7 +14,7 @@ class TestLongParameterListDetector:
     def mock_client(self):
         """Create a mock database client."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         return client
 
     @pytest.fixture
@@ -342,7 +342,7 @@ class TestLongParameterListDetectorWithEnricher:
     def mock_client(self):
         """Create a mock database client."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         return client
 
     @pytest.fixture
@@ -404,7 +404,7 @@ class TestConfigNameSuggestions:
     def mock_client(self):
         """Create a mock database client."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         return client
 
     @pytest.fixture
@@ -463,7 +463,7 @@ class TestEffortEstimation:
     def mock_client(self):
         """Create a mock database client."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         return client
 
     @pytest.fixture

@@ -5,7 +5,7 @@ Session nodes that represent snapshots of the codebase at specific Git commits.
 """
 
 from repotoire.migrations.migration import Migration
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -22,11 +22,11 @@ class AddSessionNodesMigration(Migration):
     def description(self) -> str:
         return "Add Session nodes for temporal code tracking and Git history analysis"
 
-    def validate(self, client: Neo4jClient) -> bool:
+    def validate(self, client: FalkorDBClient) -> bool:
         """Validate that base schema exists before applying this migration.
 
         Args:
-            client: Neo4j database client
+            client: FalkorDB database client
 
         Returns:
             True if validation passes, False otherwise
@@ -46,7 +46,7 @@ class AddSessionNodesMigration(Migration):
         logger.info("Validation passed - base schema exists")
         return True
 
-    def up(self, client: Neo4jClient) -> None:
+    def up(self, client: FalkorDBClient) -> None:
         """Apply migration: create Session node constraints and indexes.
 
         Creates:
@@ -90,7 +90,7 @@ class AddSessionNodesMigration(Migration):
 
         logger.info("✓ Session nodes schema created successfully")
 
-    def down(self, client: Neo4jClient) -> None:
+    def down(self, client: FalkorDBClient) -> None:
         """Rollback migration: drop Session constraints and indexes.
 
         Warning: This will delete all Session nodes and their relationships!

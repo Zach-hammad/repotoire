@@ -1,18 +1,18 @@
 """Debug RAG retrieval to understand what it's finding."""
 
 import os
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.ai.embeddings import CodeEmbedder
 from repotoire.ai.retrieval import GraphRAGRetriever
 from repotoire.mcp import PatternDetector
 
-# Connect to Neo4j
-password = os.getenv("REPOTOIRE_NEO4J_PASSWORD", "falkor-password")
-client = Neo4jClient(uri="bolt://localhost:7688", password=password)
+# Connect to FalkorDB
+password = os.getenv("FALKORDB_PASSWORD", "falkor-password")
+client = FalkorDBClient(uri="bolt://localhost:7688", password=password)
 
 # Create embedder and retriever
 embedder = CodeEmbedder()
-retriever = GraphRAGRetriever(neo4j_client=client, embedder=embedder)
+retriever = GraphRAGRetriever(graph_client=client, embedder=embedder)
 
 # Detect a function to test with
 detector = PatternDetector(client)

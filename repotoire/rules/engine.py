@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Union
 from repotoire.graph.base import DatabaseClient
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.models import Rule, Finding, Severity
 from repotoire.logging_config import get_logger
 
@@ -31,7 +31,7 @@ class RuleEngine:
         >>> hot_rules = engine.get_hot_rules(top_k=10)  # For RAG context
     """
 
-    def __init__(self, client: Union[Neo4jClient, DatabaseClient]):
+    def __init__(self, client: Union[FalkorDBClient, DatabaseClient]):
         """Initialize rule engine.
 
         Args:

@@ -6,7 +6,7 @@ tool descriptions and parameter documentation.
 
 import json
 import os
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.mcp import PatternDetector, SchemaGenerator
 
 # Check if we need OpenAI API key
@@ -18,9 +18,9 @@ except ImportError:
     print("⚠️  RAG dependencies not available. Install with: pip install openai")
 
 def main():
-    # Connect to Neo4j
-    password = os.getenv("REPOTOIRE_NEO4J_PASSWORD", "falkor-password")
-    client = Neo4jClient(uri="bolt://localhost:7688", password=password)
+    # Connect to FalkorDB
+    password = os.getenv("FALKORDB_PASSWORD", "falkor-password")
+    client = FalkorDBClient(uri="bolt://localhost:7688", password=password)
 
     # Create detector
     detector = PatternDetector(client)
@@ -62,7 +62,7 @@ def main():
             # Create embedder and RAG retriever
             from repotoire.ai.embeddings import CodeEmbedder
             embedder = CodeEmbedder()
-            retriever = GraphRAGRetriever(neo4j_client=client, embedder=embedder)
+            retriever = GraphRAGRetriever(graph_client=client, embedder=embedder)
 
             # Create RAG-enhanced generator
             generator_rag = SchemaGenerator(rag_retriever=retriever)

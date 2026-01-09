@@ -12,7 +12,7 @@ license = "MIT"
 authors = [
     {name = "Repotoire Team"}
 ]
-keywords = ["code-analysis", "knowledge-graph", "technical-debt", "neo4j", "static-analysis"]
+keywords = ["code-analysis", "knowledge-graph", "technical-debt", "falkordb", "static-analysis"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -35,7 +35,6 @@ dependencies = [
     "jinja2>=3.1.0",
     "detect-secrets>=1.4.0",
     "gitpython>=3.1.40",
-    "neo4j-graphrag>=1.10.1",
     "fastapi>=0.121.3",
     "uvicorn>=0.38.0",
     "mcp>=1.22.0",
@@ -102,9 +101,6 @@ config = [
     "tomli>=2.0.0; python_version < '3.11'",  # TOML support for older Python
 ]
 
-gds = [
-    "graphdatascience>=1.9.0",  # Neo4j Graph Data Science
-]
 
 all-languages = [
     "tree-sitter>=0.20.0",
@@ -214,7 +210,6 @@ markers = [
     "e2b: Tests requiring E2B sandbox (requires E2B_API_KEY)",
     "slow: Slow tests (>30 seconds)",
     "benchmark: Performance benchmark tests",
-    "neo4j: Tests requiring Neo4j connection",
     "falkordb: Tests requiring FalkorDB connection",
     "anyio: Async tests using anyio",
 ]

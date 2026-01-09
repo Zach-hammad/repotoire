@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
@@ -47,11 +47,11 @@ class JscpdDetector(CodeSmellDetector):
         threshold: Duplication percentage threshold (default: 10%)
     """
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None, enricher: Optional[GraphEnricher] = None):
+    def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[Dict] = None, enricher: Optional[GraphEnricher] = None):
         """Initialize jscpd detector.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
             detector_config: Configuration dictionary with:
                 - repository_path: Path to repository root (required)
                 - min_lines: Min lines for duplicate
@@ -61,7 +61,7 @@ class JscpdDetector(CodeSmellDetector):
                 - ignore: List of patterns to ignore (default: node_modules, .venv, __pycache__, etc.)
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
 
         config = detector_config or {}
         self.repository_path = Path(config.get("repository_path", "."))

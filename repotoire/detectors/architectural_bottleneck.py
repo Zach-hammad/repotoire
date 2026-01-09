@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.graph_algorithms import GraphAlgorithms
 from repotoire.detectors.risk_analyzer import BottleneckRiskAnalyzer, RiskAssessment
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.logging_config import get_logger
 from repotoire.models import CollaborationMetadata, Finding, Severity
@@ -33,13 +33,13 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
     Changes to these functions have high blast radius.
     """
 
-    def __init__(self, neo4j_client: Neo4jClient, enricher: Optional[GraphEnricher] = None):
-        """Initialize detector with Neo4j client.
+    def __init__(self, graph_client: FalkorDBClient, enricher: Optional[GraphEnricher] = None):
+        """Initialize detector with FalkorDB client.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
         self.enricher = enricher
 
         # Thresholds for betweenness centrality

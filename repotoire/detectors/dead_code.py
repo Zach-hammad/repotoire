@@ -20,15 +20,15 @@ class DeadCodeDetector(CodeSmellDetector):
     When both detectors agree, confidence reaches 95%+ enabling safe auto-removal.
     """
 
-    def __init__(self, neo4j_client, detector_config: Optional[dict] = None, enricher: Optional[GraphEnricher] = None):
+    def __init__(self, graph_client, detector_config: Optional[dict] = None, enricher: Optional[GraphEnricher] = None):
         """Initialize dead code detector.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
             detector_config: Optional detector configuration
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
         self.enricher = enricher
 
         # Cross-validation confidence thresholds
@@ -36,7 +36,7 @@ class DeadCodeDetector(CodeSmellDetector):
         self.validated_confidence = 0.95  # When Vulture confirms
 
         # FalkorDB doesn't support EXISTS {} subqueries
-        self.is_falkordb = getattr(neo4j_client, "is_falkordb", False) or type(neo4j_client).__name__ == "FalkorDBClient"
+        self.is_falkordb = getattr(graph_client, "is_falkordb", False) or type(graph_client).__name__ == "FalkorDBClient"
 
     @property
     def needs_previous_findings(self) -> bool:

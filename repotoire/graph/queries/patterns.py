@@ -5,14 +5,14 @@ and calculating graph metrics used by detectors.
 """
 
 from typing import List, Dict, Any, Optional
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.validation import validate_identifier
 
 
 class CypherPatterns:
     """Reusable Cypher patterns for common graph analysis tasks."""
 
-    def __init__(self, client: Neo4jClient):
+    def __init__(self, client: FalkorDBClient):
         """Initialize patterns helper.
 
         Args:

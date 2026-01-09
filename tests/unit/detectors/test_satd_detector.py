@@ -133,7 +133,7 @@ class TestSATDDetector:
     def mock_client(self):
         """Create a mock database client."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         client.execute_query.return_value = []
         return client
 
@@ -457,7 +457,7 @@ class TestSATDDetectorGraphEnrichment:
     def mock_client_with_graph(self):
         """Create a mock client that returns graph data."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         client.execute_query.return_value = [
             {
                 "file_loc": 100,
@@ -472,7 +472,7 @@ class TestSATDDetectorGraphEnrichment:
     def mock_client_error(self):
         """Create a mock client that raises errors on queries."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         client.execute_query.side_effect = Exception("Database error")
         return client
 
@@ -528,7 +528,7 @@ class TestSATDDetectorWithEnricher:
     def mock_client(self):
         """Create a mock database client."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         client.execute_query.return_value = [
             {
                 "file_loc": 50,
@@ -581,7 +581,7 @@ class TestSATDDetectorRustIntegration:
     def mock_client(self):
         """Create a mock database client."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         client.execute_query.return_value = []
         return client
 
@@ -645,7 +645,7 @@ class TestSATDDetectorConfiguration:
     def mock_client(self):
         """Create a mock database client."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         client.execute_query.return_value = []
         return client
 

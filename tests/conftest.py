@@ -43,15 +43,15 @@ def _has_e2b_key() -> bool:
     return bool(key.strip())
 
 
-def _has_neo4j_connection() -> bool:
-    """Check if Neo4j is available."""
-    uri = os.getenv("REPOTOIRE_NEO4J_URI", "")
+def _has_graph_connection() -> bool:
+    """Check if FalkorDB is available."""
+    uri = os.getenv("FALKORDB_HOST", "")
     return bool(uri.strip())
 
 
 def _has_falkordb_connection() -> bool:
     """Check if FalkorDB is available."""
-    uri = os.getenv("REPOTOIRE_NEO4J_URI", "")
+    uri = os.getenv("FALKORDB_HOST", "")
     # FalkorDB typically runs on port 6379
     return "6379" in uri
 
@@ -80,7 +80,7 @@ def pytest_configure(config):
         "markers", "benchmark: Performance benchmark tests"
     )
     config.addinivalue_line(
-        "markers", "neo4j: Tests requiring Neo4j connection"
+        "markers", "falkordb: Tests requiring FalkorDB connection"
     )
     config.addinivalue_line(
         "markers", "falkordb: Tests requiring FalkorDB connection"
@@ -91,11 +91,11 @@ def pytest_collection_modifyitems(config, items):
     """Modify test collection to add skip markers based on environment."""
     # Check for available services
     has_e2b = _has_e2b_key()
-    has_neo4j = _has_neo4j_connection()
+    has_graph_db = _has_graph_connection()
     has_falkordb = _has_falkordb_connection()
 
     skip_e2b = pytest.mark.skip(reason="E2B_API_KEY not set")
-    skip_neo4j = pytest.mark.skip(reason="REPOTOIRE_NEO4J_URI not set")
+    skip_graph_db = pytest.mark.skip(reason="FALKORDB_HOST not set")
     skip_falkordb = pytest.mark.skip(reason="FalkorDB not available")
 
     for item in items:
@@ -103,9 +103,9 @@ def pytest_collection_modifyitems(config, items):
         if "e2b" in item.keywords and not has_e2b:
             item.add_marker(skip_e2b)
 
-        # Skip Neo4j tests if no connection
-        if "neo4j" in item.keywords and not has_neo4j:
-            item.add_marker(skip_neo4j)
+        # Skip FalkorDB tests if no connection
+        if "falkordb" in item.keywords and not has_graph_db:
+            item.add_marker(skip_graph_db)
 
         # Skip FalkorDB tests if not available
         if "falkordb" in item.keywords and not has_falkordb:
@@ -245,28 +245,28 @@ def sandbox_config_from_env():
 
 
 # =============================================================================
-# Neo4j Fixtures
+# Graph DB Fixtures
 # =============================================================================
 
 
 @pytest.fixture
-def neo4j_uri() -> str | None:
-    """Get Neo4j URI from environment.
+def falkordb_host() -> str | None:
+    """Get FalkorDB host from environment.
 
     Returns:
-        Neo4j URI or None if not set.
+        FalkorDB host or None if not set.
     """
-    return os.getenv("REPOTOIRE_NEO4J_URI")
+    return os.getenv("FALKORDB_HOST")
 
 
 @pytest.fixture
-def neo4j_password() -> str | None:
-    """Get Neo4j password from environment.
+def falkordb_password() -> str | None:
+    """Get FalkorDB password from environment.
 
     Returns:
-        Neo4j password or None if not set.
+        FalkorDB password or None if not set.
     """
-    return os.getenv("REPOTOIRE_NEO4J_PASSWORD")
+    return os.getenv("FALKORDB_PASSWORD")
 
 
 # =============================================================================

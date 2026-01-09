@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 import os
 
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.pipeline.ingestion import IngestionPipeline
 from repotoire.detectors.engine import AnalysisEngine
 from repotoire.models import Severity, CodebaseHealth
@@ -216,32 +216,32 @@ def main() -> int:
         help="Path to output PR comment markdown"
     )
     parser.add_argument(
-        "--neo4j-uri",
-        default=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
+        "--falkordb-uri",
+        default=os.getenv("FALKORDB_HOST", "bolt://localhost:7687"),
         help="Neo4j URI"
     )
     parser.add_argument(
-        "--neo4j-password",
-        default=os.getenv("REPOTOIRE_NEO4J_PASSWORD"),
+        "--falkordb-password",
+        default=os.getenv("FALKORDB_PASSWORD"),
         help="Neo4j password"
     )
 
     args = parser.parse_args()
 
-    if not args.neo4j_password:
+    if not args.falkordb_password:
         print("❌ Error: Neo4j password not provided")
-        print("   Set REPOTOIRE_NEO4J_PASSWORD environment variable")
+        print("   Set FALKORDB_PASSWORD environment variable")
         return 1
 
     try:
-        # Connect to Neo4j
-        client = Neo4jClient(uri=args.neo4j_uri, password=args.neo4j_password)
+        # Connect to FalkorDB
+        client = FalkorDBClient(uri=args.falkordb_host, password=args.falkordb_password)
 
         # Run ingestion
         print(f"📥 Ingesting codebase...")
         pipeline = IngestionPipeline(
             repo_path=args.repo_path,
-            neo4j_client=client,
+            graph_client=client,
             batch_size=100
         )
         pipeline.ingest(incremental=True)
@@ -249,7 +249,7 @@ def main() -> int:
         # Run analysis
         print(f"🔍 Analyzing code...")
         engine = AnalysisEngine(
-            neo4j_client=client,
+            graph_client=client,
             repository_path=args.repo_path
         )
         health = engine.analyze()

@@ -10,7 +10,7 @@ with Neo4j integration for:
 Usage:
     from repotoire.graph.incremental_scc import IncrementalSCCManager
 
-    manager = IncrementalSCCManager(neo4j_client)
+    manager = IncrementalSCCManager(graph_client)
 
     # First run: full computation
     cycles = manager.get_cycles()
@@ -19,7 +19,7 @@ Usage:
     manager.update_edges(added=[(0, 1)], removed=[(2, 3)])
     cycles = manager.get_cycles()
 
-    # Persist to Neo4j
+    # Persist to FalkorDB
     manager.persist_scc_ids()
 """
 
@@ -322,7 +322,7 @@ class IncrementalSCCManager:
         return self._cache.get_scc(node_id)
 
     def persist_scc_ids(self, property_name: str = "scc_component") -> int:
-        """Persist SCC IDs to Neo4j nodes.
+        """Persist SCC IDs to FalkorDB nodes.
 
         Args:
             property_name: Property name to store SCC IDs

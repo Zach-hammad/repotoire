@@ -1,36 +1,36 @@
-"""Configuration management for Falkor.
+"""Configuration management for Repotoire.
 
 Configuration Priority Chain (highest to lowest):
-1. Command-line arguments (--neo4j-uri, --log-level, etc.)
-2. Environment variables (FALKOR_NEO4J_URI, FALKOR_NEO4J_USER, etc.)
-3. Config file (.reporc, falkor.toml)
+1. Command-line arguments (--falkordb-host, --log-level, etc.)
+2. Environment variables (FALKORDB_HOST, FALKORDB_PORT, etc.)
+3. Config file (.reporc, repotoire.toml)
 4. Built-in defaults
 
 Config files are searched hierarchically:
 1. Current directory
 2. Parent directories (up to root)
-3. User home directory (~/.reporc or ~/.config/falkor.toml)
+3. User home directory (~/.reporc or ~/.config/repotoire.toml)
 
 Environment Variable Names:
-- FALKOR_NEO4J_URI
-- FALKOR_NEO4J_USER
-- FALKOR_NEO4J_PASSWORD
-- FALKOR_INGESTION_PATTERNS (comma-separated)
-- FALKOR_INGESTION_FOLLOW_SYMLINKS (true/false)
-- FALKOR_INGESTION_MAX_FILE_SIZE_MB
-- FALKOR_INGESTION_BATCH_SIZE
-- FALKOR_ANALYSIS_MIN_MODULARITY
-- FALKOR_ANALYSIS_MAX_COUPLING
-- FALKOR_LOG_LEVEL (or LOG_LEVEL)
-- FALKOR_LOG_FORMAT (or LOG_FORMAT)
-- FALKOR_LOG_FILE (or LOG_FILE)
+- FALKORDB_HOST
+- FALKORDB_PORT
+- FALKORDB_PASSWORD
+- REPOTOIRE_INGESTION_PATTERNS (comma-separated)
+- REPOTOIRE_INGESTION_FOLLOW_SYMLINKS (true/false)
+- REPOTOIRE_INGESTION_MAX_FILE_SIZE_MB
+- REPOTOIRE_INGESTION_BATCH_SIZE
+- REPOTOIRE_ANALYSIS_MIN_MODULARITY
+- REPOTOIRE_ANALYSIS_MAX_COUPLING
+- REPOTOIRE_LOG_LEVEL (or LOG_LEVEL)
+- REPOTOIRE_LOG_FORMAT (or LOG_FORMAT)
+- REPOTOIRE_LOG_FILE (or LOG_FILE)
 
 Example .reporc (YAML):
 ```yaml
-neo4j:
-  uri: bolt://localhost:7687
-  user: neo4j
-  password: ${NEO4J_PASSWORD}
+database:
+  host: localhost
+  port: 6379
+  password: ${FALKORDB_PASSWORD}
 
 ingestion:
   patterns:
@@ -47,15 +47,15 @@ analysis:
 logging:
   level: INFO
   format: human
-  file: logs/falkor.log
+  file: logs/repotoire.log
 ```
 
-Example falkor.toml:
+Example repotoire.toml:
 ```toml
-[neo4j]
-uri = "bolt://localhost:7687"
-user = "neo4j"
-password = "${NEO4J_PASSWORD}"
+[database]
+host = "localhost"
+port = 6379
+password = "${FALKORDB_PASSWORD}"
 
 [ingestion]
 patterns = ["**/*.py", "**/*.js"]
@@ -70,7 +70,7 @@ max_coupling = 5.0
 [logging]
 level = "INFO"
 format = "human"
-file = "logs/falkor.log"
+file = "logs/repotoire.log"
 ```
 """
 
@@ -108,14 +108,18 @@ class ConfigError(Exception):
 
 
 @dataclass
-class Neo4jConfig:
-    """Neo4j connection configuration."""
-    uri: str = "bolt://localhost:7687"
-    user: str = "neo4j"
+class DatabaseConfig:
+    """FalkorDB connection configuration."""
+    host: str = "localhost"
+    port: int = 6379
     password: Optional[str] = None
     max_retries: int = 3
     retry_backoff_factor: float = 2.0  # Exponential backoff multiplier
     retry_base_delay: float = 1.0  # Base delay in seconds
+
+
+# Backward compatibility alias
+Neo4jConfig = DatabaseConfig
 
 
 @dataclass
@@ -250,9 +254,9 @@ class RAGConfig:
 
 
 @dataclass
-class FalkorConfig:
-    """Complete Falkor configuration."""
-    neo4j: Neo4jConfig = field(default_factory=Neo4jConfig)
+class RepotoireConfig:
+    """Complete Repotoire configuration."""
+    database: DatabaseConfig = field(default_factory=DatabaseConfig)
     ingestion: IngestionConfig = field(default_factory=IngestionConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     detectors: DetectorConfig = field(default_factory=DetectorConfig)
@@ -263,20 +267,20 @@ class FalkorConfig:
     embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "FalkorConfig":
+    def from_dict(cls, data: Dict[str, Any]) -> "RepotoireConfig":
         """Create config from dictionary.
 
         Args:
             data: Configuration dictionary
 
         Returns:
-            FalkorConfig instance
+            RepotoireConfig instance
         """
         # Expand environment variables
         data = _expand_env_vars(data)
 
         return cls(
-            neo4j=Neo4jConfig(**data.get("neo4j", {})),
+            database=DatabaseConfig(**data.get("database", {})),
             ingestion=IngestionConfig(**data.get("ingestion", {})),
             analysis=AnalysisConfig(**data.get("analysis", {})),
             detectors=DetectorConfig(**data.get("detectors", {})),
@@ -293,13 +297,13 @@ class FalkorConfig:
             Configuration as dictionary
         """
         return {
-            "neo4j": {
-                "uri": self.neo4j.uri,
-                "user": self.neo4j.user,
-                "password": self.neo4j.password,
-                "max_retries": self.neo4j.max_retries,
-                "retry_backoff_factor": self.neo4j.retry_backoff_factor,
-                "retry_base_delay": self.neo4j.retry_base_delay,
+            "database": {
+                "host": self.database.host,
+                "port": self.database.port,
+                "password": self.database.password,
+                "max_retries": self.database.max_retries,
+                "retry_backoff_factor": self.database.retry_backoff_factor,
+                "retry_base_delay": self.database.retry_base_delay,
             },
             "ingestion": {
                 "patterns": self.ingestion.patterns,
@@ -348,7 +352,7 @@ class FalkorConfig:
             },
         }
 
-    def merge(self, other: "FalkorConfig") -> "FalkorConfig":
+    def merge(self, other: "RepotoireConfig") -> "RepotoireConfig":
         """Merge with another config (other takes precedence).
 
         Args:
@@ -367,7 +371,11 @@ class FalkorConfig:
             else:
                 merged_dict[section].update(values)
 
-        return FalkorConfig.from_dict(merged_dict)
+        return RepotoireConfig.from_dict(merged_dict)
+
+
+# Backward compatibility alias
+FalkorConfig = RepotoireConfig
 
 
 def _expand_env_vars(data: Union[Dict, list, str, Any]) -> Any:
@@ -538,31 +546,34 @@ def load_config_from_env() -> Dict[str, Any]:
     """
     config = {}
 
-    # Neo4j configuration
-    neo4j = {}
-    if uri := os.getenv("FALKOR_NEO4J_URI"):
-        neo4j["uri"] = uri
-    if user := os.getenv("FALKOR_NEO4J_USER"):
-        neo4j["user"] = user
-    if password := os.getenv("FALKOR_NEO4J_PASSWORD"):
-        neo4j["password"] = password
-    if max_retries := os.getenv("FALKOR_NEO4J_MAX_RETRIES"):
+    # Database (FalkorDB) configuration
+    database = {}
+    if host := os.getenv("FALKORDB_HOST"):
+        database["host"] = host
+    if port := os.getenv("FALKORDB_PORT"):
         try:
-            neo4j["max_retries"] = int(max_retries)
+            database["port"] = int(port)
         except ValueError:
-            logger.warning(f"Invalid FALKOR_NEO4J_MAX_RETRIES value: {max_retries}, ignoring")
-    if retry_backoff_factor := os.getenv("FALKOR_NEO4J_RETRY_BACKOFF_FACTOR"):
+            logger.warning(f"Invalid FALKORDB_PORT value: {port}, ignoring")
+    if password := os.getenv("FALKORDB_PASSWORD"):
+        database["password"] = password
+    if max_retries := os.getenv("REPOTOIRE_DB_MAX_RETRIES"):
         try:
-            neo4j["retry_backoff_factor"] = float(retry_backoff_factor)
+            database["max_retries"] = int(max_retries)
         except ValueError:
-            logger.warning(f"Invalid FALKOR_NEO4J_RETRY_BACKOFF_FACTOR value: {retry_backoff_factor}, ignoring")
-    if retry_base_delay := os.getenv("FALKOR_NEO4J_RETRY_BASE_DELAY"):
+            logger.warning(f"Invalid REPOTOIRE_DB_MAX_RETRIES value: {max_retries}, ignoring")
+    if retry_backoff_factor := os.getenv("REPOTOIRE_DB_RETRY_BACKOFF_FACTOR"):
         try:
-            neo4j["retry_base_delay"] = float(retry_base_delay)
+            database["retry_backoff_factor"] = float(retry_backoff_factor)
         except ValueError:
-            logger.warning(f"Invalid FALKOR_NEO4J_RETRY_BASE_DELAY value: {retry_base_delay}, ignoring")
-    if neo4j:
-        config["neo4j"] = neo4j
+            logger.warning(f"Invalid REPOTOIRE_DB_RETRY_BACKOFF_FACTOR value: {retry_backoff_factor}, ignoring")
+    if retry_base_delay := os.getenv("REPOTOIRE_DB_RETRY_BASE_DELAY"):
+        try:
+            database["retry_base_delay"] = float(retry_base_delay)
+        except ValueError:
+            logger.warning(f"Invalid REPOTOIRE_DB_RETRY_BASE_DELAY value: {retry_base_delay}, ignoring")
+    if database:
+        config["database"] = database
 
     # Ingestion configuration
     ingestion = {}
@@ -772,21 +783,21 @@ def generate_config_template(format: str = "yaml") -> str:
 
         # Manual TOML generation (tomli doesn't have dump)
         lines = [
-            "# Falkor Configuration File (falkor.toml)",
+            "# Repotoire Configuration File (repotoire.toml)",
             "#",
-            "# This file configures Falkor's behavior. It can be placed:",
-            "# - In your project root: falkor.toml",
-            "# - In your home directory: ~/.config/falkor.toml",
+            "# This file configures Repotoire's behavior. It can be placed:",
+            "# - In your project root: repotoire.toml",
+            "# - In your home directory: ~/.config/repotoire.toml",
             "#",
             "# Environment variables can be referenced using ${VAR_NAME} syntax.",
             "",
-            "[neo4j]",
-            f'uri = "{data["neo4j"]["uri"]}"',
-            f'user = "{data["neo4j"]["user"]}"',
-            f'password = "{data["neo4j"]["password"] or ""}"',
-            f'max_retries = {data["neo4j"]["max_retries"]}',
-            f'retry_backoff_factor = {data["neo4j"]["retry_backoff_factor"]}',
-            f'retry_base_delay = {data["neo4j"]["retry_base_delay"]}',
+            "[database]",
+            f'host = "{data["database"]["host"]}"',
+            f'port = {data["database"]["port"]}',
+            f'password = "{data["database"]["password"] or ""}"',
+            f'max_retries = {data["database"]["max_retries"]}',
+            f'retry_backoff_factor = {data["database"]["retry_backoff_factor"]}',
+            f'retry_base_delay = {data["database"]["retry_base_delay"]}',
             "",
             "[ingestion]",
             f'patterns = {json.dumps(data["ingestion"]["patterns"])}',

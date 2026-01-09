@@ -10,18 +10,18 @@ Tests:
 
 import json
 import os
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.ai.embeddings import CodeEmbedder
 from repotoire.ai.retrieval import GraphRAGRetriever
 from repotoire.mcp import PatternDetector, SchemaGenerator
 
-# Connect to Neo4j
-password = os.getenv("REPOTOIRE_NEO4J_PASSWORD", "falkor-password")
-client = Neo4jClient(uri="bolt://localhost:7688", password=password)
+# Connect to FalkorDB
+password = os.getenv("FALKORDB_PASSWORD", "falkor-password")
+client = FalkorDBClient(uri="bolt://localhost:7688", password=password)
 
 # Create embedder and retriever
 embedder = CodeEmbedder()
-retriever = GraphRAGRetriever(neo4j_client=client, embedder=embedder)
+retriever = GraphRAGRetriever(graph_client=client, embedder=embedder)
 
 # Create detector
 detector = PatternDetector(client)
@@ -74,7 +74,7 @@ print(json.dumps(simple_schema, indent=2)[:500] + "...")
 # 3. Enhanced RAG (all improvements)
 print("\n\n3️⃣  ENHANCED RAG (All 5 Improvements)")
 print("-" * 100)
-enhanced_gen = SchemaGenerator(rag_retriever=retriever, neo4j_client=client)
+enhanced_gen = SchemaGenerator(rag_retriever=retriever, graph_client=client)
 enhanced_schema = enhanced_gen.generate_tool_schema(test_func)
 
 print("\n📋 Full Enhanced Schema:")

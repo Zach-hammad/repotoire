@@ -1,7 +1,7 @@
 """Cypher pattern validation for custom rules (REPO-125)."""
 
 from typing import Optional, List
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -41,11 +41,11 @@ class RuleValidator:
         "RETURN",
     ]
 
-    def __init__(self, client: Optional[Neo4jClient] = None):
+    def __init__(self, client: Optional[FalkorDBClient] = None):
         """Initialize validator.
 
         Args:
-            client: Optional Neo4j client for syntax validation
+            client: Optional FalkorDB client for syntax validation
         """
         self.client = client
 

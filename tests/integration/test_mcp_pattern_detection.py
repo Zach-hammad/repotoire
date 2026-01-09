@@ -19,7 +19,7 @@ from repotoire.mcp.models import (
 )
 from repotoire.pipeline.ingestion import IngestionPipeline
 
-# Note: test_neo4j_client fixture is provided by tests/integration/conftest.py
+# Note: test_graph_client fixture is provided by tests/integration/conftest.py
 # This file uses @pytest.mark.preserve_graph to skip automatic graph clearing
 # because tests rely on existing ingested codebase data
 
@@ -29,9 +29,9 @@ pytestmark = pytest.mark.preserve_graph
 
 
 @pytest.fixture
-def pattern_detector(test_neo4j_client) -> PatternDetector:
+def pattern_detector(test_graph_client) -> PatternDetector:
     """Create pattern detector with test Neo4j client."""
-    return PatternDetector(test_neo4j_client)
+    return PatternDetector(test_graph_client)
 
 
 class TestFastAPIRouteDetection:

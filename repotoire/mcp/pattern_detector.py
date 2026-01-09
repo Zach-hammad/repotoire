@@ -8,7 +8,7 @@ import importlib
 import sys
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.mcp.models import (
     DetectedPattern,
     RoutePattern,
@@ -30,15 +30,15 @@ class PatternDetector:
     and public functions that can be exposed as MCP tools.
     """
 
-    def __init__(self, neo4j_client: Neo4jClient, repo_path: Optional[str] = None, validate_imports: bool = True):
+    def __init__(self, graph_client: FalkorDBClient, repo_path: Optional[str] = None, validate_imports: bool = True):
         """Initialize pattern detector.
 
         Args:
-            neo4j_client: Connected Neo4j client
+            graph_client: Connected FalkorDB client
             repo_path: Optional path to repository root for import validation
             validate_imports: Whether to validate that functions can be imported (default: True)
         """
-        self.client = neo4j_client
+        self.client = graph_client
         self.repo_path = Path(repo_path) if repo_path else None
         self.validate_imports = validate_imports
 

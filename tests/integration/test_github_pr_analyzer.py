@@ -295,7 +295,7 @@ class TestFormatPRComment:
 class TestMainFunction:
     """Test main function."""
 
-    def test_main_missing_neo4j_password(self):
+    def test_main_missing_falkordb_password(self):
         """Test that main fails without Neo4j password."""
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("sys.argv", [
@@ -317,7 +317,7 @@ class TestMainFunction:
                 "--output", f"{tmpdir}/output.json",
                 "--pr-comment", f"{tmpdir}/comment.md",
             ]):
-                with patch.dict("os.environ", {"REPOTOIRE_NEO4J_PASSWORD": "test"}):
-                    with patch("repotoire.github.pr_analyzer.Neo4jClient"):
+                with patch.dict("os.environ", {"FALKORDB_PASSWORD": "test"}):
+                    with patch("repotoire.github.pr_analyzer.FalkorDBClient"):
                         # This will fail at pipeline step, but password check passes
                         result = main()

@@ -1,7 +1,7 @@
 """Graph enrichment utility for cross-detector collaboration.
 
 This module provides persistent storage of intermediate detector analysis
-in Neo4j, enabling cross-session collaboration and finding deduplication.
+in FalkorDB, enabling cross-session collaboration and finding deduplication.
 
 Part of REPO-151: Phase 2 - Graph Enrichment
 """
@@ -11,26 +11,26 @@ import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import DatabaseClient
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 
 class GraphEnricher:
-    """Manages persistent detector metadata in Neo4j graph.
+    """Manages persistent detector metadata in FalkorDB graph.
 
     Enables detectors to store intermediate analysis results in the graph
     for collaboration across runs and deduplication of findings.
     """
 
-    def __init__(self, neo4j_client: Neo4jClient):
+    def __init__(self, graph_client: DatabaseClient):
         """Initialize graph enricher.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: Graph database client (FalkorDB)
         """
-        self.db = neo4j_client
+        self.db = graph_client
 
     def flag_entity(
         self,

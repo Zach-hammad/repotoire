@@ -35,7 +35,7 @@ from tenacity import (
 
 logger = logging.getLogger(__name__)
 
-from repotoire.graph import Neo4jClient, FalkorDBClient, create_client
+from repotoire.graph import FalkorDBClient, FalkorDBClient, create_client
 from repotoire.pipeline.ingestion import IngestionPipeline
 from repotoire.detectors.engine import AnalysisEngine
 from repotoire.detectors.graph_algorithms import GraphAlgorithms
@@ -54,8 +54,8 @@ FALKORDB_PASSWORD = os.environ.get("REPOTOIRE_FALKORDB_PASSWORD", None)
 
 # Neo4j connection settings (standard test port)
 NEO4J_PORT = int(os.environ.get("REPOTOIRE_NEO4J_PORT", "7687"))
-NEO4J_URI = os.environ.get("REPOTOIRE_NEO4J_URI", f"bolt://localhost:{NEO4J_PORT}")
-NEO4J_PASSWORD = os.environ.get("REPOTOIRE_NEO4J_PASSWORD", "password")
+FALKORDB_HOST = os.environ.get("FALKORDB_HOST", f"bolt://localhost:{NEO4J_PORT}")
+FALKORDB_PASSWORD = os.environ.get("FALKORDB_PASSWORD", "password")
 
 
 def is_docker_available() -> bool:
@@ -223,16 +223,16 @@ def falkordb_client():
 
 
 @pytest.fixture(scope="module")
-def neo4j_client():
+def graph_client():
     """Create a Neo4j client for comparison testing."""
     if TEST_DB not in ("neo4j", "both"):
         pytest.skip("Neo4j tests disabled (set REPOTOIRE_TEST_DB=neo4j or both)")
 
     try:
-        client = Neo4jClient(
-            uri=NEO4J_URI,
+        client = FalkorDBClient(
+            uri=FALKORDB_HOST,
             username="neo4j",
-            password=NEO4J_PASSWORD,
+            password=FALKORDB_PASSWORD,
         )
         # Graph clearing handled by isolate_graph_test autouse fixture (REPO-367)
         yield client
@@ -829,7 +829,7 @@ class TestPerformanceComparison:
         return {"files": files, "functions": functions, "calls": calls}
 
     @pytest.mark.skip(reason="Performance tests disabled by default")
-    def test_bulk_insert_performance(self, falkordb_client, neo4j_client, large_graph_data):
+    def test_bulk_insert_performance(self, falkordb_client, graph_client, large_graph_data):
         """Compare bulk insert performance.
 
         Both graphs are cleared automatically by isolate_graph_test before each test.
@@ -846,10 +846,10 @@ class TestPerformanceComparison:
         falkordb_time = time.time() - start
 
         # Neo4j - need to clear since we're using both in same test
-        neo4j_client.clear_graph()
+        graph_client.clear_graph()
         start = time.time()
         for f in large_graph_data["files"]:
-            neo4j_client.execute_query(
+            graph_client.execute_query(
                 "CREATE (n:File {name: $name, path: $path})",
                 f
             )
@@ -861,7 +861,7 @@ class TestPerformanceComparison:
         print(f"  Ratio:    {falkordb_time/neo4j_time:.2f}x")
 
     @pytest.mark.skip(reason="Performance tests disabled by default")
-    def test_query_performance(self, falkordb_client, neo4j_client, large_graph_data):
+    def test_query_performance(self, falkordb_client, graph_client, large_graph_data):
         """Compare query performance.
 
         Both graphs are cleared automatically by isolate_graph_test before each test.
@@ -869,7 +869,7 @@ class TestPerformanceComparison:
         import time
 
         # Setup data in both databases (already cleared by autouse fixture)
-        for client in [falkordb_client, neo4j_client]:
+        for client in [falkordb_client, graph_client]:
             for f in large_graph_data["files"]:
                 client.execute_query(
                     "CREATE (n:File {name: $name, path: $path})",
@@ -887,7 +887,7 @@ class TestPerformanceComparison:
         # Neo4j
         start = time.time()
         for _ in range(100):
-            neo4j_client.execute_query(query)
+            graph_client.execute_query(query)
         neo4j_time = time.time() - start
 
         print(f"\nQuery performance (100 iterations):")

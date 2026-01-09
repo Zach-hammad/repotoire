@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -127,11 +128,24 @@ function FindingCard({ finding, repositoryFullName }: FindingCardProps) {
   );
 }
 
-export default function FindingsPage() {
-  const [page, setPage] = useState(1);
-  const [severityFilter, setSeverityFilter] = useState<Severity | 'all'>('all');
-  const [detectorFilter, setDetectorFilter] = useState<string>('all');
-  const [repositoryFilter, setRepositoryFilter] = useState<string>('all');
+function FindingsContent() {
+  const searchParams = useSearchParams();
+
+  // Read initial state from URL params
+  const [page, setPage] = useState(() => {
+    const pageParam = searchParams.get('page');
+    return pageParam ? parseInt(pageParam, 10) : 1;
+  });
+  const [severityFilter, setSeverityFilter] = useState<Severity | 'all'>(() => {
+    const severity = searchParams.get('severity');
+    return (severity as Severity) || 'all';
+  });
+  const [detectorFilter, setDetectorFilter] = useState<string>(() => {
+    return searchParams.get('detector') || 'all';
+  });
+  const [repositoryFilter, setRepositoryFilter] = useState<string>(() => {
+    return searchParams.get('repository') || 'all';
+  });
   const pageSize = 20;
 
   const filters: FindingFilters = {};
@@ -359,5 +373,31 @@ export default function FindingsPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function FindingsSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <Skeleton className="h-9 w-32" />
+        <Skeleton className="h-5 w-64 mt-2" />
+      </div>
+      <div className="grid gap-4 md:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Skeleton key={i} className="h-24" />
+        ))}
+      </div>
+      <Skeleton className="h-32" />
+      <Skeleton className="h-96" />
+    </div>
+  );
+}
+
+export default function FindingsPage() {
+  return (
+    <Suspense fallback={<FindingsSkeleton />}>
+      <FindingsContent />
+    </Suspense>
   );
 }

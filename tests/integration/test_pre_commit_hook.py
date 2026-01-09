@@ -207,7 +207,7 @@ class TestMainFunction:
                 result = main()
                 assert result == 0
 
-    def test_main_requires_neo4j_password(self):
+    def test_main_requires_falkordb_password(self):
         """Test that main fails without Neo4j password."""
         with patch("repotoire.hooks.pre_commit.get_staged_files", return_value=["test.py"]):
             with patch("sys.argv", ["repotoire-pre-commit"]):
@@ -219,8 +219,8 @@ class TestMainFunction:
         """Test that main accepts password from environment."""
         with patch("repotoire.hooks.pre_commit.get_staged_files", return_value=["test.py"]):
             with patch("sys.argv", ["repotoire-pre-commit"]):
-                with patch.dict("os.environ", {"REPOTOIRE_NEO4J_PASSWORD": "test-pass"}):
-                    with patch("repotoire.hooks.pre_commit.Neo4jClient"):
+                with patch.dict("os.environ", {"FALKORDB_PASSWORD": "test-pass"}):
+                    with patch("repotoire.hooks.pre_commit.FalkorDBClient"):
                         with patch("subprocess.run") as mock_run:
                             mock_run.return_value = MagicMock(stdout="/tmp/test", returncode=0)
                             # This will fail at pipeline step but that's OK - we just want to verify password was accepted
@@ -233,7 +233,7 @@ class TestMainFunction:
                 "sys.argv",
                 ["repotoire-pre-commit", "--neo4j-password", "test-pass"],
             ):
-                with patch("repotoire.hooks.pre_commit.Neo4jClient"):
+                with patch("repotoire.hooks.pre_commit.FalkorDBClient"):
                     with patch("subprocess.run") as mock_run:
                         mock_run.return_value = MagicMock(stdout="/tmp/test", returncode=0)
                         # This will fail at pipeline step but that's OK

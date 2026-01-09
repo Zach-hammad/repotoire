@@ -40,16 +40,18 @@ This approach achieves:
     - Actionable suggestions (fixes, refactorings)
 """
 
-import json
 import os
-import subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.graph import Neo4jClient
+from repotoire.detectors.external_tool_runner import (
+    run_external_tool,
+    get_graph_context,
+)
+from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
@@ -117,11 +119,11 @@ class PylintDetector(CodeSmellDetector):
         "info": Severity.INFO,
     }
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None, enricher: Optional[GraphEnricher] = None):
+    def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[Dict] = None, enricher: Optional[GraphEnricher] = None):
         """Initialize pylint detector.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
             detector_config: Configuration dictionary with:
                 - repository_path: Path to repository root (required)
                 - pylintrc_path: Optional pylintrc config
@@ -132,7 +134,7 @@ class PylintDetector(CodeSmellDetector):
                 - jobs: Number of parallel jobs (default: CPU count)
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
 
         config = detector_config or {}
         self.repository_path = Path(config.get("repository_path", "."))
@@ -361,70 +363,55 @@ class PylintDetector(CodeSmellDetector):
         Returns:
             List of pylint message dictionaries
         """
-        try:
-            # Build pylint command
-            cmd = ["pylint", "--output-format=json", "--recursive=y"]
+        # Build pylint command
+        cmd = ["pylint", "--output-format=json", "--recursive=y"]
 
-            # Enable parallel processing
-            if self.jobs > 1:
-                cmd.extend(["-j", str(self.jobs)])
-                logger.info(f"Running pylint with {self.jobs} parallel jobs")
+        # Enable parallel processing
+        if self.jobs > 1:
+            cmd.extend(["-j", str(self.jobs)])
+            logger.info(f"Running pylint with {self.jobs} parallel jobs")
 
-            if self.pylintrc_path:
-                cmd.extend(["--rcfile", str(self.pylintrc_path)])
+        if self.pylintrc_path:
+            cmd.extend(["--rcfile", str(self.pylintrc_path)])
 
-            # Selective mode: only enable specific checks (e.g., Pylint-only checks not covered by Ruff)
-            if self.enable_only:
-                # Filter out Rust-handled rules if requested
-                rules_to_enable = self.enable_only
-                if exclude_rust_rules:
-                    rules_to_enable = [r for r in self.enable_only if r not in RUST_SUPPORTED_RULES]
+        # Selective mode: only enable specific checks (e.g., Pylint-only checks not covered by Ruff)
+        if self.enable_only:
+            # Filter out Rust-handled rules if requested
+            rules_to_enable = self.enable_only
+            if exclude_rust_rules:
+                rules_to_enable = [r for r in self.enable_only if r not in RUST_SUPPORTED_RULES]
 
-                if not rules_to_enable:
-                    logger.info("All enabled rules handled by Rust, skipping pylint")
-                    return []
-
-                # Disable all checks first, then enable only specified ones
-                cmd.extend(["--disable=all"])
-                cmd.extend(["--enable", ",".join(rules_to_enable)])
-                logger.info(f"Running pylint in selective mode: {len(rules_to_enable)} checks enabled")
-            elif self.disable:
-                # Add Rust-handled rules to disable list
-                disable_list = list(self.disable)
-                if exclude_rust_rules:
-                    disable_list.extend(RUST_SUPPORTED_RULES)
-                cmd.extend(["--disable", ",".join(disable_list)])
-
-            # Add repository path
-            cmd.append(str(self.repository_path))
-
-            # Run pylint
-            try:
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    cwd=self.repository_path,
-                    timeout=300  # Pylint is comprehensive, allow 5 minutes
-                )
-            except subprocess.TimeoutExpired:
-                logger.warning(f"Pylint timed out after 300s on {self.repository_path}")
+            if not rules_to_enable:
+                logger.info("All enabled rules handled by Rust, skipping pylint")
                 return []
 
-            # Parse JSON output
-            violations = json.loads(result.stdout) if result.stdout else []
+            # Disable all checks first, then enable only specified ones
+            cmd.extend(["--disable=all"])
+            cmd.extend(["--enable", ",".join(rules_to_enable)])
+            logger.info(f"Running pylint in selective mode: {len(rules_to_enable)} checks enabled")
+        elif self.disable:
+            # Add Rust-handled rules to disable list
+            disable_list = list(self.disable)
+            if exclude_rust_rules:
+                disable_list.extend(RUST_SUPPORTED_RULES)
+            cmd.extend(["--disable", ",".join(disable_list)])
 
-            return violations
+        # Add repository path
+        cmd.append(str(self.repository_path))
 
-        except FileNotFoundError:
-            logger.error("pylint not found. Install with: pip install pylint")
+        # Run pylint using shared utility
+        result = run_external_tool(
+            cmd=cmd,
+            tool_name="pylint",
+            timeout=300,  # Pylint is comprehensive, allow 5 minutes
+            cwd=self.repository_path,
+        )
+
+        if not result.success or result.timed_out:
             return []
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse pylint JSON output: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"Error running pylint: {e}")
-            return []
+
+        # Parse JSON output
+        return result.json_output if result.json_output else []
 
     def _create_finding(self, pylint_result: Dict[str, Any]) -> Optional[Finding]:
         """Create finding from pylint result with graph enrichment.
@@ -528,38 +515,16 @@ class PylintDetector(CodeSmellDetector):
         Returns:
             Dictionary with graph context
         """
-        # Normalize path for Neo4j
-        normalized_path = file_path.replace("\\", "/")
+        # Use shared utility for graph context
+        context = get_graph_context(self.db, file_path, line)
 
-        query = """
-        MATCH (file:File {filePath: $file_path})
-        OPTIONAL MATCH (file)-[:CONTAINS]->(entity)
-        WHERE entity.lineStart <= $line AND entity.lineEnd >= $line
-        RETURN
-            file.loc as file_loc,
-            file.language as language,
-            collect(DISTINCT entity.qualifiedName) as affected_nodes,
-            collect(DISTINCT entity.complexity) as complexities
-        """
-
-        try:
-            results = self.db.execute_query(query, {
-                "file_path": normalized_path,
-                "line": line
-            })
-
-            if results:
-                result = results[0]
-                return {
-                    "file_loc": result.get("file_loc", 0),
-                    "language": result.get("language", "python"),
-                    "nodes": result.get("affected_nodes", []),
-                    "complexity": max(result.get("complexities", [0]) or [0])
-                }
-        except Exception as e:
-            logger.warning(f"Failed to enrich from graph: {e}")
-
-        return {"file_loc": 0, "language": "python", "nodes": [], "complexity": 0}
+        # Map to detector's expected format
+        return {
+            "file_loc": context.get("file_loc", 0),
+            "language": context.get("language", "python"),
+            "nodes": context.get("affected_nodes", []),
+            "complexity": max(context.get("complexities", [0]) or [0])
+        }
 
     def _get_severity(self, msg_type: str) -> Severity:
         """Determine severity from message type.

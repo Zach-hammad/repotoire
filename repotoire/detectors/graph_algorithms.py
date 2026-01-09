@@ -1,14 +1,14 @@
 """Graph algorithm utilities using Rust implementations.
 
 This module provides high-performance graph algorithms implemented in Rust
-via repotoire_fast. No Neo4j GDS plugin required - works with any Cypher database.
+via repotoire_fast. No GDS plugin required - works with FalkorDB.
 
 REPO-152: Added community detection (Louvain) and PageRank for pattern recognition.
 REPO-192: Replaced GDS with Rust implementations (10-100x faster, database-agnostic).
 """
 
 from typing import Dict, Any, Optional, List
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 from repotoire.validation import validate_identifier, ValidationError
 
@@ -32,18 +32,18 @@ _pagerank_cache: Dict[str, float] = {}
 class GraphAlgorithms:
     """High-performance graph algorithms using Rust (no GDS required)."""
 
-    def __init__(self, client: Neo4jClient):
+    def __init__(self, client: FalkorDBClient):
         """Initialize graph algorithms.
 
         Args:
-            client: Neo4j client instance
+            client: FalkorDB client instance
         """
         self.client = client
         # Cache for node ID mappings
         self._node_cache: Dict[str, Dict[str, int]] = {}
 
     # -------------------------------------------------------------------------
-    # Rust Algorithm Helpers - Extract graph data from Neo4j
+    # Rust Algorithm Helpers - Extract graph data from FalkorDB
     # -------------------------------------------------------------------------
 
     def _extract_edges(
@@ -52,7 +52,7 @@ class GraphAlgorithms:
         rel_type: str,
         directed: bool = True
     ) -> tuple[List[tuple[int, int]], List[str]]:
-        """Extract edges from Neo4j for Rust algorithms.
+        """Extract edges from FalkorDB for Rust algorithms.
 
         Args:
             node_label: Node label (e.g., 'Function', 'File')
@@ -81,7 +81,7 @@ class GraphAlgorithms:
         if not result or not result[0]['node_list']:
             return [], []
 
-        # Build node ID mapping (Neo4j ID -> sequential ID)
+        # Build node ID mapping (graph ID -> sequential ID)
         node_list = result[0]['node_list']
         neo_to_seq: Dict[int, int] = {}
         node_names: List[str] = []
@@ -107,7 +107,7 @@ class GraphAlgorithms:
         values: List[Any],
         property_name: str
     ) -> int:
-        """Write computed values back to Neo4j nodes.
+        """Write computed values back to FalkorDB nodes.
 
         Args:
             node_label: Node label
@@ -249,7 +249,7 @@ class GraphAlgorithms:
         try:
             validated_property = validate_identifier(write_property, "property name")
 
-            # Extract Function->CALLS->Function edges from Neo4j
+            # Extract Function->CALLS->Function edges from FalkorDB
             edges, node_names = self._extract_edges("Function", "CALLS")
 
             if not edges:
@@ -259,7 +259,7 @@ class GraphAlgorithms:
             # Run Rust Brandes algorithm
             scores = graph_betweenness_centrality(edges, len(node_names))
 
-            # Write back to Neo4j
+            # Write back to FalkorDB
             updated = self._write_property_to_nodes(
                 "Function", node_names, scores, validated_property
             )
@@ -367,7 +367,7 @@ class GraphAlgorithms:
         try:
             validated_property = validate_identifier(write_property, "property name")
 
-            # Extract Function->CALLS->Function edges from Neo4j
+            # Extract Function->CALLS->Function edges from FalkorDB
             edges, node_names = self._extract_edges("Function", "CALLS")
 
             if not edges:
@@ -377,7 +377,7 @@ class GraphAlgorithms:
             # Run Rust harmonic centrality algorithm (normalized to [0, 1])
             scores = graph_harmonic_centrality(edges, len(node_names), normalized=True)
 
-            # Write back to Neo4j
+            # Write back to FalkorDB
             updated = self._write_property_to_nodes(
                 "Function", node_names, scores, validated_property
             )
@@ -648,8 +648,8 @@ class GraphAlgorithms:
             # resolution=1.0, max_iterations=10
             community_ids = graph_leiden(edges, len(node_names))
 
-            # Write back to Neo4j
-            # Convert to Python int list for Neo4j compatibility
+            # Write back to FalkorDB
+            # Convert to Python int list for graph compatibility
             community_ids_list = [int(c) for c in community_ids]
             updated = self._write_property_to_nodes(
                 "Function", node_names, community_ids_list, validated_property
@@ -822,7 +822,7 @@ class GraphAlgorithms:
         try:
             validated_property = validate_identifier(write_property, "property name")
 
-            # Extract Function->CALLS->Function edges from Neo4j
+            # Extract Function->CALLS->Function edges from FalkorDB
             edges, node_names = self._extract_edges("Function", "CALLS")
 
             if not edges:
@@ -833,7 +833,7 @@ class GraphAlgorithms:
             # damping=0.85, max_iterations=20, tolerance=1e-4
             scores = graph_pagerank(edges, len(node_names))
 
-            # Write back to Neo4j
+            # Write back to FalkorDB
             updated = self._write_property_to_nodes(
                 "Function", node_names, scores, validated_property
             )
@@ -1103,7 +1103,7 @@ class GraphAlgorithms:
             # Run Rust Leiden algorithm
             community_ids = graph_leiden(edges, len(node_names))
 
-            # Write back to Neo4j
+            # Write back to FalkorDB
             community_ids_list = [int(c) for c in community_ids]
             updated = self._write_property_to_nodes(
                 "File", node_names, community_ids_list, validated_property
@@ -1285,7 +1285,7 @@ class GraphAlgorithms:
         try:
             validated_property = validate_identifier(write_property, "property name")
 
-            # Extract File->IMPORTS->File edges from Neo4j
+            # Extract File->IMPORTS->File edges from FalkorDB
             edges, node_names = self._extract_edges("File", "IMPORTS")
 
             if not edges:
@@ -1301,7 +1301,7 @@ class GraphAlgorithms:
                 for node_id in scc:
                     component_ids[node_id] = component_id
 
-            # Write back to Neo4j
+            # Write back to FalkorDB
             updated = self._write_property_to_nodes(
                 "File", node_names, component_ids, validated_property
             )

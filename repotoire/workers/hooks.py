@@ -1564,16 +1564,16 @@ def generate_fixes_for_analysis(
 
         # Initialize AutoFixEngine with Claude Opus 4.5 (outside session to avoid long transactions)
         from repotoire.autofix.engine import AutoFixEngine
-        from repotoire.graph.client import Neo4jClient
+        from repotoire.graph import FalkorDBClient
         from repotoire.models import Finding as ModelFinding
         from repotoire.models import Severity
 
-        neo4j_uri = os.environ.get("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687")
-        neo4j_password = os.environ.get("REPOTOIRE_NEO4J_PASSWORD", "")
-        neo4j_client = Neo4jClient(uri=neo4j_uri, password=neo4j_password)
+        falkordb_host = os.environ.get("FALKORDB_HOST", "bolt://localhost:7687")
+        falkordb_password = os.environ.get("FALKORDB_PASSWORD", "")
+        graph_client = FalkorDBClient(uri=falkordb_host, password=falkordb_password)
 
         engine = AutoFixEngine(
-            neo4j_client=neo4j_client,
+            graph_client=graph_client,
             llm_backend="anthropic",  # Use Claude Opus 4.5 for best fix quality
             skip_runtime_validation=True,  # Skip sandbox validation for speed
         )

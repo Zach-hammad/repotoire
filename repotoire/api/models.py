@@ -234,6 +234,46 @@ class EmbeddingsStatusResponse(BaseModel):
     )
 
 
+class ModuleStats(BaseModel):
+    """Statistics for a code module/directory."""
+
+    file_count: int = Field(..., alias="fileCount", description="Number of files in the module")
+    functions: int = Field(..., description="Number of functions in the module")
+    classes: int = Field(..., description="Number of classes in the module")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ArchitectureResponse(BaseModel):
+    """Response model for codebase architecture overview."""
+
+    modules: Dict[str, ModuleStats] = Field(
+        ...,
+        description="Module statistics keyed by module/directory path"
+    )
+    patterns: Optional[List[str]] = Field(
+        default=None,
+        description="Detected architectural patterns"
+    )
+    dependencies: Optional[List[str]] = Field(
+        default=None,
+        description="Top-level module dependencies"
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "modules": {
+                    "repotoire/api": {"fileCount": 25, "functions": 120, "classes": 15},
+                    "repotoire/graph": {"fileCount": 10, "functions": 45, "classes": 8}
+                },
+                "patterns": ["MVC", "Repository Pattern"],
+                "dependencies": ["fastapi", "neo4j", "pydantic"]
+            }
+        }
+    )
+
+
 class ErrorResponse(BaseModel):
     """Standard error response model.
 

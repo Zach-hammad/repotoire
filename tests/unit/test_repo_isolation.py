@@ -89,7 +89,7 @@ class TestIngestionPipelineRepoId:
         with patch.object(IngestionPipeline, '_validate_repo_path'):
             pipeline = IngestionPipeline(
                 repo_path="/tmp/test-repo",
-                neo4j_client=mock_client,
+                graph_client=mock_client,
                 repo_id=repo_id,
                 repo_slug="owner/test-repo",
             )
@@ -110,7 +110,7 @@ class TestIngestionPipelineRepoId:
         with patch.object(IngestionPipeline, '_validate_repo_path'):
             pipeline = IngestionPipeline(
                 repo_path="/tmp/test-repo",
-                neo4j_client=mock_client,
+                graph_client=mock_client,
                 repo_id=repo_id,
                 repo_slug="owner/test-repo",
             )
@@ -154,7 +154,7 @@ class TestIngestionPipelineRepoId:
         with patch.object(IngestionPipeline, '_validate_repo_path'):
             pipeline = IngestionPipeline(
                 repo_path="/tmp/test-repo",
-                neo4j_client=mock_client,
+                graph_client=mock_client,
                 # No repo_id
             )
 

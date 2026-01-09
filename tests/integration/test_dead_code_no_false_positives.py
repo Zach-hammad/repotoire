@@ -15,7 +15,7 @@ from repotoire.parsers.python_parser import PythonParser
 from repotoire.detectors.dead_code import DeadCodeDetector
 from repotoire.models import NodeType, RelationshipType
 
-# Note: test_neo4j_client fixture is provided by tests/integration/conftest.py
+# Note: test_graph_client fixture is provided by tests/integration/conftest.py
 # Graph is automatically cleared before each test by isolate_graph_test autouse fixture
 
 
@@ -26,12 +26,12 @@ def parser():
 
 
 @pytest.fixture
-def clean_db(test_neo4j_client):
+def clean_db(test_graph_client):
     """Provide a clean database client for tests.
 
     Graph clearing is handled automatically by isolate_graph_test autouse fixture.
     """
-    yield test_neo4j_client
+    yield test_graph_client
 
 
 @pytest.fixture

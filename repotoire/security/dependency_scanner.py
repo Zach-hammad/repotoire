@@ -25,7 +25,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.models import Finding, Severity
 from repotoire.logging_config import get_logger
 
@@ -58,11 +58,11 @@ class DependencyScanner(CodeSmellDetector):
         "LOW": Severity.LOW,            # 0.1-3.9
     }
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None):
+    def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[Dict] = None):
         """Initialize dependency scanner.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
             detector_config: Configuration dictionary with:
                 - repository_path: Path to repository root (required)
                 - requirements_file: Path to requirements file
@@ -71,7 +71,7 @@ class DependencyScanner(CodeSmellDetector):
                 - ignore_packages: List of package names to ignore (e.g., ["setuptools"])
                 - check_outdated: Check for significantly outdated packages
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
 
         config = detector_config or {}
         self.repository_path = Path(config.get("repository_path", "."))

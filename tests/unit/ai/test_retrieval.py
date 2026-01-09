@@ -6,13 +6,13 @@ import pytest
 
 from repotoire.ai.retrieval import GraphRAGRetriever, RetrievalResult, RAGCache
 from repotoire.ai.embeddings import CodeEmbedder
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 
 
 @pytest.fixture
-def mock_neo4j_client():
-    """Mock Neo4jClient."""
-    client = Mock(spec=Neo4jClient)
+def mock_graph_client():
+    """Mock FalkorDBClient."""
+    client = Mock(spec=FalkorDBClient)
     return client
 
 
@@ -35,20 +35,20 @@ def mock_embedder():
 
 
 @pytest.fixture
-def retriever(mock_neo4j_client, mock_embedder):
+def retriever(mock_graph_client, mock_embedder):
     """Create retriever with mocked dependencies."""
     return GraphRAGRetriever(
-        client=mock_neo4j_client,
+        client=mock_graph_client,
         embedder=mock_embedder,
         context_lines=5
     )
 
 
 @pytest.fixture
-def retriever_with_cache(mock_neo4j_client, mock_embedder):
+def retriever_with_cache(mock_graph_client, mock_embedder):
     """Create retriever with cache enabled."""
     return GraphRAGRetriever(
-        client=mock_neo4j_client,
+        client=mock_graph_client,
         embedder=mock_embedder,
         context_lines=5,
         cache_enabled=True,
@@ -58,10 +58,10 @@ def retriever_with_cache(mock_neo4j_client, mock_embedder):
 
 
 @pytest.fixture
-def retriever_no_cache(mock_neo4j_client, mock_embedder):
+def retriever_no_cache(mock_graph_client, mock_embedder):
     """Create retriever with cache disabled."""
     return GraphRAGRetriever(
-        client=mock_neo4j_client,
+        client=mock_graph_client,
         embedder=mock_embedder,
         context_lines=5,
         cache_enabled=False
@@ -98,31 +98,31 @@ def sample_vector_search_result():
 class TestGraphRAGRetriever:
     """Test GraphRAGRetriever initialization and basic functionality."""
 
-    def test_initialization(self, mock_neo4j_client, mock_embedder):
+    def test_initialization(self, mock_graph_client, mock_embedder):
         """Test retriever initializes correctly."""
         retriever = GraphRAGRetriever(
-            client=mock_neo4j_client,
+            client=mock_graph_client,
             embedder=mock_embedder,
             context_lines=10
         )
 
-        assert retriever.client == mock_neo4j_client
+        assert retriever.client == mock_graph_client
         assert retriever.embedder == mock_embedder
         assert retriever.context_lines == 10
 
-    def test_default_context_lines(self, mock_neo4j_client, mock_embedder):
+    def test_default_context_lines(self, mock_graph_client, mock_embedder):
         """Test default context_lines parameter."""
         retriever = GraphRAGRetriever(
-            client=mock_neo4j_client,
+            client=mock_graph_client,
             embedder=mock_embedder
         )
 
         assert retriever.context_lines == 5
 
-    def test_cache_enabled_by_default(self, mock_neo4j_client, mock_embedder):
+    def test_cache_enabled_by_default(self, mock_graph_client, mock_embedder):
         """Test cache is enabled by default."""
         retriever = GraphRAGRetriever(
-            client=mock_neo4j_client,
+            client=mock_graph_client,
             embedder=mock_embedder
         )
 
@@ -130,10 +130,10 @@ class TestGraphRAGRetriever:
         assert retriever._cache is not None
         assert retriever.cache_stats["enabled"] is True
 
-    def test_cache_disabled(self, mock_neo4j_client, mock_embedder):
+    def test_cache_disabled(self, mock_graph_client, mock_embedder):
         """Test cache can be disabled."""
         retriever = GraphRAGRetriever(
-            client=mock_neo4j_client,
+            client=mock_graph_client,
             embedder=mock_embedder,
             cache_enabled=False
         )
@@ -142,10 +142,10 @@ class TestGraphRAGRetriever:
         assert retriever._cache is None
         assert retriever.cache_stats["enabled"] is False
 
-    def test_cache_custom_settings(self, mock_neo4j_client, mock_embedder):
+    def test_cache_custom_settings(self, mock_graph_client, mock_embedder):
         """Test cache with custom TTL and max_size."""
         retriever = GraphRAGRetriever(
-            client=mock_neo4j_client,
+            client=mock_graph_client,
             embedder=mock_embedder,
             cache_ttl=7200,
             cache_max_size=500
@@ -158,12 +158,12 @@ class TestGraphRAGRetriever:
 class TestVectorSearch:
     """Test vector similarity search functionality."""
 
-    def test_vector_search_single_entity_type(self, retriever, mock_neo4j_client):
+    def test_vector_search_single_entity_type(self, retriever, mock_graph_client):
         """Test vector search for a single entity type."""
         query_embedding = [0.1] * 1536
 
         # Mock Neo4j response
-        mock_neo4j_client.execute_query.return_value = [
+        mock_graph_client.execute_query.return_value = [
             {
                 "element_id": "4:abc123:1",
                 "qualified_name": "test.py::func:10",
@@ -188,19 +188,19 @@ class TestVectorSearch:
         assert results[0]["score"] == 0.95
 
         # Verify query was called with correct parameters
-        call_args = mock_neo4j_client.execute_query.call_args
+        call_args = mock_graph_client.execute_query.call_args
         # execute_query(query, params) - params is second positional arg
         params = call_args[0][1]
         assert params["index_name"] == "function_embeddings"
         assert params["top_k"] == 5
         assert params["embedding"] == query_embedding
 
-    def test_vector_search_multiple_entity_types(self, retriever, mock_neo4j_client):
+    def test_vector_search_multiple_entity_types(self, retriever, mock_graph_client):
         """Test vector search across multiple entity types."""
         query_embedding = [0.1] * 1536
 
         # Mock Neo4j responses for different entity types
-        mock_neo4j_client.execute_query.side_effect = [
+        mock_graph_client.execute_query.side_effect = [
             [{"score": 0.95, "qualified_name": "test.py::func:10", "name": "func", "element_id": "1"}],
             [{"score": 0.90, "qualified_name": "test.py::Class:20", "name": "Class", "element_id": "2"}],
         ]
@@ -217,26 +217,26 @@ class TestVectorSearch:
         assert results[1]["score"] == 0.90
 
         # Verify both entity types were searched
-        assert mock_neo4j_client.execute_query.call_count == 2
+        assert mock_graph_client.execute_query.call_count == 2
 
-    def test_vector_search_defaults_to_all_types(self, retriever, mock_neo4j_client):
+    def test_vector_search_defaults_to_all_types(self, retriever, mock_graph_client):
         """Test vector search defaults to Function, Class, File."""
         query_embedding = [0.1] * 1536
 
         # Mock empty responses
-        mock_neo4j_client.execute_query.return_value = []
+        mock_graph_client.execute_query.return_value = []
 
         retriever._vector_search(query_embedding, top_k=5)
 
         # Should search all 3 default types
-        assert mock_neo4j_client.execute_query.call_count == 3
+        assert mock_graph_client.execute_query.call_count == 3
 
-    def test_vector_search_limits_results(self, retriever, mock_neo4j_client):
+    def test_vector_search_limits_results(self, retriever, mock_graph_client):
         """Test vector search respects top_k limit."""
         query_embedding = [0.1] * 1536
 
         # Mock many results from each type
-        mock_neo4j_client.execute_query.side_effect = [
+        mock_graph_client.execute_query.side_effect = [
             [{"score": 0.9 - i*0.01, "qualified_name": f"func{i}", "element_id": f"{i}"} for i in range(10)],
             [{"score": 0.8 - i*0.01, "qualified_name": f"class{i}", "element_id": f"{i+100}"} for i in range(10)],
             [{"score": 0.7 - i*0.01, "qualified_name": f"file{i}", "element_id": f"{i+200}"} for i in range(10)],
@@ -249,12 +249,12 @@ class TestVectorSearch:
         # Should be sorted by score
         assert results[0]["score"] >= results[1]["score"]
 
-    def test_vector_search_handles_missing_index(self, retriever, mock_neo4j_client):
+    def test_vector_search_handles_missing_index(self, retriever, mock_graph_client):
         """Test vector search handles missing index gracefully."""
         query_embedding = [0.1] * 1536
 
         # Mock exception for missing index
-        mock_neo4j_client.execute_query.side_effect = Exception("Index not found")
+        mock_graph_client.execute_query.side_effect = Exception("Index not found")
 
         results = retriever._vector_search(query_embedding, top_k=5)
 
@@ -265,12 +265,12 @@ class TestVectorSearch:
 class TestRelatedEntities:
     """Test graph traversal for related entities."""
 
-    def test_get_related_entities(self, retriever, mock_neo4j_client):
+    def test_get_related_entities(self, retriever, mock_graph_client):
         """Test fetching related entities via graph traversal."""
         entity_id = "4:abc123:1"
 
         # Mock Neo4j response with relationships
-        mock_neo4j_client.execute_query.return_value = [
+        mock_graph_client.execute_query.return_value = [
             {"entity": "test.py::helper:30", "relationship": "CALLS"},
             {"entity": "utils.py::validate:10", "relationship": "USES"},
             {"entity": "test.py::TestClass:50", "relationship": "CONTAINS"}
@@ -283,18 +283,18 @@ class TestRelatedEntities:
         assert {"entity": "utils.py::validate:10", "relationship": "USES"} in relationships
 
         # Verify query parameters
-        call_args = mock_neo4j_client.execute_query.call_args
+        call_args = mock_graph_client.execute_query.call_args
         # execute_query(query, params) - params is second positional arg
         params = call_args[0][1]
         assert params["id"] == entity_id
         assert params["max_relationships"] == 20
 
-    def test_get_related_entities_limit(self, retriever, mock_neo4j_client):
+    def test_get_related_entities_limit(self, retriever, mock_graph_client):
         """Test related entities respects limit."""
         entity_id = "4:abc123:1"
 
         # Mock many relationships
-        mock_neo4j_client.execute_query.return_value = [
+        mock_graph_client.execute_query.return_value = [
             {"entity": f"entity{i}", "relationship": "CALLS"}
             for i in range(50)
         ]
@@ -302,17 +302,17 @@ class TestRelatedEntities:
         relationships = retriever._get_related_entities(entity_id, max_relationships=10)
 
         # Should respect limit parameter
-        call_args = mock_neo4j_client.execute_query.call_args
+        call_args = mock_graph_client.execute_query.call_args
         # execute_query(query, params) - params is second positional arg
         params = call_args[0][1]
         assert params["max_relationships"] == 10
 
-    def test_get_related_entities_filters_none(self, retriever, mock_neo4j_client):
+    def test_get_related_entities_filters_none(self, retriever, mock_graph_client):
         """Test related entities filters out None values."""
         entity_id = "4:abc123:1"
 
         # Mock response with None entities
-        mock_neo4j_client.execute_query.return_value = [
+        mock_graph_client.execute_query.return_value = [
             {"entity": "test.py::func:10", "relationship": "CALLS"},
             {"entity": None, "relationship": "USES"},
             {"entity": "test.py::class:20", "relationship": "CONTAINS"}
@@ -324,12 +324,12 @@ class TestRelatedEntities:
         assert len(relationships) == 2
         assert all(r["entity"] is not None for r in relationships)
 
-    def test_get_related_entities_handles_exception(self, retriever, mock_neo4j_client):
+    def test_get_related_entities_handles_exception(self, retriever, mock_graph_client):
         """Test related entities handles query exceptions."""
         entity_id = "4:abc123:1"
 
         # Mock exception
-        mock_neo4j_client.execute_query.side_effect = Exception("Query failed")
+        mock_graph_client.execute_query.side_effect = Exception("Query failed")
 
         relationships = retriever._get_related_entities(entity_id)
 
@@ -406,7 +406,7 @@ class TestCodeFetching:
 class TestHybridRetrieval:
     """Test complete hybrid retrieval (vector + graph)."""
 
-    def test_retrieve_basic(self, retriever, mock_embedder, mock_neo4j_client):
+    def test_retrieve_basic(self, retriever, mock_embedder, mock_graph_client):
         """Test basic hybrid retrieval."""
         query = "How does authentication work?"
 
@@ -414,7 +414,7 @@ class TestHybridRetrieval:
         mock_embedder.embed_query.return_value = [0.1] * 1536
 
         # Mock vector search results
-        mock_neo4j_client.execute_query.side_effect = [
+        mock_graph_client.execute_query.side_effect = [
             # Vector search results
             [{
                 "element_id": "4:abc123:1",
@@ -450,14 +450,14 @@ class TestHybridRetrieval:
         assert len(result.relationships) == 1
         assert "line 10" in result.code
 
-    def test_retrieve_without_relationships(self, retriever, mock_embedder, mock_neo4j_client):
+    def test_retrieve_without_relationships(self, retriever, mock_embedder, mock_graph_client):
         """Test retrieval without fetching related entities."""
         query = "test query"
 
         mock_embedder.embed_query.return_value = [0.1] * 1536
 
         # Mock vector search
-        mock_neo4j_client.execute_query.side_effect = [
+        mock_graph_client.execute_query.side_effect = [
             [{
                 "element_id": "1",
                 "qualified_name": "test.py::func:1",
@@ -480,14 +480,14 @@ class TestHybridRetrieval:
         assert len(results) == 1
         assert results[0].relationships == []
 
-    def test_retrieve_filters_entity_types(self, retriever, mock_embedder, mock_neo4j_client):
+    def test_retrieve_filters_entity_types(self, retriever, mock_embedder, mock_graph_client):
         """Test retrieval can filter by entity types."""
         query = "test query"
 
         mock_embedder.embed_query.return_value = [0.1] * 1536
 
         # Mock vector search (only Function type)
-        mock_neo4j_client.execute_query.return_value = []
+        mock_graph_client.execute_query.return_value = []
 
         file_content = "test"
         with patch("builtins.open", mock_open(read_data=file_content)):
@@ -495,19 +495,19 @@ class TestHybridRetrieval:
 
         # Should only search Function type
         # _vector_search is called once internally, and it calls execute_query for each entity type
-        call_args = mock_neo4j_client.execute_query.call_args
+        call_args = mock_graph_client.execute_query.call_args
         assert "function_embeddings" in str(call_args)
 
 
 class TestGraphTraversal:
     """Test pure graph traversal retrieval."""
 
-    def test_retrieve_by_path_basic(self, retriever, mock_neo4j_client):
+    def test_retrieve_by_path_basic(self, retriever, mock_graph_client):
         """Test graph traversal from starting entity."""
         start_entity = "auth.py::AuthService:10"
 
         # Mock graph traversal results
-        mock_neo4j_client.execute_query.side_effect = [
+        mock_graph_client.execute_query.side_effect = [
             # Traversal results
             [{
                 "element_id": "4:abc123:2",
@@ -544,16 +544,16 @@ class TestGraphTraversal:
         assert len(result.relationships) == 1
 
         # Verify query parameters
-        call_args = mock_neo4j_client.execute_query.call_args_list[0]
+        call_args = mock_graph_client.execute_query.call_args_list[0]
         # execute_query(query, params) - params is second positional arg
         params = call_args[0][1]
         assert params["start_qname"] == start_entity
         assert params["limit"] == 20
 
-    def test_retrieve_by_path_multiple_hops(self, retriever, mock_neo4j_client):
+    def test_retrieve_by_path_multiple_hops(self, retriever, mock_graph_client):
         """Test graph traversal respects max_hops."""
         # Mock results at different distances
-        mock_neo4j_client.execute_query.side_effect = [
+        mock_graph_client.execute_query.side_effect = [
             [
                 {"element_id": "1", "qualified_name": "func1", "name": "func1",
                  "entity_type": "Function", "docstring": "", "file_path": "test.py",
@@ -763,12 +763,12 @@ class TestRAGCache:
 class TestCacheIntegration:
     """Test cache integration with GraphRAGRetriever."""
 
-    def test_retrieve_uses_cache(self, retriever_with_cache, mock_embedder, mock_neo4j_client):
+    def test_retrieve_uses_cache(self, retriever_with_cache, mock_embedder, mock_graph_client):
         """Test retrieve uses cached results on second call."""
         query = "test query"
 
         mock_embedder.embed_query.return_value = [0.1] * 1536
-        mock_neo4j_client.execute_query.side_effect = [
+        mock_graph_client.execute_query.side_effect = [
             [{"element_id": "1", "qualified_name": "test.py::func:1", "name": "func",
               "entity_type": "Function", "docstring": "Test", "file_path": "test.py",
               "line_start": 1, "line_end": 5, "score": 0.9}],
@@ -781,14 +781,14 @@ class TestCacheIntegration:
             results1 = retriever_with_cache.retrieve(query, top_k=5)
 
         # Reset mock for second call
-        mock_neo4j_client.execute_query.reset_mock()
+        mock_graph_client.execute_query.reset_mock()
 
         with patch("builtins.open", mock_open(read_data="def func():\n    pass\n")):
             # Second call - should use cache
             results2 = retriever_with_cache.retrieve(query, top_k=5)
 
         # Neo4j should not be called on second request (cache hit)
-        mock_neo4j_client.execute_query.assert_not_called()
+        mock_graph_client.execute_query.assert_not_called()
 
         # Results should be the same
         assert len(results1) == len(results2)
@@ -797,50 +797,50 @@ class TestCacheIntegration:
         assert retriever_with_cache.cache_stats["hits"] == 1
         assert retriever_with_cache.cache_stats["misses"] == 1
 
-    def test_retrieve_bypass_cache(self, retriever_with_cache, mock_embedder, mock_neo4j_client):
+    def test_retrieve_bypass_cache(self, retriever_with_cache, mock_embedder, mock_graph_client):
         """Test retrieve can bypass cache with use_cache=False."""
         query = "test query"
 
         mock_embedder.embed_query.return_value = [0.1] * 1536
-        mock_neo4j_client.execute_query.return_value = []
+        mock_graph_client.execute_query.return_value = []
 
         # First call - populates cache
         retriever_with_cache.retrieve(query, top_k=5, use_cache=True)
 
         # Reset mock
-        mock_neo4j_client.execute_query.reset_mock()
+        mock_graph_client.execute_query.reset_mock()
 
         # Second call with use_cache=False - should hit database
         retriever_with_cache.retrieve(query, top_k=5, use_cache=False)
 
         # Neo4j should be called even though result is cached
-        assert mock_neo4j_client.execute_query.called
+        assert mock_graph_client.execute_query.called
 
-    def test_retrieve_no_cache(self, retriever_no_cache, mock_embedder, mock_neo4j_client):
+    def test_retrieve_no_cache(self, retriever_no_cache, mock_embedder, mock_graph_client):
         """Test retrieve works when cache is disabled."""
         query = "test query"
 
         mock_embedder.embed_query.return_value = [0.1] * 1536
-        mock_neo4j_client.execute_query.return_value = []
+        mock_graph_client.execute_query.return_value = []
 
         # First call
         retriever_no_cache.retrieve(query, top_k=5)
 
         # Reset mock
-        mock_neo4j_client.execute_query.reset_mock()
+        mock_graph_client.execute_query.reset_mock()
 
         # Second call - should hit database (no cache)
         retriever_no_cache.retrieve(query, top_k=5)
 
         # Neo4j should be called on every request
-        assert mock_neo4j_client.execute_query.called
+        assert mock_graph_client.execute_query.called
 
-    def test_invalidate_cache(self, retriever_with_cache, mock_embedder, mock_neo4j_client):
+    def test_invalidate_cache(self, retriever_with_cache, mock_embedder, mock_graph_client):
         """Test cache invalidation."""
         query = "test query"
 
         mock_embedder.embed_query.return_value = [0.1] * 1536
-        mock_neo4j_client.execute_query.return_value = []
+        mock_graph_client.execute_query.return_value = []
 
         # Populate cache
         retriever_with_cache.retrieve(query, top_k=5)
@@ -853,24 +853,24 @@ class TestCacheIntegration:
         assert retriever_with_cache.cache_stats["hits"] == 0
         assert retriever_with_cache.cache_stats["misses"] == 0
 
-    def test_different_top_k_not_cached(self, retriever_with_cache, mock_embedder, mock_neo4j_client):
+    def test_different_top_k_not_cached(self, retriever_with_cache, mock_embedder, mock_graph_client):
         """Test same query with different top_k is not a cache hit."""
         query = "test query"
 
         mock_embedder.embed_query.return_value = [0.1] * 1536
-        mock_neo4j_client.execute_query.return_value = []
+        mock_graph_client.execute_query.return_value = []
 
         # First call with top_k=5
         retriever_with_cache.retrieve(query, top_k=5)
 
         # Reset mock
-        mock_neo4j_client.execute_query.reset_mock()
+        mock_graph_client.execute_query.reset_mock()
 
         # Second call with different top_k - should miss cache
         retriever_with_cache.retrieve(query, top_k=10)
 
         # Neo4j should be called (cache miss due to different top_k)
-        assert mock_neo4j_client.execute_query.called
+        assert mock_graph_client.execute_query.called
 
         # Should have 2 cache entries now
         assert retriever_with_cache.cache_stats["size"] == 2

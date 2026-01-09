@@ -39,7 +39,7 @@ class GraphSAGEDetector(CodeSmellDetector):
 
     Example:
         >>> detector = GraphSAGEDetector(
-        ...     client=neo4j_client,
+        ...     client=graph_client,
         ...     model_path=Path("models/graphsage.pt"),
         ...     risk_threshold=0.7,
         ... )
@@ -61,7 +61,7 @@ class GraphSAGEDetector(CodeSmellDetector):
         """Initialize GraphSAGE detector.
 
         Args:
-            client: Database client (Neo4jClient or FalkorDBClient)
+            client: Database client (FalkorDBClient)
             model_path: Path to pre-trained GraphSAGE model
             risk_threshold: Probability threshold for flagging (0.0-1.0)
             embedding_property: Node property containing embeddings

@@ -33,15 +33,15 @@ class SchemaGenerator:
         "None": "null",
     }
 
-    def __init__(self, rag_retriever=None, neo4j_client=None):
+    def __init__(self, rag_retriever=None, graph_client=None):
         """Initialize schema generator.
 
         Args:
             rag_retriever: Optional GraphRAGRetriever for enhanced descriptions
-            neo4j_client: Optional Neo4j client for relationship queries
+            graph_client: Optional FalkorDB client for relationship queries
         """
         self.rag_retriever = rag_retriever
-        self.neo4j_client = neo4j_client
+        self.graph_client = graph_client
 
         # Initialize OpenAI client for GPT-4o descriptions
         self.openai_client = None
@@ -135,7 +135,7 @@ class SchemaGenerator:
         # (could be Pydantic models like CodeAskRequest, not just FastAPI Request)
         param_name_lower = param_name.lower()
         dependency_param_names = [
-            'client', 'neo4j_client',
+            'client', 'graph_client',
             'embedder', 'code_embedder',
             'retriever', 'graph_rag_retriever', 'graphragretriever',
             'db', 'database',
@@ -480,7 +480,7 @@ class SchemaGenerator:
         Returns:
             Dictionary with relationship information
         """
-        if not self.neo4j_client:
+        if not self.graph_client:
             return {}
 
         context = {
@@ -497,7 +497,7 @@ class SchemaGenerator:
             RETURN caller.qualifiedName as caller, caller.name as caller_name
             LIMIT 5
             """
-            callers = self.neo4j_client.execute_query(
+            callers = self.graph_client.execute_query(
                 callers_query,
                 {"qname": pattern.qualified_name}
             )
@@ -509,7 +509,7 @@ class SchemaGenerator:
             RETURN callee.qualifiedName as callee, callee.name as callee_name
             LIMIT 5
             """
-            calls = self.neo4j_client.execute_query(
+            calls = self.graph_client.execute_query(
                 calls_query,
                 {"qname": pattern.qualified_name}
             )
@@ -537,7 +537,7 @@ class SchemaGenerator:
         Returns:
             List of code examples showing usage
         """
-        if not self.neo4j_client:
+        if not self.graph_client:
             return []
 
         examples = []
@@ -551,7 +551,7 @@ class SchemaGenerator:
             RETURN test_func.qualifiedName as test_name
             LIMIT 3
             """
-            results = self.neo4j_client.execute_query(
+            results = self.graph_client.execute_query(
                 examples_query,
                 {"qname": pattern.qualified_name}
             )

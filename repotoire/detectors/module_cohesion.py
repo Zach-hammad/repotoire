@@ -12,7 +12,7 @@ REPO-200: Updated to use Rust Leiden algorithm (no GDS dependency).
 from typing import List, Optional
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.graph_algorithms import GraphAlgorithms
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
 
@@ -41,13 +41,13 @@ class ModuleCohesionDetector(CodeSmellDetector):
     # God module threshold (% of total files)
     GOD_MODULE_THRESHOLD = 20.0
 
-    def __init__(self, neo4j_client: Neo4jClient):
-        """Initialize detector with Neo4j client.
+    def __init__(self, graph_client: FalkorDBClient):
+        """Initialize detector with FalkorDB client.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
         self.modularity_score: Optional[float] = None
         self.community_count: int = 0
 

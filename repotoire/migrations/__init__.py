@@ -1,4 +1,4 @@
-"""Schema migration system for Neo4j database."""
+"""Schema migration system for FalkorDB database."""
 
 from repotoire.migrations.migration import Migration, MigrationError
 from repotoire.migrations.manager import MigrationManager

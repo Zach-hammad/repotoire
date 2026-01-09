@@ -395,7 +395,7 @@ class TestCreateClientPriority:
     def setup_env(self, monkeypatch, tmp_path):
         """Clear relevant env vars before each test."""
         monkeypatch.delenv("REPOTOIRE_API_KEY", raising=False)
-        monkeypatch.delenv("REPOTOIRE_NEO4J_URI", raising=False)
+        monkeypatch.delenv("FALKORDB_HOST", raising=False)
         monkeypatch.delenv("REPOTOIRE_FALKORDB_HOST", raising=False)
         monkeypatch.delenv("REPOTOIRE_DB_TYPE", raising=False)
 

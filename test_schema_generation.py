@@ -2,12 +2,12 @@
 
 import json
 import os
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.mcp import PatternDetector, SchemaGenerator
 
-# Connect to Neo4j
-password = os.getenv("REPOTOIRE_NEO4J_PASSWORD", "falkor-password")
-client = Neo4jClient(uri="bolt://localhost:7688", password=password)
+# Connect to FalkorDB
+password = os.getenv("FALKORDB_PASSWORD", "falkor-password")
+client = FalkorDBClient(uri="bolt://localhost:7688", password=password)
 
 # Detect patterns
 detector = PatternDetector(client)

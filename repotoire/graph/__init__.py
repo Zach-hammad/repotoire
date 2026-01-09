@@ -1,7 +1,6 @@
 """Graph database client and utilities."""
 
 from repotoire.graph.base import DatabaseClient
-from repotoire.graph.client import Neo4jClient
 from repotoire.graph.falkordb_client import FalkorDBClient
 from repotoire.graph.factory import (
     create_client,
@@ -20,20 +19,16 @@ from repotoire.graph.tenant_factory import (
     get_client_for_org,
     reset_factory,
 )
-from repotoire.graph.neo4j_multitenant import (
-    Neo4jClientMultiTenant,
-    Neo4jClientPartitioned,
-)
+
+# Backward compatibility alias - all code using Neo4jClient will use FalkorDBClient
+Neo4jClient = FalkorDBClient
 
 __all__ = [
     # Base classes
     "DatabaseClient",
-    # Single-tenant clients
-    "Neo4jClient",
+    # Graph clients
     "FalkorDBClient",
-    # Multi-tenant clients
-    "Neo4jClientMultiTenant",
-    "Neo4jClientPartitioned",
+    "Neo4jClient",  # Alias for backward compatibility
     # Factory functions
     "create_client",
     "create_cloud_client",

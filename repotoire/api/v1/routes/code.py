@@ -22,6 +22,12 @@ from repotoire.api.shared.auth import ClerkUser, get_current_user_or_api_key
 from repotoire.api.shared.middleware.usage import enforce_feature_for_api
 from repotoire.ai.retrieval import GraphRAGRetriever, RetrievalResult
 from repotoire.ai.embeddings import CodeEmbedder
+from repotoire.ai.compression import (
+    EmbeddingCompressor,
+    TenantCompressor,
+    estimate_memory_savings,
+    DEFAULT_TARGET_DIMS,
+)
 from repotoire.db.models import Organization
 from repotoire.graph.base import DatabaseClient
 from repotoire.graph.tenant_factory import get_factory
@@ -393,6 +399,379 @@ async def get_embeddings_status(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve embeddings status."
+        )
+    finally:
+        client.close()
+
+
+async def _regenerate_embeddings_task(org_id: UUID, org_slug: str, batch_size: int = 50):
+    """Background task to regenerate embeddings."""
+    import os
+    import sys
+    import traceback
+
+    print(f"[EMBED] Starting background embedding regeneration for org {org_id}", flush=True)
+
+    factory = get_factory()
+    client = factory.get_client(org_id=org_id, org_slug=org_slug)
+
+    try:
+        # Initialize DeepInfra embedder
+        print("[EMBED] Initializing DeepInfra embedder...", flush=True)
+        embedder = CodeEmbedder(backend="deepinfra")
+        print(f"[EMBED] Embedder initialized: {embedder.resolved_backend}, {embedder.dimensions} dims", flush=True)
+
+        # Get all entities that need embeddings
+        print("[EMBED] Querying entities...", flush=True)
+        entities = client.execute_query("""
+            MATCH (n)
+            WHERE n:Function OR n:Class OR n:File
+            RETURN n.qualified_name as qname, n.name as name,
+                   n.code as code, n.docstring as docstring
+        """)
+
+        total = len(entities)
+        processed = 0
+        print(f"[EMBED] Found {total} entities to embed", flush=True)
+
+        # Process in batches
+        for i in range(0, total, batch_size):
+            batch = entities[i:i+batch_size]
+            texts = []
+            qnames = []
+
+            for e in batch:
+                # Build embedding text from entity
+                text_parts = [e.get("name", "")]
+                if e.get("docstring"):
+                    text_parts.append(e["docstring"])
+                if e.get("code"):
+                    text_parts.append(e["code"][:1000])  # Limit code length
+                texts.append("\n".join(text_parts))
+                qnames.append(e["qname"])
+
+            # Generate embeddings
+            embeddings = embedder.embed_batch(texts)
+
+            # Update in graph
+            for qname, emb in zip(qnames, embeddings):
+                client.execute_query("""
+                    MATCH (n {qualified_name: $qname})
+                    SET n.embedding = $embedding,
+                        n.embedding_backend = 'deepinfra',
+                        n.embedding_dims = $dims,
+                        n.embedding_model = 'Qwen/Qwen3-Embedding-8B'
+                """, {"qname": qname, "embedding": emb, "dims": len(emb)})
+
+            processed += len(batch)
+            print(f"[EMBED] Processed {processed}/{total} embeddings", flush=True)
+
+            # Yield to event loop to allow health checks
+            await asyncio.sleep(0.1)
+
+        print(f"[EMBED] Completed embedding regeneration: {processed} entities", flush=True)
+
+    except Exception as e:
+        print(f"[EMBED] ERROR: {e}", flush=True)
+        traceback.print_exc()
+    finally:
+        client.close()
+
+
+@router.post(
+    "/embeddings/regenerate",
+    summary="Regenerate embeddings with Qwen3",
+    description="Regenerate all embeddings using DeepInfra Qwen3-Embedding-8B. Returns immediately and runs in background.",
+    responses={
+        200: {"description": "Embedding regeneration started"},
+        403: {"model": ErrorResponse, "description": "Admin access required"},
+        503: {"model": ErrorResponse, "description": "DeepInfra API key not configured"}
+    }
+)
+async def regenerate_embeddings(
+    batch_size: int = 50,
+    org: Organization = Depends(enforce_feature_for_api("api_access")),
+):
+    """
+    Regenerate all embeddings using DeepInfra Qwen3-Embedding-8B (4096 dims).
+
+    This starts the regeneration in the background and returns immediately.
+    Check /embeddings/status to monitor progress.
+    """
+    import os
+
+    # Only allow if DEEPINFRA_API_KEY is set
+    if not os.getenv("DEEPINFRA_API_KEY"):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="DEEPINFRA_API_KEY not configured"
+        )
+
+    # Start background task
+    asyncio.create_task(_regenerate_embeddings_task(org.id, org.slug, batch_size))
+
+    return {
+        "status": "started",
+        "message": "Embedding regeneration started in background. Check /embeddings/status to monitor progress.",
+        "backend": "deepinfra",
+        "model": "Qwen/Qwen3-Embedding-8B",
+        "dimensions": 4096
+    }
+
+
+async def _compress_embeddings_task(
+    org_id: UUID,
+    org_slug: str,
+    target_dims: int = DEFAULT_TARGET_DIMS,
+    sample_size: int = 5000,
+):
+    """Background task to fit PCA and compress embeddings."""
+    import traceback
+    from pathlib import Path
+    import numpy as np
+
+    print(f"[COMPRESS] Starting embedding compression for org {org_id}", flush=True)
+    print(f"[COMPRESS] Target dimensions: {target_dims}", flush=True)
+
+    factory = get_factory()
+    client = factory.get_client(org_id=org_id, org_slug=org_slug)
+
+    try:
+        # Step 1: Sample embeddings for PCA fitting
+        print(f"[COMPRESS] Sampling up to {sample_size} embeddings for PCA fitting...", flush=True)
+
+        sample_query = """
+        MATCH (n)
+        WHERE (n:Function OR n:Class OR n:File) AND n.embedding IS NOT NULL
+        RETURN n.qualified_name as qname, n.embedding as embedding
+        LIMIT $limit
+        """
+        samples = client.execute_query(sample_query, {"limit": sample_size})
+
+        if len(samples) < 100:
+            print(f"[COMPRESS] ERROR: Only {len(samples)} embeddings found. Need at least 100.", flush=True)
+            return
+
+        embeddings = [s["embedding"] for s in samples]
+        source_dims = len(embeddings[0])
+        print(f"[COMPRESS] Found {len(embeddings)} embeddings with {source_dims} dimensions", flush=True)
+
+        # Step 2: Fit PCA compressor
+        print("[COMPRESS] Fitting PCA model...", flush=True)
+        model_dir = Path.home() / ".repotoire" / "compression_models"
+        model_path = model_dir / f"{org_slug}_pca.pkl"
+
+        compressor = EmbeddingCompressor(
+            target_dims=target_dims,
+            model_path=model_path,
+        )
+        compressor.fit(embeddings, save=True)
+        print(f"[COMPRESS] PCA model fitted. Compression ratio: {compressor.compression_ratio:.1f}x", flush=True)
+
+        # Step 3: Compress all embeddings and update graph
+        print("[COMPRESS] Compressing and updating all embeddings...", flush=True)
+
+        # Get all embeddings (not just sample)
+        all_query = """
+        MATCH (n)
+        WHERE (n:Function OR n:Class OR n:File) AND n.embedding IS NOT NULL
+        RETURN n.qualified_name as qname, n.embedding as embedding
+        """
+        all_entities = client.execute_query(all_query)
+        total = len(all_entities)
+        print(f"[COMPRESS] Processing {total} embeddings...", flush=True)
+
+        # Process in batches
+        batch_size = 100
+        processed = 0
+
+        for i in range(0, total, batch_size):
+            batch = all_entities[i:i+batch_size]
+
+            # Get reduced embeddings (PCA only, keep as float for vector search)
+            batch_embeddings = [e["embedding"] for e in batch]
+            reduced_embeddings = compressor.get_reduced_embeddings_batch(batch_embeddings)
+
+            # Update in graph
+            for entity, reduced in zip(batch, reduced_embeddings):
+                client.execute_query("""
+                    MATCH (n {qualified_name: $qname})
+                    SET n.embedding = $embedding,
+                        n.embedding_compressed = true,
+                        n.embedding_dims = $dims,
+                        n.embedding_original_dims = $orig_dims
+                """, {
+                    "qname": entity["qname"],
+                    "embedding": reduced,
+                    "dims": target_dims,
+                    "orig_dims": source_dims,
+                })
+
+            processed += len(batch)
+            if processed % 500 == 0:
+                print(f"[COMPRESS] Processed {processed}/{total} embeddings", flush=True)
+
+            # Yield to event loop
+            await asyncio.sleep(0.05)
+
+        # Step 4: Calculate and log savings
+        savings = estimate_memory_savings(total, source_dims, target_dims)
+        print(f"[COMPRESS] Compression complete!", flush=True)
+        print(f"[COMPRESS] Entities: {total}", flush=True)
+        print(f"[COMPRESS] Original: {savings['original_mb']:.1f} MB", flush=True)
+        print(f"[COMPRESS] Compressed: {savings['reduced_only_mb']:.1f} MB", flush=True)
+        print(f"[COMPRESS] Savings: {savings['savings_mb']:.1f} MB ({savings['savings_percent']:.1f}%)", flush=True)
+
+    except Exception as e:
+        print(f"[COMPRESS] ERROR: {e}", flush=True)
+        traceback.print_exc()
+    finally:
+        client.close()
+
+
+@router.post(
+    "/embeddings/compress",
+    summary="Compress embeddings with PCA",
+    description="Fit PCA model on existing embeddings and compress them for memory savings. Returns immediately and runs in background.",
+    responses={
+        200: {"description": "Compression started"},
+        403: {"model": ErrorResponse, "description": "Feature not available on current plan"},
+    }
+)
+async def compress_embeddings(
+    target_dims: int = DEFAULT_TARGET_DIMS,
+    sample_size: int = 5000,
+    org: Organization = Depends(enforce_feature_for_api("api_access")),
+):
+    """
+    Compress embeddings using PCA dimensionality reduction.
+
+    **What this does:**
+    1. Samples existing embeddings to fit a PCA model
+    2. Reduces dimensions from 4096 → 2048 (2x compression)
+    3. Updates all embeddings in the graph
+
+    **Memory savings:** ~50% reduction in embedding storage.
+
+    The compression runs in the background. Check /embeddings/compression/status
+    to monitor progress.
+    """
+    # Start background task
+    asyncio.create_task(_compress_embeddings_task(
+        org.id, org.slug, target_dims, sample_size
+    ))
+
+    # Calculate expected savings
+    client = get_graph_client_for_org(org)
+    try:
+        count_result = client.execute_query("""
+            MATCH (n)
+            WHERE (n:Function OR n:Class OR n:File) AND n.embedding IS NOT NULL
+            RETURN count(n) as count,
+                   CASE WHEN n.embedding IS NOT NULL THEN size(n.embedding) ELSE 4096 END as dims
+            LIMIT 1
+        """)
+        entity_count = count_result[0]["count"] if count_result else 0
+        source_dims = count_result[0].get("dims", 4096) if count_result else 4096
+    except Exception:
+        entity_count = 0
+        source_dims = 4096
+    finally:
+        client.close()
+
+    savings = estimate_memory_savings(entity_count, source_dims, target_dims)
+
+    return {
+        "status": "started",
+        "message": "Embedding compression started in background. Check /embeddings/compression/status to monitor progress.",
+        "target_dims": target_dims,
+        "source_dims": source_dims,
+        "entity_count": entity_count,
+        "expected_savings_mb": round(savings["savings_mb"], 2),
+        "expected_savings_percent": round(savings["savings_percent"], 1),
+    }
+
+
+@router.get(
+    "/embeddings/compression/status",
+    summary="Get compression status",
+    description="Check the status of embedding compression including memory savings.",
+    responses={
+        200: {"description": "Compression status retrieved successfully"},
+        403: {"model": ErrorResponse, "description": "Feature not available on current plan"},
+    }
+)
+async def get_compression_status(
+    org: Organization = Depends(enforce_feature_for_api("api_access")),
+):
+    """
+    Get the current status of embedding compression.
+
+    Returns information about:
+    - How many embeddings are compressed
+    - Current vs original dimensions
+    - Estimated memory savings
+    """
+    client = get_graph_client_for_org(org)
+
+    try:
+        # Count compressed vs uncompressed
+        status_query = """
+        MATCH (n)
+        WHERE (n:Function OR n:Class OR n:File) AND n.embedding IS NOT NULL
+        RETURN
+            count(n) as total,
+            count(CASE WHEN n.embedding_compressed = true THEN 1 END) as compressed,
+            avg(CASE WHEN n.embedding IS NOT NULL THEN size(n.embedding) ELSE null END) as avg_dims,
+            max(n.embedding_original_dims) as original_dims
+        """
+        result = client.execute_query(status_query)
+
+        if not result:
+            return {
+                "total_embeddings": 0,
+                "compressed_embeddings": 0,
+                "compression_coverage": 0.0,
+                "current_dims": None,
+                "original_dims": None,
+                "savings_mb": 0,
+                "savings_percent": 0,
+            }
+
+        row = result[0]
+        total = row.get("total", 0)
+        compressed = row.get("compressed", 0)
+        avg_dims = row.get("avg_dims")
+        original_dims = row.get("original_dims", 4096)
+
+        # Calculate current dimensions (may be float from avg)
+        current_dims = int(avg_dims) if avg_dims else None
+
+        # Calculate savings if we have compressed embeddings
+        if compressed > 0 and original_dims and current_dims:
+            savings = estimate_memory_savings(compressed, original_dims, current_dims)
+            savings_mb = savings["savings_mb"]
+            savings_percent = savings["savings_percent"]
+        else:
+            savings_mb = 0
+            savings_percent = 0
+
+        return {
+            "total_embeddings": total,
+            "compressed_embeddings": compressed,
+            "compression_coverage": round((compressed / total * 100) if total > 0 else 0, 1),
+            "current_dims": current_dims,
+            "original_dims": original_dims,
+            "savings_mb": round(savings_mb, 2),
+            "savings_percent": round(savings_percent, 1),
+            "compression_ratio": f"{original_dims / current_dims:.1f}x" if current_dims and original_dims else None,
+        }
+
+    except Exception as e:
+        logger.error(f"Compression status error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve compression status."
         )
     finally:
         client.close()

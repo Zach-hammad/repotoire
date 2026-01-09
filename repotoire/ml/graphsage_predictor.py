@@ -323,7 +323,7 @@ if TORCH_GEOMETRIC_AVAILABLE:
             """Initialize feature extractor.
 
             Args:
-                client: Neo4j database client
+                client: FalkorDB database client
                 embedding_property: Node property containing embeddings
                 input_dim: Total feature dimension for GraphSAGE input
             """

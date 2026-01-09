@@ -84,7 +84,7 @@ async def ingest_git_history(request: IngestGitRequest, user: ClerkUser = Depend
     Requires:
     - Graphiti installed (`pip install graphiti-core`)
     - OPENAI_API_KEY environment variable set
-    - Neo4j connection configured
+    - FalkorDB connection configured
 
     Returns statistics about the ingestion process including:
     - Number of commits processed
@@ -114,18 +114,18 @@ async def ingest_git_history(request: IngestGitRequest, user: ClerkUser = Depend
                 detail="OPENAI_API_KEY environment variable not set"
             )
 
-        # Get Neo4j credentials
-        neo4j_uri = os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687")
-        neo4j_password = os.getenv("REPOTOIRE_NEO4J_PASSWORD")
+        # Get FalkorDB credentials
+        falkordb_host = os.getenv("FALKORDB_HOST", "bolt://localhost:7687")
+        falkordb_password = os.getenv("FALKORDB_PASSWORD")
 
-        if not neo4j_password:
+        if not falkordb_password:
             raise HTTPException(
                 status_code=400,
-                detail="REPOTOIRE_NEO4J_PASSWORD environment variable not set"
+                detail="FALKORDB_PASSWORD environment variable not set"
             )
 
-        # Initialize Graphiti
-        graphiti = Graphiti(neo4j_uri, neo4j_password, "neo4j")
+        # Initialize Graphiti (uses Neo4j driver for FalkorDB compatibility)
+        graphiti = Graphiti(falkordb_host, falkordb_password, "neo4j")
 
         # Initialize integration
         integration = GitGraphitiIntegration(request.repository_path, graphiti)
@@ -193,18 +193,18 @@ async def query_history(request: QueryHistoryRequest, user: ClerkUser = Depends(
                 detail="Graphiti not installed. Install with: pip install graphiti-core"
             )
 
-        # Get Neo4j credentials
-        neo4j_uri = os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687")
-        neo4j_password = os.getenv("REPOTOIRE_NEO4J_PASSWORD")
+        # Get FalkorDB credentials
+        falkordb_host = os.getenv("FALKORDB_HOST", "bolt://localhost:7687")
+        falkordb_password = os.getenv("FALKORDB_PASSWORD")
 
-        if not neo4j_password:
+        if not falkordb_password:
             raise HTTPException(
                 status_code=400,
-                detail="REPOTOIRE_NEO4J_PASSWORD environment variable not set"
+                detail="FALKORDB_PASSWORD environment variable not set"
             )
 
-        # Initialize Graphiti
-        graphiti = Graphiti(neo4j_uri, neo4j_password, "neo4j")
+        # Initialize Graphiti (uses Neo4j driver for FalkorDB compatibility)
+        graphiti = Graphiti(falkordb_host, falkordb_password, "neo4j")
 
         # Initialize integration
         integration = GitGraphitiIntegration(request.repository_path, graphiti)
@@ -260,18 +260,18 @@ async def get_entity_timeline(request: TimelineRequest, user: ClerkUser = Depend
                 detail="Graphiti not installed. Install with: pip install graphiti-core"
             )
 
-        # Get Neo4j credentials
-        neo4j_uri = os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687")
-        neo4j_password = os.getenv("REPOTOIRE_NEO4J_PASSWORD")
+        # Get FalkorDB credentials
+        falkordb_host = os.getenv("FALKORDB_HOST", "bolt://localhost:7687")
+        falkordb_password = os.getenv("FALKORDB_PASSWORD")
 
-        if not neo4j_password:
+        if not falkordb_password:
             raise HTTPException(
                 status_code=400,
-                detail="REPOTOIRE_NEO4J_PASSWORD environment variable not set"
+                detail="FALKORDB_PASSWORD environment variable not set"
             )
 
-        # Initialize Graphiti
-        graphiti = Graphiti(neo4j_uri, neo4j_password, "neo4j")
+        # Initialize Graphiti (uses Neo4j driver for FalkorDB compatibility)
+        graphiti = Graphiti(falkordb_host, falkordb_password, "neo4j")
 
         # Initialize integration
         integration = GitGraphitiIntegration(request.repository_path, graphiti)
@@ -313,7 +313,7 @@ async def historical_health_check():
         "status": "healthy",
         "graphiti_available": False,
         "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
-        "neo4j_configured": bool(os.getenv("REPOTOIRE_NEO4J_PASSWORD")),
+        "falkordb_configured": bool(os.getenv("FALKORDB_PASSWORD")),
     }
 
     try:
@@ -329,9 +329,9 @@ async def historical_health_check():
     elif not status["openai_configured"]:
         status["status"] = "degraded"
         status["message"] = "OPENAI_API_KEY not configured"
-    elif not status["neo4j_configured"]:
+    elif not status["falkordb_configured"]:
         status["status"] = "degraded"
-        status["message"] = "REPOTOIRE_NEO4J_PASSWORD not configured"
+        status["message"] = "FALKORDB_PASSWORD not configured"
     else:
         status["message"] = "All dependencies available"
 

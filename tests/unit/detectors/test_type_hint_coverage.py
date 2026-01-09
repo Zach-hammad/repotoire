@@ -14,7 +14,7 @@ class TestTypeHintCoverageDetector:
     def mock_client(self):
         """Create a mock database client."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         return client
 
     @pytest.fixture
@@ -398,7 +398,7 @@ class TestTypeHintCoverageDetectorWithEnricher:
     def mock_client(self):
         """Create a mock database client."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         return client
 
     @pytest.fixture
@@ -468,7 +468,7 @@ class TestMeaningfulParams:
     def mock_client(self):
         """Create a mock database client."""
         client = Mock()
-        client.__class__.__name__ = "Neo4jClient"
+        client.__class__.__name__ = "FalkorDBClient"
         return client
 
     @pytest.fixture

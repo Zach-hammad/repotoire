@@ -349,7 +349,7 @@ class TestEmbeddingsStatusIntegration:
         with patch("repotoire.api.v1.routes.code.get_current_user") as mock_auth:
             mock_auth.return_value = MagicMock(user_id="user_123")
 
-            with patch("repotoire.api.v1.routes.code.get_neo4j_client") as mock_get_client:
+            with patch("repotoire.api.v1.routes.code.get_graph_client") as mock_get_client:
                 mock_client = MagicMock()
                 mock_client.execute_query.side_effect = [
                     [{"total": 1000, "functions": 500, "classes": 300, "files": 200}],
@@ -413,7 +413,7 @@ class TestErrorHandling:
         with patch("repotoire.api.v1.routes.code.get_current_user") as mock_auth:
             mock_auth.return_value = MagicMock(user_id="user_123")
 
-            with patch("repotoire.api.v1.routes.code.get_neo4j_client") as mock_get_client:
+            with patch("repotoire.api.v1.routes.code.get_graph_client") as mock_get_client:
                 mock_client = MagicMock()
                 mock_client.execute_query.side_effect = Exception("Connection refused")
                 mock_get_client.return_value = mock_client

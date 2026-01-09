@@ -23,19 +23,19 @@ requires_openai = pytest.mark.skipif(
     reason="OPENAI_API_KEY environment variable not set"
 )
 
-# Note: test_neo4j_client fixture is provided by tests/integration/conftest.py
+# Note: test_graph_client fixture is provided by tests/integration/conftest.py
 # Graph is automatically cleared before each test by isolate_graph_test autouse fixture
 
 
 @pytest.fixture(scope="module")
-def rag_schema_initialized(neo4j_client):
+def rag_schema_initialized(graph_client):
     """Initialize schema with vector indexes for RAG tests.
 
     Module-scoped fixture that ensures vector indexes exist.
     """
     try:
         from repotoire.graph.schema import GraphSchema
-        schema = GraphSchema(neo4j_client)
+        schema = GraphSchema(graph_client)
         schema.initialize(enable_vector_search=True)
         return True
     except Exception:
@@ -240,7 +240,7 @@ def login(username: str, password: str, db: DatabaseConnection = Depends(get_db)
 
 
 @pytest.fixture
-def ingested_rag_codebase(test_neo4j_client, sample_codebase_for_rag, rag_schema_initialized):
+def ingested_rag_codebase(test_graph_client, sample_codebase_for_rag, rag_schema_initialized):
     """Ingest sample codebase with embeddings for RAG testing.
 
     Graph is automatically cleared before each test by isolate_graph_test.
@@ -248,7 +248,7 @@ def ingested_rag_codebase(test_neo4j_client, sample_codebase_for_rag, rag_schema
     # Ingest with embedding generation enabled
     pipeline = IngestionPipeline(
         str(sample_codebase_for_rag),
-        test_neo4j_client,
+        test_graph_client,
         generate_embeddings=True
     )
     pipeline.ingest(patterns=["**/*.py"])
@@ -260,12 +260,12 @@ def ingested_rag_codebase(test_neo4j_client, sample_codebase_for_rag, rag_schema
 class TestIngestionWithEmbeddings:
     """Test ingestion pipeline with embedding generation."""
 
-    def test_embeddings_generated_during_ingestion(self, test_neo4j_client, sample_codebase_for_rag, rag_schema_initialized):
+    def test_embeddings_generated_during_ingestion(self, test_graph_client, sample_codebase_for_rag, rag_schema_initialized):
         """Test that embeddings are generated when flag is enabled."""
         # Ingest with embeddings
         pipeline = IngestionPipeline(
             str(sample_codebase_for_rag),
-            test_neo4j_client,
+            test_graph_client,
             generate_embeddings=True
         )
         pipeline.ingest(patterns=["**/*.py"])
@@ -276,7 +276,7 @@ class TestIngestionWithEmbeddings:
         WHERE (n:Function OR n:Class OR n:File) AND n.embedding IS NOT NULL
         RETURN count(n) as embedded_count
         """
-        results = test_neo4j_client.execute_query(query)
+        results = test_graph_client.execute_query(query)
         embedded_count = results[0]["embedded_count"]
 
         assert embedded_count > 0, "No embeddings were generated"
@@ -288,23 +288,23 @@ class TestIngestionWithEmbeddings:
         RETURN n.embedding as embedding
         LIMIT 1
         """
-        results = test_neo4j_client.execute_query(query)
+        results = test_graph_client.execute_query(query)
         if results:
             embedding = results[0]["embedding"]
             assert len(embedding) == 1536, f"Expected 1536 dimensions, got {len(embedding)}"
 
-    def test_ingestion_without_embeddings(self, test_neo4j_client, sample_codebase_for_rag):
+    def test_ingestion_without_embeddings(self, test_graph_client, sample_codebase_for_rag):
         """Test that ingestion works without embedding generation."""
         # Ingest without embeddings
         pipeline = IngestionPipeline(
             str(sample_codebase_for_rag),
-            test_neo4j_client,
+            test_graph_client,
             generate_embeddings=False
         )
         pipeline.ingest(patterns=["**/*.py"])
 
         # Verify entities exist but no embeddings
-        stats = test_neo4j_client.get_stats()
+        stats = test_graph_client.get_stats()
         assert stats["total_functions"] > 0
 
         # Check no embeddings
@@ -313,17 +313,17 @@ class TestIngestionWithEmbeddings:
         WHERE (n:Function OR n:Class OR n:File) AND n.embedding IS NOT NULL
         RETURN count(n) as embedded_count
         """
-        results = test_neo4j_client.execute_query(query)
+        results = test_graph_client.execute_query(query)
         embedded_count = results[0]["embedded_count"]
 
         assert embedded_count == 0, "Embeddings should not be generated when flag is False"
 
-    def test_idempotent_embedding_generation(self, test_neo4j_client, sample_codebase_for_rag, rag_schema_initialized):
+    def test_idempotent_embedding_generation(self, test_graph_client, sample_codebase_for_rag, rag_schema_initialized):
         """Test that running embedding generation twice doesn't duplicate."""
         # First ingestion with embeddings
         pipeline = IngestionPipeline(
             str(sample_codebase_for_rag),
-            test_neo4j_client,
+            test_graph_client,
             generate_embeddings=True
         )
         pipeline.ingest(patterns=["**/*.py"])
@@ -334,19 +334,19 @@ class TestIngestionWithEmbeddings:
         WHERE (n:Function OR n:Class OR n:File) AND n.embedding IS NOT NULL
         RETURN count(n) as embedded_count
         """
-        results = test_neo4j_client.execute_query(query)
+        results = test_graph_client.execute_query(query)
         first_count = results[0]["embedded_count"]
 
         # Second ingestion (should skip already embedded entities)
         pipeline2 = IngestionPipeline(
             str(sample_codebase_for_rag),
-            test_neo4j_client,
+            test_graph_client,
             generate_embeddings=True
         )
         pipeline2.ingest(patterns=["**/*.py"])
 
         # Count should remain the same
-        results = test_neo4j_client.execute_query(query)
+        results = test_graph_client.execute_query(query)
         second_count = results[0]["embedded_count"]
 
         assert first_count == second_count, "Embedding generation should be idempotent"
@@ -356,11 +356,11 @@ class TestIngestionWithEmbeddings:
 class TestGraphRAGRetriever:
     """Test GraphRAGRetriever functionality."""
 
-    def test_vector_similarity_search(self, test_neo4j_client, ingested_rag_codebase):
+    def test_vector_similarity_search(self, test_graph_client, ingested_rag_codebase):
         """Test vector similarity search for code entities."""
         embedder = CodeEmbedder()
         retriever = GraphRAGRetriever(
-            neo4j_client=test_neo4j_client,
+            graph_client=test_graph_client,
             embedder=embedder
         )
 
@@ -381,11 +381,11 @@ class TestGraphRAGRetriever:
         for result in results:
             assert 0 <= result.similarity_score <= 1
 
-    def test_hybrid_search_with_graph_traversal(self, test_neo4j_client, ingested_rag_codebase):
+    def test_hybrid_search_with_graph_traversal(self, test_graph_client, ingested_rag_codebase):
         """Test hybrid search that includes graph-related entities."""
         embedder = CodeEmbedder()
         retriever = GraphRAGRetriever(
-            neo4j_client=test_neo4j_client,
+            graph_client=test_graph_client,
             embedder=embedder
         )
 
@@ -402,11 +402,11 @@ class TestGraphRAGRetriever:
         has_relationships = any(len(r.relationships) > 0 for r in results)
         assert has_relationships, "Hybrid search should include relationships"
 
-    def test_entity_type_filtering(self, test_neo4j_client, ingested_rag_codebase):
+    def test_entity_type_filtering(self, test_graph_client, ingested_rag_codebase):
         """Test filtering results by entity type."""
         embedder = CodeEmbedder()
         retriever = GraphRAGRetriever(
-            neo4j_client=test_neo4j_client,
+            graph_client=test_graph_client,
             embedder=embedder
         )
 
@@ -421,11 +421,11 @@ class TestGraphRAGRetriever:
         for result in results:
             assert result.entity_type == "Class"
 
-    def test_empty_query_returns_empty_results(self, test_neo4j_client, ingested_rag_codebase):
+    def test_empty_query_returns_empty_results(self, test_graph_client, ingested_rag_codebase):
         """Test that empty or very short queries return no results."""
         embedder = CodeEmbedder()
         retriever = GraphRAGRetriever(
-            neo4j_client=test_neo4j_client,
+            graph_client=test_graph_client,
             embedder=embedder
         )
 
@@ -433,11 +433,11 @@ class TestGraphRAGRetriever:
         results = retriever.retrieve(query="", top_k=5)
         assert len(results) == 0
 
-    def test_retrieval_includes_code_and_docstrings(self, test_neo4j_client, ingested_rag_codebase):
+    def test_retrieval_includes_code_and_docstrings(self, test_graph_client, ingested_rag_codebase):
         """Test that retrieval results include code and docstrings."""
         embedder = CodeEmbedder()
         retriever = GraphRAGRetriever(
-            neo4j_client=test_neo4j_client,
+            graph_client=test_graph_client,
             embedder=embedder
         )
 
@@ -462,16 +462,16 @@ class TestAPIEndpoints:
     """Test FastAPI RAG endpoints."""
 
     @pytest.fixture
-    def api_client(self, test_neo4j_client, ingested_rag_codebase):
+    def api_client(self, test_graph_client, ingested_rag_codebase):
         """Create FastAPI test client with mocked dependencies."""
         from repotoire.api.app import app
         from repotoire.api.routes import code
 
-        # Mock the get_neo4j_client dependency
-        def override_get_neo4j_client():
-            return test_neo4j_client
+        # Mock the get_graph_client dependency
+        def override_get_graph_client():
+            return test_graph_client
 
-        app.dependency_overrides[code.get_neo4j_client] = override_get_neo4j_client
+        app.dependency_overrides[code.get_graph_client] = override_get_graph_client
 
         client = TestClient(app)
         yield client
@@ -599,14 +599,14 @@ class TestAPIEndpoints:
 class TestRAGPerformance:
     """Performance benchmarks for RAG operations."""
 
-    def test_embedding_generation_performance(self, test_neo4j_client, sample_codebase_for_rag, rag_schema_initialized):
+    def test_embedding_generation_performance(self, test_graph_client, sample_codebase_for_rag, rag_schema_initialized):
         """Benchmark embedding generation speed."""
         import time
 
         # Ingest without embeddings first
         pipeline = IngestionPipeline(
             str(sample_codebase_for_rag),
-            test_neo4j_client,
+            test_graph_client,
             generate_embeddings=False
         )
         pipeline.ingest(patterns=["**/*.py"])
@@ -614,7 +614,7 @@ class TestRAGPerformance:
         # Measure embedding generation time
         pipeline_with_embeddings = IngestionPipeline(
             str(sample_codebase_for_rag),
-            test_neo4j_client,
+            test_graph_client,
             generate_embeddings=True
         )
 
@@ -630,13 +630,13 @@ class TestRAGPerformance:
         # Log performance for monitoring
         print(f"\nEmbedding performance: {entities_embedded} entities in {duration:.2f}s ({entities_embedded/duration:.1f} entities/sec)")
 
-    def test_retrieval_performance(self, test_neo4j_client, ingested_rag_codebase):
+    def test_retrieval_performance(self, test_graph_client, ingested_rag_codebase):
         """Benchmark retrieval speed."""
         import time
 
         embedder = CodeEmbedder()
         retriever = GraphRAGRetriever(
-            neo4j_client=test_neo4j_client,
+            graph_client=test_graph_client,
             embedder=embedder
         )
 
@@ -663,7 +663,7 @@ class TestRAGPerformance:
 
         print(f"\nRetrieval performance: {len(queries)} queries, avg {avg_duration:.3f}s per query")
 
-    def test_vector_index_performance(self, test_neo4j_client, ingested_rag_codebase):
+    def test_vector_index_performance(self, test_graph_client, ingested_rag_codebase):
         """Test that vector indexes are being used for efficient search."""
         # Check if vector index exists
         query = """
@@ -674,7 +674,7 @@ class TestRAGPerformance:
         """
 
         try:
-            results = test_neo4j_client.execute_query(query)
+            results = test_graph_client.execute_query(query)
 
             # Should have vector indexes for Function, Class, and/or File
             index_labels = [r["labelsOrTypes"] for r in results]

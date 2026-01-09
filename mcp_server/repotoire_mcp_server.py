@@ -48,15 +48,15 @@ sys.path.insert(0, str(REPO_ROOT))
 # Configuration
 API_BASE_URL = os.getenv("REPOTOIRE_API_URL", "https://api.repotoire.com")
 API_KEY = os.getenv("REPOTOIRE_API_KEY")
-NEO4J_URI = os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7688")
-NEO4J_PASSWORD = os.getenv("REPOTOIRE_NEO4J_PASSWORD", "")
+FALKORDB_HOST = os.getenv("FALKORDB_HOST", "bolt://localhost:7688")
+FALKORDB_PASSWORD = os.getenv("FALKORDB_PASSWORD", "")
 
 # Track import status for local features
 _local_available = False
 _import_error = None
 
 try:
-    from repotoire.graph.client import Neo4jClient
+    from repotoire.graph import FalkorDBClient
     from repotoire.detectors.engine import AnalysisEngine
     _local_available = True
 except ImportError as e:
@@ -156,14 +156,14 @@ def _require_api_key() -> None:
 
 
 # =============================================================================
-# Local Neo4j Client for Free Features
+# Local FalkorDB Client for Free Features
 # =============================================================================
 
-def _get_neo4j_client() -> "Neo4jClient":
-    """Get Neo4j client for local features."""
+def _get_graph_client() -> "FalkorDBClient":
+    """Get FalkorDB client for local features."""
     if not _local_available:
         raise RuntimeError(f"Local features unavailable: {_import_error}")
-    return Neo4jClient(uri=NEO4J_URI, password=NEO4J_PASSWORD)
+    return FalkorDBClient(host=FALKORDB_HOST, password=FALKORDB_PASSWORD)
 
 
 # =============================================================================
@@ -182,7 +182,7 @@ async def handle_list_tools() -> list[types.Tool]:
     tools.extend([
         types.Tool(
             name="health_check",
-            description="[FREE] Check if Repotoire and Neo4j are running",
+            description="[FREE] Check if Repotoire and FalkorDB are running",
             inputSchema={"type": "object", "properties": {}}
         ),
         types.Tool(
@@ -331,12 +331,12 @@ async def _handle_health_check() -> list[types.TextContent]:
     # Check local features
     if _local_available:
         try:
-            client = _get_neo4j_client()
+            client = _get_graph_client()
             result = client.execute_query("RETURN 1 as ok")
-            status.append("- Neo4j: Connected")
+            status.append("- FalkorDB: Connected")
             client.close()
         except Exception as e:
-            status.append(f"- Neo4j: Error - {e}")
+            status.append(f"- FalkorDB: Error - {e}")
     else:
         status.append(f"- Local features: Unavailable ({_import_error})")
 
@@ -362,8 +362,8 @@ async def _handle_analyze_codebase(arguments: dict) -> list[types.TextContent]:
     repo_path = arguments.get("repository_path", ".")
 
     try:
-        client = _get_neo4j_client()
-        engine = AnalysisEngine(neo4j_client=client, repository_path=repo_path)
+        client = _get_graph_client()
+        engine = AnalysisEngine(graph_client=client, repository_path=repo_path)
         health = engine.analyze()
 
         output = f"**Code Health Analysis**\n\n"
@@ -396,7 +396,7 @@ async def _handle_query_graph(arguments: dict) -> list[types.TextContent]:
     params = arguments.get("params", {})
 
     try:
-        client = _get_neo4j_client()
+        client = _get_graph_client()
         results = client.execute_query(cypher, params)
         client.close()
 
@@ -424,7 +424,7 @@ async def _handle_codebase_stats() -> list[types.TextContent]:
         return [types.TextContent(type="text", text=f"Local features unavailable: {_import_error}")]
 
     try:
-        client = _get_neo4j_client()
+        client = _get_graph_client()
 
         stats_query = """
         MATCH (n)
@@ -528,7 +528,7 @@ async def _handle_embeddings_status() -> list[types.TextContent]:
 async def run_server() -> None:
     """Run the MCP server."""
     logger.info("Starting Repotoire MCP server (Open Core)")
-    logger.info(f"Local Neo4j: {NEO4J_URI}")
+    logger.info(f"Local FalkorDB: {FALKORDB_HOST}")
     logger.info(f"API: {API_BASE_URL}")
     logger.info(f"Pro features: {'Enabled' if API_KEY else 'Disabled (no API key)'}")
 

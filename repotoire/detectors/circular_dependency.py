@@ -28,21 +28,21 @@ class CircularDependencyDetector(CodeSmellDetector):
 
     def __init__(
         self,
-        neo4j_client,
+        graph_client,
         detector_config: Optional[dict] = None,
         enricher: Optional[GraphEnricher] = None
     ):
         """Initialize circular dependency detector.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
             detector_config: Optional detector configuration
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
         self.enricher = enricher
         # FalkorDB uses id() while Neo4j uses elementId()
-        self.is_falkordb = getattr(neo4j_client, "is_falkordb", False) or type(neo4j_client).__name__ == "FalkorDBClient"
+        self.is_falkordb = getattr(graph_client, "is_falkordb", False) or type(graph_client).__name__ == "FalkorDBClient"
         self.id_func = "id" if self.is_falkordb else "elementId"
 
     def detect(self) -> List[Finding]:

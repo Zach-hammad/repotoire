@@ -11,7 +11,7 @@ from repotoire.models import Severity
 
 
 @pytest.fixture
-def mock_neo4j_client():
+def mock_graph_client():
     """Create a mock Neo4j client."""
     client = Mock()
     client.execute_query = Mock(return_value=[])
@@ -34,10 +34,10 @@ def temp_repo(tmp_path):
 class TestDependencyScannerInitialization:
     """Test DependencyScanner initialization."""
 
-    def test_init_with_valid_path(self, mock_neo4j_client, temp_repo):
+    def test_init_with_valid_path(self, mock_graph_client, temp_repo):
         """Test initialization with valid repository path."""
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -46,10 +46,10 @@ class TestDependencyScannerInitialization:
         assert scanner.max_findings == 100
         assert scanner.check_licenses is False
 
-    def test_init_with_custom_config(self, mock_neo4j_client, temp_repo):
+    def test_init_with_custom_config(self, mock_graph_client, temp_repo):
         """Test initialization with custom configuration."""
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={
                 "repository_path": str(temp_repo),
                 "requirements_file": "requirements-dev.txt",
@@ -62,11 +62,11 @@ class TestDependencyScannerInitialization:
         assert scanner.max_findings == 50
         assert scanner.check_licenses is True
 
-    def test_init_with_invalid_path(self, mock_neo4j_client):
+    def test_init_with_invalid_path(self, mock_graph_client):
         """Test initialization with non-existent path raises error."""
         with pytest.raises(ValueError, match="does not exist"):
             DependencyScanner(
-                mock_neo4j_client,
+                mock_graph_client,
                 detector_config={"repository_path": "/nonexistent/path"}
             )
 
@@ -75,7 +75,7 @@ class TestPipAuditExecution:
     """Test pip-audit execution and parsing."""
 
     @patch("subprocess.run")
-    def test_run_pip_audit_with_vulnerabilities(self, mock_run, mock_neo4j_client, temp_repo):
+    def test_run_pip_audit_with_vulnerabilities(self, mock_run, mock_graph_client, temp_repo):
         """Test running pip-audit with vulnerabilities found."""
         # Mock pip-audit JSON output
         mock_output = {
@@ -102,7 +102,7 @@ class TestPipAuditExecution:
         )
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -114,7 +114,7 @@ class TestPipAuditExecution:
         assert len(vulns[0]["vulns"]) == 1
 
     @patch("subprocess.run")
-    def test_run_pip_audit_no_vulnerabilities(self, mock_run, mock_neo4j_client, temp_repo):
+    def test_run_pip_audit_no_vulnerabilities(self, mock_run, mock_graph_client, temp_repo):
         """Test running pip-audit with no vulnerabilities."""
         mock_output = {"dependencies": []}
 
@@ -125,7 +125,7 @@ class TestPipAuditExecution:
         )
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -134,7 +134,7 @@ class TestPipAuditExecution:
         assert len(vulns) == 0
 
     @patch("subprocess.run")
-    def test_run_pip_audit_command_failure(self, mock_run, mock_neo4j_client, temp_repo):
+    def test_run_pip_audit_command_failure(self, mock_run, mock_graph_client, temp_repo):
         """Test handling pip-audit command failure."""
         mock_run.return_value = Mock(
             returncode=2,  # Error code
@@ -143,7 +143,7 @@ class TestPipAuditExecution:
         )
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -152,7 +152,7 @@ class TestPipAuditExecution:
         assert len(vulns) == 0
 
     @patch("subprocess.run")
-    def test_run_pip_audit_invalid_json(self, mock_run, mock_neo4j_client, temp_repo):
+    def test_run_pip_audit_invalid_json(self, mock_run, mock_graph_client, temp_repo):
         """Test handling invalid JSON output."""
         mock_run.return_value = Mock(
             returncode=0,
@@ -161,7 +161,7 @@ class TestPipAuditExecution:
         )
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -170,12 +170,12 @@ class TestPipAuditExecution:
         assert len(vulns) == 0
 
     @patch("subprocess.run")
-    def test_run_pip_audit_timeout(self, mock_run, mock_neo4j_client, temp_repo):
+    def test_run_pip_audit_timeout(self, mock_run, mock_graph_client, temp_repo):
         """Test handling timeout."""
         mock_run.side_effect = subprocess.TimeoutExpired("pip-audit", 300)
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -186,15 +186,15 @@ class TestPipAuditExecution:
 class TestFindingCreation:
     """Test finding creation from vulnerability data."""
 
-    def test_create_finding_with_single_vuln(self, mock_neo4j_client, temp_repo):
+    def test_create_finding_with_single_vuln(self, mock_graph_client, temp_repo):
         """Test creating finding from single vulnerability."""
-        mock_neo4j_client.execute_query.return_value = [
+        mock_graph_client.execute_query.return_value = [
             {"file_path": "app/views.py"},
             {"file_path": "tests/test_requests.py"}
         ]
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -224,10 +224,10 @@ class TestFindingCreation:
         assert finding.graph_context["version"] == "2.25.0"
         assert finding.graph_context["vulnerability_id"] == "PYSEC-2023-74"
 
-    def test_create_finding_with_multiple_vulns(self, mock_neo4j_client, temp_repo):
+    def test_create_finding_with_multiple_vulns(self, mock_graph_client, temp_repo):
         """Test creating finding with multiple vulnerabilities (uses most severe)."""
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -256,10 +256,10 @@ class TestFindingCreation:
         # Should use the most severe vulnerability
         assert "django" in finding.title
 
-    def test_create_finding_no_vulns(self, mock_neo4j_client, temp_repo):
+    def test_create_finding_no_vulns(self, mock_graph_client, temp_repo):
         """Test creating finding with no vulnerabilities returns None."""
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -277,10 +277,10 @@ class TestFindingCreation:
 class TestSeverityDetermination:
     """Test severity determination from vulnerability data."""
 
-    def test_determine_severity_from_cvss(self, mock_neo4j_client, temp_repo):
+    def test_determine_severity_from_cvss(self, mock_graph_client, temp_repo):
         """Test severity determination from CVSS severity string."""
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -300,10 +300,10 @@ class TestSeverityDetermination:
         vuln = {"severity": "LOW", "description": "Test"}
         assert scanner._determine_severity(vuln) == Severity.LOW
 
-    def test_determine_severity_from_description(self, mock_neo4j_client, temp_repo):
+    def test_determine_severity_from_description(self, mock_graph_client, temp_repo):
         """Test severity determination from description keywords."""
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -327,16 +327,16 @@ class TestSeverityDetermination:
 class TestGraphEnrichment:
     """Test Neo4j graph enrichment."""
 
-    def test_find_files_using_package(self, mock_neo4j_client, temp_repo):
+    def test_find_files_using_package(self, mock_graph_client, temp_repo):
         """Test finding files that import a package."""
-        mock_neo4j_client.execute_query.return_value = [
+        mock_graph_client.execute_query.return_value = [
             {"file_path": "app/api.py"},
             {"file_path": "app/views.py"},
             {"file_path": "tests/test_api.py"}
         ]
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -348,30 +348,30 @@ class TestGraphEnrichment:
         assert "tests/test_api.py" in files
 
         # Verify query was called with normalized package name
-        mock_neo4j_client.execute_query.assert_called_once()
-        call_args = mock_neo4j_client.execute_query.call_args
+        mock_graph_client.execute_query.assert_called_once()
+        call_args = mock_graph_client.execute_query.call_args
         assert call_args.kwargs["parameters"]["package_name"] == "requests"
 
-    def test_find_files_using_package_normalizes_name(self, mock_neo4j_client, temp_repo):
+    def test_find_files_using_package_normalizes_name(self, mock_graph_client, temp_repo):
         """Test package name normalization (hyphens to underscores)."""
-        mock_neo4j_client.execute_query.return_value = []
+        mock_graph_client.execute_query.return_value = []
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
         scanner._find_files_using_package("some-package")
 
-        call_args = mock_neo4j_client.execute_query.call_args
+        call_args = mock_graph_client.execute_query.call_args
         assert call_args.kwargs["parameters"]["package_name"] == "some_package"
 
-    def test_find_files_query_failure(self, mock_neo4j_client, temp_repo):
+    def test_find_files_query_failure(self, mock_graph_client, temp_repo):
         """Test handling graph query failure."""
-        mock_neo4j_client.execute_query.side_effect = Exception("Query failed")
+        mock_graph_client.execute_query.side_effect = Exception("Query failed")
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -384,9 +384,9 @@ class TestDetectMethod:
     """Test the main detect() method."""
 
     @patch.object(DependencyScanner, "_run_pip_audit")
-    def test_detect_with_vulnerabilities(self, mock_run_audit, mock_neo4j_client, temp_repo):
+    def test_detect_with_vulnerabilities(self, mock_run_audit, mock_graph_client, temp_repo):
         """Test detect() with vulnerabilities found."""
-        mock_neo4j_client.execute_query.return_value = [{"file_path": "app/views.py"}]
+        mock_graph_client.execute_query.return_value = [{"file_path": "app/views.py"}]
 
         mock_run_audit.return_value = [
             {
@@ -404,7 +404,7 @@ class TestDetectMethod:
         ]
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -414,12 +414,12 @@ class TestDetectMethod:
         assert findings[0].title.startswith("Vulnerable dependency: requests")
 
     @patch.object(DependencyScanner, "_run_pip_audit")
-    def test_detect_no_vulnerabilities(self, mock_run_audit, mock_neo4j_client, temp_repo):
+    def test_detect_no_vulnerabilities(self, mock_run_audit, mock_graph_client, temp_repo):
         """Test detect() with no vulnerabilities."""
         mock_run_audit.return_value = []
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -428,7 +428,7 @@ class TestDetectMethod:
         assert len(findings) == 0
 
     @patch.object(DependencyScanner, "_run_pip_audit")
-    def test_detect_respects_max_findings(self, mock_run_audit, mock_neo4j_client, temp_repo):
+    def test_detect_respects_max_findings(self, mock_run_audit, mock_graph_client, temp_repo):
         """Test that detect() respects max_findings limit."""
         # Create many vulnerabilities
         vulns = [
@@ -449,7 +449,7 @@ class TestDetectMethod:
         mock_run_audit.return_value = vulns
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={
                 "repository_path": str(temp_repo),
                 "max_findings": 10
@@ -461,12 +461,12 @@ class TestDetectMethod:
         assert len(findings) <= 10
 
     @patch.object(DependencyScanner, "_run_pip_audit")
-    def test_detect_handles_errors(self, mock_run_audit, mock_neo4j_client, temp_repo):
+    def test_detect_handles_errors(self, mock_run_audit, mock_graph_client, temp_repo):
         """Test detect() handles errors gracefully."""
         mock_run_audit.side_effect = Exception("Unexpected error")
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -479,7 +479,7 @@ class TestSafetyFallback:
     """Test safety fallback when pip-audit is not available (REPO-413)."""
 
     @patch("subprocess.run")
-    def test_safety_fallback_when_pip_audit_not_found(self, mock_run, mock_neo4j_client, temp_repo):
+    def test_safety_fallback_when_pip_audit_not_found(self, mock_run, mock_graph_client, temp_repo):
         """Test fallback to safety when pip-audit is not installed."""
         # pip-audit raises FileNotFoundError, safety returns vulnerabilities
         safety_output = [
@@ -502,7 +502,7 @@ class TestSafetyFallback:
         mock_run.side_effect = side_effect
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -515,7 +515,7 @@ class TestSafetyFallback:
         assert len(vulns[0]["vulns"]) == 1
 
     @patch("subprocess.run")
-    def test_safety_fallback_v3_format(self, mock_run, mock_neo4j_client, temp_repo):
+    def test_safety_fallback_v3_format(self, mock_run, mock_graph_client, temp_repo):
         """Test safety fallback with v3 JSON format."""
         safety_v3_output = {
             "report_meta": {"scan_target": "environment"},
@@ -547,7 +547,7 @@ class TestSafetyFallback:
         mock_run.side_effect = side_effect
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -561,12 +561,12 @@ class TestSafetyFallback:
         assert vulns[0]["vulns"][0]["id"] == "CVE-2023-12345"
 
     @patch("subprocess.run")
-    def test_returns_empty_when_no_tools_available(self, mock_run, mock_neo4j_client, temp_repo):
+    def test_returns_empty_when_no_tools_available(self, mock_run, mock_graph_client, temp_repo):
         """Test graceful handling when no vulnerability scanning tools are installed."""
         mock_run.side_effect = FileNotFoundError("command not found")
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -576,12 +576,12 @@ class TestSafetyFallback:
         assert vulns == []
 
     @patch("subprocess.run")
-    def test_pip_audit_returns_none_when_not_installed(self, mock_run, mock_neo4j_client, temp_repo):
+    def test_pip_audit_returns_none_when_not_installed(self, mock_run, mock_graph_client, temp_repo):
         """Test _run_pip_audit returns None when pip-audit is not installed."""
         mock_run.side_effect = FileNotFoundError("pip-audit not found")
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -606,7 +606,7 @@ class TestUvSecure:
         return repo_path
 
     @patch("subprocess.run")
-    def test_uv_secure_used_when_uv_lock_exists(self, mock_run, mock_neo4j_client, temp_repo_with_uv_lock):
+    def test_uv_secure_used_when_uv_lock_exists(self, mock_run, mock_graph_client, temp_repo_with_uv_lock):
         """Test uv-secure is used when uv.lock exists."""
         uv_secure_output = {
             "files": [
@@ -639,7 +639,7 @@ class TestUvSecure:
         )
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo_with_uv_lock)}
         )
 
@@ -658,7 +658,7 @@ class TestUvSecure:
         assert vulns[0]["vulns"][0]["id"] == "GHSA-xxxx-yyyy-zzzz"
 
     @patch("subprocess.run")
-    def test_uv_secure_no_vulnerabilities(self, mock_run, mock_neo4j_client, temp_repo_with_uv_lock):
+    def test_uv_secure_no_vulnerabilities(self, mock_run, mock_graph_client, temp_repo_with_uv_lock):
         """Test uv-secure with no vulnerabilities."""
         uv_secure_output = {
             "files": [
@@ -678,7 +678,7 @@ class TestUvSecure:
         )
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo_with_uv_lock)}
         )
 
@@ -687,12 +687,12 @@ class TestUvSecure:
         assert vulns == []
 
     @patch("subprocess.run")
-    def test_uv_secure_returns_none_when_not_installed(self, mock_run, mock_neo4j_client, temp_repo_with_uv_lock):
+    def test_uv_secure_returns_none_when_not_installed(self, mock_run, mock_graph_client, temp_repo_with_uv_lock):
         """Test _run_uv_secure returns None when uv-secure is not installed."""
         mock_run.side_effect = FileNotFoundError("uv-secure not found")
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo_with_uv_lock)}
         )
 
@@ -702,7 +702,7 @@ class TestUvSecure:
         assert result is None
 
     @patch("subprocess.run")
-    def test_fallback_to_pip_audit_when_uv_secure_not_installed(self, mock_run, mock_neo4j_client, temp_repo_with_uv_lock):
+    def test_fallback_to_pip_audit_when_uv_secure_not_installed(self, mock_run, mock_graph_client, temp_repo_with_uv_lock):
         """Test fallback to pip-audit when uv-secure is not installed but uv.lock exists."""
         pip_audit_output = {
             "dependencies": [
@@ -724,7 +724,7 @@ class TestUvSecure:
         mock_run.side_effect = side_effect
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo_with_uv_lock)}
         )
 
@@ -733,14 +733,14 @@ class TestUvSecure:
         assert len(vulns) == 1
         assert vulns[0]["name"] == "requests"
 
-    def test_convert_uv_secure_format(self, mock_neo4j_client, tmp_path):
+    def test_convert_uv_secure_format(self, mock_graph_client, tmp_path):
         """Test conversion of uv-secure JSON to pip-audit format."""
         repo_path = tmp_path / "test_repo"
         repo_path.mkdir()
         (repo_path / "requirements.txt").write_text("requests==2.25.0\n")
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(repo_path)}
         )
 
@@ -788,10 +788,10 @@ class TestUvSecure:
 class TestIgnorePackages:
     """Test ignore_packages configuration (REPO-413)."""
 
-    def test_init_with_ignore_packages(self, mock_neo4j_client, temp_repo):
+    def test_init_with_ignore_packages(self, mock_graph_client, temp_repo):
         """Test initialization with ignore_packages config."""
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={
                 "repository_path": str(temp_repo),
                 "ignore_packages": ["setuptools", "pip", "wheel"]
@@ -802,10 +802,10 @@ class TestIgnorePackages:
         assert "pip" in scanner.ignore_packages
         assert "wheel" in scanner.ignore_packages
 
-    def test_ignored_package_returns_none(self, mock_neo4j_client, temp_repo):
+    def test_ignored_package_returns_none(self, mock_graph_client, temp_repo):
         """Test that ignored packages return None from _create_finding."""
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={
                 "repository_path": str(temp_repo),
                 "ignore_packages": ["requests"]
@@ -829,12 +829,12 @@ class TestIgnorePackages:
 
         assert finding is None
 
-    def test_non_ignored_package_creates_finding(self, mock_neo4j_client, temp_repo):
+    def test_non_ignored_package_creates_finding(self, mock_graph_client, temp_repo):
         """Test that non-ignored packages still create findings."""
-        mock_neo4j_client.execute_query.return_value = []
+        mock_graph_client.execute_query.return_value = []
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={
                 "repository_path": str(temp_repo),
                 "ignore_packages": ["setuptools"]
@@ -859,10 +859,10 @@ class TestIgnorePackages:
         assert finding is not None
         assert "requests" in finding.title
 
-    def test_ignore_case_insensitive(self, mock_neo4j_client, temp_repo):
+    def test_ignore_case_insensitive(self, mock_graph_client, temp_repo):
         """Test that package name matching is case-insensitive."""
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={
                 "repository_path": str(temp_repo),
                 "ignore_packages": ["Django"]  # Upper case
@@ -883,10 +883,10 @@ class TestIgnorePackages:
 class TestOutdatedPackageDetection:
     """Test outdated package detection (REPO-413)."""
 
-    def test_init_with_check_outdated(self, mock_neo4j_client, temp_repo):
+    def test_init_with_check_outdated(self, mock_graph_client, temp_repo):
         """Test initialization with check_outdated config."""
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={
                 "repository_path": str(temp_repo),
                 "check_outdated": True
@@ -896,7 +896,7 @@ class TestOutdatedPackageDetection:
         assert scanner.check_outdated is True
 
     @patch("subprocess.run")
-    def test_check_outdated_packages(self, mock_run, mock_neo4j_client, temp_repo):
+    def test_check_outdated_packages(self, mock_run, mock_graph_client, temp_repo):
         """Test checking for outdated packages."""
         mock_run.return_value = Mock(
             returncode=0,
@@ -908,7 +908,7 @@ class TestOutdatedPackageDetection:
         )
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo), "check_outdated": True}
         )
 
@@ -918,10 +918,10 @@ class TestOutdatedPackageDetection:
         assert outdated[0]["name"] == "requests"
         assert outdated[1]["name"] == "django"
 
-    def test_is_significantly_outdated(self, mock_neo4j_client, temp_repo):
+    def test_is_significantly_outdated(self, mock_graph_client, temp_repo):
         """Test major version difference detection."""
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -937,12 +937,12 @@ class TestOutdatedPackageDetection:
         # Invalid versions - should not report
         assert scanner._is_significantly_outdated("invalid", "4.0.0") is False
 
-    def test_outdated_to_findings(self, mock_neo4j_client, temp_repo):
+    def test_outdated_to_findings(self, mock_graph_client, temp_repo):
         """Test conversion of outdated packages to findings."""
-        mock_neo4j_client.execute_query.return_value = [{"file_path": "app.py"}]
+        mock_graph_client.execute_query.return_value = [{"file_path": "app.py"}]
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={"repository_path": str(temp_repo)}
         )
 
@@ -959,12 +959,12 @@ class TestOutdatedPackageDetection:
         assert findings[0].severity == Severity.INFO
         assert findings[0].graph_context["type"] == "outdated"
 
-    def test_outdated_respects_ignore_packages(self, mock_neo4j_client, temp_repo):
+    def test_outdated_respects_ignore_packages(self, mock_graph_client, temp_repo):
         """Test that outdated detection respects ignore_packages."""
-        mock_neo4j_client.execute_query.return_value = []
+        mock_graph_client.execute_query.return_value = []
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={
                 "repository_path": str(temp_repo),
                 "ignore_packages": ["django"]
@@ -983,17 +983,17 @@ class TestOutdatedPackageDetection:
     @patch.object(DependencyScanner, "_run_pip_audit")
     @patch.object(DependencyScanner, "_check_outdated_packages")
     def test_detect_includes_outdated_when_enabled(
-        self, mock_outdated, mock_audit, mock_neo4j_client, temp_repo
+        self, mock_outdated, mock_audit, mock_graph_client, temp_repo
     ):
         """Test that detect() includes outdated packages when check_outdated is True."""
         mock_audit.return_value = []
         mock_outdated.return_value = [
             {"name": "django", "version": "2.0.0", "latest_version": "4.0.0"}
         ]
-        mock_neo4j_client.execute_query.return_value = []
+        mock_graph_client.execute_query.return_value = []
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={
                 "repository_path": str(temp_repo),
                 "check_outdated": True
@@ -1009,13 +1009,13 @@ class TestOutdatedPackageDetection:
     @patch.object(DependencyScanner, "_run_pip_audit")
     @patch.object(DependencyScanner, "_check_outdated_packages")
     def test_detect_skips_outdated_when_disabled(
-        self, mock_outdated, mock_audit, mock_neo4j_client, temp_repo
+        self, mock_outdated, mock_audit, mock_graph_client, temp_repo
     ):
         """Test that detect() skips outdated check when check_outdated is False."""
         mock_audit.return_value = []
 
         scanner = DependencyScanner(
-            mock_neo4j_client,
+            mock_graph_client,
             detector_config={
                 "repository_path": str(temp_repo),
                 "check_outdated": False

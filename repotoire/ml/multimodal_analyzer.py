@@ -8,9 +8,9 @@ This module provides the MultimodalAnalyzer class for:
 
 Example:
     >>> from repotoire.ml.multimodal_analyzer import MultimodalAnalyzer
-    >>> from repotoire.graph.client import Neo4jClient
+    >>> from repotoire.graph import FalkorDBClient
     >>>
-    >>> client = Neo4jClient.from_env()
+    >>> client = FalkorDBClient.from_env()
     >>> analyzer = MultimodalAnalyzer(client)
     >>>
     >>> # Prepare data
@@ -37,7 +37,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset
 
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 from repotoire.ml.multimodal_fusion import (
     FusionConfig,
@@ -152,14 +152,14 @@ class MultimodalAnalyzer:
 
     def __init__(
         self,
-        client: Neo4jClient,
+        client: FalkorDBClient,
         model_config: Optional[FusionConfig] = None,
         training_config: Optional[TrainingConfig] = None,
     ):
         """Initialize analyzer.
 
         Args:
-            client: Neo4j database client
+            client: FalkorDB database client
             model_config: Model architecture configuration
             training_config: Training hyperparameters
         """
@@ -735,12 +735,12 @@ class MultimodalAnalyzer:
         logger.info(f"Saved model to {path}")
 
     @classmethod
-    def load(cls, path: Path, client: Neo4jClient) -> "MultimodalAnalyzer":
+    def load(cls, path: Path, client: FalkorDBClient) -> "MultimodalAnalyzer":
         """Load trained model from disk.
 
         Args:
             path: Path to model file
-            client: Neo4j client for predictions
+            client: FalkorDB client for predictions
 
         Returns:
             Loaded MultimodalAnalyzer instance

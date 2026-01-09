@@ -6,7 +6,7 @@ hybrid semantic + structural search.
 
 Example:
     >>> from repotoire.ml.similarity import StructuralSimilarityAnalyzer
-    >>> analyzer = StructuralSimilarityAnalyzer(neo4j_client)
+    >>> analyzer = StructuralSimilarityAnalyzer(graph_client)
     >>>
     >>> # Find similar functions
     >>> results = analyzer.find_similar_functions(
@@ -21,7 +21,7 @@ Example:
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Tuple
 
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.ml.graph_embeddings import FastRPEmbedder, FastRPConfig
 from repotoire.logging_config import get_logger
 
@@ -64,7 +64,7 @@ class StructuralSimilarityAnalyzer:
     in the code graph (call relationships, imports, containment).
 
     Example:
-        >>> client = Neo4jClient(uri="bolt://localhost:7687")
+        >>> client = FalkorDBClient(uri="bolt://localhost:7687")
         >>> analyzer = StructuralSimilarityAnalyzer(client)
         >>>
         >>> # Ensure embeddings are generated
@@ -81,14 +81,14 @@ class StructuralSimilarityAnalyzer:
 
     def __init__(
         self,
-        client: Neo4jClient,
+        client: FalkorDBClient,
         embedder: Optional[FastRPEmbedder] = None,
         config: Optional[FastRPConfig] = None,
     ):
         """Initialize similarity analyzer.
 
         Args:
-            client: Neo4j client instance
+            client: FalkorDB client instance
             embedder: Optional pre-configured FastRPEmbedder
             config: FastRP configuration (used if embedder not provided)
         """

@@ -12,7 +12,7 @@ from repotoire.models import FileEntity, Relationship, RelationshipType, NodeTyp
 
 
 @pytest.fixture
-def mock_neo4j_client():
+def mock_graph_client():
     """Create a mock Neo4j client."""
     client = MagicMock()
     client.batch_create_nodes.return_value = {}
@@ -64,18 +64,18 @@ def temp_repo():
 class TestInitialization:
     """Test pipeline initialization."""
 
-    def test_pipeline_initialization(self, mock_neo4j_client, temp_repo):
+    def test_pipeline_initialization(self, mock_graph_client, temp_repo):
         """Test pipeline initializes correctly."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         assert pipeline.repo_path == temp_repo.resolve()
-        assert pipeline.db == mock_neo4j_client
+        assert pipeline.db == mock_graph_client
         assert "python" in pipeline.parsers
         assert isinstance(pipeline.parsers["python"], CodeParser)
 
-    def test_register_parser(self, mock_neo4j_client, temp_repo):
+    def test_register_parser(self, mock_graph_client, temp_repo):
         """Test parser registration."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         # Create mock parser
         mock_parser = Mock(spec=CodeParser)
@@ -86,25 +86,25 @@ class TestInitialization:
         assert "javascript" in pipeline.parsers
         assert pipeline.parsers["javascript"] == mock_parser
 
-    def test_configurable_batch_size(self, mock_neo4j_client, temp_repo):
+    def test_configurable_batch_size(self, mock_graph_client, temp_repo):
         """Test that pipeline respects custom batch size configuration."""
         # Test with custom batch size
         custom_batch_size = 50
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client, batch_size=custom_batch_size)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client, batch_size=custom_batch_size)
 
         assert pipeline.batch_size == custom_batch_size
 
         # Test with default batch size
-        pipeline_default = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline_default = IngestionPipeline(str(temp_repo), mock_graph_client)
         assert pipeline_default.batch_size == IngestionPipeline.DEFAULT_BATCH_SIZE
 
 
 class TestFileScanning:
     """Test file scanning functionality."""
 
-    def test_scan_default_pattern(self, mock_neo4j_client, temp_repo):
+    def test_scan_default_pattern(self, mock_graph_client, temp_repo):
         """Test scanning with default pattern (*.py)."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         files = pipeline.scan()
 
@@ -114,9 +114,9 @@ class TestFileScanning:
         assert any(f.name == "utils.py" for f in files)
         assert any(f.name == "test_main.py" for f in files)
 
-    def test_scan_custom_pattern(self, mock_neo4j_client, temp_repo):
+    def test_scan_custom_pattern(self, mock_graph_client, temp_repo):
         """Test scanning with custom patterns."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         # Scan for markdown files
         files = pipeline.scan(patterns=["**/*.md"])
@@ -124,18 +124,18 @@ class TestFileScanning:
         assert len(files) == 1
         assert files[0].name == "README.md"
 
-    def test_scan_multiple_patterns(self, mock_neo4j_client, temp_repo):
+    def test_scan_multiple_patterns(self, mock_graph_client, temp_repo):
         """Test scanning with multiple patterns."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         # Scan for both .py and .md files
         files = pipeline.scan(patterns=["**/*.py", "**/*.md"])
 
         assert len(files) == 4  # 3 .py + 1 .md
 
-    def test_scan_filters_ignored_directories(self, mock_neo4j_client, temp_repo):
+    def test_scan_filters_ignored_directories(self, mock_graph_client, temp_repo):
         """Test that ignored directories are filtered out."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         files = pipeline.scan()
 
@@ -146,12 +146,12 @@ class TestFileScanning:
         for parts in file_parts:
             assert not any(ig in parts for ig in ignored)
 
-    def test_scan_empty_directory(self, mock_neo4j_client):
+    def test_scan_empty_directory(self, mock_graph_client):
         """Test scanning an empty directory."""
         temp_dir = tempfile.mkdtemp()
 
         try:
-            pipeline = IngestionPipeline(temp_dir, mock_neo4j_client)
+            pipeline = IngestionPipeline(temp_dir, mock_graph_client)
             files = pipeline.scan()
 
             assert len(files) == 0
@@ -163,46 +163,46 @@ class TestFileScanning:
 class TestLanguageDetection:
     """Test language detection from file extensions."""
 
-    def test_detect_python(self, mock_neo4j_client, temp_repo):
+    def test_detect_python(self, mock_graph_client, temp_repo):
         """Test Python file detection."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         assert pipeline._detect_language(Path("test.py")) == "python"
 
-    def test_detect_javascript(self, mock_neo4j_client, temp_repo):
+    def test_detect_javascript(self, mock_graph_client, temp_repo):
         """Test JavaScript file detection."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         assert pipeline._detect_language(Path("test.js")) == "javascript"
 
-    def test_detect_typescript(self, mock_neo4j_client, temp_repo):
+    def test_detect_typescript(self, mock_graph_client, temp_repo):
         """Test TypeScript file detection."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         assert pipeline._detect_language(Path("test.ts")) == "typescript"
         assert pipeline._detect_language(Path("component.tsx")) == "typescript"
 
-    def test_detect_java(self, mock_neo4j_client, temp_repo):
+    def test_detect_java(self, mock_graph_client, temp_repo):
         """Test Java file detection."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         assert pipeline._detect_language(Path("Main.java")) == "java"
 
-    def test_detect_go(self, mock_neo4j_client, temp_repo):
+    def test_detect_go(self, mock_graph_client, temp_repo):
         """Test Go file detection."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         assert pipeline._detect_language(Path("main.go")) == "go"
 
-    def test_detect_rust(self, mock_neo4j_client, temp_repo):
+    def test_detect_rust(self, mock_graph_client, temp_repo):
         """Test Rust file detection."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         assert pipeline._detect_language(Path("main.rs")) == "rust"
 
-    def test_detect_unknown(self, mock_neo4j_client, temp_repo):
+    def test_detect_unknown(self, mock_graph_client, temp_repo):
         """Test unknown file extension."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         assert pipeline._detect_language(Path("file.xyz")) == "unknown"
         assert pipeline._detect_language(Path("README.md")) == "unknown"
@@ -211,9 +211,9 @@ class TestLanguageDetection:
 class TestParseAndExtract:
     """Test parse and extract functionality."""
 
-    def test_parse_and_extract_success(self, mock_neo4j_client, temp_repo):
+    def test_parse_and_extract_success(self, mock_graph_client, temp_repo):
         """Test successful parsing and extraction."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         test_file = temp_repo / "main.py"
         test_file.write_text("""
@@ -232,9 +232,9 @@ def hello():
         # Should have CONTAINS relationships
         assert len(relationships) > 0
 
-    def test_parse_and_extract_unsupported_language(self, mock_neo4j_client, temp_repo):
+    def test_parse_and_extract_unsupported_language(self, mock_graph_client, temp_repo):
         """Test handling of unsupported language."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         # Create a file with unsupported extension
         test_file = temp_repo / "test.xyz"
@@ -246,9 +246,9 @@ def hello():
         assert entities == []
         assert relationships == []
 
-    def test_parse_and_extract_parser_error(self, mock_neo4j_client, temp_repo):
+    def test_parse_and_extract_parser_error(self, mock_graph_client, temp_repo):
         """Test error handling when parser raises exception."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         # Mock parser to raise exception
         mock_parser = Mock(spec=CodeParser)
@@ -267,9 +267,9 @@ def hello():
 class TestLoadToGraph:
     """Test loading data to Neo4j graph."""
 
-    def test_load_to_graph_with_data(self, mock_neo4j_client, temp_repo):
+    def test_load_to_graph_with_data(self, mock_graph_client, temp_repo):
         """Test loading entities and relationships to graph."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         entities = [
             FileEntity(
@@ -291,22 +291,22 @@ class TestLoadToGraph:
         pipeline.load_to_graph(entities, relationships)
 
         # Verify batch operations called
-        mock_neo4j_client.batch_create_nodes.assert_called_once_with(entities)
-        mock_neo4j_client.batch_create_relationships.assert_called_once_with(relationships)
+        mock_graph_client.batch_create_nodes.assert_called_once_with(entities)
+        mock_graph_client.batch_create_relationships.assert_called_once_with(relationships)
 
-    def test_load_to_graph_empty_entities(self, mock_neo4j_client, temp_repo):
+    def test_load_to_graph_empty_entities(self, mock_graph_client, temp_repo):
         """Test loading with empty entities list."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         pipeline.load_to_graph([], [])
 
         # Should not call batch operations
-        mock_neo4j_client.batch_create_nodes.assert_not_called()
-        mock_neo4j_client.batch_create_relationships.assert_not_called()
+        mock_graph_client.batch_create_nodes.assert_not_called()
+        mock_graph_client.batch_create_relationships.assert_not_called()
 
-    def test_load_to_graph_no_relationships(self, mock_neo4j_client, temp_repo):
+    def test_load_to_graph_no_relationships(self, mock_graph_client, temp_repo):
         """Test loading with no relationships."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         entities = [
             FileEntity(
@@ -321,15 +321,15 @@ class TestLoadToGraph:
         pipeline.load_to_graph(entities, [])
 
         # Should create nodes but not relationships
-        mock_neo4j_client.batch_create_nodes.assert_called_once()
-        mock_neo4j_client.batch_create_relationships.assert_not_called()
+        mock_graph_client.batch_create_nodes.assert_called_once()
+        mock_graph_client.batch_create_relationships.assert_not_called()
 
-    def test_load_to_graph_error_handling(self, mock_neo4j_client, temp_repo):
+    def test_load_to_graph_error_handling(self, mock_graph_client, temp_repo):
         """Test error handling during graph loading."""
-        pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
         # Mock batch_create_nodes to raise exception
-        mock_neo4j_client.batch_create_nodes.side_effect = Exception("Database error")
+        mock_graph_client.batch_create_nodes.side_effect = Exception("Database error")
 
         entities = [
             FileEntity(
@@ -348,45 +348,45 @@ class TestLoadToGraph:
 class TestBatchProcessing:
     """Test batch processing logic."""
 
-    def test_ingest_batches_entities(self, mock_neo4j_client, temp_repo):
+    def test_ingest_batches_entities(self, mock_graph_client, temp_repo):
         """Test that ingest batches entities every 100 nodes."""
         # Create many files to trigger batching
         for i in range(15):
             (temp_repo / f"file_{i}.py").write_text(f"# File {i}")
 
         with patch('repotoire.pipeline.ingestion.GraphSchema'):
-            pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+            pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
             pipeline.ingest()
 
         # Should have called batch operations (batches at 100 entities + final batch)
         # Each file creates at least 1 entity (File node)
-        assert mock_neo4j_client.batch_create_nodes.call_count >= 1
+        assert mock_graph_client.batch_create_nodes.call_count >= 1
 
-    def test_ingest_loads_remaining_entities(self, mock_neo4j_client, temp_repo):
+    def test_ingest_loads_remaining_entities(self, mock_graph_client, temp_repo):
         """Test that remaining entities are loaded after loop."""
         # Create a few files (not enough to trigger mid-loop batching)
         for i in range(3):
             (temp_repo / f"file_{i}.py").write_text(f"# File {i}")
 
         with patch('repotoire.pipeline.ingestion.GraphSchema'):
-            pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+            pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
             pipeline.ingest()
 
         # Should have called batch operations at least once (final batch)
-        assert mock_neo4j_client.batch_create_nodes.call_count >= 1
+        assert mock_graph_client.batch_create_nodes.call_count >= 1
 
 
 class TestErrorHandling:
     """Test error handling in the pipeline."""
 
-    def test_ingest_continues_on_parse_error(self, mock_neo4j_client, temp_repo):
+    def test_ingest_continues_on_parse_error(self, mock_graph_client, temp_repo):
         """Test that ingest continues when a file fails to parse."""
         # Create test files
         (temp_repo / "good.py").write_text("def foo(): pass")
         (temp_repo / "bad.py").write_text("def bad(): pass")
 
         with patch('repotoire.pipeline.ingestion.GraphSchema'):
-            pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+            pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
             # Mock parser to fail on bad.py
             original_parse = pipeline.parse_and_extract
@@ -402,61 +402,61 @@ class TestErrorHandling:
             pipeline.ingest()
 
             # Should have processed at least good.py
-            assert mock_neo4j_client.batch_create_nodes.call_count >= 1
+            assert mock_graph_client.batch_create_nodes.call_count >= 1
 
-    def test_ingest_handles_no_files(self, mock_neo4j_client):
+    def test_ingest_handles_no_files(self, mock_graph_client):
         """Test ingest handles empty directory gracefully."""
         temp_dir = tempfile.mkdtemp()
 
         try:
             with patch('repotoire.pipeline.ingestion.GraphSchema'):
-                pipeline = IngestionPipeline(temp_dir, mock_neo4j_client)
+                pipeline = IngestionPipeline(temp_dir, mock_graph_client)
 
                 # Should not crash
                 pipeline.ingest()
 
                 # Should not have loaded any data
-                mock_neo4j_client.batch_create_nodes.assert_not_called()
+                mock_graph_client.batch_create_nodes.assert_not_called()
         finally:
             import shutil
             shutil.rmtree(temp_dir)
 
-    def test_ingest_initializes_schema(self, mock_neo4j_client, temp_repo):
+    def test_ingest_initializes_schema(self, mock_graph_client, temp_repo):
         """Test that ingest initializes graph schema."""
         with patch('repotoire.pipeline.ingestion.GraphSchema') as mock_schema_class:
             mock_schema = MagicMock()
             mock_schema_class.return_value = mock_schema
 
-            pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+            pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
             pipeline.ingest()
 
             # Should have initialized schema
-            mock_schema_class.assert_called_once_with(mock_neo4j_client)
+            mock_schema_class.assert_called_once_with(mock_graph_client)
             mock_schema.initialize.assert_called_once()
 
-    def test_ingest_calls_get_stats(self, mock_neo4j_client, temp_repo):
+    def test_ingest_calls_get_stats(self, mock_graph_client, temp_repo):
         """Test that ingest calls get_stats at the end."""
         (temp_repo / "test.py").write_text("# Test")
 
         with patch('repotoire.pipeline.ingestion.GraphSchema'):
-            pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+            pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
             pipeline.ingest()
 
             # Should have called get_stats
-            mock_neo4j_client.get_stats.assert_called_once()
+            mock_graph_client.get_stats.assert_called_once()
 
 
 class TestCustomPatterns:
     """Test custom file patterns."""
 
-    def test_ingest_with_custom_patterns(self, mock_neo4j_client, temp_repo):
+    def test_ingest_with_custom_patterns(self, mock_graph_client, temp_repo):
         """Test ingesting with custom file patterns."""
         # Create different file types
         (temp_repo / "test.py").write_text("# Python")
         (temp_repo / "README.md").write_text("# Markdown")
 
         with patch('repotoire.pipeline.ingestion.GraphSchema'):
-            pipeline = IngestionPipeline(str(temp_repo), mock_neo4j_client)
+            pipeline = IngestionPipeline(str(temp_repo), mock_graph_client)
 
             # Ingest only markdown files
             pipeline.ingest(patterns=["**/*.md"])

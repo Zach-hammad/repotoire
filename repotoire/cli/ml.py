@@ -666,7 +666,7 @@ def generate_embeddings(
 
     Prerequisites:
     - Codebase must be ingested first (repotoire ingest)
-    - Neo4j with GDS plugin must be running
+    - FalkorDB must be running
 
     Examples:
 
@@ -724,7 +724,7 @@ def generate_embeddings(
             except RuntimeError as e:
                 console.print(f"[red]Error: {e}[/red]")
                 console.print(
-                    "[yellow]Make sure Neo4j GDS plugin is installed, or use FalkorDB.[/yellow]"
+                    "[yellow]Make sure FalkorDB is running and accessible.[/yellow]"
                 )
                 raise click.Abort()
 
@@ -1352,7 +1352,7 @@ def prepare_multimodal_data(
 ):
     """Prepare multi-task training data for multimodal fusion.
 
-    Fetches text and graph embeddings from Neo4j and combines them
+    Fetches text and graph embeddings from FalkorDB and combines them
     with labels for multi-task learning.
 
     Label JSON format:
@@ -2082,9 +2082,9 @@ def train_graphsage(
         learning_rate=learning_rate,
     )
 
-    # For this implementation, we load from a single Neo4j instance
+    # For this implementation, we load from a single FalkorDB instance
     # that has all projects' data ingested
-    console.print("[dim]Loading graph data from Neo4j...[/dim]")
+    console.print("[dim]Loading graph data from FalkorDB...[/dim]")
 
     try:
         client = create_client()
@@ -2104,7 +2104,7 @@ def train_graphsage(
         val_data = None
 
         if holdout_project:
-            # For true cross-project evaluation, you'd need separate Neo4j instances
+            # For true cross-project evaluation, you'd need separate FalkorDB instances
             # or use the load_project_from_json method with exported data
             console.print(
                 f"[yellow]Note: True cross-project holdout requires separate graph exports. "
@@ -2352,10 +2352,10 @@ def export_graph_data(
     """Export graph data for offline GraphSAGE training.
 
     Exports node features and edges to JSON files that can be used
-    for training GraphSAGE without requiring a live Neo4j connection.
+    for training GraphSAGE without requiring a live FalkorDB connection.
 
     Useful for:
-    - Training on large clusters without Neo4j access
+    - Training on large clusters without FalkorDB access
     - Sharing training data between team members
     - Archiving project graphs for reproducibility
 

@@ -139,7 +139,7 @@ Example:
     print(f"Architecture: {health.architecture_score}")
 """
 def analyze(track_metrics: bool = False):
-    engine = AnalysisEngine(neo4j_client=client, repository_path='.')
+    engine = AnalysisEngine(graph_client=client, repository_path='.')
     return engine.analyze()
 ''',
 
@@ -160,7 +160,7 @@ Example:
 def ingest(path: str, incremental: bool = True, generate_embeddings: bool = False):
     from repotoire.pipeline.ingestion import IngestionPipeline
     pipeline = IngestionPipeline(
-        neo4j_client=client,
+        graph_client=client,
         repository_path=path,
         generate_embeddings=generate_embeddings
     )
@@ -396,7 +396,7 @@ async def handle_read_resource(uri: str) -> types.ReadResourceResult:
 MINIMAL_PROMPT = """Execute Python in Repotoire environment.
 
 Pre-loaded:
-- client: Neo4jClient (connected)
+- client: FalkorDBClient (connected)
 - query(cypher): Graph queries
 - search_code(text): Vector search
 - stats(): Codebase overview
@@ -495,7 +495,7 @@ async def handle_list_tools() -> list[types.Tool]:
     return [
         types.Tool(
             name='execute',
-            description='Execute Python code in Repotoire environment with pre-loaded Neo4j client and utilities',
+            description='Execute Python code in Repotoire environment with pre-loaded FalkorDB client and utilities',
             inputSchema={
                 'type': 'object',
                 'properties': {
@@ -529,7 +529,7 @@ async def handle_call_tool(
             text=f"""To execute this code, use mcp__ide__executeCode tool.
 
 The Repotoire execution environment is pre-configured with:
-- client: Connected Neo4jClient
+- client: Connected FalkorDBClient
 - query(): Execute Cypher queries
 - search_code(): Vector search
 - stats(): Codebase statistics

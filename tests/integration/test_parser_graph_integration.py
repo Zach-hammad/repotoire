@@ -15,7 +15,7 @@ import pytest
 from repotoire.parsers.python_parser import PythonParser
 from repotoire.models import NodeType
 
-# Note: test_neo4j_client fixture is provided by tests/integration/conftest.py
+# Note: test_graph_client fixture is provided by tests/integration/conftest.py
 # Graph is automatically cleared before each test by isolate_graph_test autouse fixture
 
 
@@ -37,7 +37,7 @@ def sample_python_file():
 class TestFileEntityIntegration:
     """Test File entity parsing and Neo4j storage."""
 
-    def test_file_entity_creates_node_with_properties(self, test_neo4j_client, parser, sample_python_file):
+    def test_file_entity_creates_node_with_properties(self, test_graph_client, parser, sample_python_file):
         """Verify File entity creates Neo4j node with correct properties."""
         sample_python_file.write("""
 '''Sample module docstring.'''
@@ -51,7 +51,7 @@ def hello():
         entities = parser.extract_entities(tree, sample_python_file.name)
 
         # Store in Neo4j
-        id_mapping = test_neo4j_client.batch_create_nodes(entities)
+        id_mapping = test_graph_client.batch_create_nodes(entities)
 
         # Query Neo4j for File node
         query = """
@@ -60,14 +60,14 @@ def hello():
                f.language as language,
                f.loc as loc
         """
-        result = test_neo4j_client.execute_query(query, {"file_path": sample_python_file.name})
+        result = test_graph_client.execute_query(query, {"file_path": sample_python_file.name})
 
         assert len(result) == 1
         assert result[0]["filePath"] == sample_python_file.name
         assert result[0]["language"] == "python"
         assert result[0]["loc"] > 0
 
-    def test_file_node_has_qualified_name(self, test_neo4j_client, parser, sample_python_file):
+    def test_file_node_has_qualified_name(self, test_graph_client, parser, sample_python_file):
         """Verify File nodes have qualifiedName property for relationship matching."""
         sample_python_file.write("def test(): pass")
         sample_python_file.flush()
@@ -76,11 +76,11 @@ def hello():
         entities = parser.extract_entities(tree, sample_python_file.name)
 
         # Create nodes
-        test_neo4j_client.batch_create_nodes(entities)
+        test_graph_client.batch_create_nodes(entities)
 
         # Verify File has qualifiedName (needed for relationship matching)
         query = "MATCH (f:File {filePath: $file_path}) RETURN f.qualifiedName as qn"
-        result = test_neo4j_client.execute_query(query, {"file_path": sample_python_file.name})
+        result = test_graph_client.execute_query(query, {"file_path": sample_python_file.name})
 
         assert len(result) == 1
         assert result[0]["qn"] == sample_python_file.name
@@ -89,7 +89,7 @@ def hello():
 class TestClassEntityIntegration:
     """Test Class entity parsing and Neo4j storage."""
 
-    def test_class_entity_creates_node_with_properties(self, test_neo4j_client, parser, sample_python_file):
+    def test_class_entity_creates_node_with_properties(self, test_graph_client, parser, sample_python_file):
         """Verify Class entity creates Neo4j node with correct properties."""
         sample_python_file.write("""
 class MyTestClass:
@@ -105,7 +105,7 @@ class MyTestClass:
 
         tree = parser.parse(sample_python_file.name)
         entities = parser.extract_entities(tree, sample_python_file.name)
-        id_mapping = test_neo4j_client.batch_create_nodes(entities)
+        id_mapping = test_graph_client.batch_create_nodes(entities)
 
         # Query for Class node
         query = """
@@ -117,7 +117,7 @@ class MyTestClass:
                c.lineStart as lineStart,
                c.lineEnd as lineEnd
         """
-        result = test_neo4j_client.execute_query(query)
+        result = test_graph_client.execute_query(query)
 
         assert len(result) >= 1
         class_node = result[0]
@@ -127,7 +127,7 @@ class MyTestClass:
         assert class_node["lineStart"] > 0
         assert class_node["lineEnd"] > class_node["lineStart"]
 
-    def test_class_inherits_relationship_created(self, test_neo4j_client, parser, sample_python_file):
+    def test_class_inherits_relationship_created(self, test_graph_client, parser, sample_python_file):
         """Verify INHERITS relationships created for inheritance."""
         sample_python_file.write("""
 class ParentClass:
@@ -141,8 +141,8 @@ class ChildClass(ParentClass):
         tree = parser.parse(sample_python_file.name)
         entities = parser.extract_entities(tree, sample_python_file.name)
         relationships = parser.extract_relationships(tree, sample_python_file.name, entities)
-        id_mapping = test_neo4j_client.batch_create_nodes(entities)
-        test_neo4j_client.batch_create_relationships(relationships)
+        id_mapping = test_graph_client.batch_create_nodes(entities)
+        test_graph_client.batch_create_relationships(relationships)
 
         # Query for INHERITS relationship
         query = """
@@ -150,7 +150,7 @@ class ChildClass(ParentClass):
         WHERE child.name = 'ChildClass' AND parent.name = 'ParentClass'
         RETURN count(r) as count
         """
-        result = test_neo4j_client.execute_query(query)
+        result = test_graph_client.execute_query(query)
 
         assert result[0]["count"] >= 1
 
@@ -158,7 +158,7 @@ class ChildClass(ParentClass):
 class TestFunctionEntityIntegration:
     """Test Function entity parsing and Neo4j storage."""
 
-    def test_function_entity_creates_node_with_properties(self, test_neo4j_client, parser, sample_python_file):
+    def test_function_entity_creates_node_with_properties(self, test_graph_client, parser, sample_python_file):
         """Verify Function entity creates Neo4j node with correct properties."""
         sample_python_file.write("""
 def my_function(arg1, arg2):
@@ -169,7 +169,7 @@ def my_function(arg1, arg2):
 
         tree = parser.parse(sample_python_file.name)
         entities = parser.extract_entities(tree, sample_python_file.name)
-        id_mapping = test_neo4j_client.batch_create_nodes(entities)
+        id_mapping = test_graph_client.batch_create_nodes(entities)
 
         # Query for Function node
         query = """
@@ -181,7 +181,7 @@ def my_function(arg1, arg2):
                f.lineStart as lineStart,
                f.lineEnd as lineEnd
         """
-        result = test_neo4j_client.execute_query(query)
+        result = test_graph_client.execute_query(query)
 
         assert len(result) >= 1
         func_node = result[0]
@@ -190,7 +190,7 @@ def my_function(arg1, arg2):
         assert func_node["lineStart"] > 0
         assert func_node["lineEnd"] > func_node["lineStart"]
 
-    def test_method_contained_in_class(self, test_neo4j_client, parser, sample_python_file):
+    def test_method_contained_in_class(self, test_graph_client, parser, sample_python_file):
         """Verify methods have CONTAINS relationship from their class."""
         sample_python_file.write("""
 class Container:
@@ -202,8 +202,8 @@ class Container:
         tree = parser.parse(sample_python_file.name)
         entities = parser.extract_entities(tree, sample_python_file.name)
         relationships = parser.extract_relationships(tree, sample_python_file.name, entities)
-        id_mapping = test_neo4j_client.batch_create_nodes(entities)
-        test_neo4j_client.batch_create_relationships(relationships)
+        id_mapping = test_graph_client.batch_create_nodes(entities)
+        test_graph_client.batch_create_relationships(relationships)
 
         # Query for CONTAINS relationship from Class to Method
         # Methods are contained in their class, not directly in the file
@@ -211,7 +211,7 @@ class Container:
         MATCH (c:Class {name: 'Container'})-[r:CONTAINS]->(fn:Function {name: 'my_method'})
         RETURN count(r) as count
         """
-        result = test_neo4j_client.execute_query(query)
+        result = test_graph_client.execute_query(query)
 
         assert result[0]["count"] >= 1
 
@@ -219,7 +219,7 @@ class Container:
 class TestRelationshipIntegration:
     """Test relationship extraction and Neo4j storage."""
 
-    def test_imports_relationship_created(self, test_neo4j_client, parser):
+    def test_imports_relationship_created(self, test_graph_client, parser):
         """Verify IMPORTS relationships created for import statements."""
         # Create two files with import relationship
         temp_dir = tempfile.mkdtemp()
@@ -252,8 +252,8 @@ def func():
         all_rels = rels1 + rels2
 
         # Store in Neo4j
-        id_mapping = test_neo4j_client.batch_create_nodes(all_entities)
-        test_neo4j_client.batch_create_relationships(all_rels)
+        id_mapping = test_graph_client.batch_create_nodes(all_entities)
+        test_graph_client.batch_create_relationships(all_rels)
 
         # Query for IMPORTS relationship
         query = """
@@ -261,7 +261,7 @@ def func():
         WHERE f1.filePath CONTAINS 'module_a.py' AND f2.filePath CONTAINS 'module_b.py'
         RETURN count(r) as count
         """
-        result = test_neo4j_client.execute_query(query)
+        result = test_graph_client.execute_query(query)
 
         # Cleanup
         file1.unlink()
@@ -271,7 +271,7 @@ def func():
         # Should have import relationship
         assert result[0]["count"] >= 0  # May be 0 if parser doesn't extract file-level imports yet
 
-    def test_calls_relationship_created(self, test_neo4j_client, parser, sample_python_file):
+    def test_calls_relationship_created(self, test_graph_client, parser, sample_python_file):
         """Verify CALLS relationships created for function calls."""
         sample_python_file.write("""
 def caller():
@@ -285,8 +285,8 @@ def callee():
         tree = parser.parse(sample_python_file.name)
         entities = parser.extract_entities(tree, sample_python_file.name)
         relationships = parser.extract_relationships(tree, sample_python_file.name, entities)
-        id_mapping = test_neo4j_client.batch_create_nodes(entities)
-        test_neo4j_client.batch_create_relationships(relationships)
+        id_mapping = test_graph_client.batch_create_nodes(entities)
+        test_graph_client.batch_create_relationships(relationships)
 
         # Query for CALLS relationship
         query = """
@@ -294,7 +294,7 @@ def callee():
         WHERE f1.name = 'caller' AND f2.name = 'callee'
         RETURN count(r) as count
         """
-        result = test_neo4j_client.execute_query(query)
+        result = test_graph_client.execute_query(query)
 
         # Should have call relationship (may be 0 if call detection not implemented)
         assert result[0]["count"] >= 0
@@ -303,7 +303,7 @@ def callee():
 class TestBatchOperationIntegrity:
     """Test that batch operations preserve data integrity."""
 
-    def test_large_batch_preserves_all_entities(self, test_neo4j_client, parser):
+    def test_large_batch_preserves_all_entities(self, test_graph_client, parser):
         """Verify large batches don't lose data."""
         # Create file with many entities
         temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False)
@@ -325,12 +325,12 @@ class TestBatchOperationIntegrity:
         func_count = len([e for e in entities if e.node_type == NodeType.FUNCTION])
 
         # Store in Neo4j
-        id_mapping = test_neo4j_client.batch_create_nodes(entities)
-        test_neo4j_client.batch_create_relationships(relationships)
+        id_mapping = test_graph_client.batch_create_nodes(entities)
+        test_graph_client.batch_create_relationships(relationships)
 
         # Verify all entities stored
         query = "MATCH (n) WHERE n.qualifiedName CONTAINS $file_path RETURN labels(n) as labels, count(n) as count"
-        result = test_neo4j_client.execute_query(query, {"file_path": temp_file.name})
+        result = test_graph_client.execute_query(query, {"file_path": temp_file.name})
 
         total_nodes = sum(r["count"] for r in result)
 
@@ -340,7 +340,7 @@ class TestBatchOperationIntegrity:
         # Should have stored all entities (file + classes + functions)
         assert total_nodes >= class_count + func_count
 
-    def test_relationships_reference_valid_nodes(self, test_neo4j_client, parser, sample_python_file):
+    def test_relationships_reference_valid_nodes(self, test_graph_client, parser, sample_python_file):
         """Verify all relationships reference existing nodes."""
         sample_python_file.write("""
 class Parent:
@@ -356,8 +356,8 @@ class Child(Parent):
         tree = parser.parse(sample_python_file.name)
         entities = parser.extract_entities(tree, sample_python_file.name)
         relationships = parser.extract_relationships(tree, sample_python_file.name, entities)
-        id_mapping = test_neo4j_client.batch_create_nodes(entities)
-        test_neo4j_client.batch_create_relationships(relationships)
+        id_mapping = test_graph_client.batch_create_nodes(entities)
+        test_graph_client.batch_create_relationships(relationships)
 
         # Query for orphaned relationships (relationships pointing to non-existent nodes)
         query = """
@@ -366,7 +366,7 @@ class Child(Parent):
         AND NOT n:File
         RETURN count(n) as orphan_count
         """
-        result = test_neo4j_client.execute_query(query)
+        result = test_graph_client.execute_query(query)
 
         # Should have no orphaned nodes (except possibly File if it has no relationships)
         # This is a loose check since some nodes might legitimately have no relationships
@@ -376,7 +376,7 @@ class Child(Parent):
 class TestGraphStructureIntegrity:
     """Test that parsed code creates correct graph structure."""
 
-    def test_graph_reflects_code_structure(self, test_neo4j_client, parser, sample_python_file):
+    def test_graph_reflects_code_structure(self, test_graph_client, parser, sample_python_file):
         """Verify graph structure matches code structure."""
         sample_python_file.write("""
 class Outer:
@@ -392,8 +392,8 @@ class Outer:
         tree = parser.parse(sample_python_file.name)
         entities = parser.extract_entities(tree, sample_python_file.name)
         relationships = parser.extract_relationships(tree, sample_python_file.name, entities)
-        id_mapping = test_neo4j_client.batch_create_nodes(entities)
-        test_neo4j_client.batch_create_relationships(relationships)
+        id_mapping = test_graph_client.batch_create_nodes(entities)
+        test_graph_client.batch_create_relationships(relationships)
 
         # Verify File contains Class
         query1 = """
@@ -401,7 +401,7 @@ class Outer:
         WHERE f.filePath = $file_path AND c.name = 'Outer'
         RETURN count(c) as count
         """
-        result1 = test_neo4j_client.execute_query(query1, {"file_path": sample_python_file.name})
+        result1 = test_graph_client.execute_query(query1, {"file_path": sample_python_file.name})
         assert result1[0]["count"] >= 1
 
         # Verify Class contains Method (methods are contained in their class)
@@ -409,10 +409,10 @@ class Outer:
         MATCH (c:Class {name: 'Outer'})-[:CONTAINS]->(m:Function {name: 'outer_method'})
         RETURN count(m) as count
         """
-        result2 = test_neo4j_client.execute_query(query2)
+        result2 = test_graph_client.execute_query(query2)
         assert result2[0]["count"] >= 1
 
-    def test_multiple_files_create_connected_graph(self, test_neo4j_client, parser):
+    def test_multiple_files_create_connected_graph(self, test_graph_client, parser):
         """Verify multiple files create a connected graph."""
         temp_dir = tempfile.mkdtemp()
         temp_path = Path(temp_dir)
@@ -446,8 +446,8 @@ class Derived(Base):
         all_entities = entities1 + entities2
         all_rels = rels1 + rels2
 
-        id_mapping = test_neo4j_client.batch_create_nodes(all_entities)
-        test_neo4j_client.batch_create_relationships(all_rels)
+        id_mapping = test_graph_client.batch_create_nodes(all_entities)
+        test_graph_client.batch_create_relationships(all_rels)
 
         # Verify files exist
         query = """
@@ -455,7 +455,7 @@ class Derived(Base):
         WHERE f.filePath CONTAINS 'base.py' OR f.filePath CONTAINS 'derived.py'
         RETURN count(f) as count
         """
-        result = test_neo4j_client.execute_query(query)
+        result = test_graph_client.execute_query(query)
 
         # Cleanup
         file1.unlink()

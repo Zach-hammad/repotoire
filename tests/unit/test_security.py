@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 from repotoire.pipeline import IngestionPipeline, SecurityError
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 
 
 class TestPathTraversalProtection:
@@ -15,7 +15,7 @@ class TestPathTraversalProtection:
     @pytest.fixture
     def mock_db(self):
         """Create a mock Neo4j client."""
-        return Mock(spec=Neo4jClient)
+        return Mock(spec=FalkorDBClient)
 
     @pytest.fixture
     def temp_repo(self):
@@ -121,7 +121,7 @@ class TestFileSizeLimits:
     @pytest.fixture
     def mock_db(self):
         """Create a mock Neo4j client."""
-        return Mock(spec=Neo4jClient)
+        return Mock(spec=FalkorDBClient)
 
     @pytest.fixture
     def temp_repo(self):
@@ -171,7 +171,7 @@ class TestRelativePathStorage:
     @pytest.fixture
     def mock_db(self):
         """Create a mock Neo4j client."""
-        return Mock(spec=Neo4jClient)
+        return Mock(spec=FalkorDBClient)
 
     @pytest.fixture
     def temp_repo(self):
@@ -220,7 +220,7 @@ class TestSecurityIntegration:
     @pytest.fixture
     def mock_db(self):
         """Create a mock Neo4j client."""
-        db = Mock(spec=Neo4jClient)
+        db = Mock(spec=FalkorDBClient)
         db.batch_create_nodes = Mock(return_value={})
         db.batch_create_relationships = Mock()
         return db
@@ -295,7 +295,7 @@ class TestConfigurationOptions:
     @pytest.fixture
     def mock_db(self):
         """Create a mock Neo4j client."""
-        return Mock(spec=Neo4jClient)
+        return Mock(spec=FalkorDBClient)
 
     @pytest.fixture
     def temp_repo(self):

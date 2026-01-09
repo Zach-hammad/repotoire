@@ -18,15 +18,17 @@ This approach achieves:
 Performance: ~5-15 seconds even on large codebases
 """
 
-import json
-import subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.graph import Neo4jClient
+from repotoire.detectors.external_tool_runner import (
+    run_external_tool,
+    get_graph_context,
+)
+from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
@@ -54,11 +56,11 @@ class SemgrepDetector(CodeSmellDetector):
         "INFO": Severity.LOW,
     }
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None, enricher: Optional[GraphEnricher] = None):
+    def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[Dict] = None, enricher: Optional[GraphEnricher] = None):
         """Initialize Semgrep detector.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
             detector_config: Configuration dictionary with:
                 - repository_path: Path to repository root (required)
                 - config: Semgrep config/ruleset (default: "auto")
@@ -67,7 +69,7 @@ class SemgrepDetector(CodeSmellDetector):
                 - exclude: List of patterns to exclude
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
 
         config = detector_config or {}
         self.repository_path = Path(config.get("repository_path", "."))
@@ -142,64 +144,51 @@ class SemgrepDetector(CodeSmellDetector):
         Returns:
             List of security finding dictionaries
         """
-        try:
-            # Build Semgrep command
-            cmd = [
-                "semgrep",
-                "scan",
-                "--json",
-                "--quiet",  # Suppress progress bars
-                f"--config={self.config}",
-                "--jobs=4",  # Limit parallel jobs to avoid freezing
-                "--max-memory=2000",  # Limit memory usage to 2GB
-            ]
+        # Build Semgrep command
+        cmd = [
+            "semgrep",
+            "scan",
+            "--json",
+            "--quiet",  # Suppress progress bars
+            f"--config={self.config}",
+            "--jobs=4",  # Limit parallel jobs to avoid freezing
+            "--max-memory=2000",  # Limit memory usage to 2GB
+        ]
 
-            # Add exclude patterns
-            for pattern in self.exclude:
-                cmd.extend(["--exclude", pattern])
+        # Add exclude patterns
+        for pattern in self.exclude:
+            cmd.extend(["--exclude", pattern])
 
-            # Target path
-            cmd.append(str(self.repository_path))
+        # Target path
+        cmd.append(str(self.repository_path))
 
-            # Run Semgrep
-            try:
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    cwd=self.repository_path,
-                    timeout=180  # Pattern matching, allow 3 minutes
-                )
-            except subprocess.TimeoutExpired:
-                logger.warning(f"Semgrep timed out after 180s on {self.repository_path}")
-                return []
+        # Run Semgrep using shared utility
+        result = run_external_tool(
+            cmd=cmd,
+            tool_name="semgrep",
+            timeout=180,  # Pattern matching, allow 3 minutes
+            cwd=self.repository_path,
+        )
 
-            # Parse JSON output
-            if not result.stdout:
-                logger.info("Semgrep produced no output")
-                return []
-
-            output = json.loads(result.stdout)
-            results = output.get("results", [])
-
-            # Filter by severity threshold
-            filtered_results = [
-                r for r in results
-                if self._meets_severity_threshold(r.get("extra", {}).get("severity", "INFO"))
-            ]
-
-            logger.info(f"Semgrep found {len(filtered_results)} security issues")
-            return filtered_results
-
-        except FileNotFoundError:
-            logger.error("Semgrep not found. Install with: pip install semgrep")
+        if not result.success or result.timed_out:
             return []
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse Semgrep JSON output: {e}")
+
+        # Parse JSON output
+        json_output = result.json_output
+        if not json_output:
+            logger.info("Semgrep produced no output")
             return []
-        except Exception as e:
-            logger.error(f"Error running Semgrep: {e}")
-            return []
+
+        results = json_output.get("results", [])
+
+        # Filter by severity threshold
+        filtered_results = [
+            r for r in results
+            if self._meets_severity_threshold(r.get("extra", {}).get("severity", "INFO"))
+        ]
+
+        logger.info(f"Semgrep found {len(filtered_results)} security issues")
+        return filtered_results
 
     def _meets_severity_threshold(self, severity: str) -> bool:
         """Check if severity meets threshold.
@@ -346,26 +335,12 @@ class SemgrepDetector(CodeSmellDetector):
         Returns:
             Dictionary with graph context
         """
-        # Normalize path for Neo4j
-        normalized_path = file_path.replace("\\", "/")
+        # Use shared utility for graph context (without line number for file-level context)
+        context = get_graph_context(self.db, file_path, line=None)
 
-        query = """
-        MATCH (file:File {filePath: $file_path})
-        RETURN file.loc as file_loc
-        LIMIT 1
-        """
-
-        try:
-            results = self.db.execute_query(query, {"file_path": normalized_path})
-            if results:
-                result = results[0]
-                return {
-                    "file_loc": result.get("file_loc", 0),
-                }
-        except Exception as e:
-            logger.warning(f"Failed to enrich from graph: {e}")
-
-        return {"file_loc": 0}
+        return {
+            "file_loc": context.get("file_loc", 0),
+        }
 
     def _suggest_fix(self, metadata: Dict[str, Any], message: str) -> str:
         """Suggest fix based on vulnerability type.

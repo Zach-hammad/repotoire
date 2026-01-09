@@ -10,7 +10,7 @@ from typing import List, Optional, Union
 from statistics import mean
 
 from repotoire.graph.base import DatabaseClient
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.models import MetricTrend, CodeHotspot
 from repotoire.logging_config import get_logger
 from repotoire.validation import validate_identifier
@@ -28,12 +28,12 @@ class TemporalMetrics:
     - Compare commits (before/after analysis)
 
     Example:
-        >>> analyzer = TemporalMetrics(neo4j_client)
+        >>> analyzer = TemporalMetrics(graph_client)
         >>> trend = analyzer.get_metric_trend("modularity", window_days=90)
         >>> hotspots = analyzer.find_code_hotspots(window_days=90)
     """
 
-    def __init__(self, client: Union[Neo4jClient, DatabaseClient]):
+    def __init__(self, client: Union[FalkorDBClient, DatabaseClient]):
         """Initialize temporal metrics analyzer.
 
         Args:

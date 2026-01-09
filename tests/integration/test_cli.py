@@ -45,7 +45,7 @@ def hello():
 
 
 @pytest.fixture
-def mock_neo4j_client():
+def mock_graph_client():
     """Create a mock Neo4j client."""
     client = MagicMock()
     client.__enter__.return_value = client
@@ -108,10 +108,10 @@ def sample_health_report():
 class TestIngestCommand:
     """Test ingest command."""
 
-    def test_ingest_command_basic(self, runner, temp_repo, mock_neo4j_client):
+    def test_ingest_command_basic(self, runner, temp_repo, mock_graph_client):
         """Test basic ingest command execution."""
         with patch('repotoire.cli.validate_neo4j_connection'), \
-             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.FalkorDBClient', return_value=mock_graph_client), \
              patch('repotoire.cli.IngestionPipeline') as mock_pipeline:
 
             mock_pipeline_instance = Mock()
@@ -121,7 +121,7 @@ class TestIngestCommand:
             result = runner.invoke(cli, [
                 'ingest',
                 str(temp_repo),
-                '--neo4j-password', 'test-password'
+                '--falkordb-password', 'test-password'
             ])
 
             # Command should succeed
@@ -137,10 +137,10 @@ class TestIngestCommand:
             # Should run ingestion
             mock_pipeline_instance.ingest.assert_called_once()
 
-    def test_ingest_with_custom_pattern(self, runner, temp_repo, mock_neo4j_client):
+    def test_ingest_with_custom_pattern(self, runner, temp_repo, mock_graph_client):
         """Test ingest with custom file patterns."""
         with patch('repotoire.cli.validate_neo4j_connection'), \
-             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.FalkorDBClient', return_value=mock_graph_client), \
              patch('repotoire.cli.IngestionPipeline') as mock_pipeline:
 
             mock_pipeline_instance = Mock()
@@ -150,7 +150,7 @@ class TestIngestCommand:
             result = runner.invoke(cli, [
                 'ingest',
                 str(temp_repo),
-                '--neo4j-password', 'test',
+                '--falkordb-password', 'test',
                 '-p', '**/*.py',
                 '-p', '**/*.js'
             ])
@@ -164,18 +164,18 @@ class TestIngestCommand:
             assert '**/*.py' in patterns
             assert '**/*.js' in patterns
 
-    def test_ingest_with_custom_neo4j_uri(self, runner, temp_repo, mock_neo4j_client):
+    def test_ingest_with_custom_falkordb_host(self, runner, temp_repo, mock_graph_client):
         """Test ingest with custom Neo4j URI."""
         with patch('repotoire.cli.validate_neo4j_connection'), \
-             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client) as mock_client_class, \
+             patch('repotoire.cli.FalkorDBClient', return_value=mock_graph_client) as mock_client_class, \
              patch('repotoire.cli.IngestionPipeline'):
 
             result = runner.invoke(cli, [
                 'ingest',
                 str(temp_repo),
-                '--neo4j-uri', 'bolt://custom:7687',
-                '--neo4j-user', 'admin',
-                '--neo4j-password', 'secret'
+                '--falkordb-uri', 'bolt://custom:7687',
+                '--falkordb-user', 'admin',
+                '--falkordb-password', 'secret'
             ])
 
             assert result.exit_code == 0
@@ -190,16 +190,16 @@ class TestIngestCommand:
                 retry_base_delay=1.0
             )
 
-    def test_ingest_displays_stats_table(self, runner, temp_repo, mock_neo4j_client):
+    def test_ingest_displays_stats_table(self, runner, temp_repo, mock_graph_client):
         """Test ingest displays stats table."""
         with patch('repotoire.cli.validate_neo4j_connection'), \
-             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.FalkorDBClient', return_value=mock_graph_client), \
              patch('repotoire.cli.IngestionPipeline'):
 
             result = runner.invoke(cli, [
                 'ingest',
                 str(temp_repo),
-                '--neo4j-password', 'test'
+                '--falkordb-password', 'test'
             ])
 
             assert result.exit_code == 0
@@ -212,7 +212,7 @@ class TestIngestCommand:
         result = runner.invoke(cli, [
             'ingest',
             '/non/existent/path',
-            '--neo4j-password', 'test'
+            '--falkordb-password', 'test'
         ])
 
         # Should fail with error
@@ -223,10 +223,10 @@ class TestIngestCommand:
 class TestAnalyzeCommand:
     """Test analyze command."""
 
-    def test_analyze_command_basic(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
+    def test_analyze_command_basic(self, runner, temp_repo, mock_graph_client, sample_health_report):
         """Test basic analyze command execution."""
         with patch('repotoire.cli.validate_neo4j_connection'), \
-             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.FalkorDBClient', return_value=mock_graph_client), \
              patch('repotoire.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
@@ -236,7 +236,7 @@ class TestAnalyzeCommand:
             result = runner.invoke(cli, [
                 'analyze',
                 str(temp_repo),
-                '--neo4j-password', 'test'
+                '--falkordb-password', 'test'
             ])
 
             assert result.exit_code == 0
@@ -250,10 +250,10 @@ class TestAnalyzeCommand:
             # Should run analysis
             mock_engine_instance.analyze.assert_called_once()
 
-    def test_analyze_displays_grade(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
+    def test_analyze_displays_grade(self, runner, temp_repo, mock_graph_client, sample_health_report):
         """Test analyze displays overall grade."""
         with patch('repotoire.cli.validate_neo4j_connection'), \
-             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.FalkorDBClient', return_value=mock_graph_client), \
              patch('repotoire.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
@@ -263,7 +263,7 @@ class TestAnalyzeCommand:
             result = runner.invoke(cli, [
                 'analyze',
                 str(temp_repo),
-                '--neo4j-password', 'test'
+                '--falkordb-password', 'test'
             ])
 
             assert result.exit_code == 0
@@ -272,10 +272,10 @@ class TestAnalyzeCommand:
             assert "Grade: B" in result.output
             assert "85.5" in result.output or "Score" in result.output
 
-    def test_analyze_displays_category_scores(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
+    def test_analyze_displays_category_scores(self, runner, temp_repo, mock_graph_client, sample_health_report):
         """Test analyze displays category scores."""
         with patch('repotoire.cli.validate_neo4j_connection'), \
-             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.FalkorDBClient', return_value=mock_graph_client), \
              patch('repotoire.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
@@ -285,7 +285,7 @@ class TestAnalyzeCommand:
             result = runner.invoke(cli, [
                 'analyze',
                 str(temp_repo),
-                '--neo4j-password', 'test'
+                '--falkordb-password', 'test'
             ])
 
             assert result.exit_code == 0
@@ -294,10 +294,10 @@ class TestAnalyzeCommand:
             output_lower = result.output.lower()
             assert "structure" in output_lower or "quality" in output_lower or "architecture" in output_lower
 
-    def test_analyze_displays_metrics(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
+    def test_analyze_displays_metrics(self, runner, temp_repo, mock_graph_client, sample_health_report):
         """Test analyze displays key metrics."""
         with patch('repotoire.cli.validate_neo4j_connection'), \
-             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.FalkorDBClient', return_value=mock_graph_client), \
              patch('repotoire.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
@@ -307,7 +307,7 @@ class TestAnalyzeCommand:
             result = runner.invoke(cli, [
                 'analyze',
                 str(temp_repo),
-                '--neo4j-password', 'test'
+                '--falkordb-password', 'test'
             ])
 
             assert result.exit_code == 0
@@ -316,10 +316,10 @@ class TestAnalyzeCommand:
             output_lower = result.output.lower()
             assert "files" in output_lower or "classes" in output_lower or "functions" in output_lower
 
-    def test_analyze_displays_findings(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
+    def test_analyze_displays_findings(self, runner, temp_repo, mock_graph_client, sample_health_report):
         """Test analyze displays findings summary."""
         with patch('repotoire.cli.validate_neo4j_connection'), \
-             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.FalkorDBClient', return_value=mock_graph_client), \
              patch('repotoire.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
@@ -329,7 +329,7 @@ class TestAnalyzeCommand:
             result = runner.invoke(cli, [
                 'analyze',
                 str(temp_repo),
-                '--neo4j-password', 'test'
+                '--falkordb-password', 'test'
             ])
 
             assert result.exit_code == 0
@@ -338,10 +338,10 @@ class TestAnalyzeCommand:
             output_lower = result.output.lower()
             assert "findings" in output_lower or "high" in output_lower or "medium" in output_lower
 
-    def test_analyze_with_json_output(self, runner, temp_repo, mock_neo4j_client, sample_health_report):
+    def test_analyze_with_json_output(self, runner, temp_repo, mock_graph_client, sample_health_report):
         """Test analyze with JSON output file."""
         with patch('repotoire.cli.validate_neo4j_connection'), \
-             patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+             patch('repotoire.cli.FalkorDBClient', return_value=mock_graph_client), \
              patch('repotoire.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
@@ -355,7 +355,7 @@ class TestAnalyzeCommand:
                 result = runner.invoke(cli, [
                     'analyze',
                     str(temp_repo),
-                    '--neo4j-password', 'test',
+                    '--falkordb-password', 'test',
                     '--output', output_path
                 ])
 
@@ -383,7 +383,7 @@ class TestAnalyzeCommand:
         result = runner.invoke(cli, [
             'analyze',
             '/non/existent/path',
-            '--neo4j-password', 'test'
+            '--falkordb-password', 'test'
         ])
 
         # Should fail with error
@@ -516,21 +516,21 @@ class TestErrorHandling:
 
     def test_ingest_handles_connection_error(self, runner, temp_repo):
         """Test ingest handles Neo4j connection errors gracefully."""
-        with patch('repotoire.cli.Neo4jClient') as mock_client:
+        with patch('repotoire.cli.FalkorDBClient') as mock_client:
             mock_client.side_effect = Exception("Connection failed")
 
             result = runner.invoke(cli, [
                 'ingest',
                 str(temp_repo),
-                '--neo4j-password', 'test'
+                '--falkordb-password', 'test'
             ])
 
             # Should fail gracefully
             assert result.exit_code != 0
 
-    def test_analyze_handles_analysis_error(self, runner, temp_repo, mock_neo4j_client):
+    def test_analyze_handles_analysis_error(self, runner, temp_repo, mock_graph_client):
         """Test analyze handles analysis errors gracefully."""
-        with patch('repotoire.cli.Neo4jClient', return_value=mock_neo4j_client), \
+        with patch('repotoire.cli.FalkorDBClient', return_value=mock_graph_client), \
              patch('repotoire.cli.AnalysisEngine') as mock_engine:
 
             mock_engine_instance = Mock()
@@ -540,7 +540,7 @@ class TestErrorHandling:
             result = runner.invoke(cli, [
                 'analyze',
                 str(temp_repo),
-                '--neo4j-password', 'test'
+                '--falkordb-password', 'test'
             ])
 
             # Should fail gracefully

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import List, Set
 import subprocess
 
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.pipeline.ingestion import IngestionPipeline
 from repotoire.detectors.engine import AnalysisEngine
 from repotoire.models import Severity
@@ -117,13 +117,13 @@ def main() -> int:
         help="Minimum severity level to fail the commit (default: critical)"
     )
     parser.add_argument(
-        "--neo4j-uri",
+        "--falkordb-uri",
         default="bolt://localhost:7687",
         help="Neo4j connection URI"
     )
     parser.add_argument(
-        "--neo4j-password",
-        help="Neo4j password (defaults to REPOTOIRE_NEO4J_PASSWORD env var)"
+        "--falkordb-password",
+        help="Neo4j password (defaults to FALKORDB_PASSWORD env var)"
     )
     parser.add_argument(
         "--skip-ingestion",
@@ -144,16 +144,16 @@ def main() -> int:
 
     # Get Neo4j password from args or environment
     import os
-    neo4j_password = args.neo4j_password or os.getenv("REPOTOIRE_NEO4J_PASSWORD")
+    falkordb_password = args.falkordb_password or os.getenv("FALKORDB_PASSWORD")
 
-    if not neo4j_password:
-        print("❌ Error: NEO4J_PASSWORD not provided")
-        print("   Set REPOTOIRE_NEO4J_PASSWORD environment variable or use --neo4j-password")
+    if not falkordb_password:
+        print("❌ Error: FALKORDB_PASSWORD not provided")
+        print("   Set FALKORDB_PASSWORD environment variable or use --falkordb-password")
         return 1
 
     try:
-        # Connect to Neo4j
-        client = Neo4jClient(uri=args.neo4j_uri, password=neo4j_password)
+        # Connect to FalkorDB
+        client = FalkorDBClient(uri=args.falkordb_host, password=falkordb_password)
 
         # Get repository root
         repo_root = subprocess.run(
@@ -168,7 +168,7 @@ def main() -> int:
             print("   Analyzing code...")
             pipeline = IngestionPipeline(
                 repo_path=repo_root,
-                neo4j_client=client,
+                graph_client=client,
                 batch_size=50
             )
 
@@ -177,7 +177,7 @@ def main() -> int:
 
         # Run analysis
         engine = AnalysisEngine(
-            neo4j_client=client,
+            graph_client=client,
             repository_path=repo_root
         )
 

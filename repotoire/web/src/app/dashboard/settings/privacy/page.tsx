@@ -90,7 +90,15 @@ function PrivacySettingsContent() {
   // Fetch account status on mount
   useEffect(() => {
     async function fetchData() {
-      if (!api.isAuthenticated) return;
+      // Wait for authentication to be determined
+      if (api.isAuthenticated === undefined) return;
+
+      // User not authenticated - show empty state
+      if (!api.isAuthenticated) {
+        setIsLoading(false);
+        setError("Please sign in to view privacy settings");
+        return;
+      }
 
       try {
         setIsLoading(true);
@@ -118,7 +126,7 @@ function PrivacySettingsContent() {
     }
 
     fetchData();
-  }, [api]);
+  }, [api, api.isAuthenticated]);
 
   // Check for cancel_deletion param
   useEffect(() => {

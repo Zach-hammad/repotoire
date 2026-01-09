@@ -6,7 +6,7 @@ Analyzes individual packages and calculates per-package health scores.
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.detectors import AnalysisEngine
 from repotoire.models import CodebaseHealth, Finding
 from repotoire.monorepo.models import Package, PackageHealth, MonorepoHealth
@@ -23,20 +23,20 @@ class PackageAnalyzer:
     and independence scores.
 
     Example:
-        >>> analyzer = PackageAnalyzer(neo4j_client, "/path/to/monorepo")
+        >>> analyzer = PackageAnalyzer(graph_client, "/path/to/monorepo")
         >>> package_health = analyzer.analyze_package(package)
         >>> print(f"Package {package.name}: {package_health.grade}")
         Package @myapp/auth: A (92/100)
     """
 
-    def __init__(self, neo4j_client: Neo4jClient, repository_path: str):
+    def __init__(self, graph_client: FalkorDBClient, repository_path: str):
         """Initialize package analyzer.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
             repository_path: Path to monorepo root
         """
-        self.db = neo4j_client
+        self.db = graph_client
         self.repository_path = Path(repository_path)
 
     def analyze_package(

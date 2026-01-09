@@ -1,26 +1,125 @@
-"""Stripe Connect service for marketplace creator payouts.
+"""Stripe service for Connect and legacy webhook handling.
 
-This module provides Stripe Connect integration for the Repotoire marketplace,
-enabling creator payouts with platform fees.
+This module provides:
+1. Stripe Connect integration for marketplace creator payouts
+2. Legacy webhook handling for existing subscriptions (migrated to Clerk Billing)
 
 Migration Note (2026-01):
-- Subscription management has been migrated to Clerk Billing
-- This file now only contains Stripe Connect functionality for marketplace
-- StripeService class (checkout, portal, subscriptions) has been removed
-- Use Clerk's <PricingTable /> and <AccountPortal /> for subscription management
+- NEW subscriptions are managed via Clerk Billing
+- EXISTING subscriptions may still send Stripe webhooks until migrated
+- Use Clerk's <PricingTable /> and <AccountPortal /> for new subscription management
 """
 
 import logging
 import os
-from typing import Any
+from typing import Any, Dict
 
 import stripe
 from fastapi import HTTPException
 
+from repotoire.db.models import PlanTier
+
 logger = logging.getLogger(__name__)
 
-# Configure Stripe API key (still needed for Stripe Connect)
+# Configure Stripe API key (still needed for Stripe Connect + webhooks)
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+
+
+# ============================================================================
+# Price ID Mapping (for legacy webhook handling)
+# ============================================================================
+
+# Maps Stripe price IDs to plan tiers
+PRICE_IDS: Dict[str, str] = {
+    os.environ.get("STRIPE_PRICE_PRO_BASE", ""): "pro",
+    os.environ.get("STRIPE_PRICE_ENTERPRISE_BASE", ""): "enterprise",
+}
+
+SEAT_PRICE_IDS: Dict[str, str] = {
+    os.environ.get("STRIPE_PRICE_PRO_SEAT", ""): "pro",
+    os.environ.get("STRIPE_PRICE_ENTERPRISE_SEAT", ""): "enterprise",
+}
+
+
+def price_id_to_tier(price_id: str) -> PlanTier:
+    """Convert Stripe price ID to PlanTier enum.
+
+    Args:
+        price_id: Stripe price ID
+
+    Returns:
+        Corresponding PlanTier
+
+    Note:
+        Returns FREE for unknown price IDs (fail-safe)
+    """
+    tier_str = PRICE_IDS.get(price_id) or SEAT_PRICE_IDS.get(price_id)
+    if tier_str == "pro":
+        return PlanTier.PRO
+    elif tier_str == "enterprise":
+        return PlanTier.ENTERPRISE
+    else:
+        logger.warning(f"Unknown price ID: {price_id}, defaulting to FREE")
+        return PlanTier.FREE
+
+
+# ============================================================================
+# Legacy StripeService (for webhook handling)
+# ============================================================================
+
+
+class StripeService:
+    """Legacy Stripe service for webhook handling.
+
+    Note: New subscription management should use Clerk Billing.
+    This class exists only for handling webhooks from existing subscriptions.
+    """
+
+    @staticmethod
+    def construct_webhook_event(
+        payload: bytes,
+        signature: str,
+        webhook_secret: str,
+    ) -> Dict[str, Any]:
+        """Construct and verify a Stripe webhook event.
+
+        Args:
+            payload: Raw request body
+            signature: Stripe-Signature header
+            webhook_secret: Webhook secret for verification
+
+        Returns:
+            Verified Stripe event dict
+
+        Raises:
+            HTTPException: If signature verification fails
+        """
+        try:
+            event = stripe.Webhook.construct_event(
+                payload, signature, webhook_secret
+            )
+            return event
+        except stripe.error.SignatureVerificationError:
+            raise HTTPException(status_code=400, detail="Invalid signature")
+        except Exception as e:
+            logger.error(f"Webhook construction error: {e}")
+            raise HTTPException(status_code=400, detail="Invalid webhook")
+
+    @staticmethod
+    def get_subscription(subscription_id: str) -> Dict[str, Any]:
+        """Get a Stripe subscription by ID.
+
+        Args:
+            subscription_id: Stripe subscription ID
+
+        Returns:
+            Stripe subscription object as dict
+        """
+        try:
+            return stripe.Subscription.retrieve(subscription_id)
+        except stripe.error.StripeError as e:
+            logger.error(f"Error retrieving subscription {subscription_id}: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
 
 
 # ============================================================================

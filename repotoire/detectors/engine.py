@@ -5,7 +5,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 
-from repotoire.graph import Neo4jClient
+from repotoire.graph import DatabaseClient
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.models import (
     Finding,
@@ -102,7 +102,7 @@ class AnalysisEngine:
 
     def __init__(
         self,
-        neo4j_client: Neo4jClient,
+        graph_client: DatabaseClient,
         detector_config: Dict = None,
         repository_path: str = ".",
         keep_metadata: bool = False,
@@ -115,7 +115,7 @@ class AnalysisEngine:
         """Initialize analysis engine.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: Graph database client (FalkorDB)
             detector_config: Optional detector configuration dict
             repository_path: Path to repository root (for hybrid detectors)
             keep_metadata: If True, don't cleanup detector metadata after analysis (enables hotspot queries)
@@ -125,18 +125,18 @@ class AnalysisEngine:
             parallel: Run independent detectors in parallel (REPO-217)
             max_workers: Maximum thread pool workers for parallel execution (default: 4)
         """
-        self.db = neo4j_client
+        self.db = graph_client
         self.repository_path = repository_path
         self.keep_metadata = keep_metadata
         self.enable_voting = enable_voting
         self.parallel = parallel
         self.max_workers = max_workers
         # Check if using FalkorDB (no GDS support)
-        self.is_falkordb = getattr(neo4j_client, "is_falkordb", False) or type(neo4j_client).__name__ == "FalkorDBClient"
+        self.is_falkordb = getattr(graph_client, "is_falkordb", False) or type(graph_client).__name__ == "FalkorDBClient"
         config = detector_config or {}
 
         # Initialize GraphEnricher for cross-detector collaboration (REPO-151 Phase 2)
-        self.enricher = GraphEnricher(neo4j_client)
+        self.enricher = GraphEnricher(graph_client)
 
         # Initialize FindingDeduplicator for reducing duplicate findings (REPO-152 Phase 3)
         self.deduplicator = FindingDeduplicator(line_proximity_threshold=5)
@@ -159,49 +159,49 @@ class AnalysisEngine:
 
         # Register all detectors
         self.detectors = [
-            CircularDependencyDetector(neo4j_client, enricher=self.enricher),
-            DeadCodeDetector(neo4j_client, enricher=self.enricher),
-            GodClassDetector(neo4j_client, detector_config=detector_config, enricher=self.enricher),
-            ArchitecturalBottleneckDetector(neo4j_client, enricher=self.enricher),
+            CircularDependencyDetector(graph_client, enricher=self.enricher),
+            DeadCodeDetector(graph_client, enricher=self.enricher),
+            GodClassDetector(graph_client, detector_config=detector_config, enricher=self.enricher),
+            ArchitecturalBottleneckDetector(graph_client, enricher=self.enricher),
             # GDS-based graph detectors (REPO-172, REPO-173)
-            ModuleCohesionDetector(neo4j_client),
-            CoreUtilityDetector(neo4j_client),
+            ModuleCohesionDetector(graph_client),
+            CoreUtilityDetector(graph_client),
             # GDS-based detectors (REPO-169, REPO-170, REPO-171)
-            InfluentialCodeDetector(neo4j_client),
-            DegreeCentralityDetector(neo4j_client),
+            InfluentialCodeDetector(graph_client),
+            DegreeCentralityDetector(graph_client),
             # Graph-unique detectors (FAL-115: Graph-Enhanced Linting Strategy)
-            FeatureEnvyDetector(neo4j_client, detector_config=config.get("feature_envy"), enricher=self.enricher),
-            ShotgunSurgeryDetector(neo4j_client, detector_config=config.get("shotgun_surgery"), enricher=self.enricher),
-            MiddleManDetector(neo4j_client, detector_config=config.get("middle_man"), enricher=self.enricher),
-            InappropriateIntimacyDetector(neo4j_client, detector_config=config.get("inappropriate_intimacy"), enricher=self.enricher),
+            FeatureEnvyDetector(graph_client, detector_config=config.get("feature_envy"), enricher=self.enricher),
+            ShotgunSurgeryDetector(graph_client, detector_config=config.get("shotgun_surgery"), enricher=self.enricher),
+            MiddleManDetector(graph_client, detector_config=config.get("middle_man"), enricher=self.enricher),
+            InappropriateIntimacyDetector(graph_client, detector_config=config.get("inappropriate_intimacy"), enricher=self.enricher),
             # Data clumps detector (REPO-216)
-            DataClumpsDetector(neo4j_client, detector_config=config.get("data_clumps"), enricher=self.enricher),
+            DataClumpsDetector(graph_client, detector_config=config.get("data_clumps"), enricher=self.enricher),
             # New graph-based detectors (REPO-228, REPO-229, REPO-231)
-            AsyncAntipatternDetector(neo4j_client, detector_config=config.get("async_antipattern"), enricher=self.enricher),
-            TypeHintCoverageDetector(neo4j_client, detector_config=config.get("type_hint_coverage"), enricher=self.enricher),
-            LongParameterListDetector(neo4j_client, detector_config=config.get("long_parameter_list"), enricher=self.enricher),
+            AsyncAntipatternDetector(graph_client, detector_config=config.get("async_antipattern"), enricher=self.enricher),
+            TypeHintCoverageDetector(graph_client, detector_config=config.get("type_hint_coverage"), enricher=self.enricher),
+            LongParameterListDetector(graph_client, detector_config=config.get("long_parameter_list"), enricher=self.enricher),
             # Additional graph-based detectors (REPO-221, REPO-223, REPO-232)
-            MessageChainDetector(neo4j_client, detector_config=config.get("message_chain"), enricher=self.enricher),
-            TestSmellDetector(neo4j_client, detector_config=config.get("test_smell"), enricher=self.enricher),
-            GeneratorMisuseDetector(neo4j_client, detector_config=config.get("generator_misuse"), enricher=self.enricher),
+            MessageChainDetector(graph_client, detector_config=config.get("message_chain"), enricher=self.enricher),
+            TestSmellDetector(graph_client, detector_config=config.get("test_smell"), enricher=self.enricher),
+            GeneratorMisuseDetector(graph_client, detector_config=config.get("generator_misuse"), enricher=self.enricher),
             # Design smell detectors (REPO-222, REPO-230)
-            LazyClassDetector(neo4j_client, detector_config=config.get("lazy_class"), enricher=self.enricher),
-            RefusedBequestDetector(neo4j_client, detector_config=config.get("refused_bequest"), enricher=self.enricher),
+            LazyClassDetector(graph_client, detector_config=config.get("lazy_class"), enricher=self.enricher),
+            RefusedBequestDetector(graph_client, detector_config=config.get("refused_bequest"), enricher=self.enricher),
             # TrulyUnusedImportsDetector has high false positive rate - replaced by RuffImportDetector
-            # TrulyUnusedImportsDetector(neo4j_client, detector_config=config.get("truly_unused_imports")),
+            # TrulyUnusedImportsDetector(graph_client, detector_config=config.get("truly_unused_imports")),
             # Hybrid detectors (external tool + graph)
             RuffImportDetector(
-                neo4j_client,
+                graph_client,
                 detector_config={"repository_path": repository_path},
                 enricher=self.enricher  # Enable graph enrichment
             ),
             RuffLintDetector(
-                neo4j_client,
+                graph_client,
                 detector_config={"repository_path": repository_path},
                 enricher=self.enricher  # Enable graph enrichment
             ),
             MypyDetector(
-                neo4j_client,
+                graph_client,
                 detector_config={"repository_path": repository_path},
                 enricher=self.enricher  # Enable graph enrichment
             ),
@@ -209,7 +209,7 @@ class AnalysisEngine:
             # Uses parallel processing for optimal performance on multi-core systems
             # Note: R0801 (duplicate-code) removed - too slow (O(n²)), use RadonDetector instead
             PylintDetector(
-                neo4j_client,
+                graph_client,
                 detector_config={
                     "repository_path": repository_path,
                     "enable_only": [
@@ -234,37 +234,37 @@ class AnalysisEngine:
                 enricher=self.enricher  # Enable graph enrichment
             ),
             BanditDetector(
-                neo4j_client,
+                graph_client,
                 detector_config={"repository_path": repository_path},
                 enricher=self.enricher  # Enable graph enrichment
             ),
             RadonDetector(
-                neo4j_client,
+                graph_client,
                 detector_config={"repository_path": repository_path},
                 enricher=self.enricher  # Enable graph enrichment
             ),
             # Duplicate code detection (fast, replaces slow Pylint R0801)
             JscpdDetector(
-                neo4j_client,
+                graph_client,
                 detector_config={"repository_path": repository_path},
                 enricher=self.enricher  # Enable graph enrichment
             ),
             # Advanced unused code detection (more accurate than graph-based DeadCodeDetector)
             VultureDetector(
-                neo4j_client,
+                graph_client,
                 detector_config={"repository_path": repository_path},
                 enricher=self.enricher  # Enable graph enrichment
             ),
             # Advanced security patterns (more powerful than Bandit)
             SemgrepDetector(
-                neo4j_client,
+                graph_client,
                 detector_config={"repository_path": repository_path},
                 enricher=self.enricher  # Enable graph enrichment
             ),
             # SATD (Self-Admitted Technical Debt) detector (REPO-410)
             # Scans TODO, FIXME, HACK, XXX, KLUDGE, REFACTOR, TEMP, BUG comments
             SATDDetector(
-                neo4j_client,
+                graph_client,
                 detector_config={"repository_path": repository_path},
                 enricher=self.enricher  # Enable graph enrichment
             ),
@@ -272,7 +272,7 @@ class AnalysisEngine:
             # Traces data from untrusted sources to dangerous sinks
             # Detects SQL injection, command injection, XSS, etc.
             TaintDetector(
-                neo4j_client,
+                graph_client,
                 detector_config={"repository_path": repository_path},
                 enricher=self.enricher  # Enable graph enrichment
             ),
@@ -285,7 +285,7 @@ class AnalysisEngine:
         # Scans for vulnerable dependencies using pip-audit (with safety fallback)
         self.detectors.append(
             DependencyScanner(
-                neo4j_client,
+                graph_client,
                 detector_config={
                     "repository_path": repository_path,
                     "max_findings": config.get("dependency_scanner", {}).get("max_findings", 50),

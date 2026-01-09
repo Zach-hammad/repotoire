@@ -421,7 +421,7 @@ def fine_tune_from_graph(
     """Convenience function to fine-tune embeddings from a code graph.
 
     Args:
-        client: Neo4jClient for querying the knowledge graph
+        client: FalkorDBClient for querying the knowledge graph
         output_path: Where to save the fine-tuned model
         config: Training configuration
 

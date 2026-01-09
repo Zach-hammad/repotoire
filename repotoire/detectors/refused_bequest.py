@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.graph.enricher import GraphEnricher
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 
 
@@ -36,18 +36,18 @@ class RefusedBequestDetector(CodeSmellDetector):
 
     def __init__(
         self,
-        neo4j_client: Neo4jClient,
+        graph_client: FalkorDBClient,
         detector_config: Optional[Dict[str, Any]] = None,
         enricher: Optional[GraphEnricher] = None,
     ):
         """Initialize refused bequest detector.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
             detector_config: Optional configuration dict with thresholds
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
         self.enricher = enricher
         self.logger = get_logger(__name__)
 

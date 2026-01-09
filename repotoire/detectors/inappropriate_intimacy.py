@@ -14,15 +14,15 @@ from typing import List, Dict, Any, Optional
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.graph.enricher import GraphEnricher
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 
 
 class InappropriateIntimacyDetector(CodeSmellDetector):
     """Detect classes that are too tightly coupled."""
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict[str, Any]] = None, enricher: Optional[GraphEnricher] = None):
-        super().__init__(neo4j_client)
+    def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[Dict[str, Any]] = None, enricher: Optional[GraphEnricher] = None):
+        super().__init__(graph_client)
         self.enricher = enricher
         config = detector_config or {}
         thresholds = config.get("thresholds", {})
@@ -31,7 +31,7 @@ class InappropriateIntimacyDetector(CodeSmellDetector):
         self.min_mutual_access = config.get("min_mutual_access", 5)
         self.logger = get_logger(__name__)
         # FalkorDB uses id() while Neo4j uses elementId()
-        self.is_falkordb = getattr(neo4j_client, "is_falkordb", False) or type(neo4j_client).__name__ == "FalkorDBClient"
+        self.is_falkordb = getattr(graph_client, "is_falkordb", False) or type(graph_client).__name__ == "FalkorDBClient"
         self.id_func = "id" if self.is_falkordb else "elementId"
 
     def detect(self) -> List[Finding]:

@@ -7,11 +7,11 @@ class TestDetectorPerformance:
     """Benchmark detector performance."""
 
     @pytest.mark.skip(reason="Requires Neo4j connection")
-    def test_circular_dependency_detector(self, benchmark, neo4j_client):
+    def test_circular_dependency_detector(self, benchmark, graph_client):
         """Benchmark circular dependency detection."""
         from repotoire.detectors.circular_dependency import CircularDependencyDetector
 
-        detector = CircularDependencyDetector(neo4j_client)
+        detector = CircularDependencyDetector(graph_client)
 
         def detect():
             return detector.detect()
@@ -20,11 +20,11 @@ class TestDetectorPerformance:
         assert findings is not None
 
     @pytest.mark.skip(reason="Requires Neo4j connection")
-    def test_dead_code_detector(self, benchmark, neo4j_client):
+    def test_dead_code_detector(self, benchmark, graph_client):
         """Benchmark dead code detection."""
         from repotoire.detectors.dead_code import DeadCodeDetector
 
-        detector = DeadCodeDetector(neo4j_client)
+        detector = DeadCodeDetector(graph_client)
 
         def detect():
             return detector.detect()

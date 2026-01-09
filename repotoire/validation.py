@@ -81,100 +81,88 @@ def validate_repository_path(repo_path: str) -> Path:
     return path
 
 
-def validate_neo4j_uri(uri: str) -> str:
-    """Validate Neo4j URI format.
+def validate_falkordb_host(host: str) -> str:
+    """Validate FalkorDB host format.
 
     Args:
-        uri: Neo4j connection URI
+        host: FalkorDB hostname or IP address
 
     Returns:
-        Validated URI string
+        Validated host string
 
     Raises:
-        ValidationError: If URI format is invalid
+        ValidationError: If host format is invalid
     """
-    if not uri or not uri.strip():
+    if not host or not host.strip():
         raise ValidationError(
-            "Neo4j URI cannot be empty",
-            "Provide a valid Neo4j connection URI, e.g., bolt://localhost:7687"
+            "FalkorDB host cannot be empty",
+            "Provide a valid hostname, e.g., localhost or falkordb.internal"
         )
 
-    # Common valid schemes for Neo4j
-    valid_schemes = {"bolt", "neo4j", "bolt+s", "neo4j+s", "bolt+ssc", "neo4j+ssc"}
+    host = host.strip()
 
-    try:
-        parsed = urlparse(uri)
-    except Exception as e:
+    # Check for common mistakes - bolt:// URI instead of plain host
+    if host.startswith(("bolt://", "neo4j://", "redis://")):
         raise ValidationError(
-            f"Invalid URI format: {uri}",
-            "Use format: bolt://host:port or neo4j://host:port"
+            f"Host should be a hostname, not a URI: {host}",
+            "Use just the hostname without scheme, e.g., 'localhost' not 'bolt://localhost'"
         )
 
-    if not parsed.scheme:
+    # Basic hostname validation
+    if not re.match(r'^[a-zA-Z0-9._-]+$', host):
         raise ValidationError(
-            f"Missing URI scheme in: {uri}",
-            "URI must start with a scheme like bolt:// or neo4j://\n"
-            "Example: bolt://localhost:7687"
+            f"Invalid hostname format: {host}",
+            "Use a valid hostname like 'localhost', '192.168.1.1', or 'falkordb.internal'"
         )
 
-    if parsed.scheme not in valid_schemes:
-        raise ValidationError(
-            f"Invalid URI scheme '{parsed.scheme}' in: {uri}",
-            f"Use one of: {', '.join(sorted(valid_schemes))}\n"
-            f"Most common: bolt://localhost:7687"
-        )
-
-    if not parsed.netloc:
-        raise ValidationError(
-            f"Missing host in URI: {uri}",
-            "URI must include a host, e.g., bolt://localhost:7687"
-        )
-
-    # Check for common mistakes
-    if "7474" in uri:
-        raise ValidationError(
-            f"Port 7474 is for HTTP, not Bolt: {uri}",
-            "Use port 7687 for Bolt protocol: bolt://localhost:7687"
-        )
-
-    return uri
+    return host
 
 
-def validate_neo4j_credentials(user: str, password: str) -> tuple[str, str]:
-    """Validate Neo4j username and password.
+def validate_falkordb_port(port: int) -> int:
+    """Validate FalkorDB port number.
 
     Args:
-        user: Neo4j username
-        password: Neo4j password
+        port: FalkorDB port number
 
     Returns:
-        Tuple of (validated_user, validated_password)
+        Validated port number
 
     Raises:
-        ValidationError: If credentials are invalid
+        ValidationError: If port is invalid
     """
-    if not user or not user.strip():
+    if port <= 0 or port > 65535:
         raise ValidationError(
-            "Neo4j username cannot be empty",
-            "Provide a valid Neo4j username (default is 'neo4j')"
+            f"Port must be between 1 and 65535: {port}",
+            "Use a valid port number. FalkorDB default is 6379"
         )
 
-    if not password or not password.strip():
+    return port
+
+
+def validate_falkordb_password(password: Optional[str]) -> Optional[str]:
+    """Validate FalkorDB password.
+
+    Args:
+        password: FalkorDB password (can be None for unauthenticated connections)
+
+    Returns:
+        Validated password string or None
+
+    Raises:
+        ValidationError: If password format is invalid
+    """
+    if password is None:
+        return None
+
+    if not password.strip():
         raise ValidationError(
-            "Neo4j password cannot be empty",
-            "Provide your Neo4j password:\n"
-            "  - Set FALKOR_NEO4J_PASSWORD environment variable\n"
-            "  - Add 'neo4j.password' to .reporc config file\n"
-            "  - Use --neo4j-password flag\n"
-            "  - Let Falkor prompt you interactively"
+            "FalkorDB password cannot be empty string",
+            "Provide a valid password or omit for unauthenticated connections:\n"
+            "  - Set FALKORDB_PASSWORD environment variable\n"
+            "  - Add 'database.password' to .repotoirerc config file"
         )
 
-    # Warn about default password
-    if user == "neo4j" and password == "neo4j":
-        # This is just a warning, not an error
-        pass
-
-    return user, password
+    return password.strip()
 
 
 def validate_output_path(output_path: str) -> Path:
@@ -354,64 +342,79 @@ def validate_retry_config(max_retries: int, backoff_factor: float, base_delay: f
     return max_retries, backoff_factor, base_delay
 
 
-def validate_neo4j_connection(uri: str, username: str, password: str) -> None:
-    """Test Neo4j connection is actually reachable.
+def validate_falkordb_connection(
+    host: str = "localhost",
+    port: int = 6379,
+    password: Optional[str] = None
+) -> None:
+    """Test FalkorDB connection is actually reachable.
 
     Args:
-        uri: Neo4j connection URI
-        username: Neo4j username
-        password: Neo4j password
+        host: FalkorDB hostname
+        port: FalkorDB port
+        password: FalkorDB password (optional)
 
     Raises:
         ValidationError: If connection cannot be established
     """
     # Validate parameters first
-    uri = validate_neo4j_uri(uri)
-    username, password = validate_neo4j_credentials(username, password)
+    host = validate_falkordb_host(host)
+    port = validate_falkordb_port(port)
+    password = validate_falkordb_password(password)
 
     try:
-        from neo4j import GraphDatabase
-        from neo4j.exceptions import ServiceUnavailable, AuthError
+        import redis
+        from falkordb import FalkorDB
 
         # Try to connect with a short timeout
-        driver = GraphDatabase.driver(uri, auth=(username, password))
+        client = FalkorDB(
+            host=host,
+            port=port,
+            password=password,
+            socket_timeout=5.0,
+            socket_connect_timeout=5.0,
+        )
 
         try:
-            # Verify connectivity
-            driver.verify_connectivity()
-            logger.debug(f"Successfully validated Neo4j connection to {uri}")
-        except AuthError as e:
+            # Verify connectivity by pinging
+            client.connection.ping()
+            logger.debug(f"Successfully validated FalkorDB connection to {host}:{port}")
+        except redis.exceptions.AuthenticationError as e:
             raise ValidationError(
-                f"Neo4j authentication failed for user '{username}'",
-                "Check your Neo4j credentials:\n"
-                "  - Verify the username is correct (default: neo4j)\n"
+                "FalkorDB authentication failed",
+                "Check your FalkorDB password:\n"
                 "  - Verify the password is correct\n"
-                "  - Check FALKOR_NEO4J_PASSWORD environment variable\n"
+                "  - Check FALKORDB_PASSWORD environment variable\n"
                 "  - Or set password in config file"
             ) from e
-        except ServiceUnavailable as e:
+        except redis.exceptions.ConnectionError as e:
             raise ValidationError(
-                f"Cannot connect to Neo4j at {uri}",
-                "Ensure Neo4j is running and accessible:\n"
-                "  - Start Neo4j: docker run -p 7687:7687 neo4j:latest\n"
+                f"Cannot connect to FalkorDB at {host}:{port}",
+                "Ensure FalkorDB is running and accessible:\n"
+                f"  - Start FalkorDB: docker run -p {port}:6379 falkordb/falkordb:latest\n"
                 "  - Check firewall settings\n"
-                "  - Verify the URI is correct"
+                "  - Verify the host and port are correct"
             ) from e
         finally:
-            driver.close()
+            client.connection.close()
 
     except ImportError:
         raise ValidationError(
-            "Neo4j driver not installed",
-            "Install the neo4j package: pip install neo4j"
+            "FalkorDB driver not installed",
+            "Install the falkordb package: pip install falkordb"
         )
     except Exception as e:
         if isinstance(e, ValidationError):
             raise
         raise ValidationError(
-            f"Failed to connect to Neo4j: {e}",
-            "Check your Neo4j configuration and ensure the database is accessible"
+            f"Failed to connect to FalkorDB: {e}",
+            "Check your FalkorDB configuration and ensure the database is accessible"
         ) from e
+
+
+# Backward compatibility aliases
+validate_neo4j_credentials = validate_falkordb_password
+validate_neo4j_connection = validate_falkordb_connection
 
 
 def validate_identifier(name: str, context: str = "identifier") -> str:

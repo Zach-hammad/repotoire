@@ -12,7 +12,7 @@ structural patterns like:
 
 Example:
     >>> from repotoire.ml.graph_embeddings import FastRPEmbedder
-    >>> embedder = FastRPEmbedder(neo4j_client)
+    >>> embedder = FastRPEmbedder(graph_client)
     >>> embedder.generate_embeddings()
     >>> similar = embedder.find_similar("my.module.function", top_k=5)
 """
@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -73,7 +73,7 @@ class FastRPEmbedder:
     - FastRP embeddings capture structural patterns from graph topology
 
     Example:
-        >>> client = Neo4jClient(uri="bolt://localhost:7687")
+        >>> client = FalkorDBClient(uri="bolt://localhost:7687")
         >>> embedder = FastRPEmbedder(client)
         >>>
         >>> # Generate embeddings for all functions
@@ -94,13 +94,13 @@ class FastRPEmbedder:
 
     def __init__(
         self,
-        client: Neo4jClient,
+        client: FalkorDBClient,
         config: Optional[FastRPConfig] = None,
     ):
         """Initialize FastRP embedder.
 
         Args:
-            client: Neo4j client instance
+            client: FalkorDB client instance
             config: FastRP configuration (uses defaults if not provided)
         """
         self.client = client

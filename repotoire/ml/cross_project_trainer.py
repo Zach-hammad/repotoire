@@ -153,7 +153,7 @@ if TORCH_AVAILABLE:
             """Initialize data loader.
 
             Args:
-                clients: Dict mapping project_name -> Neo4jClient
+                clients: Dict mapping project_name -> FalkorDBClient
                     Can be None if loading from exported data
                 embedding_property: Node property containing embeddings
                 input_dim: Input feature dimension for GraphSAGE

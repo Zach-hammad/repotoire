@@ -20,14 +20,17 @@ This approach achieves:
 Performance: ~2-5 seconds even on large codebases
 """
 
-import subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.graph import Neo4jClient
+from repotoire.detectors.external_tool_runner import (
+    run_external_tool,
+    get_graph_context,
+)
+from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
@@ -47,11 +50,11 @@ class VultureDetector(CodeSmellDetector):
         exclude: List of patterns to exclude (default: tests, migrations)
     """
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict] = None, enricher: Optional[GraphEnricher] = None):
+    def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[Dict] = None, enricher: Optional[GraphEnricher] = None):
         """Initialize vulture detector.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
             detector_config: Configuration dictionary with:
                 - repository_path: Path to repository root (required)
                 - min_confidence: Min confidence (0-100)
@@ -59,7 +62,7 @@ class VultureDetector(CodeSmellDetector):
                 - exclude: List of patterns to exclude
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
 
         config = detector_config or {}
         self.repository_path = Path(config.get("repository_path", "."))
@@ -156,51 +159,41 @@ class VultureDetector(CodeSmellDetector):
         Returns:
             List of unused code dictionaries
         """
-        try:
-            # Build vulture command
-            cmd = [
-                "vulture",
-                str(self.repository_path),
-                f"--min-confidence={self.min_confidence}",
-            ]
+        # Build vulture command
+        cmd = [
+            "vulture",
+            str(self.repository_path),
+            f"--min-confidence={self.min_confidence}",
+        ]
 
-            # Add exclude patterns
-            for pattern in self.exclude:
-                cmd.extend(["--exclude", pattern])
+        # Add exclude patterns
+        for pattern in self.exclude:
+            cmd.extend(["--exclude", pattern])
 
-            # Run vulture
-            try:
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    cwd=self.repository_path,
-                    timeout=60  # Dead code detection is fast, 60s is generous
-                )
-            except subprocess.TimeoutExpired:
-                logger.warning(f"Vulture timed out after 60s on {self.repository_path}")
-                return []
+        # Run vulture using shared utility
+        result = run_external_tool(
+            cmd=cmd,
+            tool_name="vulture",
+            timeout=60,  # Dead code detection is fast, 60s is generous
+            cwd=self.repository_path,
+        )
 
-            # Parse output (vulture outputs to stdout)
-            # Format: <file>:<line>: unused <type> '<name>' (confidence%)
-            findings = []
-            for line in result.stdout.strip().split("\n"):
-                if not line:
-                    continue
-
-                parsed = self._parse_vulture_line(line)
-                if parsed:
-                    findings.append(parsed)
-
-            logger.info(f"vulture found {len(findings)} unused items")
-            return findings
-
-        except FileNotFoundError:
-            logger.error("vulture not found. Install with: pip install vulture")
+        if not result.success or result.timed_out:
             return []
-        except Exception as e:
-            logger.error(f"Error running vulture: {e}")
-            return []
+
+        # Parse output (vulture outputs to stdout)
+        # Format: <file>:<line>: unused <type> '<name>' (confidence%)
+        findings = []
+        for line in result.stdout.strip().split("\n"):
+            if not line:
+                continue
+
+            parsed = self._parse_vulture_line(line)
+            if parsed:
+                findings.append(parsed)
+
+        logger.info(f"vulture found {len(findings)} unused items")
+        return findings
 
     def _parse_vulture_line(self, line: str) -> Optional[Dict[str, Any]]:
         """Parse a single vulture output line.
@@ -402,26 +395,12 @@ class VultureDetector(CodeSmellDetector):
         Returns:
             Dictionary with graph context
         """
-        # Normalize path for Neo4j
-        normalized_path = file_path.replace("\\", "/")
+        # Use shared utility for graph context (without line number for file-level context)
+        context = get_graph_context(self.db, file_path, line=None)
 
-        query = """
-        MATCH (file:File {filePath: $file_path})
-        RETURN file.loc as file_loc
-        LIMIT 1
-        """
-
-        try:
-            results = self.db.execute_query(query, {"file_path": normalized_path})
-            if results:
-                result = results[0]
-                return {
-                    "file_loc": result.get("file_loc", 0),
-                }
-        except Exception as e:
-            logger.warning(f"Failed to enrich from graph: {e}")
-
-        return {"file_loc": 0}
+        return {
+            "file_loc": context.get("file_loc", 0),
+        }
 
     def _suggest_fix(self, item_type: str, name: str, confidence: int) -> str:
         """Suggest fix based on item type and confidence.

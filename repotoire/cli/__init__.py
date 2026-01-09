@@ -28,9 +28,10 @@ from repotoire.models import SecretsPolicy
 from repotoire.validation import (
     ValidationError,
     validate_repository_path,
-    validate_neo4j_uri,
-    validate_neo4j_credentials,
-    validate_neo4j_connection,
+    validate_falkordb_host,
+    validate_falkordb_port,
+    validate_falkordb_password,
+    validate_falkordb_connection,
     validate_output_path,
     validate_file_size_limit,
     validate_batch_size,
@@ -1800,14 +1801,14 @@ def show_config(ctx: click.Context, format: str) -> None:
             raise click.Abort()
 
     else:  # table format
-        # Neo4j configuration
-        neo4j_table = Table(title="Neo4j Configuration")
-        neo4j_table.add_column("Setting", style="cyan")
-        neo4j_table.add_column("Value", style="green")
-        neo4j_table.add_row("URI", config.neo4j.uri)
-        neo4j_table.add_row("User", config.neo4j.user)
-        neo4j_table.add_row("Password", "***" if config.neo4j.password else "[dim]not set[/dim]")
-        console.print(neo4j_table)
+        # Database configuration
+        db_table = Table(title="FalkorDB Configuration")
+        db_table.add_column("Setting", style="cyan")
+        db_table.add_column("Value", style="green")
+        db_table.add_row("Host", config.database.host)
+        db_table.add_row("Port", str(config.database.port))
+        db_table.add_row("Password", "***" if config.database.password else "[dim]not set[/dim]")
+        console.print(db_table)
 
         # Ingestion configuration
         ingestion_table = Table(title="Ingestion Configuration")
@@ -2458,7 +2459,7 @@ def history(repo_path: str, strategy: str, max_commits: int, branch: str, genera
         from repotoire.pipeline.temporal_ingestion import TemporalIngestionPipeline
         pipeline = TemporalIngestionPipeline(
             repo_path=repo_path,
-            neo4j_client=client,
+            graph_client=client,
             generate_clues=generate_clues
         )
 
@@ -2680,7 +2681,7 @@ def generate_mcp(
                 api_key = os.getenv("OPENAI_API_KEY")
                 if api_key:
                     embedder = CodeEmbedder(api_key=api_key)
-                    rag_retriever = GraphRAGRetriever(neo4j_client=client, embedder=embedder)
+                    rag_retriever = GraphRAGRetriever(graph_client=client, embedder=embedder)
                     console.print("[cyan]🔮 RAG enhancements enabled[/cyan]")
                 else:
                     console.print("[yellow]⚠️  OPENAI_API_KEY not set, RAG disabled[/yellow]")
@@ -2701,7 +2702,7 @@ def generate_mcp(
             # SchemaGenerator creates OpenAI client internally from env var
             generator = SchemaGenerator(
                 rag_retriever=rag_retriever,
-                neo4j_client=client if enable_rag else None
+                graph_client=client if enable_rag else None
             )
 
             schemas = []
@@ -3937,8 +3938,8 @@ def auto_fix(
         if not quiet_mode:
             console.print("[bold]Step 1: Analyzing codebase...[/bold]")
 
-        neo4j_client = _get_db_client()
-        engine = AnalysisEngine(neo4j_client)
+        graph_client = _get_db_client()
+        engine = AnalysisEngine(graph_client)
 
         if not quiet_mode:
             with console.status("[bold]Running code analysis..."):
@@ -3959,7 +3960,7 @@ def auto_fix(
         if not findings:
             if not quiet_mode:
                 console.print("\n[yellow]No issues found. Your code is clean! 🎉[/yellow]")
-            neo4j_client.close()
+            graph_client.close()
             ctx.exit(0)
 
         # Limit to max fixes
@@ -3971,7 +3972,7 @@ def auto_fix(
         if not quiet_mode:
             console.print("[bold]Step 2: Generating AI-powered fixes...[/bold]")
 
-        fix_engine = AutoFixEngine(neo4j_client)
+        fix_engine = AutoFixEngine(graph_client)
         fix_proposals = []
 
         import asyncio
@@ -3998,7 +3999,7 @@ def auto_fix(
         if not fix_proposals:
             if not quiet_mode:
                 console.print("[yellow]No fixes could be generated.[/yellow]")
-            neo4j_client.close()
+            graph_client.close()
             ctx.exit(0)
 
         # Step 3: Review fixes (skip in CI mode with auto-apply or dry-run)
@@ -4018,7 +4019,7 @@ def auto_fix(
         if not approved_fixes:
             if not quiet_mode:
                 console.print("\n[yellow]No fixes approved. Exiting.[/yellow]")
-            neo4j_client.close()
+            graph_client.close()
             ctx.exit(0)
 
         # Save fix details to JSON if requested
@@ -4130,7 +4131,7 @@ def auto_fix(
                 "dry_run": dry_run
             }))
 
-        neo4j_client.close()
+        graph_client.close()
 
         # Exit with appropriate code
         if failed or not tests_passed:
@@ -4340,8 +4341,8 @@ def hotspots(
 
     # Connect to graph database
     try:
-        neo4j_client = _get_db_client()
-        enricher = GraphEnricher(neo4j_client)
+        db_client = _get_db_client()
+        enricher = GraphEnricher(db_client)
     except Exception as e:
         console.print(f"[red]Failed to connect to graph database: {e}[/red]")
         raise click.Abort()
@@ -4436,7 +4437,7 @@ def hotspots(
         logger.exception("Hotspot analysis failed")
         raise click.Abort()
     finally:
-        neo4j_client.close()
+        graph_client.close()
 
 
 @cli.group()
@@ -4479,7 +4480,7 @@ def embeddings_generate(
     the structural position of code entities in the call graph.
 
     Requirements:
-        - Neo4j with Graph Data Science (GDS) plugin
+        - FalkorDB running and accessible
         - Code already ingested into graph
 
     Examples:
@@ -4493,14 +4494,14 @@ def embeddings_generate(
 
     # Connect to graph database
     try:
-        neo4j_client = _get_db_client()
+        graph_client = _get_db_client()
     except Exception as e:
         console.print(f"[red]Failed to connect to graph database: {e}[/red]")
         raise click.Abort()
 
     try:
         config = FastRPConfig(embedding_dimension=dimension)
-        embedder = FastRPEmbedder(neo4j_client, config)
+        embedder = FastRPEmbedder(graph_client, config)
 
         # Check existing embeddings
         stats = embedder.get_embedding_stats()
@@ -4541,14 +4542,14 @@ def embeddings_generate(
 
     except RuntimeError as e:
         console.print(f"[red]Error: {e}[/red]")
-        console.print("[dim]Ensure Neo4j GDS plugin is installed[/dim]")
+        console.print("[dim]Ensure FalkorDB is running and accessible[/dim]")
         raise click.Abort()
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         logger.exception("Embedding generation failed")
         raise click.Abort()
     finally:
-        neo4j_client.close()
+        graph_client.close()
 
 
 @embeddings.command("stats")
@@ -4563,13 +4564,13 @@ def embeddings_stats() -> None:
     console.print("\n📊 [bold]Graph Embedding Statistics[/bold]\n")
 
     try:
-        neo4j_client = _get_db_client()
+        graph_client = _get_db_client()
     except Exception as e:
         console.print(f"[red]Failed to connect to graph database: {e}[/red]")
         raise click.Abort()
 
     try:
-        embedder = FastRPEmbedder(neo4j_client)
+        embedder = FastRPEmbedder(graph_client)
         stats = embedder.get_embedding_stats()
 
         if stats["nodes_with_embeddings"] == 0:
@@ -4592,7 +4593,7 @@ def embeddings_stats() -> None:
         console.print(f"[red]Error: {e}[/red]")
         raise click.Abort()
     finally:
-        neo4j_client.close()
+        graph_client.close()
 
 
 @embeddings.command("similar")
@@ -4632,13 +4633,13 @@ def embeddings_similar(
     console.print(f"\n🔍 [bold]Finding entities similar to:[/bold] [cyan]{qualified_name}[/cyan]\n")
 
     try:
-        neo4j_client = _get_db_client()
+        graph_client = _get_db_client()
     except Exception as e:
         console.print(f"[red]Failed to connect to graph database: {e}[/red]")
         raise click.Abort()
 
     try:
-        analyzer = StructuralSimilarityAnalyzer(neo4j_client)
+        analyzer = StructuralSimilarityAnalyzer(graph_client)
 
         # Check embeddings exist
         stats = analyzer.get_stats()
@@ -4691,7 +4692,7 @@ def embeddings_similar(
         logger.exception("Similarity search failed")
         raise click.Abort()
     finally:
-        neo4j_client.close()
+        graph_client.close()
 
 
 @embeddings.command("clones")
@@ -4728,13 +4729,13 @@ def embeddings_clones(
     console.print(f"\n🔎 [bold]Finding potential code clones[/bold] (threshold >= {threshold})\n")
 
     try:
-        neo4j_client = _get_db_client()
+        graph_client = _get_db_client()
     except Exception as e:
         console.print(f"[red]Failed to connect to graph database: {e}[/red]")
         raise click.Abort()
 
     try:
-        analyzer = StructuralSimilarityAnalyzer(neo4j_client)
+        analyzer = StructuralSimilarityAnalyzer(graph_client)
 
         # Check embeddings exist
         stats = analyzer.get_stats()
@@ -4792,7 +4793,7 @@ def embeddings_clones(
         logger.exception("Clone detection failed")
         raise click.Abort()
     finally:
-        neo4j_client.close()
+        graph_client.close()
 
 
 # ============================================================================

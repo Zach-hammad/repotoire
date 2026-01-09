@@ -43,6 +43,13 @@ from repotoire.ai.contextual import (
     ContextGenerationResult,
     create_context_generator,
 )
+from repotoire.ai.compression import (
+    EmbeddingCompressor,
+    TenantCompressor,
+    create_compressor,
+    estimate_memory_savings,
+    DEFAULT_TARGET_DIMS,
+)
 
 __all__ = [
     # NLP
@@ -83,4 +90,10 @@ __all__ = [
     "CostLimitExceeded",
     "ContextGenerationResult",
     "create_context_generator",
+    # Compression (memory optimization)
+    "EmbeddingCompressor",
+    "TenantCompressor",
+    "create_compressor",
+    "estimate_memory_savings",
+    "DEFAULT_TARGET_DIMS",
 ]

@@ -13,15 +13,15 @@ Addresses: FAL-114
 from typing import List, Dict, Any, Optional
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.models import Finding, Severity
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 
 
 class TrulyUnusedImportsDetector(CodeSmellDetector):
     """Detect imports never used in execution paths."""
 
-    def __init__(self, neo4j_client: Neo4jClient, detector_config: Optional[Dict[str, Any]] = None):
-        super().__init__(neo4j_client)
+    def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[Dict[str, Any]] = None):
+        super().__init__(graph_client)
         config = detector_config or {}
         self.max_call_depth = config.get("max_call_depth", 3)
         self.logger = get_logger(__name__)

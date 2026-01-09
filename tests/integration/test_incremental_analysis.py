@@ -13,14 +13,14 @@ import pytest
 
 from repotoire.pipeline.ingestion import IngestionPipeline
 
-# Note: test_neo4j_client fixture is provided by tests/integration/conftest.py
+# Note: test_graph_client fixture is provided by tests/integration/conftest.py
 # Graph is automatically cleared before each test by isolate_graph_test autouse fixture
 
 
 class TestIncrementalAnalysis:
     """Test incremental analysis functionality."""
 
-    def test_incremental_skips_unchanged_files(self, test_neo4j_client, tmp_path):
+    def test_incremental_skips_unchanged_files(self, test_graph_client, tmp_path):
         """Test that unchanged files are skipped during incremental analysis."""
         # Create a simple Python file
         test_file = tmp_path / "module.py"
@@ -32,34 +32,34 @@ class TestIncrementalAnalysis:
         # First ingestion (full)
         pipeline = IngestionPipeline(
             repo_path=str(tmp_path),
-            neo4j_client=test_neo4j_client
+            graph_client=test_graph_client
         )
         pipeline.ingest(incremental=False)
 
         # Verify file was ingested
-        result = test_neo4j_client.execute_query(
+        result = test_graph_client.execute_query(
             "MATCH (f:File {filePath: $path}) RETURN f",
             {"path": "module.py"}
         )
         assert len(result) == 1, "File should be in graph after first ingestion"
 
         # Get file hash from database
-        metadata = test_neo4j_client.get_file_metadata("module.py")
+        metadata = test_graph_client.get_file_metadata("module.py")
         assert metadata is not None
         original_hash = metadata["hash"]
 
         # Second ingestion (incremental) - no changes
         pipeline2 = IngestionPipeline(
             repo_path=str(tmp_path),
-            neo4j_client=test_neo4j_client
+            graph_client=test_graph_client
         )
         pipeline2.ingest(incremental=True)
 
         # Verify file hash hasn't changed
-        metadata2 = test_neo4j_client.get_file_metadata("module.py")
+        metadata2 = test_graph_client.get_file_metadata("module.py")
         assert metadata2["hash"] == original_hash, "Hash should be unchanged"
 
-    def test_incremental_detects_changed_files(self, test_neo4j_client, tmp_path):
+    def test_incremental_detects_changed_files(self, test_graph_client, tmp_path):
         """Test that changed files are detected and re-ingested."""
         # Create initial file
         test_file = tmp_path / "calculator.py"
@@ -71,12 +71,12 @@ class TestIncrementalAnalysis:
         # First ingestion
         pipeline = IngestionPipeline(
             repo_path=str(tmp_path),
-            neo4j_client=test_neo4j_client
+            graph_client=test_graph_client
         )
         pipeline.ingest(incremental=False)
 
         # Verify function exists
-        result = test_neo4j_client.execute_query(
+        result = test_graph_client.execute_query(
             "MATCH (fn:Function {name: 'add'}) RETURN fn"
         )
         assert len(result) == 1, "Function 'add' should exist"
@@ -93,19 +93,19 @@ class TestIncrementalAnalysis:
         # Second ingestion (incremental)
         pipeline2 = IngestionPipeline(
             repo_path=str(tmp_path),
-            neo4j_client=test_neo4j_client
+            graph_client=test_graph_client
         )
         pipeline2.ingest(incremental=True)
 
         # Verify new function exists
-        result = test_neo4j_client.execute_query(
+        result = test_graph_client.execute_query(
             "MATCH (fn:Function) RETURN fn.name as name ORDER BY name"
         )
         function_names = [r["name"] for r in result]
         assert "add" in function_names, "Original function should still exist"
         assert "subtract" in function_names, "New function should be detected"
 
-    def test_incremental_handles_deleted_files(self, test_neo4j_client, tmp_path):
+    def test_incremental_handles_deleted_files(self, test_graph_client, tmp_path):
         """Test that deleted files are removed from graph."""
         # Create two files
         file1 = tmp_path / "module1.py"
@@ -117,12 +117,12 @@ class TestIncrementalAnalysis:
         # First ingestion
         pipeline = IngestionPipeline(
             repo_path=str(tmp_path),
-            neo4j_client=test_neo4j_client
+            graph_client=test_graph_client
         )
         pipeline.ingest(incremental=False)
 
         # Verify both files exist
-        result = test_neo4j_client.execute_query("MATCH (f:File) RETURN count(f) as count")
+        result = test_graph_client.execute_query("MATCH (f:File) RETURN count(f) as count")
         assert result[0]["count"] == 2, "Both files should be in graph"
 
         # Delete one file
@@ -131,16 +131,16 @@ class TestIncrementalAnalysis:
         # Second ingestion (incremental)
         pipeline2 = IngestionPipeline(
             repo_path=str(tmp_path),
-            neo4j_client=test_neo4j_client
+            graph_client=test_graph_client
         )
         pipeline2.ingest(incremental=True)
 
         # Verify only one file remains
-        result = test_neo4j_client.execute_query("MATCH (f:File) RETURN f.filePath as path")
+        result = test_graph_client.execute_query("MATCH (f:File) RETURN f.filePath as path")
         assert len(result) == 1, "Only one file should remain"
         assert result[0]["path"] == "module1.py", "Correct file should remain"
 
-    def test_incremental_handles_new_files(self, test_neo4j_client, tmp_path):
+    def test_incremental_handles_new_files(self, test_graph_client, tmp_path):
         """Test that new files are added during incremental analysis."""
         # Create initial file
         file1 = tmp_path / "existing.py"
@@ -149,7 +149,7 @@ class TestIncrementalAnalysis:
         # First ingestion
         pipeline = IngestionPipeline(
             repo_path=str(tmp_path),
-            neo4j_client=test_neo4j_client
+            graph_client=test_graph_client
         )
         pipeline.ingest(incremental=False)
 
@@ -160,19 +160,19 @@ class TestIncrementalAnalysis:
         # Second ingestion (incremental)
         pipeline2 = IngestionPipeline(
             repo_path=str(tmp_path),
-            neo4j_client=test_neo4j_client
+            graph_client=test_graph_client
         )
         pipeline2.ingest(incremental=True)
 
         # Verify both files exist
-        result = test_neo4j_client.execute_query(
+        result = test_graph_client.execute_query(
             "MATCH (f:File) RETURN f.filePath as path ORDER BY path"
         )
         paths = [r["path"] for r in result]
         assert "existing.py" in paths, "Existing file should remain"
         assert "new_file.py" in paths, "New file should be added"
 
-    def test_dependency_aware_incremental(self, test_neo4j_client, tmp_path):
+    def test_dependency_aware_incremental(self, test_graph_client, tmp_path):
         """Test that _find_dependent_files works correctly."""
         # Create base module
         base = tmp_path / "base.py"
@@ -194,12 +194,12 @@ class TestIncrementalAnalysis:
         # First ingestion
         pipeline = IngestionPipeline(
             repo_path=str(tmp_path),
-            neo4j_client=test_neo4j_client
+            graph_client=test_graph_client
         )
         pipeline.ingest(incremental=False)
 
         # Verify both files were ingested
-        result = test_neo4j_client.execute_query("MATCH (f:File) RETURN count(f) as count")
+        result = test_graph_client.execute_query("MATCH (f:File) RETURN count(f) as count")
         assert result[0]["count"] == 2, "Both files should be in graph"
 
         # Modify base module
@@ -215,25 +215,25 @@ class TestIncrementalAnalysis:
         # Second ingestion (incremental with dependency tracking)
         pipeline2 = IngestionPipeline(
             repo_path=str(tmp_path),
-            neo4j_client=test_neo4j_client
+            graph_client=test_graph_client
         )
         pipeline2.ingest(incremental=True)
 
         # Verify new method was detected (proves base.py was re-analyzed)
-        result = test_neo4j_client.execute_query("""
+        result = test_graph_client.execute_query("""
             MATCH (c:Class {name: 'BaseClass'})-[:CONTAINS]->(m:Function {name: 'new_method'})
             RETURN m
         """)
         assert len(result) == 1, "New method should be detected in base class"
 
         # Verify dependent.py entities still exist (proves re-analysis didn't break anything)
-        result = test_neo4j_client.execute_query("""
+        result = test_graph_client.execute_query("""
             MATCH (c:Class {name: 'DerivedClass'})
             RETURN c
         """)
         assert len(result) == 1, "DerivedClass should still exist"
 
-    def test_force_full_overrides_incremental(self, test_neo4j_client, tmp_path):
+    def test_force_full_overrides_incremental(self, test_graph_client, tmp_path):
         """Test that force_full flag bypasses incremental analysis."""
         # Create file
         test_file = tmp_path / "module.py"
@@ -242,31 +242,31 @@ class TestIncrementalAnalysis:
         # First ingestion
         pipeline = IngestionPipeline(
             repo_path=str(tmp_path),
-            neo4j_client=test_neo4j_client
+            graph_client=test_graph_client
         )
         pipeline.ingest(incremental=False)
 
         # Get file count
-        result = test_neo4j_client.execute_query("MATCH (n) RETURN count(n) as count")
+        result = test_graph_client.execute_query("MATCH (n) RETURN count(n) as count")
         initial_count = result[0]["count"]
 
         # Second ingestion with incremental=False (force full)
         # Should reprocess all files even if unchanged
         pipeline2 = IngestionPipeline(
             repo_path=str(tmp_path),
-            neo4j_client=test_neo4j_client
+            graph_client=test_graph_client
         )
         pipeline2.ingest(incremental=False)
 
         # Count should be the same (file re-ingested)
-        result = test_neo4j_client.execute_query("MATCH (n) RETURN count(n) as count")
+        result = test_graph_client.execute_query("MATCH (n) RETURN count(n) as count")
         assert result[0]["count"] == initial_count, "Node count should be consistent"
 
 
 class TestIncrementalPerformance:
     """Performance benchmarks for incremental analysis."""
 
-    def test_incremental_faster_than_full(self, test_neo4j_client, tmp_path):
+    def test_incremental_faster_than_full(self, test_graph_client, tmp_path):
         """Verify incremental analysis processes fewer files than full re-analysis."""
         # Create 20 files with import relationships
         for i in range(20):
@@ -282,7 +282,7 @@ class TestIncrementalPerformance:
 
         pipeline = IngestionPipeline(
             repo_path=str(tmp_path),
-            neo4j_client=test_neo4j_client
+            graph_client=test_graph_client
         )
 
         start = time.time()
@@ -290,7 +290,7 @@ class TestIncrementalPerformance:
         full_time = time.time() - start
 
         # Count nodes after full ingestion
-        result = test_neo4j_client.execute_query("MATCH (n) RETURN count(n) as count")
+        result = test_graph_client.execute_query("MATCH (n) RETURN count(n) as count")
         full_node_count = result[0]["count"]
 
         # Modify one file
@@ -299,7 +299,7 @@ class TestIncrementalPerformance:
         # Time incremental ingestion
         pipeline2 = IngestionPipeline(
             repo_path=str(tmp_path),
-            neo4j_client=test_neo4j_client
+            graph_client=test_graph_client
         )
 
         start = time.time()
@@ -315,7 +315,7 @@ class TestIncrementalPerformance:
         # by checking that it completed successfully and didn't reprocess everything
 
         # Verify graph is still intact after incremental update
-        result = test_neo4j_client.execute_query("MATCH (n) RETURN count(n) as count")
+        result = test_graph_client.execute_query("MATCH (n) RETURN count(n) as count")
         incremental_node_count = result[0]["count"]
 
         # Node count should be approximately the same (slight variation is OK)

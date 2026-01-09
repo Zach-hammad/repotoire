@@ -9,7 +9,7 @@ Tests:
 import json
 import os
 from unittest.mock import Mock, MagicMock
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.mcp import PatternDetector, SchemaGenerator, DetectedPattern, FunctionPattern
 from repotoire.mcp.models import Parameter
 
@@ -203,8 +203,8 @@ def test_with_real_detector():
     print("TEST 4: Real Patterns from Database")
     print("=" * 80)
 
-    password = os.getenv("REPOTOIRE_NEO4J_PASSWORD", "falkor-password")
-    client = Neo4jClient(uri="bolt://localhost:7688", password=password)
+    password = os.getenv("FALKORDB_PASSWORD", "falkor-password")
+    client = FalkorDBClient(uri="bolt://localhost:7688", password=password)
     detector = PatternDetector(client)
 
     # Get a real function

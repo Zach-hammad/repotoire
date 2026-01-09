@@ -15,15 +15,17 @@ This approach achieves:
     - Actionable security recommendations
 """
 
-import json
-import subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.graph import Neo4jClient
+from repotoire.detectors.external_tool_runner import (
+    run_external_tool,
+    get_graph_context,
+)
+from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
@@ -52,14 +54,14 @@ class BanditDetector(CodeSmellDetector):
 
     def __init__(
         self,
-        neo4j_client: Neo4jClient,
+        graph_client: FalkorDBClient,
         detector_config: Optional[Dict] = None,
         enricher: Optional[GraphEnricher] = None
     ):
         """Initialize bandit detector.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
             detector_config: Configuration dictionary with:
                 - repository_path: Path to repository root (required)
                 - config_file: Optional bandit config
@@ -67,7 +69,7 @@ class BanditDetector(CodeSmellDetector):
                 - confidence_level: Minimum confidence
             enricher: Optional GraphEnricher for persistent collaboration
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
 
         config = detector_config or {}
         self.repository_path = Path(config.get("repository_path", "."))
@@ -110,47 +112,35 @@ class BanditDetector(CodeSmellDetector):
         Returns:
             List of bandit issue dictionaries
         """
-        try:
-            # Build bandit command
-            cmd = ["bandit", "-r", "-f", "json"]
+        # Build bandit command
+        cmd = ["bandit", "-r", "-f", "json"]
 
-            if self.config_file:
-                cmd.extend(["-c", str(self.config_file)])
+        if self.config_file:
+            cmd.extend(["-c", str(self.config_file)])
 
-            # Confidence level
-            cmd.extend(["--confidence-level", self.confidence_level])
+        # Confidence level
+        cmd.extend(["--confidence-level", self.confidence_level])
 
-            # Add repository path
-            cmd.append(str(self.repository_path))
+        # Add repository path
+        cmd.append(str(self.repository_path))
 
-            # Run bandit
-            try:
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    cwd=self.repository_path,
-                    timeout=120  # Security scanning, allow 2 minutes
-                )
-            except subprocess.TimeoutExpired:
-                logger.warning(f"Bandit timed out after 120s on {self.repository_path}")
-                return []
+        # Run bandit using shared utility
+        result = run_external_tool(
+            cmd=cmd,
+            tool_name="bandit",
+            timeout=120,
+            cwd=self.repository_path,
+        )
 
-            # Parse JSON output
-            output = json.loads(result.stdout) if result.stdout else {}
-            violations = output.get("results", [])
-
-            return violations
-
-        except FileNotFoundError:
-            logger.error("bandit not found. Install with: pip install bandit")
+        if not result.success or result.timed_out:
             return []
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse bandit JSON output: {e}")
+
+        # Parse JSON output
+        json_output = result.json_output
+        if not json_output:
             return []
-        except Exception as e:
-            logger.error(f"Error running bandit: {e}")
-            return []
+
+        return json_output.get("results", [])
 
     def _create_finding(self, bandit_result: Dict[str, Any]) -> Optional[Finding]:
         """Create finding from bandit result with graph enrichment.
@@ -254,38 +244,16 @@ class BanditDetector(CodeSmellDetector):
         Returns:
             Dictionary with graph context
         """
-        # Normalize path for Neo4j
-        normalized_path = file_path.replace("\\", "/")
+        # Use shared utility for graph context
+        context = get_graph_context(self.db, file_path, line)
 
-        query = """
-        MATCH (file:File {filePath: $file_path})
-        OPTIONAL MATCH (file)-[:CONTAINS]->(entity)
-        WHERE entity.lineStart <= $line AND entity.lineEnd >= $line
-        RETURN
-            file.loc as file_loc,
-            file.language as language,
-            collect(DISTINCT entity.qualifiedName) as affected_nodes,
-            collect(DISTINCT entity.complexity) as complexities
-        """
-
-        try:
-            results = self.db.execute_query(query, {
-                "file_path": normalized_path,
-                "line": line
-            })
-
-            if results:
-                result = results[0]
-                return {
-                    "file_loc": result.get("file_loc", 0),
-                    "language": result.get("language", "python"),
-                    "nodes": result.get("affected_nodes", []),
-                    "complexity": max(result.get("complexities", [0]) or [0])
-                }
-        except Exception as e:
-            logger.warning(f"Failed to enrich from graph: {e}")
-
-        return {"file_loc": 0, "language": "python", "nodes": [], "complexity": 0}
+        # Map to detector's expected format
+        return {
+            "file_loc": context.get("file_loc", 0),
+            "language": context.get("language", "python"),
+            "nodes": context.get("affected_nodes", []),
+            "complexity": max(context.get("complexities", [0]) or [0])
+        }
 
     def _get_severity(self, issue_severity: str, confidence: str) -> Severity:
         """Determine severity from issue severity and confidence.

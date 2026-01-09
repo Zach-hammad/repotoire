@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { useTheme } from 'next-themes';
-import { Moon, Sun, Monitor, Shield, ChevronRight, Key } from 'lucide-react';
+import { Moon, Sun, Monitor, Shield, ChevronRight, Key, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
@@ -230,6 +230,33 @@ export default function SettingsPage() {
                 <p className="font-medium">Manage API Keys</p>
                 <p className="text-sm text-muted-foreground">
                   Create, view, and revoke API keys for CI/CD and integrations
+                </p>
+              </div>
+              <ChevronRight className="h-5 w-5 text-muted-foreground" />
+            </Link>
+          </CardContent>
+        </Card>
+
+        {/* AI Integrations */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Bot className="h-5 w-5" />
+              AI Integrations
+            </CardTitle>
+            <CardDescription>
+              Connect Repotoire to Claude Code, Cursor, and other AI agents
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              href="/dashboard/settings/integrations"
+              className="flex items-center justify-between p-4 -m-4 rounded-lg hover:bg-muted/50 transition-colors"
+            >
+              <div>
+                <p className="font-medium">Configure MCP Server</p>
+                <p className="text-sm text-muted-foreground">
+                  Set up the Model Context Protocol server for AI code assistants
                 </p>
               </div>
               <ChevronRight className="h-5 w-5 text-muted-foreground" />

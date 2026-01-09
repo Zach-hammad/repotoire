@@ -17,14 +17,14 @@ from repotoire.pipeline.ingestion import IngestionPipeline
 from repotoire.detectors.engine import AnalysisEngine
 from repotoire.models import Severity
 
-# Note: test_neo4j_client fixture is provided by tests/integration/conftest.py
+# Note: test_graph_client fixture is provided by tests/integration/conftest.py
 # Graph is automatically cleared before each test by isolate_graph_test autouse fixture
 
 
 class TestCircularDependencyMetrics:
     """Test CircularDependencyDetector findings update metrics."""
 
-    def test_circular_dependency_count_in_metrics(self, test_neo4j_client):
+    def test_circular_dependency_count_in_metrics(self, test_graph_client):
         """Verify circular dependency findings update circular_dependencies metric."""
         # Create codebase with circular dependency
         temp_dir = tempfile.mkdtemp()
@@ -45,10 +45,10 @@ def func_b():
 """)
 
         # Ingest and analyze
-        pipeline = IngestionPipeline(str(temp_path), test_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_path), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client, repository_path=str(temp_path))
+        engine = AnalysisEngine(test_graph_client, repository_path=str(temp_path))
         health = engine.analyze()
 
         # Cleanup
@@ -66,7 +66,7 @@ def func_b():
         # Metrics count should match findings count
         assert health.metrics.circular_dependencies == len(circular_findings)
 
-    def test_circular_dependency_severity_affects_structure_score(self, test_neo4j_client):
+    def test_circular_dependency_severity_affects_structure_score(self, test_graph_client):
         """Verify circular dependencies reduce structure score."""
         # Create codebase with circular dependency
         temp_dir = tempfile.mkdtemp()
@@ -75,10 +75,10 @@ def func_b():
         (temp_path / "a.py").write_text("import b\ndef a_func(): pass")
         (temp_path / "b.py").write_text("import a\ndef b_func(): pass")
 
-        pipeline = IngestionPipeline(str(temp_path), test_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_path), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client, repository_path=str(temp_path))
+        engine = AnalysisEngine(test_graph_client, repository_path=str(temp_path))
         health = engine.analyze()
 
         # Cleanup
@@ -96,7 +96,7 @@ def func_b():
 class TestDeadCodeMetrics:
     """Test DeadCodeDetector findings update metrics."""
 
-    def test_dead_code_percentage_in_metrics(self, test_neo4j_client):
+    def test_dead_code_percentage_in_metrics(self, test_graph_client):
         """Verify dead code findings update dead_code_percentage metric."""
         # Create codebase with dead code
         temp_dir = tempfile.mkdtemp()
@@ -118,10 +118,10 @@ if __name__ == '__main__':
 """)
 
         # Ingest and analyze
-        pipeline = IngestionPipeline(str(temp_path), test_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_path), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client, repository_path=str(temp_path))
+        engine = AnalysisEngine(test_graph_client, repository_path=str(temp_path))
         health = engine.analyze()
 
         # Cleanup
@@ -142,7 +142,7 @@ if __name__ == '__main__':
             # Allow some tolerance for rounding
             assert abs(health.metrics.dead_code_percentage - expected_pct) < 0.01
 
-    def test_dead_code_affects_quality_score(self, test_neo4j_client):
+    def test_dead_code_affects_quality_score(self, test_graph_client):
         """Verify dead code reduces quality score."""
         # Create codebase with lots of dead code
         temp_dir = tempfile.mkdtemp()
@@ -162,10 +162,10 @@ if __name__ == '__main__':
 """
         (temp_path / "dead.py").write_text(code)
 
-        pipeline = IngestionPipeline(str(temp_path), test_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_path), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client, repository_path=str(temp_path))
+        engine = AnalysisEngine(test_graph_client, repository_path=str(temp_path))
         health = engine.analyze()
 
         # Cleanup
@@ -182,7 +182,7 @@ if __name__ == '__main__':
 class TestGodClassMetrics:
     """Test GodClassDetector findings update metrics."""
 
-    def test_god_class_count_in_metrics(self, test_neo4j_client):
+    def test_god_class_count_in_metrics(self, test_graph_client):
         """Verify god class findings update god_class_count metric."""
         # Create codebase with god class
         temp_dir = tempfile.mkdtemp()
@@ -210,14 +210,14 @@ class GodClass:
 """)
 
         # Ingest and analyze
-        pipeline = IngestionPipeline(str(temp_path), test_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_path), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
         # Use lower thresholds for test - 15 methods should qualify
         detector_config = {
             "god_class_high_method_count": 15  # Lower threshold for test
         }
-        engine = AnalysisEngine(test_neo4j_client, detector_config=detector_config, repository_path=str(temp_path))
+        engine = AnalysisEngine(test_graph_client, detector_config=detector_config, repository_path=str(temp_path))
         health = engine.analyze()
 
         # Cleanup
@@ -235,7 +235,7 @@ class GodClass:
         # Should detect at least one god class with 15 methods
         assert health.metrics.god_class_count >= 1
 
-    def test_god_class_affects_quality_score(self, test_neo4j_client):
+    def test_god_class_affects_quality_score(self, test_graph_client):
         """Verify god classes reduce quality score."""
         # Create multiple god classes
         temp_dir = tempfile.mkdtemp()
@@ -248,10 +248,10 @@ class GodClass{i}:
     {methods}
 """)
 
-        pipeline = IngestionPipeline(str(temp_path), test_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_path), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client, repository_path=str(temp_path))
+        engine = AnalysisEngine(test_graph_client, repository_path=str(temp_path))
         health = engine.analyze()
 
         # Cleanup
@@ -269,7 +269,7 @@ class GodClass{i}:
 class TestFindingsSeverityAggregation:
     """Test finding severity aggregation in FindingsSummary."""
 
-    def test_findings_summary_counts_by_severity(self, test_neo4j_client):
+    def test_findings_summary_counts_by_severity(self, test_graph_client):
         """Verify FindingsSummary correctly counts findings by severity."""
         # Create codebase with various issues
         temp_dir = tempfile.mkdtemp()
@@ -296,10 +296,10 @@ if __name__ == '__main__':
     used()
 """)
 
-        pipeline = IngestionPipeline(str(temp_path), test_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_path), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client, repository_path=str(temp_path))
+        engine = AnalysisEngine(test_graph_client, repository_path=str(temp_path))
         health = engine.analyze()
 
         # Cleanup
@@ -321,14 +321,14 @@ if __name__ == '__main__':
         # Total should match
         assert health.findings_summary.total == len(health.findings)
 
-    def test_empty_codebase_has_zero_findings(self, test_neo4j_client):
+    def test_empty_codebase_has_zero_findings(self, test_graph_client):
         """Verify empty codebase results in zero findings."""
         temp_dir = tempfile.mkdtemp()
 
-        pipeline = IngestionPipeline(temp_dir, test_neo4j_client)
+        pipeline = IngestionPipeline(temp_dir, test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client, repository_path=temp_dir)
+        engine = AnalysisEngine(test_graph_client, repository_path=temp_dir)
         health = engine.analyze()
 
         shutil.rmtree(temp_dir)
@@ -344,7 +344,7 @@ if __name__ == '__main__':
 class TestHealthScoreCalculation:
     """Test health score calculation incorporates detector results."""
 
-    def test_perfect_codebase_scores_high(self, test_neo4j_client):
+    def test_perfect_codebase_scores_high(self, test_graph_client):
         """Verify clean codebase with no issues scores high."""
         # Create clean codebase
         temp_dir = tempfile.mkdtemp()
@@ -370,10 +370,10 @@ if __name__ == '__main__':
     main()
 """)
 
-        pipeline = IngestionPipeline(str(temp_path), test_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_path), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client, repository_path=str(temp_path))
+        engine = AnalysisEngine(test_graph_client, repository_path=str(temp_path))
         health = engine.analyze()
 
         # Cleanup
@@ -383,7 +383,7 @@ if __name__ == '__main__':
         assert health.overall_score >= 70
         assert health.grade in ["A", "B", "C"]
 
-    def test_problematic_codebase_scores_low(self, test_neo4j_client):
+    def test_problematic_codebase_scores_low(self, test_graph_client):
         """Verify codebase with multiple issues scores lower."""
         # Create problematic codebase
         temp_dir = tempfile.mkdtemp()
@@ -406,10 +406,10 @@ def dead4(): pass
 def dead5(): pass
 """)
 
-        pipeline = IngestionPipeline(str(temp_path), test_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_path), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client, repository_path=str(temp_path))
+        engine = AnalysisEngine(test_graph_client, repository_path=str(temp_path))
         health = engine.analyze()
 
         # Cleanup
@@ -422,7 +422,7 @@ def dead5(): pass
         # (can't guarantee exact score due to various factors)
         assert health.overall_score < 100
 
-    def test_overall_score_is_weighted_average(self, test_neo4j_client):
+    def test_overall_score_is_weighted_average(self, test_graph_client):
         """Verify overall score is correct weighted average of component scores."""
         # Create any codebase
         temp_dir = tempfile.mkdtemp()
@@ -434,10 +434,10 @@ class TestClass:
         pass
 """)
 
-        pipeline = IngestionPipeline(str(temp_path), test_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_path), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client, repository_path=str(temp_path))
+        engine = AnalysisEngine(test_graph_client, repository_path=str(temp_path))
         health = engine.analyze()
 
         # Cleanup
@@ -453,7 +453,7 @@ class TestClass:
         # Should match within rounding tolerance
         assert abs(health.overall_score - expected) < 0.1
 
-    def test_grade_matches_score_thresholds(self, test_neo4j_client):
+    def test_grade_matches_score_thresholds(self, test_graph_client):
         """Verify letter grade matches score thresholds."""
         # Create codebase
         temp_dir = tempfile.mkdtemp()
@@ -461,10 +461,10 @@ class TestClass:
 
         (temp_path / "test.py").write_text("def test(): pass")
 
-        pipeline = IngestionPipeline(str(temp_path), test_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_path), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client, repository_path=str(temp_path))
+        engine = AnalysisEngine(test_graph_client, repository_path=str(temp_path))
         health = engine.analyze()
 
         # Cleanup
@@ -488,7 +488,7 @@ class TestClass:
 class TestMetricsBreakdownConsistency:
     """Test metrics breakdown is consistent with findings."""
 
-    def test_metrics_reflect_all_detector_findings(self, test_neo4j_client):
+    def test_metrics_reflect_all_detector_findings(self, test_graph_client):
         """Verify all detector findings are reflected in metrics."""
         # Create diverse codebase
         temp_dir = tempfile.mkdtemp()
@@ -511,10 +511,10 @@ if __name__ == '__main__':
     used()
 """)
 
-        pipeline = IngestionPipeline(str(temp_path), test_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_path), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client, repository_path=str(temp_path))
+        engine = AnalysisEngine(test_graph_client, repository_path=str(temp_path))
         health = engine.analyze()
 
         # Cleanup
@@ -537,7 +537,7 @@ if __name__ == '__main__':
             expected_dead_pct = dead_code_findings / total_nodes
             assert abs(health.metrics.dead_code_percentage - expected_dead_pct) < 0.1  # Allow tolerance
 
-    def test_metrics_update_on_repeated_analysis(self, test_neo4j_client):
+    def test_metrics_update_on_repeated_analysis(self, test_graph_client):
         """Verify metrics stay consistent on repeated analysis."""
         # Create codebase
         temp_dir = tempfile.mkdtemp()
@@ -551,10 +551,10 @@ class TestClass:
 def unused(): pass
 """)
 
-        pipeline = IngestionPipeline(str(temp_path), test_neo4j_client)
+        pipeline = IngestionPipeline(str(temp_path), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client, repository_path=str(temp_path))
+        engine = AnalysisEngine(test_graph_client, repository_path=str(temp_path))
 
         # Run analysis twice
         health1 = engine.analyze()

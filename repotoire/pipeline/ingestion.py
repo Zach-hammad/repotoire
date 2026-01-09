@@ -46,7 +46,7 @@ def _split_path_components(path: str, sep: str = os.sep) -> Tuple[str, ...]:
 
 from repotoire_fast import scan_files as rust_scan_files
 
-from repotoire.graph import Neo4jClient, GraphSchema
+from repotoire.graph import FalkorDBClient, GraphSchema
 from repotoire.graph.base import DatabaseClient
 from repotoire.parsers import CodeParser, PythonParser
 from repotoire.models import Entity, Relationship, SecretsPolicy, RelationshipType
@@ -71,7 +71,7 @@ class IngestionPipeline:
     def __init__(
         self,
         repo_path: str,
-        neo4j_client: DatabaseClient,
+        graph_client: DatabaseClient,
         follow_symlinks: bool = DEFAULT_FOLLOW_SYMLINKS,
         max_file_size_mb: float = MAX_FILE_SIZE_MB,
         batch_size: int = DEFAULT_BATCH_SIZE,
@@ -85,12 +85,14 @@ class IngestionPipeline:
         max_context_cost: Optional[float] = None,
         repo_id: Optional[str] = None,
         repo_slug: Optional[str] = None,
+        compress_embeddings: bool = True,
+        embedding_target_dims: int = 1024,
     ):
         """Initialize ingestion pipeline with security validation.
 
         Args:
             repo_path: Path to repository root
-            neo4j_client: Database client (Neo4j or FalkorDB)
+            graph_client: Database client (Neo4j or FalkorDB)
             follow_symlinks: Whether to follow symbolic links (default: False for security)
             max_file_size_mb: Maximum file size in MB to process (default: 10MB)
             batch_size: Number of entities to batch before loading to graph (default: 100)
@@ -106,6 +108,10 @@ class IngestionPipeline:
                 entities created during ingestion will have this repo_id attached.
             repo_slug: Optional repository slug (e.g., "owner/repo-name") for human-readable
                 identification. Used with repo_id for multi-tenant setups.
+            compress_embeddings: Whether to compress embeddings with PCA (default: True).
+                Reduces 4096-dim embeddings to target_dims for memory savings.
+            embedding_target_dims: Target dimensions after PCA compression (default: 1024).
+                Only used if compress_embeddings is True.
 
         Raises:
             ValueError: If repository path is invalid
@@ -125,9 +131,9 @@ class IngestionPipeline:
         # Validate repository path
         self._validate_repo_path()
 
-        self.db = neo4j_client
+        self.db = graph_client
         # Detect if we're using FalkorDB
-        self.is_falkordb = type(neo4j_client).__name__ == "FalkorDBClient"
+        self.is_falkordb = type(graph_client).__name__ == "FalkorDBClient"
         self.parsers: Dict[str, CodeParser] = {}
         self.follow_symlinks = follow_symlinks
         self.max_file_size_mb = max_file_size_mb
@@ -137,6 +143,8 @@ class IngestionPipeline:
         self.generate_embeddings = generate_embeddings
         self.embedding_backend = embedding_backend
         self.embedding_model = embedding_model
+        self.compress_embeddings = compress_embeddings
+        self.embedding_target_dims = embedding_target_dims
         self.generate_contexts = generate_contexts
         self.context_model = context_model
         self.max_context_cost = max_context_cost
@@ -192,6 +200,39 @@ class IngestionPipeline:
                 logger.warning(f"Could not initialize embedder: {e}")
                 logger.warning("Continuing without embedding generation")
                 self.generate_embeddings = False
+
+        # Initialize embedding compressor if needed
+        self.embedding_compressor = None
+        if self.generate_embeddings and self.compress_embeddings and self.embedder:
+            # Only compress if source dims > target dims
+            if self.embedder.dimensions > self.embedding_target_dims:
+                try:
+                    from repotoire.ai import EmbeddingCompressor
+                    from pathlib import Path
+
+                    # Load or create compressor with org-specific model path
+                    model_dir = Path.home() / ".repotoire" / "compression_models"
+                    model_path = model_dir / f"{repo_slug or 'default'}_pca.pkl"
+
+                    self.embedding_compressor = EmbeddingCompressor(
+                        target_dims=self.embedding_target_dims,
+                        model_path=model_path,
+                    )
+
+                    if self.embedding_compressor.is_fitted:
+                        logger.info(
+                            f"Embedding compression enabled (loaded PCA model: "
+                            f"{self.embedder.dimensions} → {self.embedding_target_dims} dims)"
+                        )
+                    else:
+                        logger.info(
+                            f"Embedding compression enabled (will fit PCA on first batch: "
+                            f"{self.embedder.dimensions} → {self.embedding_target_dims} dims)"
+                        )
+                except Exception as e:
+                    logger.warning(f"Could not initialize embedding compressor: {e}")
+                    logger.warning("Continuing without compression")
+                    self.embedding_compressor = None
 
         # Initialize context generator if needed (REPO-242)
         self.context_generator = None
@@ -659,6 +700,17 @@ class IngestionPipeline:
 
                     embeddings = self.embedder.embed_batch(texts)
 
+                    # Apply PCA compression if configured
+                    if self.embedding_compressor:
+                        if not self.embedding_compressor.is_fitted:
+                            # Fit on first batch (need enough samples)
+                            logger.info("Fitting PCA compressor on embedding batch...")
+                            self.embedding_compressor.fit(embeddings, save=True)
+                        embeddings = self.embedding_compressor.get_reduced_embeddings_batch(embeddings)
+                        embedding_dims = self.embedding_target_dims
+                    else:
+                        embedding_dims = self.embedder.dimensions
+
                     # Update database with embeddings
                     for entity, embedding in zip(batch, embeddings):
                         # FalkorDB requires vecf32() wrapper for vector storage
@@ -666,17 +718,23 @@ class IngestionPipeline:
                             update_query = f"""
                             MATCH (e:{entity_type})
                             WHERE {id_func}(e) = $id
-                            SET e.embedding = vecf32($embedding)
+                            SET e.embedding = vecf32($embedding),
+                                e.embedding_dims = $dims,
+                                e.embedding_compressed = $compressed
                             """
                         else:
                             update_query = f"""
                             MATCH (e:{entity_type})
                             WHERE {id_func}(e) = $id
-                            SET e.embedding = $embedding
+                            SET e.embedding = $embedding,
+                                e.embedding_dims = $dims,
+                                e.embedding_compressed = $compressed
                             """
                         self.db.execute_query(update_query, {
                             "id": entity["id"],
-                            "embedding": embedding
+                            "embedding": embedding,
+                            "dims": embedding_dims,
+                            "compressed": self.embedding_compressor is not None,
                         })
 
                     entities_embedded += len(batch)
@@ -789,7 +847,7 @@ class IngestionPipeline:
     def load_to_graph(
         self, entities: List[Entity], relationships: List[Relationship]
     ) -> None:
-        """Load entities and relationships into Neo4j.
+        """Load entities and relationships into FalkorDB.
 
         Args:
             entities: List of entities to create
@@ -928,9 +986,21 @@ class IngestionPipeline:
 
         if incremental:
             logger.info("Running incremental ingestion (comparing file hashes)")
-            for file_path in files:
-                rel_path = self._get_relative_path(file_path)
-                metadata = self.db.get_file_metadata(rel_path)
+
+            # PERFORMANCE: Batch fetch all file metadata in a single query
+            # instead of N queries (one per file)
+            all_rel_paths = [self._get_relative_path(f) for f in files]
+            file_path_map = {self._get_relative_path(f): f for f in files}
+
+            # Batch fetch metadata for all files
+            existing_metadata = self.db.batch_get_file_metadata(all_rel_paths)
+            logger.debug(f"Fetched metadata for {len(existing_metadata)} existing files in single query")
+
+            # Track files that need deletion (changed files)
+            files_to_delete = []
+
+            for rel_path, file_path in file_path_map.items():
+                metadata = existing_metadata.get(rel_path)
 
                 if metadata is None:
                     # New file, need to ingest
@@ -948,10 +1018,14 @@ class IngestionPipeline:
                     else:
                         # File changed, need to re-ingest
                         logger.debug(f"File changed (hash mismatch): {rel_path}")
-                        # Delete old data first
-                        self.db.delete_file_entities(rel_path)
+                        files_to_delete.append(rel_path)
                         files_to_process.append(file_path)
                         files_changed += 1
+
+            # PERFORMANCE: Batch delete changed files in a single query
+            if files_to_delete:
+                self.db.batch_delete_file_entities(files_to_delete)
+                logger.debug(f"Batch deleted {len(files_to_delete)} changed files")
 
             logger.info(f"Incremental scan: {files_new} new, {files_changed} changed, {files_unchanged} unchanged")
 
@@ -961,8 +1035,8 @@ class IngestionPipeline:
 
             # Add dependent files to processing list
             if dependent_paths:
-                files_map = {self._get_relative_path(f): f for f in files}
                 dependent_files = []
+                dependent_to_delete = []
 
                 for dep_path in dependent_paths:
                     # Skip if already in processing list
@@ -970,11 +1044,15 @@ class IngestionPipeline:
                         continue
 
                     # Get Path object for dependent file
-                    if dep_path in files_map:
-                        dep_file = files_map[dep_path]
-                        # Delete old entities for dependent file
-                        self.db.delete_file_entities(dep_path)
+                    if dep_path in file_path_map:
+                        dep_file = file_path_map[dep_path]
+                        dependent_to_delete.append(dep_path)
                         dependent_files.append(dep_file)
+
+                # PERFORMANCE: Batch delete dependent files in a single query
+                if dependent_to_delete:
+                    self.db.batch_delete_file_entities(dependent_to_delete)
+                    logger.debug(f"Batch deleted {len(dependent_to_delete)} dependent files")
 
                 if dependent_files:
                     logger.info(f"Found {len(dependent_files)} dependent files that need re-analysis")
@@ -985,10 +1063,10 @@ class IngestionPipeline:
             all_db_paths = set(self.db.get_all_file_paths())
             deleted_paths = all_db_paths - all_scanned_paths
 
+            # PERFORMANCE: Batch delete removed files in a single query
             if deleted_paths:
                 logger.info(f"Cleaning up {len(deleted_paths)} deleted files from graph")
-                for deleted_path in deleted_paths:
-                    self.db.delete_file_entities(deleted_path)
+                self.db.batch_delete_file_entities(list(deleted_paths))
         else:
             # Full ingestion: process all files
             files_to_process = files

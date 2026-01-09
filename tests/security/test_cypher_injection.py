@@ -3,7 +3,7 @@
 import pytest
 from repotoire.validation import ValidationError, validate_identifier
 from repotoire.detectors.graph_algorithms import GraphAlgorithms
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from unittest.mock import Mock, MagicMock
 
 
@@ -86,7 +86,7 @@ class TestGraphAlgorithmsInjectionPrevention:
     @pytest.fixture
     def mock_client(self):
         """Create mock Neo4j client."""
-        client = Mock(spec=Neo4jClient)
+        client = Mock(spec=FalkorDBClient)
         client.execute_query = MagicMock(return_value=[
             {"version": "2.5.0"}
         ])
@@ -147,7 +147,7 @@ class TestParameterizedQueries:
     @pytest.fixture
     def mock_client(self):
         """Create mock Neo4j client that tracks query calls."""
-        client = Mock(spec=Neo4jClient)
+        client = Mock(spec=FalkorDBClient)
         client.execute_query = MagicMock(return_value=[])
         return client
 
@@ -223,7 +223,7 @@ class TestCypherPatternsInjectionPrevention:
     @pytest.fixture
     def mock_client(self):
         """Create mock Neo4j client."""
-        client = Mock(spec=Neo4jClient)
+        client = Mock(spec=FalkorDBClient)
         client.execute_query = MagicMock(return_value=[])
         return client
 
@@ -348,7 +348,7 @@ class TestGraphTraversalInjectionPrevention:
     @pytest.fixture
     def mock_client(self):
         """Create mock Neo4j client."""
-        client = Mock(spec=Neo4jClient)
+        client = Mock(spec=FalkorDBClient)
         # Mock _get_node_properties to return a node
         client.execute_query = MagicMock(return_value=[
             {
@@ -402,7 +402,7 @@ class TestGraphTraversalInjectionPrevention:
         from unittest.mock import MagicMock, Mock
 
         # Create a fresh mock client for this test
-        mock_client = Mock(spec=Neo4jClient)
+        mock_client = Mock(spec=FalkorDBClient)
         mock_client.execute_query = MagicMock(return_value=[])
         traversal.client = mock_client
 

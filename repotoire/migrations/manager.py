@@ -6,7 +6,7 @@ import inspect
 from pathlib import Path
 from typing import List, Optional, Dict
 
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.migrations.migration import Migration, MigrationError
 from repotoire.logging_config import get_logger
 
@@ -16,11 +16,11 @@ logger = get_logger(__name__)
 class MigrationManager:
     """Manages database schema migrations and versioning."""
 
-    def __init__(self, client: Neo4jClient, migrations_dir: Optional[Path] = None):
+    def __init__(self, client: FalkorDBClient, migrations_dir: Optional[Path] = None):
         """Initialize migration manager.
 
         Args:
-            client: Neo4j database client
+            client: FalkorDB database client
             migrations_dir: Directory containing migration files (default: falkor/migrations)
         """
         self.client = client

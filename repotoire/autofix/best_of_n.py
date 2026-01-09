@@ -378,9 +378,9 @@ class BestOfNGenerator:
         fixes: List[FixProposal] = []
 
         # Create engine instance
-        # Note: In production, you'd pass the actual Neo4j client
+        # Note: In production, you'd pass the actual FalkorDB client
         try:
-            engine = AutoFixEngine(neo4j_client=None)  # Will use mock/dummy
+            engine = AutoFixEngine(graph_client=None)  # Will use mock/dummy
         except Exception as e:
             logger.warning(f"Could not initialize AutoFixEngine: {e}")
             # Fall back to generating dummy candidates for testing

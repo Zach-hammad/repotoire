@@ -12,7 +12,7 @@ import pytest
 from repotoire.pipeline.ingestion import IngestionPipeline
 from repotoire.detectors.engine import AnalysisEngine
 
-# Note: test_neo4j_client fixture is provided by tests/integration/conftest.py
+# Note: test_graph_client fixture is provided by tests/integration/conftest.py
 # Graph is automatically cleared before each test by isolate_graph_test autouse fixture
 
 
@@ -72,20 +72,20 @@ class GodClass:
 class TestEndToEndWorkflow:
     """Test complete ingestion and analysis workflow."""
 
-    def test_ingest_and_analyze(self, test_neo4j_client, sample_codebase):
+    def test_ingest_and_analyze(self, test_graph_client, sample_codebase):
         """Test full pipeline: ingest -> analyze -> report."""
         # Step 1: Ingest codebase
-        pipeline = IngestionPipeline(str(sample_codebase), test_neo4j_client)
+        pipeline = IngestionPipeline(str(sample_codebase), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
         # Verify ingestion created nodes
-        stats = test_neo4j_client.get_stats()
+        stats = test_graph_client.get_stats()
         assert stats["total_files"] == 3
         assert stats["total_classes"] >= 2  # ClassA, GodClass
         assert stats["total_functions"] >= 2  # function_b, unused_function
 
         # Step 2: Run analysis
-        engine = AnalysisEngine(test_neo4j_client)
+        engine = AnalysisEngine(test_graph_client)
         health = engine.analyze()
 
         # Verify health report generated
@@ -106,14 +106,14 @@ class TestEndToEndWorkflow:
         if health.metrics.god_class_count > 0:
             assert "GodClassDetector" in finding_detectors
 
-    def test_incremental_analysis(self, test_neo4j_client, sample_codebase):
+    def test_incremental_analysis(self, test_graph_client, sample_codebase):
         """Test running analysis multiple times."""
         # First ingestion
-        pipeline = IngestionPipeline(str(sample_codebase), test_neo4j_client)
+        pipeline = IngestionPipeline(str(sample_codebase), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
         # First analysis
-        engine = AnalysisEngine(test_neo4j_client)
+        engine = AnalysisEngine(test_graph_client)
         health1 = engine.analyze()
 
         # Second analysis (without re-ingestion)
@@ -123,10 +123,10 @@ class TestEndToEndWorkflow:
         assert health1.grade == health2.grade
         assert health1.findings_summary.total == health2.findings_summary.total
 
-    def test_parser_creates_correct_relationships(self, test_neo4j_client, sample_codebase):
+    def test_parser_creates_correct_relationships(self, test_graph_client, sample_codebase):
         """Test that parser creates all expected relationship types."""
         # Ingest
-        pipeline = IngestionPipeline(str(sample_codebase), test_neo4j_client)
+        pipeline = IngestionPipeline(str(sample_codebase), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
         # Query for relationship types
@@ -134,7 +134,7 @@ class TestEndToEndWorkflow:
         MATCH ()-[r]->()
         RETURN DISTINCT type(r) as rel_type, count(r) as count
         """
-        results = test_neo4j_client.execute_query(query)
+        results = test_graph_client.execute_query(query)
 
         rel_types = {r["rel_type"] for r in results}
 
@@ -144,13 +144,13 @@ class TestEndToEndWorkflow:
         # CALLS might be present if call detection works
         # INHERITS might be present if there's inheritance
 
-    def test_finding_details(self, test_neo4j_client, sample_codebase):
+    def test_finding_details(self, test_graph_client, sample_codebase):
         """Test that findings contain all required information."""
         # Ingest and analyze
-        pipeline = IngestionPipeline(str(sample_codebase), test_neo4j_client)
+        pipeline = IngestionPipeline(str(sample_codebase), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client)
+        engine = AnalysisEngine(test_graph_client)
         health = engine.analyze()
 
         # Check first finding has required fields
@@ -167,13 +167,13 @@ class TestEndToEndWorkflow:
             assert isinstance(finding.affected_files, list)
             assert isinstance(finding.affected_nodes, list)
 
-    def test_metrics_calculation(self, test_neo4j_client, sample_codebase):
+    def test_metrics_calculation(self, test_graph_client, sample_codebase):
         """Test that metrics are calculated correctly."""
         # Ingest and analyze
-        pipeline = IngestionPipeline(str(sample_codebase), test_neo4j_client)
+        pipeline = IngestionPipeline(str(sample_codebase), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client)
+        engine = AnalysisEngine(test_graph_client)
         health = engine.analyze()
 
         metrics = health.metrics
@@ -192,13 +192,13 @@ class TestEndToEndWorkflow:
         # Dead code percentage should be calculated
         assert 0 <= metrics.dead_code_percentage <= 1
 
-    def test_health_scoring(self, test_neo4j_client, sample_codebase):
+    def test_health_scoring(self, test_graph_client, sample_codebase):
         """Test health scoring produces reasonable scores."""
         # Ingest and analyze
-        pipeline = IngestionPipeline(str(sample_codebase), test_neo4j_client)
+        pipeline = IngestionPipeline(str(sample_codebase), test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
-        engine = AnalysisEngine(test_neo4j_client)
+        engine = AnalysisEngine(test_graph_client)
         health = engine.analyze()
 
         # Verify scores are in valid range
@@ -230,7 +230,7 @@ class TestEndToEndWorkflow:
 class TestErrorHandling:
     """Test error handling in the pipeline."""
 
-    def test_handles_malformed_python_file(self, test_neo4j_client, sample_codebase):
+    def test_handles_malformed_python_file(self, test_graph_client, sample_codebase):
         """Test handling of files with syntax errors."""
         # Create file with syntax error
         (sample_codebase / "broken.py").write_text("""
@@ -239,22 +239,22 @@ def broken_function(
 """)
 
         # Should not crash
-        pipeline = IngestionPipeline(str(sample_codebase), test_neo4j_client)
+        pipeline = IngestionPipeline(str(sample_codebase), test_graph_client)
         try:
             pipeline.ingest(patterns=["**/*.py"])
             # May or may not succeed, but shouldn't crash
         except Exception:
             pass  # Expected for malformed files
 
-    def test_handles_empty_codebase(self, test_neo4j_client):
+    def test_handles_empty_codebase(self, test_graph_client):
         """Test handling of empty directory."""
         temp_dir = tempfile.mkdtemp()
 
-        pipeline = IngestionPipeline(temp_dir, test_neo4j_client)
+        pipeline = IngestionPipeline(temp_dir, test_graph_client)
         pipeline.ingest(patterns=["**/*.py"])
 
         # Should handle gracefully
-        stats = test_neo4j_client.get_stats()
+        stats = test_graph_client.get_stats()
         assert stats["total_files"] == 0
 
         Path(temp_dir).rmdir()

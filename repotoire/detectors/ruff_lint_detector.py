@@ -16,15 +16,17 @@ This approach achieves:
     - Actionable fix suggestions
 """
 
-import json
-import subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.graph import Neo4jClient
+from repotoire.detectors.external_tool_runner import (
+    run_external_tool,
+    get_graph_context,
+)
+from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
@@ -73,14 +75,14 @@ class RuffLintDetector(CodeSmellDetector):
 
     def __init__(
         self,
-        neo4j_client: Neo4jClient,
+        graph_client: FalkorDBClient,
         detector_config: Optional[Dict] = None,
         enricher: Optional[GraphEnricher] = None
     ):
         """Initialize ruff detector.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
             detector_config: Configuration dictionary with:
                 - repository_path: Path to repository root (required)
                 - max_findings: Max findings to report
@@ -88,7 +90,7 @@ class RuffLintDetector(CodeSmellDetector):
                 - ignore_rules: Rules to ignore
             enricher: Optional GraphEnricher for persistent collaboration
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
 
         config = detector_config or {}
         self.repository_path = Path(config.get("repository_path", "."))
@@ -134,46 +136,35 @@ class RuffLintDetector(CodeSmellDetector):
         Returns:
             List of ruff violation dictionaries
         """
+        # Build ruff command
+        cmd = [
+            "ruff", "check",
+            "--output-format=json",
+            "--select", ",".join(self.select_rules),
+        ]
+
+        if self.ignore_rules:
+            cmd.extend(["--ignore", ",".join(self.ignore_rules)])
+
+        # Add repository path
+        cmd.append(str(self.repository_path))
+
+        # Run ruff using shared utility
+        result = run_external_tool(
+            cmd=cmd,
+            tool_name="ruff",
+            timeout=60,  # Ruff is fast (Rust-based), 60s is generous
+            cwd=self.repository_path,
+        )
+
+        if not result.success or result.timed_out:
+            return []
+
+        # Parse JSON output (ruff returns array directly)
+        import json
         try:
-            # Build ruff command
-            cmd = [
-                "ruff", "check",
-                "--output-format=json",
-                "--select", ",".join(self.select_rules),
-            ]
-
-            if self.ignore_rules:
-                cmd.extend(["--ignore", ",".join(self.ignore_rules)])
-
-            # Add repository path
-            cmd.append(str(self.repository_path))
-
-            # Run ruff
-            try:
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    cwd=self.repository_path,
-                    timeout=60  # Ruff is fast (Rust-based), 60s is generous
-                )
-            except subprocess.TimeoutExpired:
-                logger.warning(f"Ruff timed out after 60s on {self.repository_path}")
-                return []
-
-            # Parse JSON output
-            violations = json.loads(result.stdout) if result.stdout else []
-
-            return violations
-
-        except FileNotFoundError:
-            logger.error("ruff not found. Install with: pip install ruff")
-            return []
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse ruff JSON output: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"Error running ruff: {e}")
+            return json.loads(result.stdout) if result.stdout else []
+        except json.JSONDecodeError:
             return []
 
     def _create_finding(self, ruff_result: Dict[str, Any]) -> Optional[Finding]:
@@ -282,38 +273,16 @@ class RuffLintDetector(CodeSmellDetector):
         Returns:
             Dictionary with graph context
         """
-        # Normalize path for Neo4j
-        normalized_path = file_path.replace("\\", "/")
+        # Use shared utility for graph context
+        context = get_graph_context(self.db, file_path, line)
 
-        query = """
-        MATCH (file:File {filePath: $file_path})
-        OPTIONAL MATCH (file)-[:CONTAINS]->(entity)
-        WHERE entity.lineStart <= $line AND entity.lineEnd >= $line
-        RETURN
-            file.loc as file_loc,
-            file.language as language,
-            collect(DISTINCT entity.qualifiedName) as affected_nodes,
-            collect(DISTINCT entity.complexity) as complexities
-        """
-
-        try:
-            results = self.db.execute_query(query, {
-                "file_path": normalized_path,
-                "line": line
-            })
-
-            if results:
-                result = results[0]
-                return {
-                    "file_loc": result.get("file_loc", 0),
-                    "language": result.get("language", "python"),
-                    "nodes": result.get("affected_nodes", []),
-                    "complexity": max(result.get("complexities", [0]) or [0])
-                }
-        except Exception as e:
-            logger.warning(f"Failed to enrich from graph: {e}")
-
-        return {"file_loc": 0, "language": "python", "nodes": [], "complexity": 0}
+        # Map to detector's expected format
+        return {
+            "file_loc": context.get("file_loc", 0),
+            "language": context.get("language", "python"),
+            "nodes": context.get("affected_nodes", []),
+            "complexity": max(context.get("complexities", [0]) or [0])
+        }
 
     def _get_severity(self, code: str) -> Severity:
         """Determine severity from ruff rule code.

@@ -31,7 +31,7 @@ class MLBugDetector(CodeSmellDetector):
 
     Example:
         >>> detector = MLBugDetector(
-        ...     client=neo4j_client,
+        ...     client=graph_client,
         ...     model_path=Path("models/bug_predictor.pkl"),
         ...     risk_threshold=0.7,
         ... )
@@ -52,7 +52,7 @@ class MLBugDetector(CodeSmellDetector):
         """Initialize ML bug detector.
 
         Args:
-            client: Database client (Neo4jClient or FalkorDBClient)
+            client: Database client (FalkorDBClient)
             model_path: Path to trained model file (.pkl)
             risk_threshold: Probability threshold for flagging (0.0-1.0)
         """

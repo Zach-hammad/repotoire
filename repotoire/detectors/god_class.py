@@ -49,11 +49,11 @@ class GodClassDetector(CodeSmellDetector):
         r".*Facade$",       # Facade pattern implementations
     ]
 
-    def __init__(self, neo4j_client, detector_config: Optional[dict] = None, enricher: Optional[GraphEnricher] = None):
+    def __init__(self, graph_client, detector_config: Optional[dict] = None, enricher: Optional[GraphEnricher] = None):
         """Initialize god class detector with configurable thresholds.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
             detector_config: Optional dict with detector configuration:
                 - god_class_*: Threshold configuration
                 - excluded_patterns: List of regex patterns to exclude (default: DEFAULT_EXCLUDED_PATTERNS)
@@ -62,7 +62,7 @@ class GodClassDetector(CodeSmellDetector):
                 - use_community_analysis: Enable/disable community-based analysis (default: True) [REPO-152]
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
         self.enricher = enricher
 
         # Load thresholds from config or use defaults
@@ -85,7 +85,7 @@ class GodClassDetector(CodeSmellDetector):
 
         # Community analysis (REPO-152)
         self.use_community_analysis = config.get("use_community_analysis", True)
-        self.graph_algorithms = GraphAlgorithms(neo4j_client)
+        self.graph_algorithms = GraphAlgorithms(graph_client)
 
     def detect(self) -> List[Finding]:
         """Find god classes in the codebase.

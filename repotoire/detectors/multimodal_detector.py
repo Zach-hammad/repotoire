@@ -9,9 +9,9 @@ providing interpretable predictions with modality importance weights.
 
 Example:
     >>> from repotoire.detectors.multimodal_detector import MultimodalDetector
-    >>> from repotoire.graph.client import Neo4jClient
+    >>> from repotoire.graph import FalkorDBClient
     >>>
-    >>> client = Neo4jClient.from_env()
+    >>> client = FalkorDBClient.from_env()
     >>> detector = MultimodalDetector(
     ...     client,
     ...     model_path=Path("models/multimodal.pt"),
@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 from repotoire.models import Finding, Severity
 
@@ -53,7 +53,7 @@ class MultimodalDetector(CodeSmellDetector):
 
     def __init__(
         self,
-        neo4j_client: Neo4jClient,
+        graph_client: FalkorDBClient,
         model_path: Optional[Path] = None,
         tasks: Optional[List[str]] = None,
         thresholds: Optional[dict] = None,
@@ -61,12 +61,12 @@ class MultimodalDetector(CodeSmellDetector):
         """Initialize multimodal detector.
 
         Args:
-            neo4j_client: Database client for graph queries
+            graph_client: Database client for graph queries
             model_path: Path to trained multimodal model file
             tasks: Tasks to run (default: all available)
             thresholds: Confidence thresholds per task (default: sensible defaults)
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
         self.model_path = model_path
         self.tasks = tasks or [
             "bug_prediction",

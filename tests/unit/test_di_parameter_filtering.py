@@ -22,7 +22,8 @@ class TestDependencyInjectionFiltering:
 
         # Test common DI types
         assert schema_gen._is_dependency_injection("retriever", "GraphRAGRetriever") is True
-        assert schema_gen._is_dependency_injection("client", "Neo4jClient") is True
+        assert schema_gen._is_dependency_injection("client", "FalkorDBClient") is True
+        assert schema_gen._is_dependency_injection("client", "Neo4jClient") is True  # Backward compatibility
         assert schema_gen._is_dependency_injection("embedder", "CodeEmbedder") is True
         assert schema_gen._is_dependency_injection("request", "Request") is True
         assert schema_gen._is_dependency_injection("db", "Depends") is True
@@ -38,7 +39,7 @@ class TestDependencyInjectionFiltering:
 
         # Test common DI parameter names
         assert schema_gen._is_dependency_injection("client", None) is True
-        assert schema_gen._is_dependency_injection("neo4j_client", None) is True
+        assert schema_gen._is_dependency_injection("graph_client", None) is True
         assert schema_gen._is_dependency_injection("retriever", None) is True
         assert schema_gen._is_dependency_injection("embedder", None) is True
         assert schema_gen._is_dependency_injection("code_embedder", None) is True
@@ -95,7 +96,7 @@ class TestDependencyInjectionFiltering:
             function_name="complex_operation",
             parameters=[
                 Parameter(name="query", type_hint="str", required=True),
-                Parameter(name="client", type_hint="Neo4jClient", required=True),
+                Parameter(name="client", type_hint="FalkorDBClient", required=True),
                 Parameter(name="embedder", type_hint="CodeEmbedder", required=True),
                 Parameter(name="retriever", type_hint="GraphRAGRetriever", required=True),
                 Parameter(name="limit", type_hint="int", required=False, default_value="10"),
@@ -159,7 +160,7 @@ class TestDependencyInjectionFiltering:
         # Test the internal DI detection
         assert server_gen._is_dependency_injection("retriever", "GraphRAGRetriever") is True
         assert server_gen._is_dependency_injection("query", "str") is False
-        assert server_gen._is_dependency_injection("neo4j_client", None) is True
+        assert server_gen._is_dependency_injection("graph_client", None) is True
 
     def test_handler_instantiates_di_parameters(self):
         """Test that generated handler code instantiates DI parameters internally."""
@@ -202,7 +203,7 @@ class TestDependencyInjectionFiltering:
             qualified_name="service.py::get_client",
             function_name="get_client",
             parameters=[
-                Parameter(name="client", type_hint="Neo4jClient", required=True),
+                Parameter(name="client", type_hint="FalkorDBClient", required=True),
             ],
             docstring="Internal function that gets client.",
         )
@@ -224,7 +225,7 @@ class TestDependencyInjectionFiltering:
             parameters=[
                 Parameter(name="self", required=True),
                 Parameter(name="data", type_hint="dict", required=True),
-                Parameter(name="client", type_hint="Neo4jClient", required=True),
+                Parameter(name="client", type_hint="FalkorDBClient", required=True),
             ],
             docstring="Process data.",
             is_method=True,
@@ -240,16 +241,28 @@ class TestDependencyInjectionFiltering:
 class TestDIParameterInstantiation:
     """Test DI parameter instantiation code generation."""
 
-    def test_instantiate_neo4j_client(self):
-        """Test Neo4jClient instantiation."""
+    def test_instantiate_graph_client(self):
+        """Test FalkorDBClient instantiation."""
         server_gen = ServerGenerator(output_dir=Path("/tmp/mcp_test"))
 
+        code = server_gen._instantiate_dependency("client", "FalkorDBClient")
+
+        assert code is not None
+        assert "FalkorDBClient" in code
+        assert "FALKORDB_HOST" in code
+        assert "FALKORDB_PASSWORD" in code
+
+    def test_instantiate_graph_client_backward_compat(self):
+        """Test Neo4jClient (backward compatibility alias) instantiation."""
+        server_gen = ServerGenerator(output_dir=Path("/tmp/mcp_test"))
+
+        # Neo4jClient type hint should also generate FalkorDBClient code
         code = server_gen._instantiate_dependency("client", "Neo4jClient")
 
         assert code is not None
-        assert "Neo4jClient" in code
-        assert "REPOTOIRE_NEO4J_URI" in code
-        assert "REPOTOIRE_NEO4J_PASSWORD" in code
+        assert "FalkorDBClient" in code  # Generated code uses FalkorDBClient
+        assert "FALKORDB_HOST" in code
+        assert "FALKORDB_PASSWORD" in code
 
     def test_instantiate_code_embedder(self):
         """Test CodeEmbedder instantiation."""
@@ -269,5 +282,5 @@ class TestDIParameterInstantiation:
 
         assert code is not None
         assert "GraphRAGRetriever" in code
-        assert "Neo4jClient" in code
+        assert "FalkorDBClient" in code
         assert "CodeEmbedder" in code

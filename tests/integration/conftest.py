@@ -22,8 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 def _has_neo4j() -> bool:
     """Check if Neo4j is configured."""
-    uri = os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687")
-    password = os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
+    uri = os.getenv("FALKORDB_HOST", "bolt://localhost:7687")
+    password = os.getenv("FALKORDB_PASSWORD", "password")
     return bool(uri and password)
 
 
@@ -37,7 +37,7 @@ def _has_falkordb() -> bool:
 # Skip markers for graph database tests
 skip_no_neo4j = pytest.mark.skipif(
     not _has_neo4j(),
-    reason="Neo4j not configured (REPOTOIRE_NEO4J_URI/PASSWORD)"
+    reason="Neo4j not configured (FALKORDB_HOST/PASSWORD)"
 )
 
 skip_no_falkordb = pytest.mark.skipif(
@@ -57,22 +57,22 @@ def pytest_configure(config):
 
 
 @pytest.fixture(scope="module")
-def neo4j_client():
+def graph_client():
     """Module-scoped Neo4j client for connection reuse.
 
     Creates a single connection per test module to avoid connection overhead.
     Graph clearing is handled by the isolate_graph_test autouse fixture.
 
     Yields:
-        Neo4jClient instance
+        FalkorDBClient instance
     """
     try:
-        from repotoire.graph import Neo4jClient
+        from repotoire.graph import FalkorDBClient
 
-        client = Neo4jClient(
-            uri=os.getenv("REPOTOIRE_NEO4J_URI", "bolt://localhost:7687"),
+        client = FalkorDBClient(
+            uri=os.getenv("FALKORDB_HOST", "bolt://localhost:7687"),
             username="neo4j",
-            password=os.getenv("REPOTOIRE_NEO4J_PASSWORD", "password")
+            password=os.getenv("FALKORDB_PASSWORD", "password")
         )
         yield client
         client.close()
@@ -81,12 +81,12 @@ def neo4j_client():
 
 
 @pytest.fixture(scope="module")
-def test_neo4j_client(neo4j_client):
-    """Alias for neo4j_client for backwards compatibility.
+def test_graph_client(graph_client):
+    """Alias for graph_client for backwards compatibility.
 
-    Many existing tests use test_neo4j_client as the fixture name.
+    Many existing tests use test_graph_client as the fixture name.
     """
-    return neo4j_client
+    return graph_client
 
 
 @pytest.fixture(scope="module")
@@ -135,10 +135,10 @@ def isolate_graph_test(request):
     fixture_names = getattr(request, "fixturenames", [])
 
     # Clear Neo4j if used
-    if "neo4j_client" in fixture_names or "test_neo4j_client" in fixture_names:
+    if "graph_client" in fixture_names or "test_graph_client" in fixture_names:
         try:
             # Get the fixture value - this triggers fixture execution if not already done
-            client = request.getfixturevalue("neo4j_client")
+            client = request.getfixturevalue("graph_client")
             if client:
                 client.clear_graph()
         except Exception:
@@ -157,17 +157,17 @@ def isolate_graph_test(request):
 
 
 @pytest.fixture
-def clean_db(neo4j_client):
+def clean_db(graph_client):
     """Function-scoped fixture that provides a clean graph for each test.
 
     This is an explicit alternative to the autouse isolate_graph_test fixture.
     Use this when you want to be explicit about needing a clean database.
 
     Yields:
-        Neo4jClient with cleared graph
+        FalkorDBClient with cleared graph
     """
-    neo4j_client.clear_graph()
-    yield neo4j_client
+    graph_client.clear_graph()
+    yield graph_client
 
 
 # =============================================================================

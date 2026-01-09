@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Union
 from repotoire.graph.base import DatabaseClient
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -31,7 +31,7 @@ class RuleRefreshDaemon:
 
     def __init__(
         self,
-        client: Union[Neo4jClient, DatabaseClient],
+        client: Union[FalkorDBClient, DatabaseClient],
         refresh_interval: int = 3600,  # 1 hour
         decay_threshold_days: int = 7,
         decay_factor: float = 0.9,  # Reduce priority by 10%
@@ -273,7 +273,7 @@ class RuleRefreshDaemon:
 _daemon_instance: Optional[RuleRefreshDaemon] = None
 
 
-def get_daemon(client: Union[Neo4jClient, DatabaseClient], **kwargs) -> RuleRefreshDaemon:
+def get_daemon(client: Union[FalkorDBClient, DatabaseClient], **kwargs) -> RuleRefreshDaemon:
     """Get or create singleton daemon instance.
 
     Args:

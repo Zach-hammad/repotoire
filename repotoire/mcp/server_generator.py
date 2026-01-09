@@ -572,15 +572,16 @@ if __name__ == "__main__":
             # Instance method - need to create class instance first
             code.append(f"# Instance method - instantiate {pattern.class_name}")
 
-            # First, ensure we have neo4j_client if the class needs it
-            # (most Repotoire classes need Neo4jClient)
-            needs_neo4j = pattern.class_name in ['AnalysisEngine', 'TemporalIngestionPipeline', 'DetectorQueryBuilder']
+            # First, ensure we have graph_client if the class needs it
+            # (most Repotoire classes need FalkorDBClient)
+            needs_graph_db = pattern.class_name in ['AnalysisEngine', 'TemporalIngestionPipeline', 'DetectorQueryBuilder']
 
-            if needs_neo4j:
-                code.append("# Instantiate Neo4jClient for class constructor")
-                code.append("neo4j_client = Neo4jClient(")
-                code.append("    uri=os.getenv('REPOTOIRE_NEO4J_URI', 'bolt://localhost:7687'),")
-                code.append("    password=os.getenv('REPOTOIRE_NEO4J_PASSWORD', '')")
+            if needs_graph_db:
+                code.append("# Instantiate FalkorDBClient for class constructor")
+                code.append("graph_client = FalkorDBClient(")
+                code.append("    host=os.getenv('FALKORDB_HOST', 'localhost'),")
+                code.append("    port=int(os.getenv('FALKORDB_PORT', '6379')),")
+                code.append("    password=os.getenv('FALKORDB_PASSWORD')")
                 code.append(")")
                 code.append("")
 
@@ -627,15 +628,15 @@ if __name__ == "__main__":
 
         # Track which dependencies need to be constructed
         # Use both type hints and parameter names to detect dependencies
-        needs_neo4j_client = False
+        needs_graph_client = False
         needs_embedder = False
         needs_retriever = False
 
         for param in pattern.parameters:
             # Check type hint if available
             if param.type_hint:
-                if "Neo4jClient" in param.type_hint or "client" in param.type_hint.lower():
-                    needs_neo4j_client = True
+                if "FalkorDBClient" in param.type_hint or "Neo4jClient" in param.type_hint or "client" in param.type_hint.lower():
+                    needs_graph_client = True
                 if "CodeEmbedder" in param.type_hint or "embedder" in param.type_hint.lower():
                     needs_embedder = True
                 if "GraphRAGRetriever" in param.type_hint or "retriever" in param.type_hint.lower():
@@ -643,21 +644,22 @@ if __name__ == "__main__":
 
             # Also check parameter name (fallback when type hints not available)
             param_name_lower = param.name.lower()
-            if param_name_lower in ["client", "neo4j_client"]:
-                needs_neo4j_client = True
+            if param_name_lower in ["client", "graph_client"]:
+                needs_graph_client = True
             if param_name_lower in ["embedder", "code_embedder"]:
                 needs_embedder = True
             if param_name_lower in ["retriever", "graph_rag_retriever", "graphragretriever"]:
                 needs_retriever = True
 
         # Construct dependencies if needed
-        if needs_neo4j_client or needs_retriever:
-            code.append("# Construct Neo4jClient dependency")
-            code.append("from repotoire.graph.client import Neo4jClient")
+        if needs_graph_client or needs_retriever:
+            code.append("# Construct FalkorDBClient dependency")
+            code.append("from repotoire.graph import FalkorDBClient")
             code.append("import os")
-            code.append("client = Neo4jClient(")
-            code.append("    uri=os.getenv('REPOTOIRE_NEO4J_URI', 'bolt://localhost:7688'),")
-            code.append("    password=os.getenv('REPOTOIRE_NEO4J_PASSWORD', 'falkor-password')")
+            code.append("client = FalkorDBClient(")
+            code.append("    host=os.getenv('FALKORDB_HOST', 'localhost'),")
+            code.append("    port=int(os.getenv('FALKORDB_PORT', '6379')),")
+            code.append("    password=os.getenv('FALKORDB_PASSWORD')")
             code.append(")")
             code.append("")
 
@@ -680,7 +682,7 @@ if __name__ == "__main__":
             code.append("from repotoire.ai.retrieval import GraphRAGRetriever")
             code.append("try:")
             code.append("    retriever = GraphRAGRetriever(")
-            code.append("        neo4j_client=client,")
+            code.append("        graph_client=client,")
             code.append("        embedder=embedder")
             code.append("    )")
             code.append("    logger.debug('Successfully created GraphRAGRetriever')")
@@ -707,7 +709,7 @@ if __name__ == "__main__":
             if param.type_hint and "Depends" in param.type_hint:
                 is_dependency = True
 
-            if param_name_lower in ["client", "neo4j_client"]:
+            if param_name_lower in ["client", "graph_client"]:
                 code.append(f"# Dependency injection parameter: {param.name}")
                 code.append(f"{param.name} = client")
                 param_names.append(param.name)
@@ -830,7 +832,7 @@ if __name__ == "__main__":
         code.append("")
         code.append("# Options (with -- prefix)")
         for opt in pattern.options:
-            # Convert parameter name to CLI option (e.g., "neo4j_uri" -> "--neo4j-uri")
+            # Convert parameter name to CLI option (e.g., "falkordb_host" -> "--falkordb-host")
             cli_option = opt.name.replace("_", "-")
 
             code.append(f"if '{opt.name}' in arguments:")
@@ -896,7 +898,8 @@ if __name__ == "__main__":
             dependency_patterns = [
                 r'\bDepends\b',
                 r'\bGraphRAGRetriever\b',
-                r'\bNeo4jClient\b',
+                r'\bFalkorDBClient\b',
+                r'\bNeo4jClient\b',  # Backward compatibility alias
                 r'\bCodeEmbedder\b',
                 r'\bOpenAI\b',
                 r'^Request$',  # Exact match for FastAPI Request (not CodeAskRequest)
@@ -913,7 +916,7 @@ if __name__ == "__main__":
         # (could be Pydantic models like CodeAskRequest, not just FastAPI Request)
         param_name_lower = param_name.lower()
         dependency_param_names = [
-            'client', 'neo4j_client',
+            'client', 'graph_client',
             'embedder', 'code_embedder',
             'retriever', 'graph_rag_retriever', 'graphragretriever',
             'db', 'database',
@@ -934,21 +937,22 @@ if __name__ == "__main__":
         if not type_hint:
             return None
 
-        # GraphRAGRetriever needs Neo4jClient + CodeEmbedder
+        # GraphRAGRetriever needs FalkorDBClient + CodeEmbedder
         if 'GraphRAGRetriever' in type_hint:
             return (
                 f"{param_name} = GraphRAGRetriever(\n"
-                f"    neo4j_client=Neo4jClient(uri=os.getenv('REPOTOIRE_NEO4J_URI', 'bolt://localhost:7687'), password=os.getenv('REPOTOIRE_NEO4J_PASSWORD', '')),\n"
+                f"    graph_client=FalkorDBClient(host=os.getenv('FALKORDB_HOST', 'localhost'), port=int(os.getenv('FALKORDB_PORT', '6379')), password=os.getenv('FALKORDB_PASSWORD')),\n"
                 f"    embedder=CodeEmbedder(api_key=os.getenv('OPENAI_API_KEY'))\n"
                 f")"
             )
 
-        # Neo4jClient
-        if 'Neo4jClient' in type_hint:
+        # FalkorDBClient (or Neo4jClient alias)
+        if 'FalkorDBClient' in type_hint or 'Neo4jClient' in type_hint:
             return (
-                f"{param_name} = Neo4jClient(\n"
-                f"    uri=os.getenv('REPOTOIRE_NEO4J_URI', 'bolt://localhost:7687'),\n"
-                f"    password=os.getenv('REPOTOIRE_NEO4J_PASSWORD', '')\n"
+                f"{param_name} = FalkorDBClient(\n"
+                f"    host=os.getenv('FALKORDB_HOST', 'localhost'),\n"
+                f"    port=int(os.getenv('FALKORDB_PORT', '6379')),\n"
+                f"    password=os.getenv('FALKORDB_PASSWORD')\n"
                 f")"
             )
 
@@ -972,9 +976,9 @@ if __name__ == "__main__":
         """
         # Common patterns for class instantiation
         class_patterns = {
-            'AnalysisEngine': "_instance = AnalysisEngine(neo4j_client=neo4j_client, repository_path='.')",
+            'AnalysisEngine': "_instance = AnalysisEngine(graph_client=graph_client, repository_path='.')",
             'DetectorQueryBuilder': "_instance = DetectorQueryBuilder()",
-            'TemporalIngestionPipeline': "_instance = TemporalIngestionPipeline(repo_path='.', neo4j_client=neo4j_client)",
+            'TemporalIngestionPipeline': "_instance = TemporalIngestionPipeline(repo_path='.', graph_client=graph_client)",
         }
 
         # Check if we have a known pattern
@@ -982,12 +986,12 @@ if __name__ == "__main__":
             return class_patterns[class_name]
 
         # Try to infer from DI params
-        # If we have neo4j_client instantiated, many classes need it
-        has_neo4j = any(p.name in ['client', 'neo4j_client'] or 'Neo4jClient' in (p.type_hint or '') for p in di_params)
+        # If we have graph_client instantiated, many classes need it
+        has_graph_client = any(p.name in ['client', 'graph_client'] or 'FalkorDBClient' in (p.type_hint or '') or 'Neo4jClient' in (p.type_hint or '') for p in di_params)
 
-        if has_neo4j:
-            logger.debug(f"Instantiating {class_name} with neo4j_client")
-            return f"_instance = {class_name}(neo4j_client=neo4j_client)"
+        if has_graph_client:
+            logger.debug(f"Instantiating {class_name} with graph_client")
+            return f"_instance = {class_name}(graph_client=graph_client)"
 
         # Fallback: return None and let caller try no-arg constructor
         return None
@@ -1261,7 +1265,7 @@ async def handle_list_tools() -> list[types.Tool]:
     return [
         types.Tool(
             name='execute',
-            description='Execute Python in Repotoire environment with pre-loaded Neo4j client and utilities. Read repotoire://tools/index.txt for available functions.',
+            description='Execute Python in Repotoire environment with pre-loaded FalkorDB client and utilities. Read repotoire://tools/index.txt for available functions.',
             inputSchema={{
                 'type': 'object',
                 'properties': {{
@@ -1289,7 +1293,7 @@ async def handle_call_tool(
             text=f"""Use mcp__ide__executeCode to run this code.
 
 Pre-loaded objects:
-- client: Neo4jClient (connected)
+- client: FalkorDBClient (connected)
 - query(): Execute Cypher
 - search_code(): Vector search
 

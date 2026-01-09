@@ -167,7 +167,7 @@ def analyze_repository(
         # Enable embeddings for Pro/Enterprise plans (graph_embeddings feature)
         pipeline = IngestionPipeline(
             repo_path=str(clone_dir),
-            neo4j_client=graph_client,
+            graph_client=graph_client,
             repo_id=repo_id,  # Pass repo UUID for node tagging
             repo_slug=repo_full_name,  # Pass full name (owner/repo)
             generate_embeddings=enable_embeddings,
@@ -191,7 +191,7 @@ def analyze_repository(
         # ============================================================
         from repotoire.detectors.engine import AnalysisEngine
 
-        engine = AnalysisEngine(neo4j_client=graph_client)
+        engine = AnalysisEngine(graph_client=graph_client)
 
         def analysis_progress(pct: float) -> None:
             progress.update(
@@ -387,7 +387,7 @@ def analyze_pr(
             # Enable embeddings for Pro/Enterprise plans (graph_embeddings feature)
             pipeline = IngestionPipeline(
                 repo_path=str(clone_dir),
-                neo4j_client=graph_client,
+                graph_client=graph_client,
                 repo_id=repo_id,  # Pass repo UUID for node tagging
                 repo_slug=repo_full_name,  # Pass full name (owner/repo)
                 generate_embeddings=enable_embeddings,
@@ -405,7 +405,7 @@ def analyze_pr(
             # Run analysis scoped to changed files
             from repotoire.detectors.engine import AnalysisEngine
 
-            engine = AnalysisEngine(neo4j_client=graph_client)
+            engine = AnalysisEngine(graph_client=graph_client)
             health = engine.analyze()
 
             # Get previous score for delta calculation
@@ -809,19 +809,19 @@ def _get_graph_client_for_org(org_id: UUID | None, org_slug: str | None = None):
     return create_client()
 
 
-def _get_neo4j_client_for_org(org: Organization | None):
-    """Get Neo4j client for organization.
+def _get_graph_client_for_org(org: Organization | None):
+    """Get FalkorDB client for organization.
 
     DEPRECATED: Use _get_graph_client_for_org instead.
 
     In a multi-tenant setup, each organization could have its own
-    Neo4j database or namespace.
+    FalkorDB database or namespace.
 
     Args:
         org: Organization model instance.
 
     Returns:
-        Neo4jClient instance.
+        FalkorDBClient instance.
     """
     # Extract org_id and slug if org is provided
     if org:

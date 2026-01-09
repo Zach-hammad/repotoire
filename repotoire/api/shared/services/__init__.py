@@ -38,7 +38,13 @@ from .gdpr import (
     update_export_status,
 )
 from .github import GitHubAppClient, get_github_client
-from .stripe_service import PRICE_IDS, SEAT_PRICE_IDS, StripeService, price_id_to_tier
+from .stripe_service import (
+    PRICE_IDS,
+    SEAT_PRICE_IDS,
+    StripeConnectService,
+    StripeService,
+    price_id_to_tier,
+)
 
 __all__ = [
     "TokenEncryption",
@@ -57,9 +63,10 @@ __all__ = [
     "get_plan_limits",
     "has_feature",
     "increment_usage",
-    # Stripe
+    # Stripe (legacy webhook handling + Connect)
     "PRICE_IDS",
     "SEAT_PRICE_IDS",
+    "StripeConnectService",
     "StripeService",
     "price_id_to_tier",
     # GDPR

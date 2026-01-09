@@ -22,7 +22,7 @@ import logging
 
 import numpy as np
 
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ class Node2VecEmbedder:
     - FalkorDB (uses Rust fallback)
 
     Example:
-        >>> client = Neo4jClient.from_env()
+        >>> client = FalkorDBClient.from_env()
         >>> embedder = Node2VecEmbedder(client)
         >>>
         >>> # Automatically uses GDS if available, otherwise Rust
@@ -91,7 +91,7 @@ class Node2VecEmbedder:
 
     def __init__(
         self,
-        client: Neo4jClient,
+        client: FalkorDBClient,
         config: Optional[Node2VecConfig] = None,
         force_rust: bool = False,
     ):
@@ -750,7 +750,7 @@ class FalkorDBNode2VecEmbedder(Node2VecEmbedder):
 
     def __init__(
         self,
-        client: Neo4jClient,
+        client: FalkorDBClient,
         config: Optional[Node2VecConfig] = None,
         use_rust: bool = True,
     ):

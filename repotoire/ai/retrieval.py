@@ -285,7 +285,7 @@ class GraphRAGRetriever:
 
     Example:
         >>> # Basic usage
-        >>> retriever = GraphRAGRetriever(neo4j_client, embedder)
+        >>> retriever = GraphRAGRetriever(graph_client, embedder)
         >>> results = retriever.retrieve("How does authentication work?", top_k=10)
 
         >>> # With hybrid search and Voyage reranking
@@ -296,10 +296,10 @@ class GraphRAGRetriever:
         ...     hybrid=HybridSearchConfig(enabled=True),
         ...     reranker=RerankerConfig(enabled=True, backend="voyage"),
         ... )
-        >>> retriever = GraphRAGRetriever(neo4j_client, embedder, config=config)
+        >>> retriever = GraphRAGRetriever(graph_client, embedder, config=config)
 
         >>> # With LLM answer generation
-        >>> retriever = GraphRAGRetriever(neo4j_client, embedder, llm_config=LLMConfig(backend="anthropic"))
+        >>> retriever = GraphRAGRetriever(graph_client, embedder, llm_config=LLMConfig(backend="anthropic"))
         >>> answer = retriever.ask("How does authentication work?")
     """
 

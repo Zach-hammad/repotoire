@@ -25,7 +25,7 @@ def mock_session():
 @pytest.fixture
 def mock_neo4j():
     """Mock Neo4j client."""
-    with patch("repotoire.workers.tasks._get_neo4j_client_for_org") as mock:
+    with patch("repotoire.workers.tasks._get_graph_client_for_org") as mock:
         client = MagicMock()
         mock.return_value = client
         yield mock

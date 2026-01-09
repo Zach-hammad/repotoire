@@ -2,18 +2,18 @@
 
 import json
 import os
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.ai.embeddings import CodeEmbedder
 from repotoire.ai.retrieval import GraphRAGRetriever
 from repotoire.mcp import PatternDetector, SchemaGenerator
 
 # Connect
-password = os.getenv("REPOTOIRE_NEO4J_PASSWORD", "falkor-password")
-client = Neo4jClient(uri="bolt://localhost:7688", password=password)
+password = os.getenv("FALKORDB_PASSWORD", "falkor-password")
+client = FalkorDBClient(uri="bolt://localhost:7688", password=password)
 
 # Create components
 embedder = CodeEmbedder()
-retriever = GraphRAGRetriever(neo4j_client=client, embedder=embedder)
+retriever = GraphRAGRetriever(graph_client=client, embedder=embedder)
 detector = PatternDetector(client)
 
 # Find function with minimal docstring
@@ -46,7 +46,7 @@ else:
 
 # Create generators
 baseline_gen = SchemaGenerator()
-enhanced_gen = SchemaGenerator(rag_retriever=retriever, neo4j_client=client)
+enhanced_gen = SchemaGenerator(rag_retriever=retriever, graph_client=client)
 
 # Generate schemas
 print("\n" + "=" * 100)

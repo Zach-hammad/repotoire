@@ -16,7 +16,7 @@ Usage:
 Environment Variables:
     DATABASE_URL: PostgreSQL connection string for organization data
     REPOTOIRE_DB_TYPE: Graph database backend (neo4j or falkordb)
-    REPOTOIRE_NEO4J_URI: Neo4j connection URI
+    FALKORDB_HOST: Neo4j connection URI
     REPOTOIRE_FALKORDB_HOST: FalkorDB host
 """
 

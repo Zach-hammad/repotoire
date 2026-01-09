@@ -6,14 +6,14 @@ for cases where custom filtering or complex traversal logic is needed.
 
 from typing import List, Dict, Any, Set, Callable, Optional
 from collections import deque
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.validation import validate_identifier, ValidationError
 
 
 class GraphTraversal:
     """Graph traversal utilities for BFS and DFS algorithms."""
 
-    def __init__(self, client: Neo4jClient):
+    def __init__(self, client: FalkorDBClient):
         """Initialize traversal utilities.
 
         Args:

@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from neo4j.exceptions import ServiceUnavailable
 
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.models import FileEntity, Relationship, RelationshipType
 
 
@@ -18,7 +18,7 @@ class TestConnectionPooling:
             mock_driver.verify_connectivity = Mock()
             mock_driver_class.return_value = mock_driver
 
-            client = Neo4jClient(
+            client = FalkorDBClient(
                 uri="bolt://localhost:7687",
                 username="neo4j",
                 password="test",
@@ -47,7 +47,7 @@ class TestConnectionPooling:
             mock_driver.verify_connectivity = Mock()
             mock_driver_class.return_value = mock_driver
 
-            client = Neo4jClient()
+            client = FalkorDBClient()
 
             call_kwargs = mock_driver_class.call_args[1]
 
@@ -72,7 +72,7 @@ class TestConnectionPooling:
             mock_driver.session.return_value.__exit__ = Mock(return_value=None)
             mock_driver_class.return_value = mock_driver
 
-            client = Neo4jClient(query_timeout=10.0)
+            client = FalkorDBClient(query_timeout=10.0)
 
             # Execute query with default timeout
             client.execute_query("MATCH (n) RETURN count(n) as count")
@@ -94,7 +94,7 @@ class TestConnectionPooling:
             mock_driver.session.return_value.__exit__ = Mock(return_value=None)
             mock_driver_class.return_value = mock_driver
 
-            client = Neo4jClient(query_timeout=60.0)
+            client = FalkorDBClient(query_timeout=60.0)
 
             # Execute query with custom timeout
             client.execute_query("MATCH (n) RETURN count(n) as count", timeout=5.0)
@@ -114,7 +114,7 @@ class TestConnectionPooling:
             mock_driver._pool = mock_pool
             mock_driver_class.return_value = mock_driver
 
-            client = Neo4jClient(
+            client = FalkorDBClient(
                 max_connection_pool_size=100,
                 connection_timeout=15.0,
                 max_connection_lifetime=7200,
@@ -150,7 +150,7 @@ class TestWriteTransactions:
             mock_driver.session.return_value.__exit__ = Mock(return_value=None)
             mock_driver_class.return_value = mock_driver
 
-            client = Neo4jClient()
+            client = FalkorDBClient()
 
             entities = [
                 FileEntity(
@@ -194,7 +194,7 @@ class TestWriteTransactions:
             mock_driver.session.return_value.__exit__ = Mock(return_value=None)
             mock_driver_class.return_value = mock_driver
 
-            client = Neo4jClient()
+            client = FalkorDBClient()
 
             relationships = [
                 Relationship(
@@ -234,7 +234,7 @@ class TestRetryLogic:
                 ]
                 mock_driver_class.return_value = mock_driver
 
-                client = Neo4jClient(
+                client = FalkorDBClient(
                     max_retries=3,
                     retry_base_delay=1.0,
                     retry_backoff_factor=2.0
@@ -255,7 +255,7 @@ class TestRetryLogic:
                 mock_driver_class.return_value = mock_driver
 
                 with pytest.raises(ServiceUnavailable, match="after 3 attempts"):
-                    Neo4jClient(max_retries=3)
+                    FalkorDBClient(max_retries=3)
 
     def test_query_retry_on_transient_error(self):
         """Test queries are retried on transient errors."""
@@ -278,7 +278,7 @@ class TestRetryLogic:
                 mock_driver.session.return_value.__exit__ = Mock(return_value=None)
                 mock_driver_class.return_value = mock_driver
 
-                client = Neo4jClient(max_retries=3, retry_base_delay=0.1)
+                client = FalkorDBClient(max_retries=3, retry_base_delay=0.1)
 
                 result = client.execute_query("MATCH (n) RETURN count(n) as count")
 
@@ -318,7 +318,7 @@ class TestConcurrentConnections:
             mock_driver.session = get_session
             mock_driver_class.return_value = mock_driver
 
-            client = Neo4jClient(max_connection_pool_size=10)
+            client = FalkorDBClient(max_connection_pool_size=10)
 
             # Execute multiple queries
             results = []

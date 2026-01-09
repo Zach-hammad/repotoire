@@ -99,16 +99,23 @@ function FixesListContent() {
 
   // Parse URL params for initial state
   const initialStatus = searchParams.get('status')?.split(',').filter(Boolean) as FixStatus[] | undefined;
+  const initialConfidence = searchParams.get('confidence')?.split(',').filter(Boolean) as FixConfidence[] | undefined;
+  const initialFixType = searchParams.get('fix_type')?.split(',').filter(Boolean) as FixType[] | undefined;
+  const initialSearch = searchParams.get('search') || '';
+  const initialRepository = searchParams.get('repository') || 'all';
+  const initialPage = parseInt(searchParams.get('page') || '1', 10);
 
   // Filter state
   const [filters, setFilters] = useState<FixFilters>({
     status: initialStatus,
+    confidence: initialConfidence,
+    fix_type: initialFixType,
   });
   const [sort, setSort] = useState<SortOptions>({ field: 'created_at', direction: 'desc' });
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(initialPage);
   const [pageSize] = useState(20);
-  const [search, setSearch] = useState('');
-  const [repositoryFilter, setRepositoryFilter] = useState<string>('all');
+  const [search, setSearch] = useState(initialSearch);
+  const [repositoryFilter, setRepositoryFilter] = useState<string>(initialRepository);
 
   // Selection state for batch actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());

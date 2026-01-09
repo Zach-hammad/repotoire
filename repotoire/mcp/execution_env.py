@@ -1023,8 +1023,8 @@ API_DOCUMENTATION = """# Repotoire Code Execution API
 
 ## Pre-configured Objects
 
-### `client: Neo4jClient`
-Connected Neo4j client for graph database operations.
+### `client: FalkorDBClient`
+Connected FalkorDB client for graph database operations.
 
 **Properties:**
 - `client.uri`: Connection URI
@@ -1259,8 +1259,8 @@ All Repotoire models are imported:
 ## Environment Variables
 
 Pre-configured:
-- `REPOTOIRE_NEO4J_URI`: bolt://localhost:7688
-- `REPOTOIRE_NEO4J_PASSWORD`: From env or default
+- `FALKORDB_HOST`: bolt://localhost:7688
+- `FALKORDB_PASSWORD`: From env or default
 """
 
 
@@ -1285,7 +1285,7 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
 # Repotoire imports
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.models import (
     CodebaseHealth, Finding, Severity,
     File, Class, Function, Module, Rule
@@ -1311,16 +1311,16 @@ from repotoire.mcp.execution_env import (
 def connect_neo4j(
     uri: str = "bolt://localhost:7688",
     password: str = None
-) -> Neo4jClient:
+) -> FalkorDBClient:
     \"\"\"Quick Neo4j connection helper.\"\"\"
     if password is None:
-        password = os.getenv("REPOTOIRE_NEO4J_PASSWORD", "falkor-password")
-    return Neo4jClient(uri=uri, password=password)
+        password = os.getenv("FALKORDB_PASSWORD", "falkor-password")
+    return FalkorDBClient(uri=uri, password=password)
 
 # Pre-connect client for convenience
 try:
     client = connect_neo4j()
-    print("✓ Connected to Neo4j")
+    print("✓ Connected to FalkorDB")
 except Exception as e:
     print(f"⚠️  Neo4j connection failed: {e}")
     print("   Use: client = connect_neo4j(uri='...', password='...')")
@@ -1343,7 +1343,7 @@ def query(cypher: str, params: Dict[str, Any] = None) -> List[Dict]:
         results = query("MATCH (f:Function) WHERE f.complexity > 20 RETURN f LIMIT 10")
     \"\"\"
     if client is None:
-        raise RuntimeError("Not connected to Neo4j. Use: client = connect_neo4j()")
+        raise RuntimeError("Not connected to FalkorDB. Use: client = connect_neo4j()")
     return client.execute_query(cypher, params or {})
 
 def search_code(
@@ -1390,7 +1390,7 @@ def execute_rule(rule_id: str):
 def codebase_stats():
     \"\"\"Print quick stats about the codebase.\"\"\"
     if client is None:
-        print("Not connected to Neo4j")
+        print("Not connected to FalkorDB")
         return
 
     counts = query(\"\"\"
@@ -1413,7 +1413,7 @@ print("\\n" + "=" * 60)
 print("Repotoire Code Execution Environment")
 print("=" * 60)
 print("\\nPre-configured objects:")
-print("  • client       - Neo4jClient instance")
+print("  • client       - FalkorDBClient instance")
 print("  • rule_engine  - RuleEngine instance")
 print("\\nCore functions:")
 print("  • query(cypher)         - Execute Cypher query")
@@ -1460,7 +1460,7 @@ def get_environment_config() -> Dict[str, Any]:
             str(Path(__file__).parent.parent.parent),  # repotoire project root
         ],
         "env_vars": {
-            "REPOTOIRE_NEO4J_URI": "bolt://localhost:7688",
+            "FALKORDB_HOST": "bolt://localhost:7688",
             # Password loaded from .env or set by user
         },
         "startup_script": get_startup_script(),
@@ -1488,7 +1488,7 @@ EXECUTE_CODE_TOOL = {
     "description": """Execute Python code in a Repotoire-configured environment.
 
 This environment includes:
-- Pre-connected Neo4j client
+- Pre-connected FalkorDB client
 - RuleEngine for custom rules
 - Helper functions: query(), search_code(), execute_rule()
 - All Repotoire models and utilities

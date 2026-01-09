@@ -17,7 +17,7 @@ class TestGraphNameGeneration:
 
     def test_generate_graph_name_from_slug(self):
         """Test graph name generation from org slug."""
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org_id = uuid4()
 
         name = factory._generate_graph_name(org_id, "acme-corp")
@@ -25,7 +25,7 @@ class TestGraphNameGeneration:
 
     def test_generate_graph_name_from_slug_with_dots(self):
         """Test graph name generation handles dots in slug."""
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org_id = uuid4()
 
         name = factory._generate_graph_name(org_id, "acme.corp.inc")
@@ -33,7 +33,7 @@ class TestGraphNameGeneration:
 
     def test_generate_graph_name_from_slug_with_special_chars(self):
         """Test graph name sanitization of special characters."""
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org_id = uuid4()
 
         name = factory._generate_graph_name(org_id, "acme--corp__test")
@@ -41,7 +41,7 @@ class TestGraphNameGeneration:
 
     def test_generate_graph_name_from_uuid(self):
         """Test graph name fallback to UUID when no slug."""
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org_id = UUID("550e8400-e29b-41d4-a716-446655440000")
 
         name = factory._generate_graph_name(org_id, None)
@@ -49,7 +49,7 @@ class TestGraphNameGeneration:
 
     def test_generate_graph_name_lowercase(self):
         """Test graph names are lowercased."""
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org_id = uuid4()
 
         name = factory._generate_graph_name(org_id, "AcMeCorp")
@@ -57,7 +57,7 @@ class TestGraphNameGeneration:
 
     def test_generate_graph_name_strips_underscores(self):
         """Test leading/trailing underscores are stripped."""
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org_id = uuid4()
 
         name = factory._generate_graph_name(org_id, "_acme_")
@@ -73,7 +73,7 @@ class TestClientCaching:
         mock_client = Mock()
         mock_falkordb_class.return_value = mock_client
 
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org_id = uuid4()
 
         client1 = factory.get_client(org_id, "test-org")
@@ -87,7 +87,7 @@ class TestClientCaching:
         """Test that different orgs get isolated clients."""
         mock_falkordb_class.side_effect = [Mock(), Mock()]
 
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org1 = uuid4()
         org2 = uuid4()
 
@@ -103,7 +103,7 @@ class TestClientCaching:
         mock_client = Mock()
         mock_falkordb_class.return_value = mock_client
 
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org_id = uuid4()
 
         factory.get_client(org_id, "test-org")
@@ -118,7 +118,7 @@ class TestClientCaching:
         """Test close_all clears all cached clients."""
         mock_falkordb_class.side_effect = [Mock(), Mock()]
 
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org1 = uuid4()
         org2 = uuid4()
 
@@ -140,38 +140,23 @@ class TestOrgIdIsolation:
         mock_client = Mock()
         mock_falkordb_class.return_value = mock_client
 
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org_id = uuid4()
 
         client = factory.get_client(org_id, "test-org")
         assert client._org_id == org_id
 
-    @patch("repotoire.graph.neo4j_multitenant.Neo4jClientMultiTenant")
-    def test_neo4j_client_has_org_id(self, mock_neo4j_class):
-        """Test Neo4j client has org_id set."""
-        mock_client = Mock()
-        mock_neo4j_class.return_value = mock_client
 
-        factory = GraphClientFactory(backend="neo4j", strategy="database_per_tenant")
-        org_id = uuid4()
-
-        client = factory.get_client(org_id, "test-org")
-
-        # Verify org_id was passed to constructor
-        call_kwargs = mock_neo4j_class.call_args[1]
-        assert call_kwargs["org_id"] == org_id
-
-
-class TestBackendSelection:
-    """Tests for backend selection logic."""
+class TestFalkorDBClientCreation:
+    """Tests for FalkorDB client creation."""
 
     @patch("repotoire.graph.falkordb_client.FalkorDBClient")
-    def test_falkordb_backend(self, mock_falkordb_class):
-        """Test FalkorDB backend creates FalkorDBClient."""
+    def test_falkordb_client_created_with_correct_graph_name(self, mock_falkordb_class):
+        """Test FalkorDB client is created with correct graph name."""
         mock_client = Mock()
         mock_falkordb_class.return_value = mock_client
 
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org_id = uuid4()
 
         factory.get_client(org_id, "test-org")
@@ -180,65 +165,20 @@ class TestBackendSelection:
         call_kwargs = mock_falkordb_class.call_args[1]
         assert call_kwargs["graph_name"] == "org_test_org"
 
-    @patch("repotoire.graph.neo4j_multitenant.Neo4jClientMultiTenant")
-    def test_neo4j_database_per_tenant_strategy(self, mock_neo4j_class):
-        """Test Neo4j with database_per_tenant strategy."""
-        mock_client = Mock()
-        mock_neo4j_class.return_value = mock_client
-
-        factory = GraphClientFactory(backend="neo4j", strategy="database_per_tenant")
-        org_id = uuid4()
-
-        factory.get_client(org_id, "test-org")
-
-        mock_neo4j_class.assert_called_once()
-        call_kwargs = mock_neo4j_class.call_args[1]
-        assert call_kwargs["database"] == "org_test_org"
-
-    @patch("repotoire.graph.neo4j_multitenant.Neo4jClientPartitioned")
-    def test_neo4j_partition_strategy(self, mock_neo4j_class):
-        """Test Neo4j with partition strategy."""
-        mock_client = Mock()
-        mock_neo4j_class.return_value = mock_client
-
-        factory = GraphClientFactory(backend="neo4j", strategy="partition")
-        org_id = uuid4()
-
-        factory.get_client(org_id, "test-org")
-
-        mock_neo4j_class.assert_called_once()
-
 
 class TestEnvironmentVariables:
     """Tests for environment variable configuration."""
 
     @patch.dict("os.environ", {
-        "REPOTOIRE_DB_TYPE": "falkordb",
         "REPOTOIRE_FALKORDB_HOST": "custom-host",
         "REPOTOIRE_FALKORDB_PORT": "7777",
-    })
-    def test_env_vars_for_falkordb(self):
-        """Test factory reads FalkorDB config from env vars."""
+    }, clear=True)
+    def test_repotoire_env_vars_for_falkordb(self):
+        """Test factory reads FalkorDB config from REPOTOIRE_* env vars."""
         factory = GraphClientFactory()
 
-        assert factory.backend == "falkordb"
         assert factory.falkordb_host == "custom-host"
         assert factory.falkordb_port == 7777
-
-    @patch.dict("os.environ", {
-        "REPOTOIRE_DB_TYPE": "neo4j",
-        "REPOTOIRE_NEO4J_URI": "bolt://custom:7687",
-        "REPOTOIRE_NEO4J_USERNAME": "custom-user",
-        "REPOTOIRE_NEO4J_PASSWORD": "custom-pass",
-    })
-    def test_env_vars_for_neo4j(self):
-        """Test factory reads Neo4j config from env vars."""
-        factory = GraphClientFactory()
-
-        assert factory.backend == "neo4j"
-        assert factory.neo4j_uri == "bolt://custom:7687"
-        assert factory.neo4j_username == "custom-user"
-        assert factory.neo4j_password == "custom-pass"
 
 
 class TestSingletonFactory:
@@ -295,7 +235,7 @@ class TestContextManager:
         mock_client = Mock()
         mock_falkordb_class.return_value = mock_client
 
-        with GraphClientFactory(backend="falkordb") as factory:
+        with GraphClientFactory() as factory:
             org_id = uuid4()
             factory.get_client(org_id, "test-org")
             assert len(factory._clients) == 1
@@ -308,28 +248,9 @@ class TestProvisioning:
     """Tests for tenant provisioning/deprovisioning."""
 
     @pytest.mark.asyncio
-    @patch("repotoire.graph.client.Neo4jClient")
-    async def test_provision_neo4j_database(self, mock_neo4j_class):
-        """Test provisioning creates Neo4j database."""
-        mock_admin = Mock()
-        mock_neo4j_class.return_value = mock_admin
-
-        factory = GraphClientFactory(backend="neo4j", strategy="database_per_tenant")
-        org_id = uuid4()
-
-        graph_name = await factory.provision_tenant(org_id, "test-org")
-
-        assert graph_name == "org_test_org"
-        mock_admin.execute_query.assert_called_once()
-        call_args = mock_admin.execute_query.call_args[0][0]
-        assert "CREATE DATABASE" in call_args
-        assert "org_test_org" in call_args
-        mock_admin.close.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_provision_falkordb_is_noop(self):
         """Test FalkorDB provisioning is a no-op (graphs auto-create)."""
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org_id = uuid4()
 
         # Should not raise
@@ -345,31 +266,13 @@ class TestProvisioning:
         mock_client.graph = mock_graph
         mock_falkordb_class.return_value = mock_client
 
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org_id = uuid4()
 
         await factory.deprovision_tenant(org_id, "test-org")
 
         mock_graph.delete.assert_called_once()
         mock_client.close.assert_called_once()
-
-    @pytest.mark.asyncio
-    @patch("repotoire.graph.client.Neo4jClient")
-    async def test_deprovision_neo4j(self, mock_neo4j_class):
-        """Test Neo4j deprovisioning drops database."""
-        mock_admin = Mock()
-        mock_neo4j_class.return_value = mock_admin
-
-        factory = GraphClientFactory(backend="neo4j", strategy="database_per_tenant")
-        org_id = uuid4()
-
-        await factory.deprovision_tenant(org_id, "test-org")
-
-        mock_admin.execute_query.assert_called_once()
-        call_args = mock_admin.execute_query.call_args[0][0]
-        assert "DROP DATABASE" in call_args
-        assert "org_test_org" in call_args
-        mock_admin.close.assert_called_once()
 
 
 class TestGetCachedOrgIds:
@@ -380,7 +283,7 @@ class TestGetCachedOrgIds:
         """Test get_cached_org_ids returns cached orgs."""
         mock_falkordb_class.side_effect = [Mock(), Mock()]
 
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org1 = uuid4()
         org2 = uuid4()
 
@@ -395,7 +298,7 @@ class TestGetCachedOrgIds:
 
     def test_get_cached_org_ids_empty(self):
         """Test get_cached_org_ids when no clients cached."""
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         cached = factory.get_cached_org_ids()
         assert cached == []
 
@@ -420,13 +323,13 @@ class TestFlyIoDefaults:
     @patch.dict("os.environ", {"FLY_APP_NAME": "repotoire-worker"}, clear=True)
     def test_fly_falkordb_host_default(self):
         """Test FalkorDB host defaults to internal DNS on Fly.io."""
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         assert factory.falkordb_host == "repotoire-falkor.internal"
 
     @patch.dict("os.environ", {}, clear=True)
     def test_local_falkordb_host_default(self):
         """Test FalkorDB host defaults to localhost when not on Fly.io."""
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         assert factory.falkordb_host == "localhost"
 
     @patch.dict("os.environ", {
@@ -435,7 +338,7 @@ class TestFlyIoDefaults:
     }, clear=True)
     def test_explicit_host_overrides_fly_default(self):
         """Test explicit FALKORDB_HOST overrides Fly.io default."""
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         assert factory.falkordb_host == "custom-host.local"
 
 
@@ -449,7 +352,7 @@ class TestFalkorDBEnvVars:
     }, clear=True)
     def test_falkordb_env_vars(self):
         """Test factory reads FALKORDB_* env vars."""
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
 
         assert factory.falkordb_host == "falkor.example.com"
         assert factory.falkordb_port == 16379
@@ -461,7 +364,7 @@ class TestFalkorDBEnvVars:
     }, clear=True)
     def test_falkordb_env_takes_precedence(self):
         """Test FALKORDB_* takes precedence over REPOTOIRE_FALKORDB_*."""
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         assert factory.falkordb_host == "from-falkordb"
 
 
@@ -474,7 +377,7 @@ class TestTenantContextValidation:
         mock_client = Mock()
         mock_falkordb_class.return_value = mock_client
 
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org_id = uuid4()
 
         client = factory.get_client(org_id, "test-org")
@@ -489,7 +392,7 @@ class TestTenantContextValidation:
         mock_client = Mock()
         mock_falkordb_class.return_value = mock_client
 
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org1 = uuid4()
         org2 = uuid4()
 
@@ -502,7 +405,7 @@ class TestTenantContextValidation:
 
     def test_validate_tenant_context_non_multitenant(self):
         """Test validation fails for non-multi-tenant clients."""
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
 
         # Create a mock client without _org_id
         mock_client = Mock(spec=[])
@@ -523,7 +426,7 @@ class TestSecurityLogging:
         mock_falkordb_class.return_value = mock_client
 
         with caplog.at_level(logging.INFO):
-            factory = GraphClientFactory(backend="falkordb")
+            factory = GraphClientFactory()
             org_id = uuid4()
             factory.get_client(org_id, "test-org")
 
@@ -538,7 +441,7 @@ class TestSecurityLogging:
         mock_client = Mock()
         mock_falkordb_class.return_value = mock_client
 
-        factory = GraphClientFactory(backend="falkordb")
+        factory = GraphClientFactory()
         org1 = uuid4()
         org2 = uuid4()
 

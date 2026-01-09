@@ -12,7 +12,7 @@ from repotoire.models import (
 
 
 @pytest.fixture
-def mock_neo4j_client():
+def mock_graph_client():
     """Create a mock Neo4j client."""
     client = MagicMock()
     client.get_stats.return_value = {
@@ -27,12 +27,12 @@ def mock_neo4j_client():
 
 
 @pytest.fixture
-def engine(mock_neo4j_client):
+def engine(mock_graph_client):
     """Create an AnalysisEngine instance."""
     with patch('repotoire.detectors.engine.CircularDependencyDetector'), \
          patch('repotoire.detectors.engine.DeadCodeDetector'), \
          patch('repotoire.detectors.engine.GodClassDetector'):
-        return AnalysisEngine(mock_neo4j_client)
+        return AnalysisEngine(mock_graph_client)
 
 
 class TestGradeAssignment:
@@ -376,13 +376,13 @@ class TestFindingsSummarization:
 class TestMetricsCalculation:
     """Test metrics calculation from findings."""
 
-    def test_calculate_metrics_counts_findings(self, mock_neo4j_client):
+    def test_calculate_metrics_counts_findings(self, mock_graph_client):
         """Test that metrics calculation counts findings by detector."""
         with patch('repotoire.detectors.engine.CircularDependencyDetector'), \
              patch('repotoire.detectors.engine.DeadCodeDetector'), \
              patch('repotoire.detectors.engine.GodClassDetector'):
 
-            engine = AnalysisEngine(mock_neo4j_client)
+            engine = AnalysisEngine(mock_graph_client)
 
             findings = [
                 Finding(
@@ -412,10 +412,10 @@ class TestMetricsCalculation:
             assert metrics.circular_dependencies == 2
             assert metrics.god_class_count == 1
 
-    def test_calculate_metrics_dead_code_percentage(self, mock_neo4j_client):
+    def test_calculate_metrics_dead_code_percentage(self, mock_graph_client):
         """Test dead code percentage calculation."""
         # Mock returns: 30 classes + 60 functions = 90 total nodes
-        mock_neo4j_client.get_stats.return_value = {
+        mock_graph_client.get_stats.return_value = {
             "total_files": 10,
             "total_classes": 30,
             "total_functions": 60
@@ -425,7 +425,7 @@ class TestMetricsCalculation:
              patch('repotoire.detectors.engine.DeadCodeDetector'), \
              patch('repotoire.detectors.engine.GodClassDetector'):
 
-            engine = AnalysisEngine(mock_neo4j_client)
+            engine = AnalysisEngine(mock_graph_client)
 
             # 9 dead code findings out of 90 total = 10%
             findings = [
@@ -441,9 +441,9 @@ class TestMetricsCalculation:
 
             assert abs(metrics.dead_code_percentage - 0.1) < 0.01
 
-    def test_calculate_metrics_zero_nodes(self, mock_neo4j_client):
+    def test_calculate_metrics_zero_nodes(self, mock_graph_client):
         """Test metrics calculation handles zero nodes gracefully."""
-        mock_neo4j_client.get_stats.return_value = {
+        mock_graph_client.get_stats.return_value = {
             "total_files": 0,
             "total_classes": 0,
             "total_functions": 0
@@ -453,7 +453,7 @@ class TestMetricsCalculation:
              patch('repotoire.detectors.engine.DeadCodeDetector'), \
              patch('repotoire.detectors.engine.GodClassDetector'):
 
-            engine = AnalysisEngine(mock_neo4j_client)
+            engine = AnalysisEngine(mock_graph_client)
 
             findings = []
             metrics = engine._calculate_metrics(findings)

@@ -17,7 +17,7 @@ from repotoire.api.models import (
 from repotoire.api.auth import ClerkUser, get_current_user
 from repotoire.ai.retrieval import GraphRAGRetriever, RetrievalResult
 from repotoire.ai.embeddings import CodeEmbedder
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -25,13 +25,14 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1/code", tags=["Code Q&A"])
 
 
-# Dependency injection for Neo4j client
-def get_neo4j_client() -> Neo4jClient:
-    """Get Neo4j client instance."""
-    # TODO: Read from config
-    return Neo4jClient(
-        uri="bolt://localhost:7688",
-        password="falkor-password"
+# Dependency injection for FalkorDB client
+def get_graph_client() -> FalkorDBClient:
+    """Get FalkorDB client instance."""
+    import os
+    return FalkorDBClient(
+        host=os.getenv("FALKORDB_HOST", "localhost"),
+        port=int(os.getenv("FALKORDB_PORT", "6379")),
+        password=os.getenv("FALKORDB_PASSWORD")
     )
 
 
@@ -41,12 +42,12 @@ def get_embedder() -> CodeEmbedder:
 
 
 def get_retriever(
-    client: Neo4jClient = Depends(get_neo4j_client),
+    client: FalkorDBClient = Depends(get_graph_client),
     embedder: CodeEmbedder = Depends(get_embedder)
 ) -> GraphRAGRetriever:
     """Get GraphRAGRetriever instance."""
     return GraphRAGRetriever(
-        neo4j_client=client,
+        graph_client=client,
         embedder=embedder
     )
 
@@ -305,7 +306,7 @@ async def ask_code_question(
 )
 async def get_embeddings_status(
     user: ClerkUser = Depends(get_current_user),
-    client: Neo4jClient = Depends(get_neo4j_client)
+    client: FalkorDBClient = Depends(get_graph_client)
 ) -> EmbeddingsStatusResponse:
     """
     Get status of vector embeddings in the knowledge graph.

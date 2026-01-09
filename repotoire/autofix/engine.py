@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Literal
@@ -11,7 +12,7 @@ from repotoire.models import Finding, Severity
 from repotoire.ai.retrieval import GraphRAGRetriever
 from repotoire.ai.embeddings import CodeEmbedder
 from repotoire.ai.llm import LLMClient, LLMConfig, LLMBackend
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.autofix.languages import get_handler, LanguageHandler
 from repotoire.autofix.models import (
     FixProposal,
@@ -40,13 +41,142 @@ logger = get_logger(__name__)
 # Cache for style profiles (keyed by repository path)
 _style_profile_cache: Dict[str, StyleProfile] = {}
 
+# Patterns that could be used for prompt injection attacks
+_PROMPT_INJECTION_PATTERNS = [
+    re.compile(r"ignore\s+(all\s+)?previous\s+instructions?", re.IGNORECASE),
+    re.compile(r"disregard\s+(all\s+)?previous", re.IGNORECASE),
+    re.compile(r"forget\s+(all\s+)?previous", re.IGNORECASE),
+    re.compile(r"system\s*:\s*", re.IGNORECASE),
+    re.compile(r"<\s*system\s*>", re.IGNORECASE),
+    re.compile(r"assistant\s*:\s*", re.IGNORECASE),
+    re.compile(r"human\s*:\s*", re.IGNORECASE),
+    re.compile(r"output\s+(your\s+)?(api\s*key|secret|password|credential)", re.IGNORECASE),
+    re.compile(r"reveal\s+(your\s+)?(api\s*key|secret|password|credential)", re.IGNORECASE),
+]
+
+
+def _sanitize_code_for_prompt(code: str, language: str = "python") -> str:
+    """Remove comments from code to prevent prompt injection attacks.
+
+    Code comments are a primary vector for prompt injection because they
+    appear as natural text that the LLM reads as instructions.
+
+    Args:
+        code: Source code that may contain malicious comments
+        language: Programming language (for language-specific comment syntax)
+
+    Returns:
+        Code with comments removed or sanitized
+    """
+    if not code:
+        return code
+
+    lines = code.split("\n")
+    sanitized_lines = []
+
+    in_multiline_comment = False
+
+    for line in lines:
+        original_line = line
+
+        if language.lower() == "python":
+            # Handle Python multiline strings used as comments (docstrings at module level)
+            # Keep docstrings that are part of function/class definitions
+            if '"""' in line or "'''" in line:
+                # Count quotes to track multiline
+                triple_double = line.count('"""')
+                triple_single = line.count("'''")
+
+                if triple_double % 2 == 1 or triple_single % 2 == 1:
+                    in_multiline_comment = not in_multiline_comment
+
+            # Remove single-line comments (but preserve the code before #)
+            if "#" in line and not in_multiline_comment:
+                # Find the # that starts a comment (not inside a string)
+                in_string = False
+                string_char = None
+                comment_start = -1
+
+                for i, char in enumerate(line):
+                    if char in ('"', "'") and (i == 0 or line[i - 1] != "\\"):
+                        if not in_string:
+                            in_string = True
+                            string_char = char
+                        elif char == string_char:
+                            in_string = False
+                            string_char = None
+                    elif char == "#" and not in_string:
+                        comment_start = i
+                        break
+
+                if comment_start >= 0:
+                    # Check if comment contains injection patterns
+                    comment_text = line[comment_start:]
+                    has_injection = any(
+                        pattern.search(comment_text)
+                        for pattern in _PROMPT_INJECTION_PATTERNS
+                    )
+
+                    if has_injection:
+                        # Remove the entire comment
+                        line = line[:comment_start].rstrip()
+                        logger.warning(
+                            f"Removed potentially malicious comment: {comment_text[:50]}..."
+                        )
+                    else:
+                        # Keep benign comments but truncate very long ones
+                        if len(comment_text) > 200:
+                            line = line[:comment_start] + "# [comment truncated]"
+
+        # For other languages, apply basic sanitization
+        else:
+            # Check for injection patterns in the entire line
+            for pattern in _PROMPT_INJECTION_PATTERNS:
+                if pattern.search(line):
+                    line = "// [potentially unsafe comment removed]"
+                    logger.warning(
+                        f"Sanitized line with injection pattern: {original_line[:50]}..."
+                    )
+                    break
+
+        sanitized_lines.append(line)
+
+    return "\n".join(sanitized_lines)
+
+
+def _sanitize_finding_text(text: str) -> str:
+    """Sanitize finding title/description to prevent prompt injection.
+
+    Args:
+        text: Finding title or description that may contain malicious content
+
+    Returns:
+        Sanitized text safe for inclusion in LLM prompts
+    """
+    if not text:
+        return text
+
+    # Check for injection patterns
+    for pattern in _PROMPT_INJECTION_PATTERNS:
+        if pattern.search(text):
+            # Remove the matched pattern
+            text = pattern.sub("[REDACTED]", text)
+            logger.warning(f"Sanitized finding text containing injection pattern")
+
+    # Truncate very long text that could be used for injection
+    max_length = 1000
+    if len(text) > max_length:
+        text = text[:max_length] + "... [truncated]"
+
+    return text
+
 
 class AutoFixEngine:
     """Generate and validate automatic code fixes."""
 
     def __init__(
         self,
-        neo4j_client: Neo4jClient,
+        graph_client: FalkorDBClient,
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         llm_backend: LLMBackend = "anthropic",
@@ -59,7 +189,7 @@ class AutoFixEngine:
         """Initialize auto-fix engine.
 
         Args:
-            neo4j_client: Neo4j client for RAG context
+            graph_client: FalkorDB client for RAG context
             api_key: API key for LLM backend (or use env var)
             model: Model to use for fix generation (uses backend default if not specified)
             llm_backend: LLM backend to use ("anthropic" or "openai")
@@ -68,7 +198,7 @@ class AutoFixEngine:
             skip_runtime_validation: Skip sandbox-based validation (faster)
             openai_api_key: (Deprecated) Use api_key instead
         """
-        self.neo4j_client = neo4j_client
+        self.graph_client = graph_client
         self.skip_runtime_validation = skip_runtime_validation
 
         # Handle legacy parameter
@@ -87,7 +217,7 @@ class AutoFixEngine:
         # Use OpenAI embeddings for RAG (separate from LLM generation)
         embeddings_api_key = effective_api_key or os.getenv("OPENAI_API_KEY")
         embedder = CodeEmbedder(api_key=embeddings_api_key)
-        self.rag_retriever = GraphRAGRetriever(neo4j_client, embedder)
+        self.rag_retriever = GraphRAGRetriever(graph_client, embedder)
 
         # Initialize template registry for fast, deterministic fixes
         self.template_registry = get_registry()
@@ -573,6 +703,9 @@ class AutoFixEngine:
     ) -> str:
         """Build prompt for LLM fix generation.
 
+        Security: Sanitizes all user-controlled content to prevent prompt injection.
+        Code comments and finding text are sanitized before inclusion in the prompt.
+
         Args:
             finding: The finding to fix
             context: Context for fix
@@ -595,6 +728,19 @@ class AutoFixEngine:
         language_name = handler.language_name
         code_marker = handler.get_code_block_marker()
         fix_guidance = handler.get_fix_template(fix_type.value)
+
+        # SECURITY: Sanitize code to remove potentially malicious comments
+        code_section = _sanitize_code_for_prompt(code_section, language_name)
+
+        # SECURITY: Sanitize related code context
+        sanitized_related_code = [
+            _sanitize_code_for_prompt(code, language_name)
+            for code in context.related_code[:3]
+        ]
+
+        # SECURITY: Sanitize finding title and description
+        sanitized_title = _sanitize_finding_text(finding.title)
+        sanitized_description = _sanitize_finding_text(finding.description or "No description")
 
         # Get style instructions for the repository (only for Python)
         style_section = ""
@@ -619,9 +765,9 @@ class AutoFixEngine:
         prompt = f"""# Code Fix Task
 
 ## Issue Details
-- **Title**: {finding.title}
+- **Title**: {sanitized_title}
 - **Severity**: {finding.severity.value}
-- **Description**: {finding.description or 'No description'}
+- **Description**: {sanitized_description}
 - **File**: {file_path}
 - **Language**: {language_name}
 - **Line**: {finding.line_start or 'unknown'}
@@ -639,7 +785,7 @@ class AutoFixEngine:
 ```
 
 ## Related Code Context
-{chr(10).join(f"```{code_marker}{chr(10)}{code}{chr(10)}```" for code in context.related_code[:3])}
+{chr(10).join(f"```{code_marker}{chr(10)}{code}{chr(10)}```" for code in sanitized_related_code)}
 
 ## Task
 Generate a fix for this issue. Provide your response in the following JSON format:

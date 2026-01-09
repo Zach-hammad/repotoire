@@ -2,7 +2,7 @@
 
 import re
 from repotoire.migrations.migration import Migration, MigrationError
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -19,7 +19,7 @@ class AddClueNodesMigration(Migration):
     def description(self) -> str:
         return "Add Clue nodes for AI-generated semantic code summaries and insights"
 
-    def validate(self, client: Neo4jClient) -> bool:
+    def validate(self, client: FalkorDBClient) -> bool:
         """Validate database is accessible and has version 1 schema."""
         try:
             # Check database connectivity
@@ -46,7 +46,7 @@ class AddClueNodesMigration(Migration):
         except Exception as e:
             raise MigrationError(f"Validation failed: {e}")
 
-    def up(self, client: Neo4jClient) -> None:
+    def up(self, client: FalkorDBClient) -> None:
         """Add Clue node constraints and indexes."""
         logger.info("Adding Clue node schema")
 
@@ -89,7 +89,7 @@ class AddClueNodesMigration(Migration):
 
         logger.info("Clue node schema created successfully")
 
-    def down(self, client: Neo4jClient) -> None:
+    def down(self, client: FalkorDBClient) -> None:
         """Remove Clue node constraints and indexes."""
         logger.info("Removing Clue node schema")
 

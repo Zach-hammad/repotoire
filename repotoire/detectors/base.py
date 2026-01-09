@@ -3,20 +3,20 @@
 from abc import ABC, abstractmethod
 from typing import List
 
-from repotoire.graph import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.models import Finding, Severity
 
 
 class CodeSmellDetector(ABC):
     """Abstract base class for code smell detectors."""
 
-    def __init__(self, neo4j_client: Neo4jClient):
+    def __init__(self, graph_client: FalkorDBClient):
         """Initialize detector.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
         """
-        self.db = neo4j_client
+        self.db = graph_client
 
     @property
     def needs_previous_findings(self) -> bool:

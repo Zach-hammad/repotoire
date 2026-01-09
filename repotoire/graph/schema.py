@@ -219,14 +219,56 @@ class GraphSchema:
 
     def create_indexes(self) -> None:
         """Create all indexes."""
+        import time
         if self.is_falkordb:
-            # Use FalkorDB-specific index syntax
+            # First, get existing indexes to avoid slow CREATE INDEX on existing indexes
+            # FalkorDB blocks for minutes when trying to create an existing index
+            existing_indexes = set()
+            try:
+                result = self.client.execute_query("CALL db.indexes()")
+                for row in result:
+                    # Row format varies, but typically has label and properties
+                    if isinstance(row, dict):
+                        label = row.get("label", row.get("entityType", ""))
+                        props = row.get("properties", row.get("property", []))
+                        if isinstance(props, list):
+                            for prop in props:
+                                existing_indexes.add(f"{label}.{prop}")
+                        else:
+                            existing_indexes.add(f"{label}.{props}")
+                print(f"Found {len(existing_indexes)} existing indexes")
+            except Exception as e:
+                print(f"Could not query existing indexes: {e}")
+
+            # Parse which indexes we need to create
+            # Format: CREATE INDEX ON :Label(property)
+            import re
+            indexes_to_create = []
             for index in self.FALKORDB_INDEXES:
+                match = re.search(r':(\w+)\((\w+)\)', index)
+                if match:
+                    label, prop = match.groups()
+                    key = f"{label}.{prop}"
+                    if key in existing_indexes:
+                        print(f"  Skipping existing index: {label}.{prop}")
+                    else:
+                        indexes_to_create.append((index, label, prop))
+                else:
+                    indexes_to_create.append((index, None, None))
+
+            if not indexes_to_create:
+                print("All indexes already exist, skipping creation")
+                return
+
+            print(f"Creating {len(indexes_to_create)} new FalkorDB indexes...")
+            for i, (index, label, prop) in enumerate(indexes_to_create):
+                start = time.time()
                 try:
                     self.client.execute_query(index)
+                    print(f"  [{i+1}/{len(indexes_to_create)}] Created index in {time.time()-start:.1f}s: {label}.{prop}")
                 except Exception as e:
-                    # Index may already exist
-                    pass
+                    print(f"  [{i+1}/{len(indexes_to_create)}] Index failed in {time.time()-start:.1f}s: {e}")
+            print("FalkorDB indexes done!")
             return
 
         for index in self.INDEXES:
@@ -267,21 +309,64 @@ class GraphSchema:
         Args:
             dimensions: Vector dimensions (1536 for OpenAI, 384 for local)
         """
-        print(f"Creating vector indexes with {dimensions} dimensions...")
+        import time
 
-        for label, index_name, alias in self.VECTOR_INDEX_DEFS:
+        if self.is_falkordb:
+            # Check existing vector indexes to avoid slow CREATE on existing
+            existing_vector_indexes = set()
             try:
-                if self.is_falkordb:
+                result = self.client.execute_query("CALL db.indexes()")
+                for row in result:
+                    if isinstance(row, dict):
+                        # Vector indexes have 'embedding' property
+                        label = row.get("label", row.get("entityType", ""))
+                        props = row.get("properties", row.get("property", []))
+                        if isinstance(props, list) and "embedding" in props:
+                            existing_vector_indexes.add(label)
+                        elif props == "embedding":
+                            existing_vector_indexes.add(label)
+            except Exception as e:
+                print(f"Could not query vector indexes: {e}")
+
+            # Filter to only create missing vector indexes
+            indexes_to_create = [
+                (label, index_name, alias)
+                for label, index_name, alias in self.VECTOR_INDEX_DEFS
+                if label not in existing_vector_indexes
+            ]
+
+            if not indexes_to_create:
+                print(f"All {len(self.VECTOR_INDEX_DEFS)} vector indexes already exist, skipping")
+                return
+
+            skipped = len(self.VECTOR_INDEX_DEFS) - len(indexes_to_create)
+            if skipped > 0:
+                print(f"Skipping {skipped} existing vector indexes")
+
+            print(f"Creating {len(indexes_to_create)} vector indexes with {dimensions} dimensions...")
+            for i, (label, index_name, alias) in enumerate(indexes_to_create):
+                start = time.time()
+                try:
                     query = self._falkordb_vector_index_query(label, alias, dimensions)
-                else:
-                    query = self._neo4j_vector_index_query(
-                        label, index_name, alias, dimensions
-                    )
+                    self.client.execute_query(query)
+                    print(f"  [{i+1}/{len(indexes_to_create)}] Created vector index for {label} in {time.time()-start:.1f}s")
+                except Exception as e:
+                    print(f"  [{i+1}/{len(indexes_to_create)}] Vector index for {label} failed in {time.time()-start:.1f}s: {e}")
+            return
+
+        # Neo4j path
+        print(f"Creating {len(self.VECTOR_INDEX_DEFS)} vector indexes with {dimensions} dimensions...")
+        for i, (label, index_name, alias) in enumerate(self.VECTOR_INDEX_DEFS):
+            start = time.time()
+            try:
+                query = self._neo4j_vector_index_query(
+                    label, index_name, alias, dimensions
+                )
                 self.client.execute_query(query)
+                print(f"  [{i+1}/{len(self.VECTOR_INDEX_DEFS)}] Created vector index for {label} in {time.time()-start:.1f}s")
             except Exception as e:
                 # Index may already exist or vector support not enabled
-                db_type = "FalkorDB" if self.is_falkordb else "Neo4j 5.18+"
-                print(f"Info: Could not create vector index for {label} (requires {db_type}): {e}")
+                print(f"  [{i+1}/{len(self.VECTOR_INDEX_DEFS)}] Vector index for {label} failed/exists in {time.time()-start:.1f}s: {e}")
 
     def initialize(
         self,

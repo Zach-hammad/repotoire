@@ -50,7 +50,7 @@ try:
 except ImportError:
     SKLEARN_AVAILABLE = False
 
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.ml.training_data import TrainingDataset, TrainingExample
 
 # Try to import Rust accelerated functions (REPO-248)
@@ -185,13 +185,13 @@ class FeatureExtractor:
 
     def __init__(
         self,
-        client: Neo4jClient,
+        client: FalkorDBClient,
         embedding_property: str = "node2vec_embedding",
     ):
         """Initialize feature extractor.
 
         Args:
-            client: Neo4j database client
+            client: FalkorDB database client
             embedding_property: Node property containing embeddings
         """
         self.client = client
@@ -421,7 +421,7 @@ class BugPredictor:
 
     Example:
         >>> # Train a model
-        >>> client = Neo4jClient.from_env()
+        >>> client = FalkorDBClient.from_env()
         >>> predictor = BugPredictor(client)
         >>> metrics = predictor.train(training_dataset)
         >>> print(f"AUC-ROC: {metrics.auc_roc:.2f}")
@@ -437,13 +437,13 @@ class BugPredictor:
 
     def __init__(
         self,
-        client: Neo4jClient,
+        client: FalkorDBClient,
         config: Optional[BugPredictorConfig] = None,
     ):
         """Initialize bug predictor.
 
         Args:
-            client: Neo4j database client
+            client: FalkorDB database client
             config: Model configuration (uses defaults if not provided)
 
         Raises:
@@ -900,12 +900,12 @@ class BugPredictor:
         logger.info(f"Model saved to {path}")
 
     @classmethod
-    def load(cls, path: Path, client: Neo4jClient) -> "BugPredictor":
+    def load(cls, path: Path, client: FalkorDBClient) -> "BugPredictor":
         """Load trained model from disk.
 
         Args:
             path: Path to the saved model file
-            client: Neo4j database client
+            client: FalkorDB database client
 
         Returns:
             BugPredictor instance with loaded model

@@ -11,7 +11,7 @@ No GDS or plugins required - works with both Neo4j and FalkorDB.
 from typing import List, Optional
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.graph_algorithms import GraphAlgorithms
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import FalkorDBClient
 from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
 
@@ -41,13 +41,13 @@ class DegreeCentralityDetector(CodeSmellDetector):
     MIN_INDEGREE = 5
     MIN_OUTDEGREE = 10
 
-    def __init__(self, neo4j_client: Neo4jClient):
-        """Initialize detector with Neo4j client.
+    def __init__(self, graph_client: FalkorDBClient):
+        """Initialize detector with FalkorDB client.
 
         Args:
-            neo4j_client: Neo4j database client
+            graph_client: FalkorDB database client
         """
-        super().__init__(neo4j_client)
+        super().__init__(graph_client)
 
     def detect(self) -> List[Finding]:
         """Detect coupling issues using degree centrality.
