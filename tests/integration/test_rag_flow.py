@@ -465,7 +465,7 @@ class TestAPIEndpoints:
     def api_client(self, test_graph_client, ingested_rag_codebase):
         """Create FastAPI test client with mocked dependencies."""
         from repotoire.api.app import app
-        from repotoire.api.routes import code
+        from repotoire.api.v1.routes import code
 
         # Mock the get_graph_client dependency
         def override_get_graph_client():
@@ -524,7 +524,7 @@ class TestAPIEndpoints:
         )
         assert response.status_code == 422
 
-    @patch('repotoire.api.routes.code.OpenAI')
+    @patch('repotoire.api.v1.routes.code.OpenAI')
     def test_ask_endpoint(self, mock_openai, api_client):
         """Test POST /api/v1/code/ask endpoint."""
         # Mock OpenAI responses

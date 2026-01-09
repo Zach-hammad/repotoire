@@ -70,7 +70,7 @@ class TestSendInviteRequest:
 
     def test_valid_request(self):
         """Test creating a valid invite request."""
-        from repotoire.api.routes.team import SendInviteRequest
+        from repotoire.api.v1.routes.team import SendInviteRequest
 
         request = SendInviteRequest(
             email="test@example.com",
@@ -81,7 +81,7 @@ class TestSendInviteRequest:
 
     def test_default_role(self):
         """Test that role defaults to MEMBER."""
-        from repotoire.api.routes.team import SendInviteRequest
+        from repotoire.api.v1.routes.team import SendInviteRequest
 
         request = SendInviteRequest(email="test@example.com")
         assert request.role == MemberRole.MEMBER
@@ -92,7 +92,7 @@ class TestInviteResponse:
 
     def test_from_invite(self, sample_invite):
         """Test creating response from invite model."""
-        from repotoire.api.routes.team import InviteResponse
+        from repotoire.api.v1.routes.team import InviteResponse
 
         response = InviteResponse(
             id=sample_invite.id,
@@ -113,7 +113,7 @@ class TestHelperFunctions:
     @pytest.mark.asyncio
     async def test_get_user_org(self, mock_db, sample_organization):
         """Test getting user's organization."""
-        from repotoire.api.routes.team import get_user_org
+        from repotoire.api.v1.routes.team import get_user_org
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = sample_organization
@@ -128,7 +128,7 @@ class TestHelperFunctions:
     @pytest.mark.asyncio
     async def test_get_user_org_no_slug(self, mock_db):
         """Test getting org when user has no org_slug."""
-        from repotoire.api.routes.team import get_user_org
+        from repotoire.api.v1.routes.team import get_user_org
 
         user = MagicMock()
         user.org_slug = None
@@ -139,7 +139,7 @@ class TestHelperFunctions:
     @pytest.mark.asyncio
     async def test_get_db_user(self, mock_db, sample_user):
         """Test getting database user by Clerk ID."""
-        from repotoire.api.routes.team import get_db_user
+        from repotoire.api.v1.routes.team import get_db_user
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = sample_user
@@ -153,11 +153,11 @@ class TestHelperFunctions:
         self, mock_db, sample_user, sample_organization
     ):
         """Test checking if user is admin returns true for admin."""
-        from repotoire.api.routes.team import check_user_is_admin
+        from repotoire.api.v1.routes.team import check_user_is_admin
 
         # Mock get_db_user
         with patch(
-            "repotoire.api.routes.team.get_db_user",
+            "repotoire.api.v1.routes.team.get_db_user",
             new_callable=AsyncMock,
         ) as mock_get_user:
             mock_get_user.return_value = sample_user
@@ -184,10 +184,10 @@ class TestHelperFunctions:
         self, mock_db, sample_user, sample_organization
     ):
         """Test checking if user is admin returns false for member."""
-        from repotoire.api.routes.team import check_user_is_admin
+        from repotoire.api.v1.routes.team import check_user_is_admin
 
         with patch(
-            "repotoire.api.routes.team.get_db_user",
+            "repotoire.api.v1.routes.team.get_db_user",
             new_callable=AsyncMock,
         ) as mock_get_user:
             mock_get_user.return_value = sample_user

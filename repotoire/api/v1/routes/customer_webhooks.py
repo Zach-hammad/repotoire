@@ -4,12 +4,12 @@ This module provides API endpoints for managing customer webhook endpoints,
 including CRUD operations, testing, secret rotation, and delivery history.
 
 Following patterns from:
-- repotoire/api/routes/audit.py (auth, pagination, response models)
-- repotoire/api/routes/organizations.py (CRUD operations)
+- repotoire/api/v1/routes/audit.py (auth, pagination, response models)
+- repotoire/api/v1/routes/organizations.py (CRUD operations)
 
 Usage:
-    from repotoire.api.routes import customer_webhooks
-    app.include_router(customer_webhooks.router, prefix="/api/v1")
+    from repotoire.api.v1.routes import customer_webhooks
+    app.include_router(customer_webhooks.router)
 """
 
 import secrets

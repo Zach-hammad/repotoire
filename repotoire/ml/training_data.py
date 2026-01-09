@@ -319,8 +319,8 @@ class GitBugLabelExtractor:
         functions: List[FunctionInfo] = []
 
         # Calculate module name for qualified names
-        # file_path from git diff is already relative to repo root (e.g., "repotoire/api/routes/fixes.py")
-        # Convert to module-style path: "repotoire.api.routes.fixes"
+        # file_path from git diff is already relative to repo root (e.g., "repotoire/api/v1/routes/fixes.py")
+        # Convert to module-style path: "repotoire.api.v1.routes.fixes"
         file_path_obj = Path(file_path)
         if file_path_obj.is_absolute():
             # If absolute, try to make relative to repo_path

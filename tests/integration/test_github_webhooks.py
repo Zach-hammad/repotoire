@@ -15,7 +15,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from repotoire.api.routes.github import handle_push_event
+from repotoire.api.v1.routes.github import handle_push_event
 from repotoire.db.models import (
     AnalysisRun,
     AnalysisStatus,

@@ -88,7 +88,7 @@ class TestSendPaymentFailedEmail:
         sample_invoice,
     ):
         """Test that payment failed email is sent to org owner."""
-        from repotoire.api.routes.webhooks import _send_payment_failed_email
+        from repotoire.api.v1.routes.webhooks import _send_payment_failed_email
 
         # Set up mock to return org and owner
         mock_db.get = AsyncMock(return_value=sample_organization)
@@ -120,7 +120,7 @@ class TestSendPaymentFailedEmail:
         sample_invoice,
     ):
         """Test graceful handling when no billing email is found."""
-        from repotoire.api.routes.webhooks import _send_payment_failed_email
+        from repotoire.api.v1.routes.webhooks import _send_payment_failed_email
 
         # Set up mock to return org but no owner
         mock_db.get = AsyncMock(return_value=sample_organization)
@@ -148,7 +148,7 @@ class TestSendPaymentFailedEmail:
         sample_invoice,
     ):
         """Test graceful handling when organization is not found."""
-        from repotoire.api.routes.webhooks import _send_payment_failed_email
+        from repotoire.api.v1.routes.webhooks import _send_payment_failed_email
 
         mock_db.get = AsyncMock(return_value=None)
 
@@ -172,7 +172,7 @@ class TestSendPaymentFailedEmail:
         sample_invoice,
     ):
         """Test graceful handling when email service fails."""
-        from repotoire.api.routes.webhooks import _send_payment_failed_email
+        from repotoire.api.v1.routes.webhooks import _send_payment_failed_email
 
         mock_db.get = AsyncMock(return_value=sample_organization)
 
@@ -199,7 +199,7 @@ class TestSendPaymentFailedEmail:
         sample_user,
     ):
         """Test that amount is formatted correctly from cents."""
-        from repotoire.api.routes.webhooks import _send_payment_failed_email
+        from repotoire.api.v1.routes.webhooks import _send_payment_failed_email
 
         mock_db.get = AsyncMock(return_value=sample_organization)
 
@@ -233,17 +233,17 @@ class TestHandlePaymentFailed:
     @pytest.mark.asyncio
     async def test_marks_subscription_as_past_due(self, mock_db, sample_subscription):
         """Test that subscription is marked as past due."""
-        from repotoire.api.routes.webhooks import handle_payment_failed
+        from repotoire.api.v1.routes.webhooks import handle_payment_failed
 
         # Mock get_subscription_by_stripe_id
         with patch(
-            "repotoire.api.routes.webhooks.get_subscription_by_stripe_id",
+            "repotoire.api.v1.routes.webhooks.get_subscription_by_stripe_id",
             new_callable=AsyncMock,
         ) as mock_get_sub:
             mock_get_sub.return_value = sample_subscription
 
             with patch(
-                "repotoire.api.routes.webhooks._send_payment_failed_email",
+                "repotoire.api.v1.routes.webhooks._send_payment_failed_email",
                 new_callable=AsyncMock,
             ):
                 invoice = {"id": "in_123", "subscription": "sub_123"}
@@ -255,7 +255,7 @@ class TestHandlePaymentFailed:
     @pytest.mark.asyncio
     async def test_skips_invoice_without_subscription(self, mock_db):
         """Test that invoices without subscription ID are skipped."""
-        from repotoire.api.routes.webhooks import handle_payment_failed
+        from repotoire.api.v1.routes.webhooks import handle_payment_failed
 
         invoice = {"id": "in_123"}  # No subscription
         await handle_payment_failed(mock_db, invoice)
@@ -269,10 +269,10 @@ class TestSendWelcomeEmail:
     @pytest.mark.asyncio
     async def test_sends_welcome_email(self, mock_db, sample_user):
         """Test that welcome email is sent to new user."""
-        from repotoire.api.routes.webhooks import _send_welcome_email
+        from repotoire.api.v1.routes.webhooks import _send_welcome_email
 
         with patch(
-            "repotoire.api.routes.webhooks.get_user_by_clerk_id",
+            "repotoire.api.v1.routes.webhooks.get_user_by_clerk_id",
             new_callable=AsyncMock,
         ) as mock_get_user:
             mock_get_user.return_value = sample_user
@@ -292,10 +292,10 @@ class TestSendWelcomeEmail:
     @pytest.mark.asyncio
     async def test_handles_user_not_found(self, mock_db):
         """Test graceful handling when user is not found."""
-        from repotoire.api.routes.webhooks import _send_welcome_email
+        from repotoire.api.v1.routes.webhooks import _send_welcome_email
 
         with patch(
-            "repotoire.api.routes.webhooks.get_user_by_clerk_id",
+            "repotoire.api.v1.routes.webhooks.get_user_by_clerk_id",
             new_callable=AsyncMock,
         ) as mock_get_user:
             mock_get_user.return_value = None
@@ -313,10 +313,10 @@ class TestSendWelcomeEmail:
     @pytest.mark.asyncio
     async def test_handles_email_service_error(self, mock_db, sample_user):
         """Test graceful handling when email service fails."""
-        from repotoire.api.routes.webhooks import _send_welcome_email
+        from repotoire.api.v1.routes.webhooks import _send_welcome_email
 
         with patch(
-            "repotoire.api.routes.webhooks.get_user_by_clerk_id",
+            "repotoire.api.v1.routes.webhooks.get_user_by_clerk_id",
             new_callable=AsyncMock,
         ) as mock_get_user:
             mock_get_user.return_value = sample_user
@@ -338,7 +338,7 @@ class TestOrganizationCreated:
     @pytest.mark.asyncio
     async def test_creates_new_organization(self, mock_db):
         """Test that a new organization is created from Clerk webhook."""
-        from repotoire.api.routes.webhooks import handle_organization_created
+        from repotoire.api.v1.routes.webhooks import handle_organization_created
 
         # Mock no existing org
         mock_result = MagicMock()
@@ -346,7 +346,7 @@ class TestOrganizationCreated:
         mock_db.execute = AsyncMock(return_value=mock_result)
 
         with patch(
-            "repotoire.api.routes.webhooks.get_org_by_clerk_org_id",
+            "repotoire.api.v1.routes.webhooks.get_org_by_clerk_org_id",
             new_callable=AsyncMock,
         ) as mock_get_org:
             mock_get_org.return_value = None
@@ -365,10 +365,10 @@ class TestOrganizationCreated:
     @pytest.mark.asyncio
     async def test_skips_existing_organization(self, mock_db, sample_organization):
         """Test that existing organization is not duplicated."""
-        from repotoire.api.routes.webhooks import handle_organization_created
+        from repotoire.api.v1.routes.webhooks import handle_organization_created
 
         with patch(
-            "repotoire.api.routes.webhooks.get_org_by_clerk_org_id",
+            "repotoire.api.v1.routes.webhooks.get_org_by_clerk_org_id",
             new_callable=AsyncMock,
         ) as mock_get_org:
             mock_get_org.return_value = sample_organization
@@ -386,7 +386,7 @@ class TestOrganizationCreated:
     @pytest.mark.asyncio
     async def test_handles_missing_slug(self, mock_db):
         """Test graceful handling when slug is missing."""
-        from repotoire.api.routes.webhooks import handle_organization_created
+        from repotoire.api.v1.routes.webhooks import handle_organization_created
 
         data = {
             "id": "org_123",
@@ -405,10 +405,10 @@ class TestOrganizationUpdated:
     @pytest.mark.asyncio
     async def test_updates_organization_name(self, mock_db, sample_organization):
         """Test that organization name is updated."""
-        from repotoire.api.routes.webhooks import handle_organization_updated
+        from repotoire.api.v1.routes.webhooks import handle_organization_updated
 
         with patch(
-            "repotoire.api.routes.webhooks.get_org_by_clerk_org_id",
+            "repotoire.api.v1.routes.webhooks.get_org_by_clerk_org_id",
             new_callable=AsyncMock,
         ) as mock_get_org:
             mock_get_org.return_value = sample_organization
@@ -426,14 +426,14 @@ class TestOrganizationUpdated:
     @pytest.mark.asyncio
     async def test_handles_org_not_found(self, mock_db):
         """Test graceful handling when organization is not found."""
-        from repotoire.api.routes.webhooks import handle_organization_updated
+        from repotoire.api.v1.routes.webhooks import handle_organization_updated
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_db.execute = AsyncMock(return_value=mock_result)
 
         with patch(
-            "repotoire.api.routes.webhooks.get_org_by_clerk_org_id",
+            "repotoire.api.v1.routes.webhooks.get_org_by_clerk_org_id",
             new_callable=AsyncMock,
         ) as mock_get_org:
             mock_get_org.return_value = None
@@ -455,12 +455,12 @@ class TestOrganizationDeleted:
     @pytest.mark.asyncio
     async def test_unlinks_organization(self, mock_db, sample_organization):
         """Test that organization is unlinked from Clerk (soft delete)."""
-        from repotoire.api.routes.webhooks import handle_organization_deleted
+        from repotoire.api.v1.routes.webhooks import handle_organization_deleted
 
         sample_organization.clerk_org_id = "org_123"
 
         with patch(
-            "repotoire.api.routes.webhooks.get_org_by_clerk_org_id",
+            "repotoire.api.v1.routes.webhooks.get_org_by_clerk_org_id",
             new_callable=AsyncMock,
         ) as mock_get_org:
             mock_get_org.return_value = sample_organization
@@ -475,10 +475,10 @@ class TestOrganizationDeleted:
     @pytest.mark.asyncio
     async def test_handles_org_not_found(self, mock_db):
         """Test graceful handling when organization is not found."""
-        from repotoire.api.routes.webhooks import handle_organization_deleted
+        from repotoire.api.v1.routes.webhooks import handle_organization_deleted
 
         with patch(
-            "repotoire.api.routes.webhooks.get_org_by_clerk_org_id",
+            "repotoire.api.v1.routes.webhooks.get_org_by_clerk_org_id",
             new_callable=AsyncMock,
         ) as mock_get_org:
             mock_get_org.return_value = None

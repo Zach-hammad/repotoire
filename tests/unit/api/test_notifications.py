@@ -61,7 +61,7 @@ def mock_email_preferences(mock_user):
 @pytest.fixture
 def app():
     """Create test FastAPI app with notifications routes."""
-    from repotoire.api.routes.notifications import router
+    from repotoire.api.v1.routes.notifications import router
 
     test_app = FastAPI()
     test_app.include_router(router)
@@ -84,7 +84,7 @@ class TestEmailPreferencesModels:
 
     def test_email_preferences_request_defaults(self):
         """EmailPreferencesRequest should have sensible defaults."""
-        from repotoire.api.routes.notifications import EmailPreferencesRequest
+        from repotoire.api.v1.routes.notifications import EmailPreferencesRequest
 
         request = EmailPreferencesRequest()
 
@@ -98,7 +98,7 @@ class TestEmailPreferencesModels:
 
     def test_email_preferences_request_custom_values(self):
         """EmailPreferencesRequest should accept custom values."""
-        from repotoire.api.routes.notifications import EmailPreferencesRequest
+        from repotoire.api.v1.routes.notifications import EmailPreferencesRequest
 
         request = EmailPreferencesRequest(
             analysis_complete=False,
@@ -117,7 +117,7 @@ class TestEmailPreferencesModels:
     def test_email_preferences_request_threshold_validation(self):
         """EmailPreferencesRequest should validate regression_threshold bounds."""
         from pydantic import ValidationError
-        from repotoire.api.routes.notifications import EmailPreferencesRequest
+        from repotoire.api.v1.routes.notifications import EmailPreferencesRequest
 
         # Below minimum
         with pytest.raises(ValidationError):
@@ -135,7 +135,7 @@ class TestEmailPreferencesModels:
 
     def test_email_preferences_response(self, mock_email_preferences):
         """EmailPreferencesResponse should serialize correctly."""
-        from repotoire.api.routes.notifications import EmailPreferencesResponse
+        from repotoire.api.v1.routes.notifications import EmailPreferencesResponse
 
         response = EmailPreferencesResponse.model_validate(mock_email_preferences)
 
@@ -157,7 +157,7 @@ class TestGetEmailPreferences:
         self, mock_clerk_user, mock_user
     ):
         """Should return default preferences for user without custom settings."""
-        from repotoire.api.routes.notifications import get_email_preferences
+        from repotoire.api.v1.routes.notifications import get_email_preferences
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -165,7 +165,7 @@ class TestGetEmailPreferences:
         mock_session.execute.return_value = mock_result
 
         with patch(
-            "repotoire.api.routes.notifications.get_user_by_clerk_id",
+            "repotoire.api.v1.routes.notifications.get_user_by_clerk_id",
             return_value=mock_user,
         ):
             response = await get_email_preferences(
@@ -186,7 +186,7 @@ class TestGetEmailPreferences:
         self, mock_clerk_user, mock_user, mock_email_preferences
     ):
         """Should return user's custom preferences when they exist."""
-        from repotoire.api.routes.notifications import get_email_preferences
+        from repotoire.api.v1.routes.notifications import get_email_preferences
 
         # Customize the mock preferences
         mock_email_preferences.weekly_digest = True
@@ -198,7 +198,7 @@ class TestGetEmailPreferences:
         mock_session.execute.return_value = mock_result
 
         with patch(
-            "repotoire.api.routes.notifications.get_user_by_clerk_id",
+            "repotoire.api.v1.routes.notifications.get_user_by_clerk_id",
             return_value=mock_user,
         ):
             response = await get_email_preferences(
@@ -218,7 +218,7 @@ class TestUpdateEmailPreferences:
         self, mock_clerk_user, mock_user, mock_email_preferences
     ):
         """Should create new preferences if none exist."""
-        from repotoire.api.routes.notifications import (
+        from repotoire.api.v1.routes.notifications import (
             update_email_preferences,
             EmailPreferencesRequest,
         )
@@ -240,7 +240,7 @@ class TestUpdateEmailPreferences:
         )
 
         with patch(
-            "repotoire.api.routes.notifications.get_user_by_clerk_id",
+            "repotoire.api.v1.routes.notifications.get_user_by_clerk_id",
             return_value=mock_user,
         ):
             response = await update_email_preferences(
@@ -257,7 +257,7 @@ class TestUpdateEmailPreferences:
         self, mock_clerk_user, mock_user, mock_email_preferences
     ):
         """Should update existing preferences."""
-        from repotoire.api.routes.notifications import (
+        from repotoire.api.v1.routes.notifications import (
             update_email_preferences,
             EmailPreferencesRequest,
         )
@@ -273,7 +273,7 @@ class TestUpdateEmailPreferences:
         )
 
         with patch(
-            "repotoire.api.routes.notifications.get_user_by_clerk_id",
+            "repotoire.api.v1.routes.notifications.get_user_by_clerk_id",
             return_value=mock_user,
         ):
             response = await update_email_preferences(
@@ -296,7 +296,7 @@ class TestResetEmailPreferences:
         self, mock_clerk_user, mock_user, mock_email_preferences
     ):
         """Should delete existing preferences and return defaults."""
-        from repotoire.api.routes.notifications import reset_email_preferences
+        from repotoire.api.v1.routes.notifications import reset_email_preferences
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -304,7 +304,7 @@ class TestResetEmailPreferences:
         mock_session.execute.return_value = mock_result
 
         with patch(
-            "repotoire.api.routes.notifications.get_user_by_clerk_id",
+            "repotoire.api.v1.routes.notifications.get_user_by_clerk_id",
             return_value=mock_user,
         ):
             response = await reset_email_preferences(
@@ -325,7 +325,7 @@ class TestResetEmailPreferences:
         self, mock_clerk_user, mock_user
     ):
         """Should return defaults even if no preferences exist."""
-        from repotoire.api.routes.notifications import reset_email_preferences
+        from repotoire.api.v1.routes.notifications import reset_email_preferences
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -333,7 +333,7 @@ class TestResetEmailPreferences:
         mock_session.execute.return_value = mock_result
 
         with patch(
-            "repotoire.api.routes.notifications.get_user_by_clerk_id",
+            "repotoire.api.v1.routes.notifications.get_user_by_clerk_id",
             return_value=mock_user,
         ):
             response = await reset_email_preferences(
@@ -353,12 +353,12 @@ class TestUserNotFound:
     async def test_get_preferences_user_not_found(self, mock_clerk_user):
         """Should raise 404 if user not found."""
         from fastapi import HTTPException
-        from repotoire.api.routes.notifications import get_email_preferences
+        from repotoire.api.v1.routes.notifications import get_email_preferences
 
         mock_session = AsyncMock()
 
         with patch(
-            "repotoire.api.routes.notifications.get_user_by_clerk_id",
+            "repotoire.api.v1.routes.notifications.get_user_by_clerk_id",
             return_value=None,
         ):
             with pytest.raises(HTTPException) as exc_info:

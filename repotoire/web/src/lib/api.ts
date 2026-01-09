@@ -22,21 +22,8 @@ import {
   TrendDataPoint,
 } from '@/types';
 
-// NOTE: Removed billing types (CheckoutRequest, CheckoutResponse, PlansResponse, PortalResponse,
-// PriceCalculationRequest, PriceCalculationResponse, PlanTier) as part of Clerk Billing migration.
-// Subscription management is now handled by Clerk components.
-import {
-  getMockFixes,
-  getMockFix,
-  getMockAnalyticsSummary,
-  getMockTrends,
-  getMockFileHotspots,
-  getMockComments,
-  getMockHealthScore,
-} from './mock-data';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
-const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK === 'true' || !process.env.NEXT_PUBLIC_API_URL;
+// Trim env values to handle any trailing whitespace/newlines
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1').trim();
 
 class ApiError extends Error {
   constructor(
@@ -107,11 +94,6 @@ export const fixesApi = {
     page: number = 1,
     pageSize: number = 20
   ): Promise<PaginatedResponse<FixProposal>> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 300)); // Simulate network delay
-      return getMockFixes(page, pageSize, filters?.status, filters?.confidence, filters?.fix_type, filters?.search);
-    }
-
     const params = new URLSearchParams();
     params.set('page', String(page));
     params.set('page_size', String(pageSize));
@@ -143,21 +125,11 @@ export const fixesApi = {
 
   // Get a single fix by ID
   get: async (id: string): Promise<FixProposal> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 200));
-      const fix = getMockFix(id);
-      if (!fix) throw new ApiError('Fix not found', 404);
-      return fix;
-    }
     return request<FixProposal>(`/fixes/${id}`);
   },
 
   // Approve a fix
   approve: async (id: string): Promise<ApiResponse<FixProposal>> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 500));
-      return { data: getMockFix(id)!, success: true };
-    }
     return request<ApiResponse<FixProposal>>(`/fixes/${id}/approve`, {
       method: 'POST',
     });
@@ -168,10 +140,6 @@ export const fixesApi = {
     id: string,
     reason: string
   ): Promise<ApiResponse<FixProposal>> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 500));
-      return { data: getMockFix(id)!, success: true };
-    }
     return request<ApiResponse<FixProposal>>(`/fixes/${id}/reject`, {
       method: 'POST',
       body: JSON.stringify({ reason }),
@@ -180,10 +148,6 @@ export const fixesApi = {
 
   // Apply an approved fix
   apply: async (id: string): Promise<ApiResponse<FixProposal>> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 1000));
-      return { data: getMockFix(id)!, success: true };
-    }
     return request<ApiResponse<FixProposal>>(`/fixes/${id}/apply`, {
       method: 'POST',
     });
@@ -194,19 +158,6 @@ export const fixesApi = {
     id: string,
     content: string
   ): Promise<ApiResponse<FixComment>> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 300));
-      return {
-        data: {
-          id: `comment-${Date.now()}`,
-          fix_id: id,
-          author: 'You',
-          content,
-          created_at: new Date().toISOString(),
-        },
-        success: true,
-      };
-    }
     return request<ApiResponse<FixComment>>(`/fixes/${id}/comment`, {
       method: 'POST',
       body: JSON.stringify({ content }),
@@ -215,19 +166,11 @@ export const fixesApi = {
 
   // Get comments for a fix
   getComments: async (id: string): Promise<FixComment[]> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 200));
-      return getMockComments(id);
-    }
     return request<FixComment[]>(`/fixes/${id}/comments`);
   },
 
   // Batch approve fixes
   batchApprove: async (ids: string[]): Promise<ApiResponse<{ approved: number }>> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 800));
-      return { data: { approved: ids.length }, success: true };
-    }
     return request<ApiResponse<{ approved: number }>>('/fixes/batch/approve', {
       method: 'POST',
       body: JSON.stringify({ ids }),
@@ -239,10 +182,6 @@ export const fixesApi = {
     ids: string[],
     reason: string
   ): Promise<ApiResponse<{ rejected: number }>> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 800));
-      return { data: { rejected: ids.length }, success: true };
-    }
     return request<ApiResponse<{ rejected: number }>>('/fixes/batch/reject', {
       method: 'POST',
       body: JSON.stringify({ ids, reason }),
@@ -251,32 +190,6 @@ export const fixesApi = {
 
   // Preview a fix in sandbox before approving
   preview: async (id: string): Promise<PreviewResult> => {
-    if (USE_MOCK) {
-      // Simulate preview execution with mock data
-      await new Promise((r) => setTimeout(r, 1500));
-      return {
-        success: true,
-        stdout: '',
-        stderr: '',
-        duration_ms: 850,
-        checks: [
-          {
-            name: 'syntax',
-            passed: true,
-            message: 'Syntax valid',
-            duration_ms: 5,
-          },
-          {
-            name: 'import',
-            passed: true,
-            message: 'Imports valid',
-            duration_ms: 150,
-          },
-        ],
-        error: null,
-        cached_at: null,
-      };
-    }
     return request<PreviewResult>(`/fixes/${id}/preview`, {
       method: 'POST',
     });
@@ -287,14 +200,6 @@ export const fixesApi = {
     analysisRunId: string,
     options?: { maxFixes?: number; severityFilter?: string[] }
   ): Promise<{ status: string; message: string; task_id?: string }> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 500));
-      return {
-        status: 'queued',
-        message: 'Fix generation queued (mock)',
-        task_id: 'mock-task-id',
-      };
-    }
     return request(`/fixes/generate/${analysisRunId}`, {
       method: 'POST',
       body: JSON.stringify({
@@ -369,10 +274,6 @@ export const findingsApi = {
 export const analyticsApi = {
   // Get dashboard summary
   summary: async (): Promise<AnalyticsSummary> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 400));
-      return getMockAnalyticsSummary();
-    }
     return request<AnalyticsSummary>('/analytics/summary');
   },
 
@@ -381,10 +282,6 @@ export const analyticsApi = {
     period: 'day' | 'week' | 'month' = 'week',
     limit: number = 30
   ): Promise<TrendDataPoint[]> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 300));
-      return getMockTrends(limit);
-    }
     return request<TrendDataPoint[]>(
       `/analytics/trends?period=${period}&limit=${limit}`
     );
@@ -392,45 +289,21 @@ export const analyticsApi = {
 
   // Get breakdown by detector type
   byType: async (): Promise<Record<string, number>> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 200));
-      return getMockAnalyticsSummary().by_detector;
-    }
     return request<Record<string, number>>('/analytics/by-type');
   },
 
   // Get file hotspots
   fileHotspots: async (limit: number = 10): Promise<FileHotspot[]> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 250));
-      return getMockFileHotspots(limit);
-    }
     return request<FileHotspot[]>(`/analytics/by-file?limit=${limit}`);
   },
 
   // Get health score
   healthScore: async (): Promise<HealthScore> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 200));
-      return getMockHealthScore();
-    }
     return request<HealthScore>('/analytics/health-score');
   },
 
   // Get fix statistics
   fixStats: async (): Promise<FixStatistics> => {
-    if (USE_MOCK) {
-      await new Promise((r) => setTimeout(r, 200));
-      return {
-        total: 12,
-        pending: 5,
-        approved: 3,
-        applied: 2,
-        rejected: 1,
-        failed: 1,
-        by_status: { pending: 5, approved: 3, applied: 2, rejected: 1, failed: 1 },
-      };
-    }
     return request<FixStatistics>('/analytics/fix-stats');
   },
 };
@@ -462,10 +335,8 @@ export const repositoriesApi = {
 };
 
 // Billing API
-// NOTE: Checkout, portal, plans, and price calculation endpoints removed as part of Clerk Billing migration.
-// Use Clerk's <PricingTable /> and <AccountPortal /> components for subscription management.
 export const billingApi = {
-  // Get current subscription and usage (still fetched from our API for usage tracking)
+  // Get current subscription and usage
   getSubscription: async (): Promise<Subscription> => {
     return request<Subscription>('/billing/subscription');
   },

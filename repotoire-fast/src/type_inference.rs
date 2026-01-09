@@ -2460,7 +2460,7 @@ impl TypeInference {
                         resolved.clone()
                     } else if let Some(without_ext) = callee.strip_prefix("ext.") {
                         // Try partial matches for submodule patterns
-                        // e.g., ext.api.routes.account.router -> repotoire.api.routes.account.router
+                        // e.g., ext.api.v1.routes.account.router -> repotoire.api.v1.routes.account.router
 
                         // Check if this looks like a repotoire module path
                         // by checking if any export matches the pattern
@@ -3195,12 +3195,12 @@ from repotoire.graph.client import Neo4jClient as GraphClient
 "#;
         let files = vec![
             ("repotoire/graph/client.py".to_string(), client_source.to_string()),
-            ("repotoire/api/routes.py".to_string(), importer_source.to_string()),
+            ("repotoire/api/v1/routes/code.py".to_string(), importer_source.to_string()),
         ];
 
         let (ti, _exports) = process_files_with_imports(&files);
 
-        let imports = ti.get_resolved_imports("repotoire.api.routes").unwrap();
+        let imports = ti.get_resolved_imports("repotoire.api.v1.routes.code").unwrap();
         let graph_client = imports.get("GraphClient").unwrap();
 
         assert_eq!(graph_client.local_name, "GraphClient");

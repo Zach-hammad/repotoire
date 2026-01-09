@@ -16,7 +16,7 @@ from uuid import uuid4
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from repotoire.api.routes.account import router
+from repotoire.api.v1.routes.account import router
 from repotoire.api.auth import ClerkUser
 from repotoire.db.models import ConsentType, DataExport, ExportStatus, User
 
@@ -92,7 +92,7 @@ class TestResponseModels:
 
     def test_data_export_response_serialization(self, mock_export):
         """DataExportResponse should serialize correctly."""
-        from repotoire.api.routes.account import DataExportResponse
+        from repotoire.api.v1.routes.account import DataExportResponse
 
         response = DataExportResponse(
             export_id=str(mock_export.id),
@@ -109,7 +109,7 @@ class TestResponseModels:
 
     def test_deletion_scheduled_response(self):
         """DeletionScheduledResponse should have correct structure."""
-        from repotoire.api.routes.account import DeletionScheduledResponse
+        from repotoire.api.v1.routes.account import DeletionScheduledResponse
 
         deletion_date = datetime(2024, 7, 1, tzinfo=timezone.utc)
         response = DeletionScheduledResponse(
@@ -125,7 +125,7 @@ class TestResponseModels:
 
     def test_consent_response_defaults(self):
         """ConsentResponse should have essential always true."""
-        from repotoire.api.routes.account import ConsentResponse
+        from repotoire.api.v1.routes.account import ConsentResponse
 
         response = ConsentResponse(analytics=False, marketing=False)
 
@@ -135,7 +135,7 @@ class TestResponseModels:
 
     def test_account_status_response(self):
         """AccountStatusResponse should include all fields."""
-        from repotoire.api.routes.account import (
+        from repotoire.api.v1.routes.account import (
             AccountStatusResponse,
             ConsentResponse,
         )
@@ -164,7 +164,7 @@ class TestRequestValidation:
 
     def test_delete_confirmation_valid_email(self):
         """DeleteConfirmation should validate email format."""
-        from repotoire.api.routes.account import DeleteConfirmation
+        from repotoire.api.v1.routes.account import DeleteConfirmation
 
         confirmation = DeleteConfirmation(
             email="test@example.com",
@@ -177,7 +177,7 @@ class TestRequestValidation:
     def test_delete_confirmation_invalid_email(self):
         """DeleteConfirmation should reject invalid email."""
         from pydantic import ValidationError
-        from repotoire.api.routes.account import DeleteConfirmation
+        from repotoire.api.v1.routes.account import DeleteConfirmation
 
         with pytest.raises(ValidationError):
             DeleteConfirmation(
@@ -187,7 +187,7 @@ class TestRequestValidation:
 
     def test_consent_update_request(self):
         """ConsentUpdateRequest should accept boolean values."""
-        from repotoire.api.routes.account import ConsentUpdateRequest
+        from repotoire.api.v1.routes.account import ConsentUpdateRequest
 
         request = ConsentUpdateRequest(analytics=True, marketing=False)
 
@@ -197,7 +197,7 @@ class TestRequestValidation:
     def test_consent_update_request_requires_both_fields(self):
         """ConsentUpdateRequest should require both analytics and marketing."""
         from pydantic import ValidationError
-        from repotoire.api.routes.account import ConsentUpdateRequest
+        from repotoire.api.v1.routes.account import ConsentUpdateRequest
 
         with pytest.raises(ValidationError):
             ConsentUpdateRequest(analytics=True)  # Missing marketing
