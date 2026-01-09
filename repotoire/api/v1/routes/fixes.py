@@ -1142,6 +1142,7 @@ async def preview_fix(
 ) -> PreviewResult:
     """Run fix preview in sandbox to validate before approving."""
     fix: Optional[FixProposal] = None
+    db_fix_obj: Optional[Fix] = None  # Keep reference to database fix for analysis_run_id
 
     # First try to get from database
     try:
@@ -1150,6 +1151,7 @@ async def preview_fix(
         db_fix = await repo.get_by_id(fix_uuid)
         if db_fix:
             fix = _db_fix_to_preview_proposal(db_fix)
+            db_fix_obj = db_fix  # Keep reference for later
             logger.debug(f"Found fix {fix_id} in database")
     except ValueError:
         # Not a valid UUID, check in-memory store
@@ -1193,8 +1195,8 @@ async def preview_fix(
         from repotoire.db.models.repository import Repository
         from repotoire.db.models import AnalysisRun, GitHubRepository, GitHubInstallation
 
-        if fix.analysis_run_id:
-            analysis_run = await db.get(AnalysisRun, fix.analysis_run_id)
+        if db_fix_obj and db_fix_obj.analysis_run_id:
+            analysis_run = await db.get(AnalysisRun, db_fix_obj.analysis_run_id)
             if analysis_run and analysis_run.repository_id:
                 github_repo = await db.get(Repository, analysis_run.repository_id)
 
