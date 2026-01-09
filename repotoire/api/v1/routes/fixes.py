@@ -54,6 +54,88 @@ _fixes_store: dict[str, FixProposal] = {}
 _comments_store: dict[str, list] = {}
 
 
+def _db_fix_to_preview_proposal(fix: Fix) -> FixProposal:
+    """Convert a database Fix model to a FixProposal for preview validation.
+
+    This allows the preview endpoint to work with fixes stored in the database,
+    not just the in-memory _fixes_store used by Best-of-N generation.
+    """
+    from repotoire.autofix.models import CodeChange, Evidence, Finding as AutofixFinding
+    from repotoire.models import Severity
+
+    # Create a minimal finding for the proposal
+    finding = AutofixFinding(
+        id=str(fix.finding_id) if fix.finding_id else f"finding-{fix.id}",
+        title=fix.title,
+        description=fix.description or "",
+        severity=Severity.MEDIUM,  # Default severity
+        detector="unknown",
+        affected_nodes=[],
+        affected_files=[fix.file_path] if fix.file_path else [],
+    )
+
+    # Create the code change
+    change = CodeChange(
+        file_path=fix.file_path or "unknown.py",
+        original_code=fix.original_code or "",
+        fixed_code=fix.fixed_code or "",
+        start_line=fix.line_start or 0,
+        end_line=fix.line_end or 0,
+        description=fix.description or "",
+    )
+
+    # Create evidence from stored data
+    evidence_data = fix.evidence or {}
+    evidence = Evidence(
+        similar_patterns=evidence_data.get("similar_patterns", []),
+        documentation_refs=evidence_data.get("documentation_refs", []),
+        best_practices=evidence_data.get("best_practices", []),
+        rag_context_count=evidence_data.get("rag_context_count", 0),
+    )
+
+    # Map database enum values to autofix enum values
+    confidence_map = {
+        FixConfidence.HIGH: AutofixFixConfidence.HIGH,
+        FixConfidence.MEDIUM: AutofixFixConfidence.MEDIUM,
+        FixConfidence.LOW: AutofixFixConfidence.LOW,
+    }
+    fix_type_map = {
+        FixType.REFACTOR: AutofixFixType.REFACTOR,
+        FixType.SIMPLIFY: AutofixFixType.SIMPLIFY,
+        FixType.EXTRACT: AutofixFixType.EXTRACT,
+        FixType.RENAME: AutofixFixType.RENAME,
+        FixType.REMOVE: AutofixFixType.REMOVE,
+        FixType.SECURITY: AutofixFixType.SECURITY,
+        FixType.TYPE_HINT: AutofixFixType.TYPE_HINT,
+        FixType.DOCUMENTATION: AutofixFixType.DOCUMENTATION,
+    }
+    status_map = {
+        FixStatus.PENDING: AutofixFixStatus.PENDING,
+        FixStatus.APPROVED: AutofixFixStatus.APPROVED,
+        FixStatus.REJECTED: AutofixFixStatus.REJECTED,
+        FixStatus.APPLIED: AutofixFixStatus.APPLIED,
+        FixStatus.FAILED: AutofixFixStatus.FAILED,
+    }
+
+    return FixProposal(
+        id=str(fix.id),
+        finding=finding,
+        fix_type=fix_type_map.get(fix.fix_type, AutofixFixType.REFACTOR),
+        confidence=confidence_map.get(fix.confidence, AutofixFixConfidence.MEDIUM),
+        changes=[change],
+        title=fix.title,
+        description=fix.description or "",
+        rationale=fix.explanation or "",
+        evidence=evidence,
+        status=status_map.get(fix.status, AutofixFixStatus.PENDING),
+        created_at=fix.created_at or datetime.utcnow(),
+        applied_at=fix.applied_at,
+        syntax_valid=fix.validation_data.get("syntax_valid", True) if fix.validation_data else True,
+        import_valid=fix.validation_data.get("import_valid") if fix.validation_data else None,
+        type_valid=fix.validation_data.get("type_valid") if fix.validation_data else None,
+    )
+
+
 async def _get_db_user(db: AsyncSession, clerk_user_id: str) -> Optional[User]:
     """Get database user by Clerk user ID."""
     result = await db.execute(
@@ -958,12 +1040,31 @@ async def preview_fix(
     fix_id: str,
     user: ClerkUser = Depends(get_current_user),
     cache: "PreviewCache" = Depends(_get_preview_cache),
+    db: AsyncSession = Depends(get_db),
 ) -> PreviewResult:
     """Run fix preview in sandbox to validate before approving."""
-    if fix_id not in _fixes_store:
+    fix: Optional[FixProposal] = None
+
+    # First try to get from database
+    try:
+        fix_uuid = UUID(fix_id)
+        repo = FixRepository(db)
+        db_fix = await repo.get_by_id(fix_uuid)
+        if db_fix:
+            fix = _db_fix_to_preview_proposal(db_fix)
+            logger.debug(f"Found fix {fix_id} in database")
+    except ValueError:
+        # Not a valid UUID, check in-memory store
+        pass
+
+    # Fall back to in-memory store (for Best-of-N fixes)
+    if fix is None and fix_id in _fixes_store:
+        fix = _fixes_store[fix_id]
+        logger.debug(f"Found fix {fix_id} in memory store")
+
+    if fix is None:
         raise HTTPException(status_code=404, detail="Fix not found")
 
-    fix = _fixes_store[fix_id]
     fix_hash = _get_fix_hash(fix)
 
     # Check Redis cache first (with hash validation)
