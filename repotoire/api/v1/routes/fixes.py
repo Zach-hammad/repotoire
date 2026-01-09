@@ -1184,6 +1184,69 @@ async def preview_fix(
     stdout_parts: List[str] = []
     stderr_parts: List[str] = []
 
+    # Try to get full file content for proper validation
+    # (snippet-only validation fails when imports are defined elsewhere in file)
+    full_file_contents: dict[str, str] = {}  # file_path -> full content with fix applied
+
+    try:
+        # Get repository info for GitHub file fetching
+        from repotoire.db.models.repository import Repository
+        from repotoire.db.models import AnalysisRun, GitHubRepository, GitHubInstallation
+
+        if fix.analysis_run_id:
+            analysis_run = await db.get(AnalysisRun, fix.analysis_run_id)
+            if analysis_run and analysis_run.repository_id:
+                github_repo = await db.get(Repository, analysis_run.repository_id)
+
+                if github_repo and github_repo.github_repo_id:
+                    # Look up fresh installation ID
+                    github_repo_result = await db.execute(
+                        select(GitHubRepository)
+                        .where(GitHubRepository.repo_id == github_repo.github_repo_id)
+                    )
+                    gh_repo = github_repo_result.scalar_one_or_none()
+
+                    if gh_repo:
+                        installation_result = await db.execute(
+                            select(GitHubInstallation).where(GitHubInstallation.id == gh_repo.installation_id)
+                        )
+                        installation = installation_result.scalar_one_or_none()
+
+                        if installation:
+                            from repotoire.api.shared.services.github import GitHubAppClient
+                            github_client = GitHubAppClient()
+                            owner, repo_name = github_repo.full_name.split("/", 1)
+
+                            # Fetch full file content for each change
+                            for change in fix.changes:
+                                try:
+                                    access_token = await github_client.get_installation_access_token(
+                                        installation.installation_id
+                                    )
+                                    file_content = await github_client.get_file_content(
+                                        access_token=access_token,
+                                        owner=owner,
+                                        repo=repo_name,
+                                        path=change.file_path,
+                                        ref=github_repo.default_branch or "main",
+                                    )
+
+                                    if file_content:
+                                        # Apply the fix to get complete file
+                                        lines = file_content.split('\n')
+                                        line_start = change.line_start or 1
+                                        line_end = change.line_end or len(lines)
+
+                                        # Replace the lines with fixed code
+                                        fixed_lines = change.fixed_code.split('\n')
+                                        new_lines = lines[:line_start - 1] + fixed_lines + lines[line_end:]
+                                        full_file_contents[change.file_path] = '\n'.join(new_lines)
+                                        logger.debug(f"Fetched and constructed full file for {change.file_path}")
+                                except Exception as e:
+                                    logger.warning(f"Failed to fetch file {change.file_path} from GitHub: {e}")
+    except Exception as e:
+        logger.warning(f"Failed to get repository info for full file validation: {e}")
+
     try:
         # Import sandbox components
         from repotoire.sandbox import (
@@ -1272,8 +1335,16 @@ async def preview_fix(
             for change in fix.changes:
                 file_path = str(change.file_path)
 
+                # Use full file content if available, otherwise fall back to snippet
+                # Full file validation is more accurate as it includes all imports
+                code_to_validate = full_file_contents.get(change.file_path, change.fixed_code)
+                if change.file_path in full_file_contents:
+                    logger.debug(f"Using full file content for validation of {file_path}")
+                else:
+                    logger.debug(f"Using snippet-only validation for {file_path} (full file not available)")
+
                 validation_result = await validator.validate(
-                    fixed_code=change.fixed_code,
+                    fixed_code=code_to_validate,
                     file_path=file_path,
                     original_code=change.original_code,
                 )

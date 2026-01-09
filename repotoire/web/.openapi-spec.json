@@ -4074,7 +4074,7 @@
           "fixes"
         ],
         "summary": "Apply fix to codebase",
-        "description": "Apply an approved fix to the repository.\n\n**Requires:** Fix must be in `approved` status.\n\n**Process:**\n1. Validates fix is approved\n2. Creates git branch (if enabled)\n3. Applies code changes to files\n4. Creates git commit (if enabled)\n5. Updates fix status to `applied`\n\n**Options:**\n- `repository_path`: Where to apply changes (required for actual application)\n- `create_branch`: Create a new branch for review (default: true)\n- `commit`: Create a git commit (default: true)\n\nIf `repository_path` is omitted, only the status is updated (for manual application tracking).",
+        "description": "Apply an approved fix to the repository.\n\n**Requires:** Fix must be in `approved` status.\n\n**Modes:**\n\n1. **GitHub PR Mode** (SaaS - automatic if repository has GitHub App installed):\n   - Creates a new branch from the repository's default branch\n   - Commits the fix to the new branch\n   - Opens a Pull Request for review\n   - Returns PR URL and number in the response\n\n2. **Local Mode** (requires `repository_path`):\n   - Applies code changes directly to files on the local filesystem\n   - Optionally creates git branch and commit\n\n3. **Status-only Mode** (no GitHub integration, no `repository_path`):\n   - Only updates the fix status to `applied`\n   - For manual application tracking\n\n**Options:**\n- `repository_path`: Local path to apply changes (for local mode)\n- `create_branch`: Create a new branch for review (default: true, local mode only)\n- `commit`: Create a git commit (default: true, local mode only)\n\n**Response includes:**\n- `data`: Updated fix object\n- `success`: Boolean indicating success\n- `pr`: (GitHub mode only) Object with `pr_number`, `pr_url`, and `branch`",
         "operationId": "apply_fix_fixes__fix_id__apply_post",
         "security": [
           {
@@ -4136,7 +4136,7 @@
             "description": "Fix not found"
           },
           "500": {
-            "description": "Failed to apply fix"
+            "description": "Failed to apply fix or create GitHub PR"
           },
           "422": {
             "description": "Validation Error",
@@ -11170,6 +11170,32 @@
                   },
                   "type": "object",
                   "title": "Response Clerk Webhook Webhooks Clerk Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/webhooks/github": {
+      "post": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Github Webhook Alias",
+        "description": "Alias for GitHub webhook endpoint.\n\nHandles GitHub webhooks at /api/v1/webhooks/github for backwards compatibility.\nGitHub App webhook URL may be configured to either this path or /api/v1/github/webhook.",
+        "operationId": "github_webhook_alias_webhooks_github_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Github Webhook Alias Webhooks Github Post"
                 }
               }
             }

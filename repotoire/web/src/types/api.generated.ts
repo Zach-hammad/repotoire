@@ -1542,19 +1542,31 @@ export interface paths {
          *
          *     **Requires:** Fix must be in `approved` status.
          *
-         *     **Process:**
-         *     1. Validates fix is approved
-         *     2. Creates git branch (if enabled)
-         *     3. Applies code changes to files
-         *     4. Creates git commit (if enabled)
-         *     5. Updates fix status to `applied`
+         *     **Modes:**
+         *
+         *     1. **GitHub PR Mode** (SaaS - automatic if repository has GitHub App installed):
+         *        - Creates a new branch from the repository's default branch
+         *        - Commits the fix to the new branch
+         *        - Opens a Pull Request for review
+         *        - Returns PR URL and number in the response
+         *
+         *     2. **Local Mode** (requires `repository_path`):
+         *        - Applies code changes directly to files on the local filesystem
+         *        - Optionally creates git branch and commit
+         *
+         *     3. **Status-only Mode** (no GitHub integration, no `repository_path`):
+         *        - Only updates the fix status to `applied`
+         *        - For manual application tracking
          *
          *     **Options:**
-         *     - `repository_path`: Where to apply changes (required for actual application)
-         *     - `create_branch`: Create a new branch for review (default: true)
-         *     - `commit`: Create a git commit (default: true)
+         *     - `repository_path`: Local path to apply changes (for local mode)
+         *     - `create_branch`: Create a new branch for review (default: true, local mode only)
+         *     - `commit`: Create a git commit (default: true, local mode only)
          *
-         *     If `repository_path` is omitted, only the status is updated (for manual application tracking).
+         *     **Response includes:**
+         *     - `data`: Updated fix object
+         *     - `success`: Boolean indicating success
+         *     - `pr`: (GitHub mode only) Object with `pr_number`, `pr_url`, and `branch`
          */
         post: operations["apply_fix_fixes__fix_id__apply_post"];
         delete?: never;
@@ -4447,6 +4459,29 @@ export interface paths {
          *     for all Clerk events.
          */
         post: operations["clerk_webhook_webhooks_clerk_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/github": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Github Webhook Alias
+         * @description Alias for GitHub webhook endpoint.
+         *
+         *     Handles GitHub webhooks at /api/v1/webhooks/github for backwards compatibility.
+         *     GitHub App webhook URL may be configured to either this path or /api/v1/github/webhook.
+         */
+        post: operations["github_webhook_alias_webhooks_github_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -15256,7 +15291,7 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
-            /** @description Failed to apply fix */
+            /** @description Failed to apply fix or create GitHub PR */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -19353,6 +19388,28 @@ export interface operations {
         };
     };
     clerk_webhook_webhooks_clerk_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
+    github_webhook_alias_webhooks_github_post: {
         parameters: {
             query?: never;
             header?: never;

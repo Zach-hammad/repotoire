@@ -441,6 +441,53 @@ class GitHubAppClient:
                 return None
             raise
 
+    async def get_file_content(
+        self,
+        access_token: str,
+        owner: str,
+        repo: str,
+        path: str,
+        ref: Optional[str] = None,
+    ) -> Optional[str]:
+        """Get the content of a file from GitHub.
+
+        Args:
+            access_token: Installation access token.
+            owner: Repository owner.
+            repo: Repository name.
+            path: File path in repository.
+            ref: Branch or commit reference.
+
+        Returns:
+            File content as string if exists, None if file doesn't exist.
+        """
+        import base64
+
+        try:
+            async with httpx.AsyncClient() as client:
+                params = {"ref": ref} if ref else {}
+                response = await client.get(
+                    f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
+                    params=params,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                )
+                if response.status_code == 404:
+                    return None
+                response.raise_for_status()
+                data = response.json()
+                content_b64 = data.get("content", "")
+                # GitHub returns content with newlines, remove them before decoding
+                content_b64 = content_b64.replace("\n", "")
+                return base64.b64decode(content_b64).decode("utf-8")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                return None
+            raise
+
     async def create_or_update_file(
         self,
         access_token: str,
