@@ -42,6 +42,8 @@ import { cn } from '@/lib/utils';
 import { FixConfidence, FixStatus, FixType, PreviewResult } from '@/types';
 import { mutate } from 'swr';
 import { toast } from 'sonner';
+import { invalidateFix, invalidateCache, cacheKeys } from '@/lib/cache-keys';
+import { showErrorToast, showSuccessToast } from '@/lib/error-utils';
 
 // Badge color mappings
 const confidenceBadgeColors: Record<FixConfidence, string> = {
@@ -97,38 +99,38 @@ export default function FixReviewPage({
   const handleApprove = async () => {
     try {
       await approve();
-      toast.success('Fix approved successfully');
-      mutate(['fix', id]); // Refresh current fix
-      mutate(['fixes']); // Refresh fixes list
+      showSuccessToast('Fix approved successfully');
+      // Centralized cache invalidation - invalidates fix, fix-comments, fixes list, and fix-stats
+      await invalidateFix(id);
+      await invalidateCache('fix-approved');
     } catch (error) {
-      toast.error('Failed to approve fix');
-      console.error('Approve error:', error);
+      showErrorToast(error, 'Failed to approve fix');
     }
   };
 
   const handleReject = async () => {
     try {
       await reject(rejectReason);
-      toast.success('Fix rejected');
+      showSuccessToast('Fix rejected');
       setRejectDialogOpen(false);
       setRejectReason('');
-      mutate(['fix', id]);
-      mutate(['fixes']);
+      // Centralized cache invalidation
+      await invalidateFix(id);
+      await invalidateCache('fix-rejected');
     } catch (error) {
-      toast.error('Failed to reject fix');
-      console.error('Reject error:', error);
+      showErrorToast(error, 'Failed to reject fix');
     }
   };
 
   const handleApply = async () => {
     try {
       await apply();
-      toast.success('Fix applied successfully');
-      mutate(['fix', id]);
-      mutate(['fixes']);
+      showSuccessToast('Fix applied successfully');
+      // Centralized cache invalidation - also invalidates findings since applying a fix may resolve issues
+      await invalidateFix(id);
+      await invalidateCache('fix-applied');
     } catch (error) {
-      toast.error('Failed to apply fix');
-      console.error('Apply error:', error);
+      showErrorToast(error, 'Failed to apply fix');
     }
   };
 
@@ -137,11 +139,11 @@ export default function FixReviewPage({
     try {
       await addComment(newComment);
       setNewComment('');
-      mutate(['fix-comments', id]);
-      toast.success('Comment added');
+      // Only invalidate the specific fix's comments
+      mutate(cacheKeys.fixComments(id));
+      showSuccessToast('Comment added');
     } catch (error) {
-      toast.error('Failed to add comment');
-      console.error('Comment error:', error);
+      showErrorToast(error, 'Failed to add comment');
     }
   };
 
@@ -151,14 +153,13 @@ export default function FixReviewPage({
       if (result) {
         setLocalPreviewResult(result);
         if (result.success) {
-          toast.success('Preview completed - all checks passed');
+          showSuccessToast('Preview completed', 'All checks passed');
         } else {
           toast.warning('Preview completed with issues');
         }
       }
     } catch (error) {
-      toast.error('Failed to run preview');
-      console.error('Preview error:', error);
+      showErrorToast(error, 'Failed to run preview');
     }
   };
 

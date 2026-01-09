@@ -57,7 +57,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { FixConfidence, FixFilters, FixProposal, FixStatus, FixType, SortOptions } from '@/types';
-import { mutate } from 'swr';
+import { invalidateCache, invalidateFix } from '@/lib/cache-keys';
 
 // Badge color mappings
 const confidenceBadgeColors: Record<FixConfidence, string> = {
@@ -176,7 +176,8 @@ function FixesListContent() {
     const ids = Array.from(selectedIds);
     await batchApprove(ids);
     setSelectedIds(new Set());
-    mutate(['fixes']);
+    // Centralized cache invalidation for batch approve
+    await invalidateCache('fix-approved');
   };
 
   const handleBatchReject = async () => {
@@ -185,7 +186,8 @@ function FixesListContent() {
     setSelectedIds(new Set());
     setRejectDialogOpen(false);
     setRejectReason('');
-    mutate(['fixes']);
+    // Centralized cache invalidation for batch reject
+    await invalidateCache('fix-rejected');
   };
 
   const clearFilters = () => {

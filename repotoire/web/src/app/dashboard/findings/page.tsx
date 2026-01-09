@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useFindings, useFindingsSummary, useRepositories } from '@/lib/hooks';
+import { useFindings, useFindingsSummary, useFindingsByDetector, useRepositories } from '@/lib/hooks';
 import {
   AlertTriangle,
   AlertCircle,
@@ -25,6 +25,7 @@ import {
   Clock,
   Wrench,
   GitCommit,
+  ArrowUpDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Finding, FindingFilters, Severity } from '@/types';
@@ -146,6 +147,12 @@ function FindingsContent() {
   const [repositoryFilter, setRepositoryFilter] = useState<string>(() => {
     return searchParams.get('repository') || 'all';
   });
+  const [sortBy, setSortBy] = useState<string>(() => {
+    return searchParams.get('sort') || 'created_at';
+  });
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(() => {
+    return (searchParams.get('direction') as 'asc' | 'desc') || 'desc';
+  });
   const pageSize = 20;
 
   const filters: FindingFilters = {};
@@ -157,9 +164,10 @@ function FindingsContent() {
   }
 
   const repositoryId = repositoryFilter !== 'all' ? repositoryFilter : undefined;
-  const { data: findings, isLoading } = useFindings(filters, page, pageSize, 'created_at', 'desc', repositoryId);
+  const { data: findings, isLoading } = useFindings(filters, page, pageSize, sortBy, sortDirection, repositoryId);
   const { data: summary } = useFindingsSummary(undefined, repositoryId);
   const { data: repositories } = useRepositories();
+  const { data: detectors } = useFindingsByDetector(undefined, repositoryId);
 
   const totalPages = findings ? Math.ceil(findings.total / pageSize) : 1;
 
@@ -173,32 +181,40 @@ function FindingsContent() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-5" role="group" aria-label="Filter findings by severity">
         {(['critical', 'high', 'medium', 'low', 'info'] as Severity[]).map((severity) => {
           const Icon = severityIcons[severity];
           const count = summary?.[severity] ?? 0;
+          const isSelected = severityFilter === severity;
           return (
-            <Card
+            <button
               key={severity}
-              className={cn(
-                'cursor-pointer transition-colors',
-                severityFilter === severity && 'ring-2 ring-primary'
-              )}
-              onClick={() => setSeverityFilter(severityFilter === severity ? 'all' : severity)}
+              type="button"
+              aria-label={`Filter by ${severity} severity, ${count} issues${isSelected ? ' (currently selected)' : ''}`}
+              aria-pressed={isSelected}
+              className="text-left focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded-lg"
+              onClick={() => setSeverityFilter(isSelected ? 'all' : severity)}
             >
-              <CardContent className="flex items-center gap-3 p-4">
-                <div className={cn(
-                  'flex h-10 w-10 items-center justify-center rounded-lg',
-                  severityBadgeVariants[severity]
-                )}>
-                  <Icon className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{count}</p>
-                  <p className="text-xs text-muted-foreground capitalize">{severity}</p>
-                </div>
-              </CardContent>
-            </Card>
+              <Card
+                className={cn(
+                  'cursor-pointer transition-colors h-full',
+                  isSelected && 'ring-2 ring-primary'
+                )}
+              >
+                <CardContent className="flex items-center gap-3 p-4">
+                  <div className={cn(
+                    'flex h-10 w-10 items-center justify-center rounded-lg',
+                    severityBadgeVariants[severity]
+                  )} aria-hidden="true">
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{count}</p>
+                    <p className="text-xs text-muted-foreground capitalize">{severity}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </button>
           );
         })}
       </div>
@@ -239,23 +255,54 @@ function FindingsContent() {
                   setPage(1);
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger aria-label="Filter by detector">
                   <SelectValue placeholder="Detector" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Detectors</SelectItem>
-                  <SelectItem value="RuffLintDetector">Ruff Lint</SelectItem>
-                  <SelectItem value="MypyDetector">Mypy</SelectItem>
-                  <SelectItem value="BanditDetector">Bandit</SelectItem>
-                  <SelectItem value="PylintDetector">Pylint</SelectItem>
-                  <SelectItem value="RadonDetector">Complexity (Radon)</SelectItem>
-                  <SelectItem value="SemgrepDetector">Semgrep</SelectItem>
-                  <SelectItem value="VultureDetector">Vulture</SelectItem>
-                  <SelectItem value="JscpdDetector">Jscpd</SelectItem>
-                  <SelectItem value="SATDDetector">SATD (Technical Debt)</SelectItem>
-                  <SelectItem value="CircularDependencyDetector">Circular Dependencies</SelectItem>
-                  <SelectItem value="GodClassDetector">God Class</SelectItem>
-                  <SelectItem value="DeadCodeDetector">Dead Code</SelectItem>
+                  {detectors?.map((d) => (
+                    <SelectItem key={d.detector} value={d.detector}>
+                      {d.detector.replace('Detector', '')} ({d.count})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-48">
+              <Select
+                value={sortBy}
+                onValueChange={(v) => {
+                  setSortBy(v);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger aria-label="Sort by field">
+                  <div className="flex items-center gap-2">
+                    <ArrowUpDown className="h-4 w-4" aria-hidden="true" />
+                    <SelectValue placeholder="Sort by" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="created_at">Date Created</SelectItem>
+                  <SelectItem value="severity">Severity</SelectItem>
+                  <SelectItem value="detector">Detector</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-32">
+              <Select
+                value={sortDirection}
+                onValueChange={(v) => {
+                  setSortDirection(v as 'asc' | 'desc');
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger aria-label="Sort direction">
+                  <SelectValue placeholder="Order" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="desc">Descending</SelectItem>
+                  <SelectItem value="asc">Ascending</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -282,13 +329,15 @@ function FindingsContent() {
                 </Select>
               </div>
             )}
-            {(severityFilter !== 'all' || detectorFilter !== 'all' || repositoryFilter !== 'all') && (
+            {(severityFilter !== 'all' || detectorFilter !== 'all' || repositoryFilter !== 'all' || sortBy !== 'created_at' || sortDirection !== 'desc') && (
               <Button
                 variant="ghost"
                 onClick={() => {
                   setSeverityFilter('all');
                   setDetectorFilter('all');
                   setRepositoryFilter('all');
+                  setSortBy('created_at');
+                  setSortDirection('desc');
                   setPage(1);
                 }}
               >

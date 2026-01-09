@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { ProvenanceSettingsCard } from "@/components/settings/provenance-settings-card";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 
 // API Response Types
 interface ConsentResponse {
@@ -276,7 +277,13 @@ function PrivacySettingsContent() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Privacy Settings</h1>
+        <Breadcrumb
+          items={[
+            { label: 'Settings', href: '/dashboard/settings' },
+            { label: 'Privacy Settings' },
+          ]}
+        />
+        <h1 className="text-3xl font-bold tracking-tight mt-4">Privacy Settings</h1>
         <p className="text-muted-foreground">
           Manage your data, privacy preferences, and account
         </p>

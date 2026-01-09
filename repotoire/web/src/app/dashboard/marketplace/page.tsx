@@ -33,7 +33,7 @@ import {
   useSyncAssets,
   useUpdateCount,
 } from '@/lib/marketplace-hooks';
-import { mutate } from 'swr';
+import { invalidateMarketplace } from '@/lib/cache-keys';
 import { AssetType, InstalledAsset } from '@/types/marketplace';
 
 const typeColorMap: Record<AssetType, string> = {
@@ -128,8 +128,8 @@ export default function MarketplaceDashboardPage() {
         updated: result.updated.length,
         failed: result.failed.length,
       });
-      // Revalidate installed assets
-      await mutate('marketplace-installed');
+      // Centralized cache invalidation for marketplace
+      await invalidateMarketplace();
       // Clear sync result after 3 seconds
       setTimeout(() => setSyncResult(null), 3000);
     } catch (error) {

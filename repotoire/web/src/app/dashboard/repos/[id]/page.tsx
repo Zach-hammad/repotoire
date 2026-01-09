@@ -42,7 +42,8 @@ import { formatDistanceToNow } from 'date-fns';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { mutate } from 'swr';
+import { invalidateRepository, invalidateCache } from '@/lib/cache-keys';
+import { showErrorToast, showSuccessToast } from '@/lib/error-utils';
 import { cn } from '@/lib/utils';
 
 function RepoDetailSkeleton() {
@@ -389,16 +390,12 @@ export default function RepoDetailPage({ params }: RepoDetailPageProps) {
     if (!repo || !repo.repository_id) return;
     try {
       await triggerAnalysis({ repository_id: repo.repository_id });
-      toast.success(`Analysis started for ${repo.full_name}`);
-      // Cache keys must match hook cache keys exactly:
-      // useRepository uses ['repository', id]
-      // useAnalysisHistory uses ['analysis-history', repositoryId, limit]
-      mutate(['repository', id]);
-      mutate(['analysis-history', repo.repository_id, 10]);
-    } catch (error: any) {
-      toast.error('Failed to start analysis', {
-        description: error?.message || 'Unknown error',
-      });
+      showSuccessToast('Analysis started', `Started analysis for ${repo.full_name}`);
+      // Centralized cache invalidation for analysis started
+      await invalidateRepository(id);
+      await invalidateCache('analysis-started');
+    } catch (error) {
+      showErrorToast(error, 'Failed to start analysis');
     }
   };
 
@@ -407,9 +404,7 @@ export default function RepoDetailPage({ params }: RepoDetailPageProps) {
     try {
       const result = await generateFixes({ analysisRunId: analysisId });
       if (result.status === 'queued') {
-        toast.success('Fix generation started', {
-          description: result.message,
-        });
+        showSuccessToast('Fix generation started', result.message);
       } else if (result.status === 'skipped') {
         toast.info('Fix generation skipped', {
           description: result.message,
@@ -419,10 +414,8 @@ export default function RepoDetailPage({ params }: RepoDetailPageProps) {
           description: result.message,
         });
       }
-    } catch (error: any) {
-      toast.error('Failed to generate fixes', {
-        description: error?.message || 'Unknown error',
-      });
+    } catch (error) {
+      showErrorToast(error, 'Failed to generate fixes');
     } finally {
       setGeneratingFixesId(null);
     }
