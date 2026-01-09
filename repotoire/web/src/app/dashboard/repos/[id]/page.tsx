@@ -65,13 +65,13 @@ function RepoDetailSkeleton() {
 function NotFound() {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
-      <h2 className="text-2xl font-bold mb-2">Repository not found</h2>
+      <h2 className="text-2xl font-bold font-display mb-2">Repository not found</h2>
       <p className="text-muted-foreground mb-6">
         The repository you're looking for doesn't exist or you don't have access.
       </p>
       <Link href="/dashboard/repos">
         <Button>
-          <ArrowLeft className="mr-2 h-4 w-4" />
+          <ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" />
           Back to Repositories
         </Button>
       </Link>
@@ -100,7 +100,7 @@ function FindingsOverview({ repositoryId }: FindingsOverviewProps) {
   if (!summary || summary.total === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">
-        <CheckCircle2 className="mx-auto h-12 w-12 text-green-500 mb-3" />
+        <CheckCircle2 className="mx-auto h-12 w-12 text-green-500 mb-3" aria-hidden="true" />
         <p>No findings detected in this repository.</p>
       </div>
     );
@@ -205,7 +205,7 @@ function GitHistory({ repositoryId, repositoryFullName }: GitHistoryProps) {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <MessageSquare className="h-5 w-5" />
+            <MessageSquare className="h-5 w-5" aria-hidden="true" />
             Ask about code history
           </CardTitle>
           <CardDescription>
@@ -221,11 +221,11 @@ function GitHistory({ repositoryId, repositoryFullName }: GitHistoryProps) {
               className="flex-1"
               disabled={isQuerying}
             />
-            <Button type="submit" disabled={isQuerying || !query.trim()}>
+            <Button type="submit" disabled={isQuerying || !query.trim()} aria-label="Search code history">
               {isQuerying ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
-                <Search className="h-4 w-4" />
+                <Search className="h-4 w-4" aria-hidden="true" />
               )}
               <span className="ml-2">Ask</span>
             </Button>
@@ -261,7 +261,7 @@ function GitHistory({ repositoryId, repositoryFullName }: GitHistoryProps) {
                             key={commit.commit_sha}
                             className="flex items-center gap-2 text-xs"
                           >
-                            <GitCommit className="h-3 w-3 text-muted-foreground" />
+                            <GitCommit className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
                             <a
                               href={`https://github.com/${repositoryFullName}/commit/${commit.commit_sha}`}
                               target="_blank"
@@ -292,7 +292,7 @@ function GitHistory({ repositoryId, repositoryFullName }: GitHistoryProps) {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <GitCommit className="h-5 w-5" />
+            <GitCommit className="h-5 w-5" aria-hidden="true" />
             Recent Commits
           </CardTitle>
           <CardDescription>
@@ -312,7 +312,7 @@ function GitHistory({ repositoryId, repositoryFullName }: GitHistoryProps) {
             </div>
           ) : historyError ? (
             <div className="flex flex-col items-center justify-center py-12">
-              <AlertTriangle className="h-12 w-12 text-yellow-500 mb-4" />
+              <AlertTriangle className="h-12 w-12 text-yellow-500 mb-4" aria-hidden="true" />
               <p className="text-muted-foreground mb-4">Failed to load commit history</p>
               <p className="text-sm text-muted-foreground">
                 Git history may not be available for this repository.
@@ -322,7 +322,7 @@ function GitHistory({ repositoryId, repositoryFullName }: GitHistoryProps) {
             </div>
           ) : history && history.commits.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12">
-              <GitCommit className="h-12 w-12 text-muted-foreground mb-4" />
+              <GitCommit className="h-12 w-12 text-muted-foreground mb-4" aria-hidden="true" />
               <p className="text-muted-foreground">No commits found</p>
             </div>
           ) : (
@@ -350,8 +350,9 @@ function GitHistory({ repositoryId, repositoryFullName }: GitHistoryProps) {
                   size="sm"
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
                   disabled={page === 0}
+                  aria-label="Go to previous page of commits"
                 >
-                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  <ChevronLeft className="h-4 w-4 mr-1" aria-hidden="true" />
                   Previous
                 </Button>
                 <Button
@@ -359,9 +360,10 @@ function GitHistory({ repositoryId, repositoryFullName }: GitHistoryProps) {
                   size="sm"
                   onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                   disabled={page >= totalPages - 1}
+                  aria-label="Go to next page of commits"
                 >
                   Next
-                  <ChevronRight className="h-4 w-4 ml-1" />
+                  <ChevronRight className="h-4 w-4 ml-1" aria-hidden="true" />
                 </Button>
               </div>
             </div>
@@ -437,7 +439,7 @@ export default function RepoDetailPage({ params }: RepoDetailPageProps) {
         <div className="flex items-start justify-between">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold">{repo.full_name}</h1>
+              <h1 className="text-2xl font-bold font-display">{repo.full_name}</h1>
               <RepoStatusBadge status={repo.analysis_status} />
             </div>
             <a
@@ -445,16 +447,17 @@ export default function RepoDetailPage({ params }: RepoDetailPageProps) {
               target="_blank"
               rel="noopener noreferrer"
               className="text-sm text-muted-foreground hover:underline flex items-center gap-1"
+              aria-label={`View ${repo.full_name} on GitHub (opens in new tab)`}
             >
-              View on GitHub <ExternalLink className="h-3 w-3" />
+              View on GitHub <ExternalLink className="h-3 w-3" aria-hidden="true" />
             </a>
           </div>
           <Button
             onClick={handleAnalyze}
             disabled={isAnalyzing || repo.analysis_status === 'running'}
           >
-            <RefreshCw className={cn('mr-2 h-4 w-4', isAnalyzing && 'animate-spin')} />
-            Analyze Now
+            <RefreshCw className={cn('mr-2 h-4 w-4', isAnalyzing && 'animate-spin')} aria-hidden="true" />
+            {isAnalyzing ? 'Analyzing...' : 'Analyze Now'}
           </Button>
         </div>
       </div>
@@ -495,7 +498,7 @@ export default function RepoDetailPage({ params }: RepoDetailPageProps) {
         <TabsList>
           <TabsTrigger value="findings">Findings</TabsTrigger>
           <TabsTrigger value="git-history">
-            <GitCommit className="h-4 w-4 mr-1" />
+            <GitCommit className="h-4 w-4 mr-1" aria-hidden="true" />
             Git History
           </TabsTrigger>
           <TabsTrigger value="history">Analysis History</TabsTrigger>
@@ -515,7 +518,7 @@ export default function RepoDetailPage({ params }: RepoDetailPageProps) {
                 <FindingsOverview repositoryId={repo.repository_id} />
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
-                  <CheckCircle2 className="mx-auto h-12 w-12 text-gray-400 mb-3" />
+                  <CheckCircle2 className="mx-auto h-12 w-12 text-gray-400 mb-3" aria-hidden="true" />
                   <p>No analysis data yet. Run your first analysis to see findings.</p>
                 </div>
               )}
@@ -533,7 +536,7 @@ export default function RepoDetailPage({ params }: RepoDetailPageProps) {
             <Card>
               <CardContent className="py-12">
                 <div className="text-center text-muted-foreground">
-                  <GitCommit className="mx-auto h-12 w-12 text-gray-400 mb-3" />
+                  <GitCommit className="mx-auto h-12 w-12 text-gray-400 mb-3" aria-hidden="true" />
                   <p>No repository data available yet.</p>
                   <p className="text-sm mt-1">Run your first analysis to enable git history.</p>
                 </div>
