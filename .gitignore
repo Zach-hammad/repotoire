@@ -58,7 +58,6 @@ Thumbs.db
 
 # Node.js / npm
 node_modules/
-package-lock.json
 .next/
 .vercel/
 
