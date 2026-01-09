@@ -13,27 +13,34 @@ from repotoire.models import (
 
 
 @pytest.fixture
-def mock_openai_embeddings():
-    """Mock OpenAIEmbeddings from neo4j-graphrag."""
-    with patch('neo4j_graphrag.embeddings.OpenAIEmbeddings') as mock:
-        # Mock the embeddings instance
-        mock_instance = Mock()
-        mock_instance.embed_query.return_value = [0.1] * 1536
+def mock_openai_client():
+    """Mock OpenAI client."""
+    with patch('openai.OpenAI') as mock:
+        mock_client = Mock()
+        mock_response = Mock()
 
-        # Make embed_documents return appropriate responses based on input
-        def mock_embed_documents(texts):
-            if not texts:
-                return []
-            return [[0.1 if i == 0 else 0.2] * 1536 for i in range(len(texts))]
+        # Make embeddings.create return appropriate responses based on input
+        def mock_create(model, input):
+            if not input:
+                mock_response.data = []
+            else:
+                embeddings = []
+                for i, _ in enumerate(input):
+                    mock_embedding = Mock()
+                    mock_embedding.embedding = [0.1 if i == 0 else 0.2] * 1536
+                    embeddings.append(mock_embedding)
+                mock_response.data = embeddings
+            return mock_response
 
-        mock_instance.embed_documents.side_effect = mock_embed_documents
-        mock.return_value = mock_instance
+        mock_client.embeddings.create.side_effect = mock_create
+        mock.return_value = mock_client
         yield mock
 
 
 @pytest.fixture
-def embedder(mock_openai_embeddings):
+def embedder(mock_openai_client, monkeypatch):
     """Create embedder with mocked OpenAI (explicit backend to avoid auto-selection)."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
     return CodeEmbedder(backend="openai")
 
 
@@ -96,7 +103,7 @@ def sample_file():
 class TestCodeEmbedder:
     """Test CodeEmbedder initialization and configuration."""
 
-    def test_initialization_with_defaults(self, mock_openai_embeddings, monkeypatch):
+    def test_initialization_with_defaults(self, mock_openai_client, monkeypatch):
         """Test embedder initializes with default config (auto resolves to available backend)."""
         # Clear API keys so auto resolves to local
         monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
@@ -117,8 +124,9 @@ class TestCodeEmbedder:
             assert embedder.resolved_backend == "local"
             assert embedder.config.batch_size == 100
 
-    def test_initialization_with_explicit_openai(self, mock_openai_embeddings):
+    def test_initialization_with_explicit_openai(self, mock_openai_client, monkeypatch):
         """Test embedder initializes with explicit OpenAI backend."""
+        monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
         embedder = CodeEmbedder(backend="openai")
 
         assert embedder.config.backend == "openai"
@@ -127,8 +135,9 @@ class TestCodeEmbedder:
         assert embedder.dimensions == 1536
         assert embedder.config.batch_size == 100
 
-    def test_initialization_with_custom_config(self, mock_openai_embeddings):
+    def test_initialization_with_custom_config(self, mock_openai_client, monkeypatch):
         """Test embedder with custom configuration."""
+        monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
         config = EmbeddingConfig(
             backend="openai",  # Explicit backend for predictable testing
             model="text-embedding-3-large",
@@ -140,8 +149,9 @@ class TestCodeEmbedder:
         assert embedder.dimensions == 1536  # Still OpenAI default dimensions
         assert embedder.config.batch_size == 50
 
-    def test_factory_function(self, mock_openai_embeddings):
+    def test_factory_function(self, mock_openai_client, monkeypatch):
         """Test create_embedder factory function with explicit backend."""
+        monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
         embedder = create_embedder(backend="openai", model="text-embedding-3-small")
 
         assert isinstance(embedder, CodeEmbedder)

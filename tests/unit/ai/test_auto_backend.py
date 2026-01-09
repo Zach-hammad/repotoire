@@ -192,7 +192,7 @@ class TestCodeEmbedderAutoBackend:
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
         monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
 
-        with patch('neo4j_graphrag.embeddings.OpenAIEmbeddings'):
+        with patch('openai.OpenAI'):
             embedder = CodeEmbedder(backend="auto")
 
         assert embedder.resolved_backend == "openai"
@@ -230,7 +230,7 @@ class TestCodeEmbedderAutoBackend:
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
         monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
 
-        with patch('neo4j_graphrag.embeddings.OpenAIEmbeddings'):
+        with patch('openai.OpenAI'):
             with caplog.at_level(logging.INFO):
                 embedder = CodeEmbedder(backend="auto")
 
@@ -241,7 +241,7 @@ class TestCodeEmbedderAutoBackend:
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
         monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
 
-        with patch('neo4j_graphrag.embeddings.OpenAIEmbeddings'):
+        with patch('openai.OpenAI'):
             # No backend parameter - should default to auto
             embedder = CodeEmbedder()
 

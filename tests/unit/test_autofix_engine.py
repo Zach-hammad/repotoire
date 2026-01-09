@@ -35,10 +35,10 @@ def mock_rag_retriever():
 @pytest.fixture
 def auto_fix_engine(mock_graph_client):
     """Create AutoFixEngine with mocked dependencies."""
-    with patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test-key"}):
+    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}):
         with patch("repotoire.autofix.engine.CodeEmbedder"):
             with patch("repotoire.autofix.engine.GraphRAGRetriever"):
-                with patch("repotoire.autofix.engine.OpenAI"):
+                with patch("repotoire.autofix.engine.LLMClient"):
                     engine = AutoFixEngine(mock_graph_client)
                     return engine
 
@@ -62,22 +62,23 @@ class TestAutoFixEngineInit:
     """Test AutoFixEngine initialization."""
 
     def test_init_with_env_api_key(self, mock_graph_client):
-        """Test initialization with API key from environment."""
-        with patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test-key"}):
+        """Test initialization with API key from environment (default Anthropic backend)."""
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}):
             with patch("repotoire.autofix.engine.CodeEmbedder"):
                 with patch("repotoire.autofix.engine.GraphRAGRetriever"):
-                    with patch("repotoire.autofix.engine.OpenAI"):
+                    with patch("repotoire.autofix.engine.LLMClient") as mock_llm:
+                        mock_llm.return_value.model = "claude-sonnet-4-20250514"
                         engine = AutoFixEngine(mock_graph_client)
                         assert engine.graph_client == mock_graph_client
-                        assert engine.model == "gpt-4o"
+                        assert engine.model == "claude-sonnet-4-20250514"
 
     def test_init_with_explicit_api_key(self, mock_graph_client):
         """Test initialization with explicit API key."""
         with patch("repotoire.autofix.engine.CodeEmbedder"):
             with patch("repotoire.autofix.engine.GraphRAGRetriever"):
-                with patch("repotoire.autofix.engine.OpenAI"):
+                with patch("repotoire.autofix.engine.LLMClient"):
                     engine = AutoFixEngine(
-                        mock_graph_client, openai_api_key="sk-explicit-key"
+                        mock_graph_client, api_key="sk-explicit-key"
                     )
                     assert engine.graph_client == mock_graph_client
 
@@ -86,16 +87,18 @@ class TestAutoFixEngineInit:
         with patch.dict("os.environ", {}, clear=True):
             with pytest.raises(ValueError) as exc_info:
                 AutoFixEngine(mock_graph_client)
-            assert "OPENAI_API_KEY" in str(exc_info.value)
+            # Default backend is Anthropic
+            assert "ANTHROPIC_API_KEY" in str(exc_info.value)
 
     def test_init_with_custom_model(self, mock_graph_client):
         """Test initialization with custom model."""
-        with patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test-key"}):
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}):
             with patch("repotoire.autofix.engine.CodeEmbedder"):
                 with patch("repotoire.autofix.engine.GraphRAGRetriever"):
-                    with patch("repotoire.autofix.engine.OpenAI"):
-                        engine = AutoFixEngine(mock_graph_client, model="gpt-4-turbo")
-                        assert engine.model == "gpt-4-turbo"
+                    with patch("repotoire.autofix.engine.LLMClient") as mock_llm:
+                        mock_llm.return_value.model = "claude-opus-4-20250514"
+                        engine = AutoFixEngine(mock_graph_client, model="claude-opus-4-20250514")
+                        assert engine.model == "claude-opus-4-20250514"
 
 
 class TestDetermineFixType:

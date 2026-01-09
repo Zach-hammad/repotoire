@@ -286,13 +286,25 @@ class CodeEmbedder:
             self.dimensions = actual_dims
 
     def _init_openai(self, api_key: Optional[str]) -> None:
-        """Initialize OpenAI embeddings via neo4j-graphrag."""
-        from neo4j_graphrag.embeddings import OpenAIEmbeddings
+        """Initialize OpenAI embeddings via OpenAI SDK."""
+        try:
+            from openai import OpenAI
+        except ImportError:
+            raise ImportError(
+                "openai package required for OpenAI backend. "
+                "Install with: pip install openai"
+            )
 
-        self._embeddings = OpenAIEmbeddings(
-            model=self.config.effective_model,
-            api_key=api_key,
-        )
+        env_key = BACKEND_CONFIGS["openai"]["env_key"]
+        resolved_key = api_key or os.getenv(env_key)
+        if not resolved_key:
+            raise ValueError(
+                f"{env_key} environment variable required for openai backend. "
+                "Get your API key at https://platform.openai.com/api-keys"
+            )
+
+        self._openai_client = OpenAI(api_key=resolved_key)
+        self._openai_model = self.config.effective_model
 
     def _init_deepinfra(self) -> None:
         """Initialize DeepInfra embeddings via OpenAI-compatible API."""
@@ -396,7 +408,7 @@ class CodeEmbedder:
         elif self.resolved_backend == "voyage":
             return self._embed_voyage([query], input_type="query")[0]
         else:
-            return self._embeddings.embed_query(query)
+            return self._embed_openai([query])[0]
 
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """Embed multiple texts efficiently.
@@ -419,8 +431,7 @@ class CodeEmbedder:
         elif self.resolved_backend == "voyage":
             return self._embed_voyage(texts, input_type="document")
         else:
-            # neo4j-graphrag doesn't have native batch, so we iterate
-            return [self._embeddings.embed_query(text) for text in texts]
+            return self._embed_openai(texts)
 
     def _embed_local(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings using local sentence-transformers model.
@@ -433,6 +444,22 @@ class CodeEmbedder:
         """
         embeddings = self._model.encode(texts, show_progress_bar=False)
         return embeddings.tolist()
+
+    def _embed_openai(self, texts: List[str]) -> List[List[float]]:
+        """Generate embeddings using OpenAI API.
+
+        Args:
+            texts: List of texts to embed
+
+        Returns:
+            List of embedding vectors
+        """
+        response = self._openai_client.embeddings.create(
+            model=self._openai_model,
+            input=texts,
+        )
+
+        return [e.embedding for e in response.data]
 
     def _embed_deepinfra(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings using DeepInfra's OpenAI-compatible API.
