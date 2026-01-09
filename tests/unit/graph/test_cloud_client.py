@@ -452,7 +452,7 @@ class TestCreateCloudClient:
         _cache_auth(api_key, auth_info)
 
         with patch("repotoire.graph.factory._validate_api_key") as mock_validate:
-            with patch("repotoire.graph.falkordb_client.FalkorDBClient") as mock_client:
+            with patch("repotoire.graph.cloud_client.CloudProxyClient") as mock_client:
                 mock_client.return_value = MagicMock()
                 create_cloud_client(api_key, show_indicator=False)
 
@@ -466,35 +466,24 @@ class TestCreateCloudClient:
 
         with patch("repotoire.graph.factory._validate_api_key") as mock_validate:
             mock_validate.return_value = auth_info
-            with patch("repotoire.graph.falkordb_client.FalkorDBClient") as mock_client:
+            with patch("repotoire.graph.cloud_client.CloudProxyClient") as mock_client:
                 mock_client.return_value = MagicMock()
                 create_cloud_client(api_key, show_indicator=False)
 
         mock_validate.assert_called_once_with(api_key)
 
-    def test_creates_falkordb_client_with_correct_config(self):
-        """Should create FalkorDB client with config from auth info."""
+    def test_creates_cloud_proxy_client_with_api_key(self):
+        """Should create CloudProxyClient with API key."""
         api_key = "ak_test123"
-        auth_info = make_auth_info(
-            db_config={
-                "type": "falkordb",
-                "host": "test-host.fly.dev",
-                "port": 9999,
-                "graph": "test_graph",
-            }
-        )
+        auth_info = make_auth_info()
         _cache_auth(api_key, auth_info)
 
-        with patch("repotoire.graph.falkordb_client.FalkorDBClient") as mock_client:
+        with patch("repotoire.graph.cloud_client.CloudProxyClient") as mock_client:
             mock_instance = MagicMock()
             mock_client.return_value = mock_instance
             result = create_cloud_client(api_key, show_indicator=False)
 
-        mock_client.assert_called_once_with(
-            host="test-host.fly.dev",
-            port=9999,
-            graph_name="test_graph",
-        )
+        mock_client.assert_called_once_with(api_key=api_key)
         assert result == mock_instance
 
     def test_caches_auth_after_validation(self):
@@ -504,7 +493,7 @@ class TestCreateCloudClient:
 
         with patch("repotoire.graph.factory._validate_api_key") as mock_validate:
             mock_validate.return_value = auth_info
-            with patch("repotoire.graph.falkordb_client.FalkorDBClient") as mock_client:
+            with patch("repotoire.graph.cloud_client.CloudProxyClient") as mock_client:
                 mock_client.return_value = MagicMock()
                 create_cloud_client(api_key, show_indicator=False)
 
@@ -695,7 +684,7 @@ class TestConnectionLogging:
         _cache_auth(api_key, auth_info)
 
         with patch("repotoire.graph.factory._log_cloud_connection") as mock_log:
-            with patch("repotoire.graph.falkordb_client.FalkorDBClient") as mock_client:
+            with patch("repotoire.graph.cloud_client.CloudProxyClient") as mock_client:
                 mock_client.return_value = MagicMock()
                 create_cloud_client(api_key, show_indicator=False, command="ingest")
 

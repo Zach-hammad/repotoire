@@ -19,49 +19,19 @@ def mock_db():
 class TestDegreeCentralityDetector:
     """Test DegreeCentralityDetector."""
 
-    def test_no_issues_when_gds_not_available(self, mock_db):
-        """Test that detector returns empty when GDS is not available."""
-        with patch(
-            "repotoire.detectors.degree_centrality.GraphAlgorithms"
-        ) as MockGraphAlgo:
-            mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = False
-
-            detector = DegreeCentralityDetector(mock_db)
-            findings = detector.detect()
-
-            assert len(findings) == 0
-            mock_algo.check_gds_available.assert_called_once()
-
-    def test_no_issues_when_projection_fails(self, mock_db):
-        """Test that detector returns empty when projection fails."""
-        with patch(
-            "repotoire.detectors.degree_centrality.GraphAlgorithms"
-        ) as MockGraphAlgo:
-            mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = False
-
-            detector = DegreeCentralityDetector(mock_db)
-            findings = detector.detect()
-
-            assert len(findings) == 0
-
     def test_no_issues_when_degree_calculation_fails(self, mock_db):
         """Test that detector handles degree calculation failure gracefully."""
         with patch(
             "repotoire.detectors.degree_centrality.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_degree_centrality.return_value = None
 
             detector = DegreeCentralityDetector(mock_db)
             findings = detector.detect()
 
             assert len(findings) == 0
-            mock_algo.cleanup_projection.assert_called()
+            mock_algo.calculate_degree_centrality.assert_called_once()
 
     def test_god_class_detection_high_indegree_high_complexity(self, mock_db):
         """Test detection of God Class (high in-degree + high complexity)."""
@@ -69,8 +39,6 @@ class TestDegreeCentralityDetector:
             "repotoire.detectors.degree_centrality.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_degree_centrality.return_value = {
                 "in_degree_nodes": 100,
                 "out_degree_nodes": 100
@@ -108,8 +76,6 @@ class TestDegreeCentralityDetector:
             "repotoire.detectors.degree_centrality.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_degree_centrality.return_value = {"in_degree_nodes": 100}
             mock_algo.get_degree_statistics.return_value = {
                 "max_in_degree": 100
@@ -139,8 +105,6 @@ class TestDegreeCentralityDetector:
             "repotoire.detectors.degree_centrality.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_degree_centrality.return_value = {"in_degree_nodes": 100}
             mock_algo.get_degree_statistics.return_value = {"max_in_degree": 50}
             # High in-degree but low complexity - not a God Class
@@ -169,8 +133,6 @@ class TestDegreeCentralityDetector:
             "repotoire.detectors.degree_centrality.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_degree_centrality.return_value = {
                 "in_degree_nodes": 100,
                 "out_degree_nodes": 100
@@ -205,8 +167,6 @@ class TestDegreeCentralityDetector:
             "repotoire.detectors.degree_centrality.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_degree_centrality.return_value = {
                 "in_degree_nodes": 100,
                 "out_degree_nodes": 100
@@ -254,8 +214,6 @@ class TestDegreeCentralityDetector:
             "repotoire.detectors.degree_centrality.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_degree_centrality.return_value = {"in_degree_nodes": 100}
             mock_algo.get_degree_statistics.return_value = {
                 "max_in_degree": 50,
@@ -291,22 +249,20 @@ class TestDegreeCentralityDetector:
             assert len(hotspot_findings) == 1
             assert hotspot_findings[0].severity == Severity.CRITICAL
 
-    def test_cleanup_on_exception(self, mock_db):
-        """Test that projection is cleaned up on exception."""
+    def test_handles_exception_gracefully(self, mock_db):
+        """Test that detector handles exceptions gracefully."""
         with patch(
             "repotoire.detectors.degree_centrality.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_degree_centrality.return_value = {"in_degree_nodes": 100}
             mock_algo.get_degree_statistics.side_effect = Exception("DB error")
 
             detector = DegreeCentralityDetector(mock_db)
             findings = detector.detect()
 
+            # Should return empty list on exception, not crash
             assert len(findings) == 0
-            mock_algo.cleanup_projection.assert_called()
 
     def test_collaboration_metadata_god_class(self, mock_db):
         """Test God Class findings include collaboration metadata."""
@@ -314,8 +270,6 @@ class TestDegreeCentralityDetector:
             "repotoire.detectors.degree_centrality.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_degree_centrality.return_value = {"in_degree_nodes": 100}
             mock_algo.get_degree_statistics.return_value = {"max_in_degree": 50}
             mock_algo.get_high_indegree_nodes.return_value = [
@@ -347,8 +301,6 @@ class TestDegreeCentralityDetector:
             "repotoire.detectors.degree_centrality.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_degree_centrality.return_value = {"out_degree_nodes": 100}
             mock_algo.get_degree_statistics.return_value = {"max_out_degree": 40}
             mock_algo.get_high_indegree_nodes.return_value = []
@@ -378,8 +330,6 @@ class TestDegreeCentralityDetector:
             "repotoire.detectors.degree_centrality.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_degree_centrality.return_value = {"in_degree_nodes": 100}
             mock_algo.get_degree_statistics.return_value = {"max_in_degree": 50}
             mock_algo.get_high_indegree_nodes.return_value = [
@@ -406,8 +356,6 @@ class TestDegreeCentralityDetector:
             "repotoire.detectors.degree_centrality.GraphAlgorithms"
         ) as MockGraphAlgo:
             mock_algo = MockGraphAlgo.return_value
-            mock_algo.check_gds_available.return_value = True
-            mock_algo.create_import_graph_projection.return_value = True
             mock_algo.calculate_degree_centrality.return_value = {"in_degree_nodes": 100}
             mock_algo.get_degree_statistics.return_value = {
                 "max_in_degree": 50,
