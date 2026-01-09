@@ -208,7 +208,6 @@ class IngestionPipeline:
             if self.embedder.dimensions > self.embedding_target_dims:
                 try:
                     from repotoire.ai import EmbeddingCompressor
-                    from pathlib import Path
 
                     # Load or create compressor with org-specific model path
                     model_dir = Path.home() / ".repotoire" / "compression_models"

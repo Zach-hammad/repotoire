@@ -229,7 +229,7 @@ class TestAPIDocumentation:
         """API documentation should document pre-configured objects."""
         docs = get_api_documentation()
         assert "client" in docs.lower()
-        assert "neo4jclient" in docs.lower()
+        assert "falkordbclient" in docs.lower()
 
     def test_api_documentation_has_functions(self):
         """API documentation should document utility functions."""
