@@ -415,6 +415,7 @@ class RepositoryInfo(BaseModel):
 
     id: UUID
     full_name: str
+    default_branch: str
     health_score: Optional[int]
     last_analyzed_at: Optional[datetime]
 
@@ -445,6 +446,7 @@ async def get_repositories(
         RepositoryInfo(
             id=repo.id,
             full_name=repo.full_name,
+            default_branch=repo.default_branch,
             health_score=repo.health_score,
             last_analyzed_at=repo.last_analyzed_at,
         )

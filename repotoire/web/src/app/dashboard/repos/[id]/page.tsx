@@ -320,14 +320,14 @@ function GitHistory({ repositoryId, repositoryFullName }: GitHistoryProps) {
                 Run <code className="bg-muted px-1 rounded">repotoire historical ingest-git</code> to enable.
               </p>
             </div>
-          ) : history && history.commits.length === 0 ? (
+          ) : history && (history.commits?.length ?? 0) === 0 ? (
             <div className="flex flex-col items-center justify-center py-12">
               <GitCommit className="h-12 w-12 text-muted-foreground mb-4" aria-hidden="true" />
               <p className="text-muted-foreground">No commits found</p>
             </div>
           ) : (
             <div className="space-y-4">
-              {history?.commits.map((commit) => (
+              {history?.commits?.map((commit) => (
                 <ProvenanceCard
                   key={commit.commit_sha}
                   commit={commit}
@@ -482,13 +482,13 @@ export default function RepoDetailPage({ params }: RepoDetailPageProps) {
       )}
 
       {/* Analysis Progress (if running) */}
-      {repo.analysis_status === 'running' && repo.repository_id && (
+      {repo.analysis_status === 'running' && (
         <Card>
           <CardHeader>
             <CardTitle>Analysis in Progress</CardTitle>
           </CardHeader>
           <CardContent>
-            <AnalysisProgress repositoryId={repo.repository_id} />
+            <AnalysisProgress repositoryId={repo.id} />
           </CardContent>
         </Card>
       )}

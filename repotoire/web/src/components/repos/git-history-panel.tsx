@@ -18,14 +18,13 @@ import {
   AlertTriangle,
   CheckCircle2,
   Calendar,
-  BarChart3,
   Download,
   Search,
   MessageSquare,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, safeParseDate } from '@/lib/utils';
 import {
   useGitHistoryStatus,
   useCommitHistory,
@@ -74,7 +73,7 @@ export function GitHistoryPanel({ repositoryId, repositoryFullName }: GitHistory
 
   const handleBackfill = async () => {
     try {
-      const result = await startBackfill(status?.backfill_estimate_commits);
+      const result = await startBackfill(500); // Default max commits
       setBackfillJobId(result.job_id);
       toast.success('Backfill started', {
         description: 'Importing git history in the background...',
@@ -150,7 +149,7 @@ export function GitHistoryPanel({ repositoryId, repositoryFullName }: GitHistory
           </AlertDescription>
         </Alert>
 
-        {status?.can_backfill && (
+        {!status?.is_backfill_running && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -158,7 +157,7 @@ export function GitHistoryPanel({ repositoryId, repositoryFullName }: GitHistory
                 Import Git History
               </CardTitle>
               <CardDescription>
-                Import {status.backfill_estimate_commits.toLocaleString()} commits from the repository
+                Import commits from the repository using the CLI
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -204,11 +203,16 @@ export function GitHistoryPanel({ repositoryId, repositoryFullName }: GitHistory
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                <BarChart3 className="h-5 w-5 text-green-500" />
+                <RefreshCw className="h-5 w-5 text-green-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{status.coverage_percent}%</p>
-                <p className="text-xs text-muted-foreground">Findings with origin</p>
+                <p className="text-sm font-medium">
+                  {(() => {
+                    const date = safeParseDate(status.last_updated);
+                    return date ? formatDistanceToNow(date, { addSuffix: true }) : 'Never';
+                  })()}
+                </p>
+                <p className="text-xs text-muted-foreground">Last updated</p>
               </div>
             </div>
           </CardContent>
@@ -222,14 +226,16 @@ export function GitHistoryPanel({ repositoryId, repositoryFullName }: GitHistory
               </div>
               <div>
                 <p className="text-sm font-medium">
-                  {status.oldest_commit_date
-                    ? format(new Date(status.oldest_commit_date), 'MMM d, yyyy')
-                    : 'N/A'}
+                  {(() => {
+                    const date = safeParseDate(status.oldest_commit_date);
+                    return date ? format(date, 'MMM d, yyyy') : 'N/A';
+                  })()}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  to {status.newest_commit_date
-                    ? format(new Date(status.newest_commit_date), 'MMM d, yyyy')
-                    : 'N/A'}
+                  to {(() => {
+                    const date = safeParseDate(status.newest_commit_date);
+                    return date ? format(date, 'MMM d, yyyy') : 'N/A';
+                  })()}
                 </p>
               </div>
             </div>
@@ -237,28 +243,13 @@ export function GitHistoryPanel({ repositoryId, repositoryFullName }: GitHistory
         </Card>
       </div>
 
-      {/* Backfill option if more history available */}
-      {status.can_backfill && status.backfill_estimate_commits > 0 && (
+      {/* Backfill in progress indicator */}
+      {status.is_backfill_running && (
         <Alert>
-          <Download className="h-4 w-4" />
-          <AlertTitle>More history available</AlertTitle>
-          <AlertDescription className="flex items-center justify-between">
-            <span>
-              {status.backfill_estimate_commits.toLocaleString()} additional commits can be imported.
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleBackfill}
-              disabled={isStartingBackfill || !!backfillJobId}
-            >
-              {isStartingBackfill ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4 mr-1" />
-              )}
-              Import
-            </Button>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <AlertTitle>Import in progress</AlertTitle>
+          <AlertDescription>
+            Git history is being imported. This may take a few minutes.
           </AlertDescription>
         </Alert>
       )}
@@ -386,14 +377,14 @@ export function GitHistoryPanel({ repositoryId, repositoryFullName }: GitHistory
                 Retry
               </Button>
             </div>
-          ) : history && history.commits.length === 0 ? (
+          ) : history && (history.commits?.length ?? 0) === 0 ? (
             <div className="flex flex-col items-center justify-center py-12">
               <GitCommit className="h-12 w-12 text-muted-foreground mb-4" />
               <p className="text-muted-foreground">No commits found</p>
             </div>
           ) : (
             <div className="space-y-4">
-              {history?.commits.map((commit) => (
+              {history?.commits?.map((commit) => (
                 <ProvenanceCard
                   key={commit.commit_sha}
                   commit={commit}
@@ -441,9 +432,10 @@ export function GitHistoryPanel({ repositoryId, repositoryFullName }: GitHistory
 /**
  * Backfill progress indicator
  */
-function BackfillProgress({ status }: { status: { status: string; commits_processed: number; commits_total: number; error_message?: string } }) {
-  const progressPercent = status.commits_total > 0
-    ? Math.round((status.commits_processed / status.commits_total) * 100)
+function BackfillProgress({ status }: { status: { status: string; commits_processed: number; total_commits?: number | null; error_message?: string | null } }) {
+  const totalCommits = status.total_commits ?? 0;
+  const progressPercent = totalCommits > 0
+    ? Math.round((status.commits_processed / totalCommits) * 100)
     : 0;
 
   if (status.status === 'failed') {
@@ -466,7 +458,7 @@ function BackfillProgress({ status }: { status: { status: string; commits_proces
           <div>
             <p className="font-medium">Importing git history...</p>
             <p className="text-sm text-muted-foreground">
-              Processing {status.commits_processed.toLocaleString()} of {status.commits_total.toLocaleString()} commits
+              Processing {status.commits_processed.toLocaleString()} of {totalCommits.toLocaleString()} commits
             </p>
           </div>
         </div>

@@ -2360,7 +2360,7 @@ async def check_outdated(
 
 @router.post(
     "/analytics/events/@{publisher}/{slug}",
-    response_model="TrackEventResponse",
+    response_model=TrackEventResponse,
     summary="Track an analytics event",
     description="""
 Track an analytics event for an asset.
@@ -2378,14 +2378,13 @@ Accepts CLI headers:
 async def track_event(
     publisher: str,
     slug: str,
-    request: "TrackEventRequest",
+    request: TrackEventRequest,
     user: Optional[ClerkUser] = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
-) -> "TrackEventResponse":
+) -> TrackEventResponse:
     """Track an analytics event for an asset."""
     from repotoire.api.v1.schemas.marketplace import (
         TrackEventRequest as TrackReq,
-        TrackEventResponse,
     )
     from repotoire.marketplace.analytics import AnalyticsTracker, EventData
     from repotoire.db.models.marketplace import EventType
@@ -2422,7 +2421,7 @@ async def track_event(
 
 @router.get(
     "/analytics/assets/@{publisher}/{slug}/stats",
-    response_model="AssetStatsResponse",
+    response_model=AssetStatsResponse,
     summary="Get asset statistics",
     description="""
 Get aggregated statistics for an asset.
@@ -2436,7 +2435,7 @@ async def get_asset_stats(
     publisher: str,
     slug: str,
     db: AsyncSession = Depends(get_db),
-) -> "AssetStatsResponse":
+) -> AssetStatsResponse:
     """Get asset statistics."""
     from repotoire.api.v1.schemas.marketplace import AssetStatsResponse
     from repotoire.marketplace.analytics import AnalyticsTracker
@@ -2472,7 +2471,7 @@ async def get_asset_stats(
 
 @router.get(
     "/analytics/assets/@{publisher}/{slug}/trends",
-    response_model="AssetTrendsResponse",
+    response_model=AssetTrendsResponse,
     summary="Get asset trends",
     description="""
 Get daily trend data for an asset.
@@ -2487,7 +2486,7 @@ async def get_asset_trends(
     slug: str,
     days: int = Query(default=30, ge=1, le=365, description="Number of days"),
     db: AsyncSession = Depends(get_db),
-) -> "AssetTrendsResponse":
+) -> AssetTrendsResponse:
     """Get asset trend data."""
     from repotoire.api.v1.schemas.marketplace import AssetTrendsResponse, DailyStatsItem
     from repotoire.marketplace.analytics import AnalyticsTracker
@@ -2529,7 +2528,7 @@ async def get_asset_trends(
 
 @router.get(
     "/creator/stats",
-    response_model="CreatorStatsResponse",
+    response_model=CreatorStatsResponse,
     summary="Get creator statistics",
     description="""
 Get aggregated statistics for the authenticated publisher.
@@ -2542,7 +2541,7 @@ Returns stats across all publisher's assets with per-asset breakdown.
 async def get_creator_stats(
     user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> "CreatorStatsResponse":
+) -> CreatorStatsResponse:
     """Get statistics for the authenticated creator."""
     from repotoire.api.v1.schemas.marketplace import (
         CreatorStatsResponse,
@@ -2596,7 +2595,7 @@ async def get_creator_stats(
 
 @router.get(
     "/creator/assets/{asset_slug}/stats",
-    response_model="AssetTrendsResponse",
+    response_model=AssetTrendsResponse,
     summary="Get detailed stats for a creator's asset",
     description="""
 Get detailed statistics and trends for a specific asset.
@@ -2611,7 +2610,7 @@ async def get_creator_asset_stats(
     days: int = Query(default=30, ge=1, le=365, description="Number of days"),
     user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> "AssetTrendsResponse":
+) -> AssetTrendsResponse:
     """Get detailed stats for a creator's asset."""
     from repotoire.api.v1.schemas.marketplace import AssetTrendsResponse, DailyStatsItem
     from repotoire.marketplace.analytics import AnalyticsTracker
@@ -2668,7 +2667,7 @@ async def get_creator_asset_stats(
 
 @router.get(
     "/admin/analytics/overview",
-    response_model="PlatformStatsResponse",
+    response_model=PlatformStatsResponse,
     summary="Get platform-wide analytics (admin only)",
     description="""
 Get platform-wide analytics overview.
@@ -2682,7 +2681,7 @@ async def get_admin_analytics_overview(
     limit: int = Query(default=10, ge=1, le=100, description="Number of top assets"),
     user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> "PlatformStatsResponse":
+) -> PlatformStatsResponse:
     """Get platform-wide analytics overview (admin only)."""
     from repotoire.api.v1.schemas.marketplace import PlatformStatsResponse, TopAssetItem
     from repotoire.marketplace.analytics import AnalyticsTracker

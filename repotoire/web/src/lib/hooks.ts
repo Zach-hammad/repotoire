@@ -24,6 +24,7 @@ import {
   PreviewResult,
   ProvenanceSettings,
   Repository,
+  RepositoryInfo,
   SortOptions,
   Subscription,
   TrendDataPoint,
@@ -31,7 +32,7 @@ import {
 
 // NOTE: Removed billing types (CheckoutResponse, PlansResponse, PortalResponse, PriceCalculationResponse)
 // as part of Clerk Billing migration. These are no longer used by frontend hooks.
-import { analyticsApi, billingApi, findingsApi, fixesApi, historicalApi, provenanceSettingsApi, repositoriesApi, RepositoryInfo, request } from './api';
+import { analyticsApi, billingApi, findingsApi, fixesApi, historicalApi, provenanceSettingsApi, repositoriesApi, request } from './api';
 import { useApiAuth } from '@/components/providers/api-auth-provider';
 
 // Generic fetcher for SWR
@@ -422,13 +423,9 @@ export function useFixStats() {
  */
 export function useRepositoriesFull() {
   const { isAuthReady } = useApiAuth();
-  return useSWR<Repository[]>(
+  return useSWR<RepositoryInfo[]>(
     isAuthReady ? 'repositories-full' : null,
-    async () => {
-      const response = await fetch('/api/v1/repositories');
-      if (!response.ok) throw new Error('Failed to fetch repositories');
-      return response.json();
-    }
+    () => repositoriesApi.list()
   );
 }
 

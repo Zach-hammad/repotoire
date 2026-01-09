@@ -127,7 +127,7 @@ export default function FindingDetailPage({ params }: FindingDetailPageProps) {
 
   // Get repository info for GitHub links
   const repository = repositories?.find(
-    (r) => r.repository_id === finding?.analysis_run_id?.split('-')[0]
+    (r) => r.id === finding?.repository_id
   );
 
   // Handler for status updates

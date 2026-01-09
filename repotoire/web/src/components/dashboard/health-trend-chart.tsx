@@ -15,7 +15,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, safeParseDate } from '@/lib/utils';
 
 interface HealthDataPoint {
   date: string;
@@ -47,7 +47,8 @@ const mockData: HealthDataPoint[] = [
 ];
 
 const formatDate = (dateStr: string) => {
-  const date = new Date(dateStr);
+  const date = safeParseDate(dateStr);
+  if (!date) return 'Invalid';
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 

@@ -5,12 +5,11 @@ import { useGitHubInstallations, useAvailableRepos, useConnectRepos } from '@/li
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { Github, Building2, User, Lock, ArrowLeft, Loader2, ExternalLink } from 'lucide-react';
+import { Github, Building2, User, ArrowLeft, Loader2, ExternalLink } from 'lucide-react';
 
 export default function ConnectRepoPage() {
   const router = useRouter();
@@ -49,7 +48,7 @@ export default function ConnectRepoPage() {
 
   const selectAll = () => {
     if (!availableRepos) return;
-    setSelectedRepos(new Set(availableRepos.map((r) => r.id)));
+    setSelectedRepos(new Set(availableRepos.map((r) => r.repo_id)));
   };
 
   const clearSelection = () => {
@@ -119,30 +118,22 @@ export default function ConnectRepoPage() {
                 const AccountIcon = installation.account_type === 'Organization' ? Building2 : User;
                 return (
                   <button
-                    key={installation.uuid || installation.id}
+                    key={installation.id}
                     onClick={() => {
-                      setSelectedInstallation(installation.uuid || installation.id);
+                      setSelectedInstallation(installation.id);
                       setSelectedRepos(new Set());
                     }}
                     className={cn(
                       'w-full p-3 rounded-lg border text-left transition-colors',
-                      (selectedInstallation === installation.uuid || selectedInstallation === installation.id)
+                      selectedInstallation === installation.id
                         ? 'border-primary bg-primary/5'
                         : 'hover:bg-muted'
                     )}
                   >
                     <div className="flex items-center gap-3">
-                      {installation.account_avatar_url ? (
-                        <img
-                          src={installation.account_avatar_url}
-                          alt=""
-                          className="h-8 w-8 rounded-full"
-                        />
-                      ) : (
-                        <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
-                          <AccountIcon className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                      )}
+                      <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
+                        <AccountIcon className="h-4 w-4 text-muted-foreground" />
+                      </div>
                       <div>
                         <div className="font-medium">{installation.account_login}</div>
                         <div className="text-sm text-muted-foreground flex items-center gap-1">
@@ -209,29 +200,18 @@ export default function ConnectRepoPage() {
                     key={repo.id}
                     className={cn(
                       'flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
-                      selectedRepos.has(repo.id)
+                      selectedRepos.has(repo.repo_id)
                         ? 'border-primary bg-primary/5'
                         : 'hover:bg-muted'
                     )}
                   >
                     <Checkbox
-                      checked={selectedRepos.has(repo.id)}
-                      onCheckedChange={() => toggleRepo(repo.id)}
+                      checked={selectedRepos.has(repo.repo_id)}
+                      onCheckedChange={() => toggleRepo(repo.repo_id)}
                     />
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{repo.full_name}</div>
-                      {repo.description && (
-                        <div className="text-sm text-muted-foreground line-clamp-1">
-                          {repo.description}
-                        </div>
-                      )}
                     </div>
-                    {repo.private && (
-                      <Badge variant="outline" className="gap-1">
-                        <Lock className="h-3 w-3" />
-                        Private
-                      </Badge>
-                    )}
                   </label>
                 ))}
               </div>

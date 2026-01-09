@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, ReactNode, useEffect } from 'react';
 import { useRepositories } from '@/lib/hooks';
-import { RepositoryInfo } from '@/lib/api';
+import { RepositoryInfo } from '@/types';
 
 interface RepositoryContextValue {
   /** Currently selected repository (null = all repositories) */

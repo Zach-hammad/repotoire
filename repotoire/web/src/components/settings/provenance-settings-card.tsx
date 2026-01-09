@@ -37,7 +37,7 @@ const EXAMPLE_COMMIT = {
   commit_sha: 'abc123def456789012345678901234567890abcd',
   author_name: 'Jane Developer',
   author_email: 'jane@example.com',
-  committed_date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
+  commit_date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
   message: 'Fix authentication timeout in login flow',
   insertions: 45,
   deletions: 12,

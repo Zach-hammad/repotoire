@@ -29,7 +29,7 @@ import {
   Flag,
   CheckCircle2,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, safeParseDate } from '@/lib/utils';
 import {
   useIssueProvenance,
   useFetchProvenance,
@@ -207,7 +207,8 @@ export function IssueOriginBadge({
   }
 
   const commit = origin.introduced_in;
-  const relativeDate = formatDistanceToNow(new Date(commit.committed_date), { addSuffix: true });
+  const commitDate = safeParseDate(commit.commit_date);
+  const relativeDate = commitDate ? formatDistanceToNow(commitDate, { addSuffix: true }) : 'Unknown date';
 
   // Privacy-aware author display
   const displayName = settings.show_author_names
@@ -387,7 +388,8 @@ export function IssueOriginInline({
   }
 
   const commit = origin.introduced_in;
-  const relativeDate = formatDistanceToNow(new Date(commit.committed_date), { addSuffix: true });
+  const commitDate = safeParseDate(commit.commit_date);
+  const relativeDate = commitDate ? formatDistanceToNow(commitDate, { addSuffix: true }) : 'Unknown date';
   const displayName = settings.show_author_names ? commit.author_name : 'A contributor';
 
   const githubCommitUrl = repositoryFullName

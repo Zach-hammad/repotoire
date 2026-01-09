@@ -77,8 +77,9 @@ export function PreviewResultPanel({
   isRerunning,
 }: PreviewResultPanelProps) {
   const [isOpen, setIsOpen] = useState(true);
-  const passedCount = result.checks.filter((c) => c.passed).length;
-  const totalCount = result.checks.length;
+  const checks = result.checks ?? [];
+  const passedCount = checks.filter((c) => c.passed).length;
+  const totalCount = checks.length;
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -137,9 +138,9 @@ export function PreviewResultPanel({
         <CollapsibleContent>
           <div className="border-t p-4 space-y-4">
             {/* Check results */}
-            {result.checks.length > 0 && (
+            {checks.length > 0 && (
               <div className="space-y-2">
-                {result.checks.map((check, index) => (
+                {checks.map((check, index) => (
                   <CheckItem key={index} check={check} />
                 ))}
               </div>

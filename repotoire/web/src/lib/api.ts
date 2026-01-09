@@ -13,6 +13,7 @@ import {
   FixComment,
   FixFilters,
   FixProposal,
+  FixStatistics,
   GitHistoryStatus,
   HealthScore,
   HealthScoreDelta,
@@ -21,6 +22,7 @@ import {
   PaginatedResponse,
   PreviewResult,
   ProvenanceSettings,
+  RepositoryInfo,
   SandboxBillingStatus,
   SandboxBillingUsage,
   SandboxCostSummary,
@@ -177,8 +179,9 @@ export const fixesApi = {
   },
 
   // Get comments for a fix
-  getComments: async (id: string): Promise<FixComment[]> => {
-    return request<FixComment[]>(`/fixes/${id}/comments`);
+  getComments: async (id: string, limit: number = 25): Promise<FixComment[]> => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    return request<FixComment[]>(`/fixes/${id}/comments?${params}`);
   },
 
   // Batch approve fixes
@@ -371,24 +374,6 @@ export const analyticsApi = {
   },
 };
 
-// Fix statistics type
-export interface FixStatistics {
-  total: number;
-  pending: number;
-  approved: number;
-  applied: number;
-  rejected: number;
-  failed: number;
-  by_status: Record<string, number>;
-}
-
-// Repository info for filter dropdowns
-export interface RepositoryInfo {
-  id: string;
-  full_name: string;
-  health_score: number | null;
-  last_analyzed_at: string | null;
-}
 
 // Repositories API (for filter dropdowns)
 export const repositoriesApi = {
@@ -421,11 +406,13 @@ export const historicalApi = {
     question: string,
     repositoryId?: string
   ): Promise<HistoricalQueryResponse> => {
-    const params = new URLSearchParams({ question });
-    if (repositoryId) {
-      params.set('repository_id', repositoryId);
-    }
-    return request<HistoricalQueryResponse>(`/historical/query?${params}`);
+    return request<HistoricalQueryResponse>('/historical/query', {
+      method: 'POST',
+      body: JSON.stringify({
+        question,
+        repository_id: repositoryId,
+      }),
+    });
   },
 
   /**

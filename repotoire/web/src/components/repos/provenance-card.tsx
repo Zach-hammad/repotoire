@@ -29,7 +29,7 @@ import {
   AlertTriangle,
   Settings,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, safeParseDate } from '@/lib/utils';
 import { useProvenanceSettings } from '@/lib/hooks';
 import type { CommitProvenance, ProvenanceConfidence, ProvenanceSettings } from '@/types';
 import Link from 'next/link';
@@ -123,8 +123,8 @@ export function ProvenanceCard({
   // Merge user settings with any overrides
   const settings = { ...userSettings, ...settingsOverride };
 
-  const commitDate = new Date(commit.committed_date);
-  const relativeDate = formatDistanceToNow(commitDate, { addSuffix: true });
+  const commitDate = safeParseDate(commit.commit_date);
+  const relativeDate = commitDate ? formatDistanceToNow(commitDate, { addSuffix: true }) : 'Unknown date';
   const shortSha = truncateSha(commit.commit_sha);
 
   const handleCopySha = async () => {
@@ -239,7 +239,7 @@ export function ProvenanceCard({
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Calendar className="h-3 w-3" />
-                  <time dateTime={commit.committed_date} title={commitDate.toLocaleString()}>
+                  <time dateTime={commit.commit_date} title={commitDate?.toLocaleString() ?? 'Unknown date'}>
                     {relativeDate}
                   </time>
                 </div>
@@ -288,13 +288,13 @@ export function ProvenanceCard({
 
           {/* Stats: insertions, deletions, files */}
           <div className="flex flex-wrap items-center gap-3 mt-3">
-            {commit.insertions > 0 && (
+            {(commit.insertions ?? 0) > 0 && (
               <Badge variant="outline" className="flex items-center gap-1 text-green-600 dark:text-green-400">
                 <Plus className="h-3 w-3" />
                 {commit.insertions}
               </Badge>
             )}
-            {commit.deletions > 0 && (
+            {(commit.deletions ?? 0) > 0 && (
               <Badge variant="outline" className="flex items-center gap-1 text-red-600 dark:text-red-400">
                 <Minus className="h-3 w-3" />
                 {commit.deletions}
@@ -303,7 +303,7 @@ export function ProvenanceCard({
             {hasFileChanges && (
               <Badge variant="outline" className="flex items-center gap-1">
                 <FileCode2 className="h-3 w-3" />
-                {commit.changed_files.length} file{commit.changed_files.length !== 1 ? 's' : ''}
+                {commit.changed_files?.length} file{commit.changed_files?.length !== 1 ? 's' : ''}
               </Badge>
             )}
           </div>
@@ -318,7 +318,7 @@ export function ProvenanceCard({
                 onClick={() => setExpanded(!expanded)}
               >
                 <span className="text-xs text-muted-foreground">
-                  Changed files ({commit.changed_files.length})
+                  Changed files ({commit.changed_files?.length ?? 0})
                 </span>
                 {expanded ? (
                   <ChevronUp className="h-4 w-4" />
@@ -328,7 +328,7 @@ export function ProvenanceCard({
               </Button>
               {expanded && (
                 <ul className="mt-2 space-y-1 text-sm font-mono text-muted-foreground">
-                  {commit.changed_files.map((file) => (
+                  {commit.changed_files?.map((file) => (
                     <li key={file} className="truncate pl-2 border-l-2 border-muted">
                       {file}
                     </li>

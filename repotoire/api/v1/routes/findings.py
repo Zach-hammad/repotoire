@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from repotoire.api.shared.auth import ClerkUser, get_current_user, require_org
 from repotoire.db.models import (
@@ -42,6 +43,7 @@ class FindingResponse(BaseModel):
 
     id: UUID = Field(..., description="Unique identifier for this finding")
     analysis_run_id: UUID = Field(..., description="Analysis run that detected this finding")
+    repository_id: Optional[UUID] = Field(None, description="Repository this finding belongs to")
     detector: str = Field(
         ...,
         description="Detection tool that identified this issue (e.g., 'ruff', 'bandit', 'cyclomatic-complexity')",
@@ -420,6 +422,7 @@ async def list_findings(
         .join(AnalysisRun, Finding.analysis_run_id == AnalysisRun.id)
         .join(Repository, AnalysisRun.repository_id == Repository.id)
         .where(Repository.organization_id == org.id)
+        .options(selectinload(Finding.analysis_run))
     )
 
     # Apply filters
@@ -483,6 +486,7 @@ async def list_findings(
             FindingResponse(
                 id=f.id,
                 analysis_run_id=f.analysis_run_id,
+                repository_id=f.analysis_run.repository_id if f.analysis_run else None,
                 detector=f.detector,
                 severity=f.severity.value,
                 status=f.status.value if f.status else "open",
@@ -764,6 +768,7 @@ async def get_finding(
     return FindingResponse(
         id=finding.id,
         analysis_run_id=finding.analysis_run_id,
+        repository_id=analysis.repository_id if analysis else None,
         detector=finding.detector,
         severity=finding.severity.value,
         status=finding.status.value if finding.status else "open",
@@ -911,6 +916,7 @@ async def update_finding_status(
     return FindingResponse(
         id=finding.id,
         analysis_run_id=finding.analysis_run_id,
+        repository_id=analysis.repository_id if analysis else None,
         detector=finding.detector,
         severity=finding.severity.value,
         status=finding.status.value if finding.status else "open",

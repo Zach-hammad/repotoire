@@ -1,3 +1,31 @@
+/**
+ * Type definitions for Repotoire Web.
+ *
+ * This file re-exports types from the auto-generated OpenAPI types where available,
+ * and provides manual type definitions for types not in the API spec.
+ *
+ * Run `npm run generate:types` to regenerate api.generated.ts from the backend.
+ */
+
+import type { components } from './api.generated';
+
+// =============================================================================
+// Enums and Literal Types (must be defined first for use in interfaces)
+// =============================================================================
+
+// Severity levels for findings
+export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+// Finding status for workflow management
+export type FindingStatus =
+  | 'open'           // Newly detected, not yet reviewed
+  | 'acknowledged'   // Team is aware, may address later
+  | 'in_progress'    // Currently being worked on
+  | 'resolved'       // Issue has been fixed
+  | 'wontfix'        // Intentionally not fixing (acceptable tech debt)
+  | 'false_positive' // Not a real issue (detector mistake)
+  | 'duplicate';     // Duplicate of another finding
+
 // Fix status lifecycle
 export type FixStatus = 'pending' | 'approved' | 'rejected' | 'applied' | 'failed';
 
@@ -15,18 +43,149 @@ export type FixType =
   | 'type_hint'
   | 'documentation';
 
-// Severity levels for findings
-export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+// Repository analysis status
+export type AnalysisStatus = 'idle' | 'queued' | 'running' | 'completed' | 'failed';
 
-// Finding status for workflow management
-export type FindingStatus =
-  | 'open'           // Newly detected, not yet reviewed
-  | 'acknowledged'   // Team is aware, may address later
-  | 'in_progress'    // Currently being worked on
-  | 'resolved'       // Issue has been fixed
-  | 'wontfix'        // Intentionally not fixing (acceptable tech debt)
-  | 'false_positive' // Not a real issue (detector mistake)
-  | 'duplicate';     // Duplicate of another finding
+// Impact level classification for health score changes
+export type ImpactLevel = 'critical' | 'high' | 'medium' | 'low' | 'negligible';
+
+// Warning level for quota usage
+export type SandboxWarningLevel = 'ok' | 'warning' | 'critical' | 'exceeded';
+
+// =============================================================================
+// Re-exported from Generated OpenAPI Types
+// =============================================================================
+
+// Findings - use generated type but override fields with proper types
+type FindingBase = components['schemas']['FindingResponse'];
+export interface Finding extends Omit<FindingBase, 'severity' | 'status' | 'affected_files' | 'affected_nodes'> {
+  severity: Severity;
+  status: FindingStatus;
+  // Make arrays required (backend always returns them, even if empty)
+  affected_files: string[];
+  affected_nodes: string[];
+}
+export type FindingsSummary = components['schemas']['FindingsSummary'];
+export type FindingsByDetector = components['schemas']['FindingsByDetector'];
+export type PaginatedFindingsResponse = components['schemas']['PaginatedFindingsResponse'];
+export type UpdateFindingStatusRequest = components['schemas']['UpdateFindingStatusRequest'];
+export type BulkUpdateStatusRequest = components['schemas']['BulkUpdateStatusRequest'];
+// Override to make failed_ids required (backend always returns it)
+type BulkUpdateStatusResponseBase = components['schemas']['BulkUpdateStatusResponse'];
+export interface BulkUpdateStatusResponse extends Omit<BulkUpdateStatusResponseBase, 'failed_ids'> {
+  failed_ids: string[];
+}
+
+// Analytics
+export type AnalyticsSummary = components['schemas']['AnalyticsSummary'];
+export type TrendDataPoint = components['schemas']['TrendDataPoint'];
+export type FileHotspot = components['schemas']['FileHotspot'];
+export type HealthScore = components['schemas']['HealthScoreResponse'];
+export type FixStatistics = components['schemas']['FixStatistics'];
+
+// Repositories
+export type RepositoryInfo = components['schemas']['RepositoryInfo'];
+export type RepositoryDetailResponse = components['schemas']['RepositoryDetailResponse'];
+export type GitHubInstallation = components['schemas']['GitHubInstallationResponse'];
+export type GitHubAvailableRepo = components['schemas']['GitHubRepoResponse'];
+
+// Override AnalysisStatusResponse to use AnalysisStatus literal type
+type AnalysisStatusResponseBase = components['schemas']['AnalysisStatusResponse'];
+export interface AnalysisRunStatus extends Omit<AnalysisStatusResponseBase, 'status'> {
+  status: AnalysisStatus;
+}
+
+// Billing & Subscription
+export type Subscription = components['schemas']['SubscriptionResponse'];
+export type UsageInfo = components['schemas']['UsageInfo'];
+export type PlanTier = components['schemas']['PlanTier'];
+export type SubscriptionStatus = components['schemas']['SubscriptionStatus'];
+
+// Git Provenance
+// Extend CommitProvenance with optional fields for detailed commit view (not always populated by backend)
+type CommitProvenanceBase = components['schemas']['CommitProvenance'];
+export interface CommitProvenance extends CommitProvenanceBase {
+  // Optional: aggregate stats for commit
+  insertions?: number;
+  deletions?: number;
+  // Optional: list of changed file paths for detailed commit view
+  changed_files?: string[];
+}
+export type IssueOrigin = components['schemas']['IssueOriginResponse'];
+export type ProvenanceConfidence = components['schemas']['ProvenanceConfidence'];
+export type ProvenanceSettings = components['schemas']['ProvenanceSettingsResponse'];
+export type GitHistoryStatus = components['schemas']['GitHistoryStatusResponse'];
+export type BackfillJobStatus = components['schemas']['BackfillJobStatusResponse'];
+export type CommitHistoryResponse = components['schemas']['CommitHistoryResponse'];
+
+// Manual definition - generated type is incomplete
+export interface HistoricalQueryResponse {
+  /** Natural language answer to the query */
+  answer: string;
+  /** Commits referenced in the answer */
+  referenced_commits: CommitProvenance[];
+  /** Confidence in the answer */
+  confidence: ProvenanceConfidence;
+}
+
+// Code Search & RAG
+export type CodeEntity = components['schemas']['CodeEntity'];
+export type CodeSearchResponse = components['schemas']['CodeSearchResponse'];
+export type CodeAskResponse = components['schemas']['CodeAskResponse'];
+export type EmbeddingsStatusResponse = components['schemas']['EmbeddingsStatusResponse'];
+export type ModuleStats = components['schemas']['ModuleStats'];
+export type ArchitectureResponse = components['schemas']['ArchitectureResponse'];
+
+// Health Score Delta - override impact_level to use ImpactLevel literal type
+type HealthScoreDeltaBase = components['schemas']['HealthScoreDeltaResponse'];
+export interface HealthScoreDelta extends Omit<HealthScoreDeltaBase, 'impact_level'> {
+  impact_level: ImpactLevel;
+}
+export type BatchHealthScoreDelta = components['schemas']['BatchHealthScoreDeltaResponse'];
+
+// Preview
+export type PreviewCheck = components['schemas']['PreviewCheck'];
+export type PreviewResult = components['schemas']['PreviewResult'];
+
+// Sandbox Metrics
+export type SandboxCostSummary = components['schemas']['CostSummary'];
+export type SandboxOperationTypeCost = components['schemas']['OperationTypeCost'];
+export type SandboxSlowOperation = components['schemas']['SlowOperation'];
+export type SandboxFailedOperation = components['schemas']['FailedOperation'];
+export type SandboxFailureRate = components['schemas']['FailureRate'];
+export type SandboxUsageStats = components['schemas']['UsageStats'];
+export type SandboxQuotaLimits = components['schemas']['QuotaLimitResponse'];
+export type SandboxBillingUsage = components['schemas']['BillingUsageResponse'];
+export type SandboxBillingStatus = components['schemas']['BillingStatusResponse'];
+
+// Override QuotaUsageItem to use SandboxWarningLevel literal type
+type QuotaUsageItemBase = components['schemas']['QuotaUsageItem'];
+export interface SandboxQuotaUsageItem extends Omit<QuotaUsageItemBase, 'warning_level'> {
+  warning_level: SandboxWarningLevel;
+}
+
+// Override QuotaStatusResponse to use our typed QuotaUsageItem
+type QuotaStatusResponseBase = components['schemas']['QuotaStatusResponse'];
+export interface SandboxQuotaStatus extends Omit<QuotaStatusResponseBase, 'concurrent' | 'daily_minutes' | 'monthly_minutes' | 'daily_sessions' | 'overall_warning_level'> {
+  concurrent: SandboxQuotaUsageItem;
+  daily_minutes: SandboxQuotaUsageItem;
+  monthly_minutes: SandboxQuotaUsageItem;
+  daily_sessions: SandboxQuotaUsageItem;
+  overall_warning_level: SandboxWarningLevel;
+}
+
+// =============================================================================
+// Manual Types (not in OpenAPI spec or need different structure)
+// =============================================================================
+
+// Filters for findings list (frontend-only, not a backend model)
+export interface FindingFilters {
+  severity?: Severity[];
+  status?: FindingStatus[];
+  detector?: string;
+  analysis_run_id?: string;
+  repository_id?: string;
+}
 
 // A single code change within a fix
 export interface CodeChange {
@@ -46,58 +205,7 @@ export interface Evidence {
   rag_context_count: number;
 }
 
-// A finding (code smell, issue) from analysis
-export interface Finding {
-  id: string;
-  analysis_run_id: string;
-  detector: string;
-  severity: Severity;
-  status: FindingStatus;
-  title: string;
-  description: string;
-  affected_files: string[];
-  affected_nodes: string[];
-  line_start?: number;
-  line_end?: number;
-  suggested_fix?: string;
-  estimated_effort?: string;
-  graph_context?: Record<string, unknown>;
-  status_reason?: string;
-  status_changed_by?: string;
-  status_changed_at?: string;
-  created_at: string;
-  updated_at?: string;
-}
-
-// Filters for findings list
-export interface FindingFilters {
-  severity?: Severity[];
-  status?: FindingStatus[];
-  detector?: string;
-  analysis_run_id?: string;
-  repository_id?: string;
-}
-
-// Request to update a single finding's status
-export interface UpdateFindingStatusRequest {
-  status: FindingStatus;
-  reason?: string;
-}
-
-// Request for bulk updating finding statuses
-export interface BulkUpdateStatusRequest {
-  finding_ids: string[];
-  status: FindingStatus;
-  reason?: string;
-}
-
-// Response from bulk status update
-export interface BulkUpdateStatusResponse {
-  updated_count: number;
-  failed_ids: string[];
-}
-
-// A complete fix proposal
+// A complete fix proposal (backend returns dict, not typed)
 export interface FixProposal {
   id: string;
   finding_id?: string | null;
@@ -117,6 +225,11 @@ export interface FixProposal {
   test_code: string | null;
   branch_name: string | null;
   commit_message: string | null;
+  // Validation fields from backend
+  import_valid?: boolean | null;
+  type_valid?: boolean | null;
+  validation_errors?: string[];
+  validation_warnings?: string[];
 }
 
 // Comment on a fix
@@ -128,65 +241,7 @@ export interface FixComment {
   created_at: string;
 }
 
-// Dashboard analytics summary (based on analysis findings)
-export interface AnalyticsSummary {
-  total_findings: number;
-  critical: number;
-  high: number;
-  medium: number;
-  low: number;
-  info: number;
-  by_severity: Record<Severity, number>;
-  by_detector: Record<string, number>;
-}
-
-// Time-series data point for trends (findings by date)
-export interface TrendDataPoint {
-  date: string;
-  critical: number;
-  high: number;
-  medium: number;
-  low: number;
-  info: number;
-  total: number;
-}
-
-// File hotspot analysis (files with most findings)
-export interface FileHotspot {
-  file_path: string;
-  finding_count: number;
-  severity_breakdown: Record<Severity, number>;
-}
-
-// Health score response
-export interface HealthScore {
-  score: number | null;  // null indicates not analyzed
-  grade: 'A' | 'B' | 'C' | 'D' | 'F' | null;  // null indicates not analyzed
-  trend: 'improving' | 'declining' | 'stable' | 'unknown';
-  categories: {
-    structure: number;
-    quality: number;
-    architecture: number;
-  } | null;  // null indicates not analyzed
-}
-
-// API response wrapper
-export interface ApiResponse<T> {
-  data: T;
-  success: boolean;
-  error?: string;
-}
-
-// Paginated response
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  page_size: number;
-  has_more: boolean;
-}
-
-// Filter options for fix list
+// Filter options for fix list (frontend-only)
 export interface FixFilters {
   status?: FixStatus[];
   confidence?: FixConfidence[];
@@ -198,46 +253,92 @@ export interface FixFilters {
   repository_id?: string;
 }
 
-// Sort options
+// Sort options (frontend-only)
 export interface SortOptions {
   field: 'created_at' | 'confidence' | 'status' | 'fix_type';
   direction: 'asc' | 'desc';
 }
 
-// Subscription plan tiers
-export type PlanTier = 'free' | 'pro' | 'enterprise';
-
-// Subscription status
-export type SubscriptionStatus =
-  | 'active'
-  | 'past_due'
-  | 'canceled'
-  | 'trialing'
-  | 'incomplete'
-  | 'incomplete_expired'
-  | 'unpaid'
-  | 'paused';
-
-// Usage information
-export interface UsageInfo {
-  repos: number;
-  analyses: number;
-  limits: {
-    repos: number;      // -1 for unlimited
-    analyses: number;   // -1 for unlimited
-  };
+// API response wrapper (generic, frontend-only)
+export interface ApiResponse<T> {
+  data: T;
+  success: boolean;
+  error?: string;
 }
 
-// Subscription response from API
-export interface Subscription {
-  tier: PlanTier;
-  status: SubscriptionStatus;
-  seats: number;
-  current_period_end: string | null;
-  cancel_at_period_end: boolean;
-  usage: UsageInfo;
-  monthly_cost_cents: number;
+// Paginated response (generic, frontend-only)
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
 }
+
+// Repository with full details (combines multiple API responses)
+export interface Repository {
+  id: string;
+  full_name: string;
+  github_repo_id: number;
+  health_score: number | null;
+  last_analyzed_at: string | null;
+  analysis_status: AnalysisStatus;
+  is_enabled: boolean;
+  default_branch: string;
+  created_at: string;
+  updated_at: string;
+  // Linked Repository UUID for analysis data (findings, etc.)
+  repository_id: string | null;
+}
+
+// =============================================================================
+// API Keys Types (manual - not in OpenAPI)
+// =============================================================================
+
+// Available scopes for API keys
+export type ApiKeyScope =
+  | 'read:analysis'
+  | 'write:analysis'
+  | 'read:findings'
+  | 'write:findings'
+  | 'read:fixes'
+  | 'write:fixes'
+  | 'read:repositories'
+  | 'write:repositories';
+
+// An API key (without the secret - used for listing)
+export interface ApiKey {
+  id: string;
+  name: string;
+  key_prefix: string;  // First 8 chars of key for identification
+  key_suffix: string;  // Last 4 chars of key
+  scopes: ApiKeyScope[];
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+  created_by: string;  // User ID who created the key
+}
+
+// Response when creating a new API key (includes full secret once)
+export interface ApiKeyCreateResponse {
+  id: string;
+  name: string;
+  key: string;  // Full key - only shown once on creation
+  scopes: ApiKeyScope[];
+  created_at: string;
+  expires_at: string | null;
+}
+
+// Request to create a new API key
+export interface ApiKeyCreateRequest {
+  name: string;
+  scopes: ApiKeyScope[];
+  expires_in_days?: number;  // Optional expiration
+}
+
+// =============================================================================
+// Billing Types (manual - more detailed than generated)
+// =============================================================================
 
 // Plan information with per-seat pricing
 export interface PlanInfo {
@@ -290,413 +391,4 @@ export interface PriceCalculationResponse {
   total_monthly_cents: number;
   repos_limit: number;
   analyses_limit: number;
-}
-
-// Preview check result
-export interface PreviewCheck {
-  name: string;  // 'syntax', 'import', 'type', 'tests'
-  passed: boolean;
-  message: string;
-  duration_ms: number;
-}
-
-// Preview execution result
-export interface PreviewResult {
-  success: boolean;
-  stdout: string;
-  stderr: string;
-  duration_ms: number;
-  checks: PreviewCheck[];
-  error: string | null;
-  cached_at: string | null;  // ISO timestamp if cached
-}
-
-// Repository analysis status
-export type AnalysisStatus = 'idle' | 'queued' | 'running' | 'completed' | 'failed';
-
-// Repository with full details
-export interface Repository {
-  id: string;
-  full_name: string;
-  github_repo_id: number;
-  health_score: number | null;
-  last_analyzed_at: string | null;
-  analysis_status: AnalysisStatus;
-  is_enabled: boolean;
-  default_branch: string;
-  created_at: string;
-  updated_at: string;
-  // Linked Repository UUID for analysis data (findings, etc.)
-  repository_id: string | null;
-}
-
-// GitHub App installation
-export interface GitHubInstallation {
-  id: string;
-  uuid: string;
-  installation_id: number;
-  account_login: string;
-  account_type: 'User' | 'Organization';
-  account_avatar_url?: string;
-  repo_count: number;
-  created_at: string;
-  updated_at: string;
-}
-
-// Available GitHub repo (not yet connected)
-export interface GitHubAvailableRepo {
-  id: number;
-  full_name: string;
-  description: string | null;
-  private: boolean;
-  default_branch: string;
-}
-
-// Analysis run status for polling
-export interface AnalysisRunStatus {
-  id: string;
-  repository_id: string;
-  full_name: string | null;  // Repository full name (owner/repo) for GitHub URLs
-  commit_sha: string;
-  branch: string;
-  status: AnalysisStatus;
-  progress_percent: number;
-  current_step: string | null;
-  health_score: number | null;
-  structure_score: number | null;
-  quality_score: number | null;
-  architecture_score: number | null;
-  findings_count: number;
-  files_analyzed: number;
-  error_message: string | null;
-  started_at: string | null;
-  completed_at: string | null;
-  created_at: string;
-}
-
-// ==========================================
-// API Keys Types
-// ==========================================
-
-// Available scopes for API keys
-export type ApiKeyScope =
-  | 'read:analysis'
-  | 'write:analysis'
-  | 'read:findings'
-  | 'write:findings'
-  | 'read:fixes'
-  | 'write:fixes'
-  | 'read:repositories'
-  | 'write:repositories';
-
-// An API key (without the secret - used for listing)
-export interface ApiKey {
-  id: string;
-  name: string;
-  key_prefix: string;  // First 8 chars of key for identification
-  key_suffix: string;  // Last 4 chars of key
-  scopes: ApiKeyScope[];
-  created_at: string;
-  last_used_at: string | null;
-  expires_at: string | null;
-  created_by: string;  // User ID who created the key
-}
-
-// Response when creating a new API key (includes full secret once)
-export interface ApiKeyCreateResponse {
-  id: string;
-  name: string;
-  key: string;  // Full key - only shown once on creation
-  scopes: ApiKeyScope[];
-  created_at: string;
-  expires_at: string | null;
-}
-
-// Request to create a new API key
-export interface ApiKeyCreateRequest {
-  name: string;
-  scopes: ApiKeyScope[];
-  expires_in_days?: number;  // Optional expiration
-}
-
-// ==========================================
-// Git Provenance Types
-// ==========================================
-
-/** Confidence level for provenance detection */
-export type ProvenanceConfidence = 'high' | 'medium' | 'low' | 'unknown';
-
-/**
- * Information about a git commit that introduced or modified code
- */
-export interface CommitProvenance {
-  /** Full commit SHA */
-  commit_sha: string;
-  /** Author's display name */
-  author_name: string;
-  /** Author's email address */
-  author_email: string;
-  /** ISO 8601 timestamp when the commit was made */
-  committed_date: string;
-  /** Commit message (first line or full) */
-  message: string;
-  /** List of files changed in this commit */
-  changed_files: string[];
-  /** Number of lines added */
-  insertions: number;
-  /** Number of lines deleted */
-  deletions: number;
-}
-
-/**
- * Origin information for a code finding, showing when the issue was introduced
- */
-export interface IssueOrigin {
-  /** ID of the finding this origin relates to */
-  finding_id: string;
-  /** The commit that introduced the issue (null if unknown) */
-  introduced_in: CommitProvenance | null;
-  /** Confidence level of the origin detection */
-  confidence: ProvenanceConfidence;
-  /** Explanation of why this confidence level was assigned */
-  confidence_reason: string;
-  /** Related commits that may have affected this issue */
-  related_commits: CommitProvenance[];
-  /** Whether a user has manually corrected this attribution */
-  user_corrected?: boolean;
-  /** The SHA of the user-corrected commit (if corrected) */
-  corrected_commit_sha?: string;
-}
-
-/**
- * User preferences for provenance display (privacy-first defaults)
- */
-export interface ProvenanceSettings {
-  /** Show real author names (default: false for privacy) */
-  show_author_names: boolean;
-  /** Show author avatars/gravatars (default: false for privacy) */
-  show_author_avatars: boolean;
-  /** Show confidence level badges (default: true) */
-  show_confidence_badges: boolean;
-  /** Automatically query provenance on page load (default: false for performance) */
-  auto_query_provenance: boolean;
-}
-
-/**
- * Git history status for a repository
- */
-export interface GitHistoryStatus {
-  /** Whether git history has been ingested */
-  has_git_history: boolean;
-  /** Number of commits that have been ingested */
-  commits_ingested: number;
-  /** Date of the oldest ingested commit */
-  oldest_commit_date: string | null;
-  /** Date of the newest ingested commit */
-  newest_commit_date: string | null;
-  /** Percentage of findings with provenance data */
-  coverage_percent: number;
-  /** Whether more history can be backfilled */
-  can_backfill: boolean;
-  /** Estimated number of additional commits available */
-  backfill_estimate_commits: number;
-}
-
-/**
- * Status of a backfill job
- */
-export interface BackfillJobStatus {
-  /** Unique job ID */
-  job_id: string;
-  /** Current status */
-  status: 'queued' | 'running' | 'completed' | 'failed';
-  /** Number of commits processed so far */
-  commits_processed: number;
-  /** Total commits to process */
-  commits_total: number;
-  /** Error message if failed */
-  error_message?: string;
-  /** Timestamp when job started */
-  started_at?: string;
-  /** Timestamp when job completed */
-  completed_at?: string;
-}
-
-/**
- * Response from historical query endpoint
- */
-export interface HistoricalQueryResponse {
-  /** Natural language answer to the query */
-  answer: string;
-  /** Commits referenced in the answer */
-  referenced_commits: CommitProvenance[];
-  /** Confidence in the answer */
-  confidence: ProvenanceConfidence;
-}
-
-/**
- * Response from commit history endpoint
- */
-export interface CommitHistoryResponse {
-  /** List of recent commits */
-  commits: CommitProvenance[];
-  /** Total number of commits available */
-  total_count: number;
-  /** Whether there are more commits to fetch */
-  has_more: boolean;
-}
-
-// ==========================================
-// Sandbox Metrics Types
-// ==========================================
-
-/** Sandbox cost and usage summary */
-export interface SandboxCostSummary {
-  total_operations: number;
-  successful_operations: number;
-  success_rate: number;
-  total_cost_usd: number;
-  avg_duration_ms: number;
-  total_cpu_seconds: number;
-  total_memory_gb_seconds: number;
-}
-
-/** Cost breakdown by operation type */
-export interface SandboxOperationTypeCost {
-  operation_type: string;
-  count: number;
-  total_cost_usd: number;
-  percentage: number;
-  avg_duration_ms: number;
-  success_rate: number;
-}
-
-/** Details of a slow operation */
-export interface SandboxSlowOperation {
-  time: string;
-  operation_id: string;
-  operation_type: string;
-  duration_ms: number;
-  cost_usd: number;
-  success: boolean;
-  customer_id?: string;
-  sandbox_id?: string;
-}
-
-/** Details of a failed operation */
-export interface SandboxFailedOperation {
-  time: string;
-  operation_id: string;
-  operation_type: string;
-  error_message?: string;
-  duration_ms: number;
-  customer_id?: string;
-  sandbox_id?: string;
-}
-
-/** Failure rate statistics */
-export interface SandboxFailureRate {
-  period_hours: number;
-  total_operations: number;
-  failures: number;
-  failure_rate: number;
-}
-
-/** Complete usage statistics */
-export interface SandboxUsageStats {
-  summary: SandboxCostSummary;
-  by_operation_type: SandboxOperationTypeCost[];
-  recent_failures: SandboxFailedOperation[];
-  slow_operations: SandboxSlowOperation[];
-}
-
-/** Quota limit definition */
-export interface SandboxQuotaLimits {
-  max_concurrent_sandboxes: number;
-  max_daily_sandbox_minutes: number;
-  max_monthly_sandbox_minutes: number;
-  max_sandboxes_per_day: number;
-}
-
-/** Warning level for quota usage */
-export type SandboxWarningLevel = 'ok' | 'warning' | 'critical' | 'exceeded';
-
-/** Usage for a single quota type */
-export interface SandboxQuotaUsageItem {
-  quota_type: string;
-  current: number;
-  limit: number;
-  usage_percent: number;
-  warning_level: SandboxWarningLevel;
-  allowed: boolean;
-}
-
-/** Complete quota status */
-export interface SandboxQuotaStatus {
-  customer_id: string;
-  tier: string;
-  limits: SandboxQuotaLimits;
-  concurrent: SandboxQuotaUsageItem;
-  daily_minutes: SandboxQuotaUsageItem;
-  monthly_minutes: SandboxQuotaUsageItem;
-  daily_sessions: SandboxQuotaUsageItem;
-  overall_warning_level: SandboxWarningLevel;
-  has_override: boolean;
-}
-
-/** Sandbox billing usage information */
-export interface SandboxBillingUsage {
-  stripe_usage: number | null;
-  local_usage: number | null;
-  period_start: string | null;
-  period_end: string | null;
-  rate_per_minute_usd: number;
-  estimated_cost_usd: number | null;
-  billing_configured: boolean;
-}
-
-/** Sandbox billing configuration status */
-export interface SandboxBillingStatus {
-  stripe_configured: boolean;
-  sandbox_price_configured: boolean;
-  subscription_item_id: string | null;
-  rate_per_minute_usd: number;
-}
-
-// ==========================================
-// Health Score Delta Types
-// ==========================================
-
-/** Impact level classification for health score changes */
-export type ImpactLevel = 'critical' | 'high' | 'medium' | 'low' | 'negligible';
-
-/** Health score delta for a single finding */
-export interface HealthScoreDelta {
-  before_score: number;
-  after_score: number;
-  score_delta: number;
-  before_grade: string;
-  after_grade: string;
-  grade_improved: boolean;
-  grade_change: string | null;
-  structure_delta: number;
-  quality_delta: number;
-  architecture_delta: number;
-  impact_level: ImpactLevel;
-  affected_metric: string;
-  finding_id: string | null;
-  finding_severity: string | null;
-}
-
-/** Batch health score delta for multiple findings */
-export interface BatchHealthScoreDelta {
-  before_score: number;
-  after_score: number;
-  score_delta: number;
-  before_grade: string;
-  after_grade: string;
-  grade_improved: boolean;
-  grade_change: string | null;
-  findings_count: number;
-  individual_deltas: HealthScoreDelta[];
 }

@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { formatDistanceToNow, format } from 'date-fns';
 import { CheckCircle2, XCircle, Loader2, Clock, ExternalLink, Wand2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, safeParseDate } from '@/lib/utils';
 import type { AnalysisRunStatus } from '@/types';
 import Link from 'next/link';
 
@@ -132,12 +132,17 @@ export function AnalysisHistoryTable({
                 )}
               </TableCell>
               <TableCell>
-                <span title={run.completed_at ? format(new Date(run.completed_at), 'PPpp') : undefined}>
-                  {run.completed_at
-                    ? formatDistanceToNow(new Date(run.completed_at), { addSuffix: true })
-                    : run.started_at
-                    ? formatDistanceToNow(new Date(run.started_at), { addSuffix: true })
-                    : '-'}
+                <span title={(() => {
+                  const date = safeParseDate(run.completed_at);
+                  return date ? format(date, 'PPpp') : undefined;
+                })()}>
+                  {(() => {
+                    const completedDate = safeParseDate(run.completed_at);
+                    const startedDate = safeParseDate(run.started_at);
+                    if (completedDate) return formatDistanceToNow(completedDate, { addSuffix: true });
+                    if (startedDate) return formatDistanceToNow(startedDate, { addSuffix: true });
+                    return '-';
+                  })()}
                 </span>
               </TableCell>
               <TableCell className="text-right">
