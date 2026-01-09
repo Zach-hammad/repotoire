@@ -131,13 +131,11 @@ class TestTierLimits:
         """Create mock credentials for testing."""
         return CLICredentials(
             access_token="test_token",
-            refresh_token=None,
-            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
             user_id="user_123",
             user_email="test@example.com",
             org_id="org_456",
             org_slug="test-org",
-            tier=tier,
+            plan=tier,
         )
 
     @patch("httpx.Client")

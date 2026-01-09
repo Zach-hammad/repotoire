@@ -292,7 +292,7 @@ class TestStateTokenStoreIntegration:
         await redis.close()
 
     @pytest.fixture
-    def store(self, fake_redis) -> StateTokenStore:
+    async def store(self, fake_redis) -> StateTokenStore:
         """Create a StateTokenStore with fakeredis."""
         return StateTokenStore(fake_redis)
 

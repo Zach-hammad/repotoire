@@ -397,42 +397,42 @@ class TestFixApplicator:
     def test_run_tests_success(self, mock_run, temp_repo):
         """Test running tests successfully."""
         repo_path, _ = temp_repo
-        applicator = FixApplicator(repo_path, create_branch=False)
+        applicator = FixApplicator(repo_path, create_branch=False, use_sandbox=False)
 
         # Mock successful test run
         mock_run.return_value = Mock(returncode=0, stdout="All tests passed", stderr="")
 
-        success, output = applicator.run_tests()
+        result = applicator.run_tests()
 
-        assert success is True
-        assert "passed" in output.lower()
+        assert result.success is True
+        assert "passed" in (result.stdout + result.stderr).lower()
         mock_run.assert_called_once()
 
     @patch("subprocess.run")
     def test_run_tests_failure(self, mock_run, temp_repo):
         """Test running tests with failures."""
         repo_path, _ = temp_repo
-        applicator = FixApplicator(repo_path, create_branch=False)
+        applicator = FixApplicator(repo_path, create_branch=False, use_sandbox=False)
 
         # Mock failed test run
         mock_run.return_value = Mock(returncode=1, stdout="", stderr="Tests failed")
 
-        success, output = applicator.run_tests()
+        result = applicator.run_tests()
 
-        assert success is False
-        assert "failed" in output.lower()
+        assert result.success is False
+        assert "failed" in (result.stdout + result.stderr).lower()
 
     @patch("subprocess.run")
     def test_run_tests_custom_command(self, mock_run, temp_repo):
         """Test running tests with custom command."""
         repo_path, _ = temp_repo
-        applicator = FixApplicator(repo_path, create_branch=False)
+        applicator = FixApplicator(repo_path, create_branch=False, use_sandbox=False)
 
         mock_run.return_value = Mock(returncode=0, stdout="OK", stderr="")
 
-        success, output = applicator.run_tests(test_command="python -m pytest")
+        result = applicator.run_tests(test_command="python -m pytest")
 
-        assert success is True
+        assert result.success is True
         # Check that the command was split correctly
         call_args = mock_run.call_args
         assert call_args[0][0] == ["python", "-m", "pytest"]
@@ -441,12 +441,12 @@ class TestFixApplicator:
     def test_run_tests_command_not_found(self, mock_run, temp_repo):
         """Test running tests when command doesn't exist."""
         repo_path, _ = temp_repo
-        applicator = FixApplicator(repo_path, create_branch=False)
+        applicator = FixApplicator(repo_path, create_branch=False, use_sandbox=False)
 
-        success, output = applicator.run_tests(test_command="nonexistent-command")
+        result = applicator.run_tests(test_command="nonexistent-command")
 
-        assert success is False
-        assert "not found" in output.lower()
+        assert result.success is False
+        assert "not found" in (result.stdout + result.stderr).lower()
 
     def test_create_branch_new(self, temp_repo, sample_fix):
         """Test creating a new branch."""

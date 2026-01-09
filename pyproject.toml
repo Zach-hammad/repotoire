@@ -214,6 +214,8 @@ markers = [
     "falkordb: Tests requiring FalkorDB connection",
     "anyio: Async tests using anyio",
 ]
+# Async test mode - auto-detects and handles async fixtures/tests
+asyncio_mode = "auto"
 # Filter warnings
 filterwarnings = [
     "ignore::DeprecationWarning",
