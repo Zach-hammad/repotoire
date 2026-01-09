@@ -49,8 +49,8 @@ RUN uv pip install torch --index-url https://download.pytorch.org/whl/cpu --no-c
 # Install our wheel (torch already satisfied by CPU version)
 RUN uv pip install dist/*.whl --no-cache-dir
 
-# Install remaining dependencies
-RUN uv pip install "." --no-cache-dir --no-build-isolation
+# Install remaining dependencies (saas + sandbox extras for production)
+RUN uv pip install ".[saas,sandbox]" --no-cache-dir --no-build-isolation
 
 # =============================================================================
 # Stage 2: Runtime
