@@ -1461,3 +1461,61 @@ async def clerk_webhook(
     await db.commit()
 
     return {"status": "ok"}
+
+
+# ============================================================================
+# GitHub Webhook Alias
+# ============================================================================
+
+
+@router.post("/github")
+async def github_webhook_alias(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Alias for GitHub webhook endpoint.
+
+    Handles GitHub webhooks at /api/v1/webhooks/github for backwards compatibility.
+    GitHub App webhook URL may be configured to either this path or /api/v1/github/webhook.
+    """
+    from repotoire.api.shared.services.github import GitHubAppClient
+    from repotoire.api.shared.services.encryption import get_token_encryption
+    from repotoire.api.v1.routes.github import (
+        handle_installation_event,
+        handle_installation_repos_event,
+        handle_push_event,
+        handle_pull_request_event,
+    )
+
+    github = GitHubAppClient()
+    encryption = get_token_encryption()
+
+    # Get raw body for signature verification
+    body = await request.body()
+    signature = request.headers.get("X-Hub-Signature-256", "")
+
+    if not github.verify_webhook_signature(body, signature):
+        logger.warning("Invalid GitHub webhook signature")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid webhook signature",
+        )
+
+    event_type = request.headers.get("X-GitHub-Event", "")
+
+    # Parse JSON from body (can't use request.json() since body was already read)
+    import json
+    payload = json.loads(body)
+
+    logger.info(f"Received GitHub webhook (alias): {event_type}")
+
+    if event_type == "installation":
+        await handle_installation_event(db, payload, github, encryption)
+    elif event_type == "installation_repositories":
+        await handle_installation_repos_event(db, payload)
+    elif event_type == "push":
+        await handle_push_event(db, payload)
+    elif event_type == "pull_request":
+        await handle_pull_request_event(db, payload)
+
+    return {"status": "ok", "event": event_type}

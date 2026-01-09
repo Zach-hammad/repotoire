@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import time
 from datetime import datetime
 from typing import List, Optional, TYPE_CHECKING
@@ -852,19 +853,31 @@ Apply an approved fix to the repository.
 
 **Requires:** Fix must be in `approved` status.
 
-**Process:**
-1. Validates fix is approved
-2. Creates git branch (if enabled)
-3. Applies code changes to files
-4. Creates git commit (if enabled)
-5. Updates fix status to `applied`
+**Modes:**
+
+1. **GitHub PR Mode** (SaaS - automatic if repository has GitHub App installed):
+   - Creates a new branch from the repository's default branch
+   - Commits the fix to the new branch
+   - Opens a Pull Request for review
+   - Returns PR URL and number in the response
+
+2. **Local Mode** (requires `repository_path`):
+   - Applies code changes directly to files on the local filesystem
+   - Optionally creates git branch and commit
+
+3. **Status-only Mode** (no GitHub integration, no `repository_path`):
+   - Only updates the fix status to `applied`
+   - For manual application tracking
 
 **Options:**
-- `repository_path`: Where to apply changes (required for actual application)
-- `create_branch`: Create a new branch for review (default: true)
-- `commit`: Create a git commit (default: true)
+- `repository_path`: Local path to apply changes (for local mode)
+- `create_branch`: Create a new branch for review (default: true, local mode only)
+- `commit`: Create a git commit (default: true, local mode only)
 
-If `repository_path` is omitted, only the status is updated (for manual application tracking).
+**Response includes:**
+- `data`: Updated fix object
+- `success`: Boolean indicating success
+- `pr`: (GitHub mode only) Object with `pr_number`, `pr_url`, and `branch`
     """,
     responses={
         200: {"description": "Fix applied successfully"},
@@ -877,7 +890,7 @@ If `repository_path` is omitted, only the status is updated (for manual applicat
             },
         },
         404: {"description": "Fix not found"},
-        500: {"description": "Failed to apply fix"},
+        500: {"description": "Failed to apply fix or create GitHub PR"},
     },
 )
 async def apply_fix(
@@ -898,6 +911,8 @@ async def apply_fix(
         FixType as AutofixType,
     )
     from repotoire.models import Finding, Severity
+    from repotoire.db.models.analysis import AnalysisRun
+    from repotoire.db.models.repository import Repository
 
     repo = FixRepository(db)
     try:
@@ -912,8 +927,85 @@ async def apply_fix(
     if fix.status != FixStatus.APPROVED:
         raise HTTPException(status_code=400, detail="Fix must be approved before applying")
 
-    # If repository_path provided, actually apply the fix to filesystem
-    if request and request.repository_path:
+    pr_result = None  # Track GitHub PR result if created
+
+    # Try to get repository info for GitHub PR creation
+    github_repo = None
+    if fix.analysis_run_id:
+        # Look up analysis run and repository
+        analysis_run = await db.get(AnalysisRun, fix.analysis_run_id)
+        if analysis_run and analysis_run.repository_id:
+            github_repo = await db.get(Repository, analysis_run.repository_id)
+
+    # If we have a GitHub-connected repository, create a PR
+    if github_repo and github_repo.github_repo_id:
+        try:
+            from repotoire.api.shared.services.github import GitHubAppClient
+            from repotoire.db.models import GitHubRepository, GitHubInstallation
+
+            # Look up the CURRENT installation ID from GitHubInstallation table
+            # (Repository.github_installation_id may be stale if app was reinstalled)
+            github_repo_result = await db.execute(
+                select(GitHubRepository)
+                .join(GitHubInstallation)
+                .where(GitHubRepository.repo_id == github_repo.github_repo_id)
+            )
+            gh_repo = github_repo_result.scalar_one_or_none()
+
+            if not gh_repo:
+                logger.warning(f"No GitHubRepository found for repo_id {github_repo.github_repo_id}")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Repository not connected to GitHub App. Please install the GitHub App first."
+                )
+
+            # Get the installation to get the current installation_id
+            installation_result = await db.execute(
+                select(GitHubInstallation).where(GitHubInstallation.id == gh_repo.installation_id)
+            )
+            installation = installation_result.scalar_one_or_none()
+
+            if not installation:
+                logger.warning(f"No GitHubInstallation found for GitHubRepository {gh_repo.id}")
+                raise HTTPException(
+                    status_code=400,
+                    detail="GitHub App installation not found. Please reinstall the GitHub App."
+                )
+
+            github_client = GitHubAppClient()
+
+            # Parse owner/repo from full_name (e.g., "owner/repo")
+            owner, repo_name = github_repo.full_name.split("/", 1)
+
+            # Create unique branch name
+            fix_branch = f"repotoire/fix-{fix.fix_type.value}-{str(fix.id)[:8]}"
+
+            pr_result = await github_client.create_fix_pr(
+                installation_id=installation.installation_id,  # Use fresh installation_id
+                owner=owner,
+                repo=repo_name,
+                base_branch=github_repo.default_branch,
+                fix_branch=fix_branch,
+                file_path=fix.file_path,
+                fixed_code=fix.fixed_code,
+                title=fix.title,
+                description=fix.description,
+            )
+
+            logger.info(
+                f"Created GitHub PR #{pr_result['pr_number']} for fix {fix_id}: {pr_result['pr_url']}"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to create GitHub PR for fix {fix_id}: {e}")
+            fix = await repo.update_status(fix_uuid, FixStatus.FAILED)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create GitHub PR: {str(e)}"
+            )
+
+    # If repository_path provided (local mode), apply the fix to filesystem
+    elif request and request.repository_path:
         repository_path = Path(request.repository_path)
 
         if not repository_path.exists():
@@ -981,7 +1073,13 @@ async def apply_fix(
     if finding_synced:
         logger.info(f"Synced finding status to RESOLVED for fix {fix_id}")
 
-    return {"data": _fix_to_dict(fix), "success": True}
+    result = {"data": _fix_to_dict(fix), "success": True}
+
+    # Include PR info if created
+    if pr_result:
+        result["pr"] = pr_result
+
+    return result
 
 
 # In-memory cache for preview results
@@ -1113,7 +1211,6 @@ async def preview_fix(
             for change in fix.changes:
                 check_start = time.time()
                 try:
-                    import ast
                     ast.parse(change.fixed_code)
                     checks.append(PreviewCheck(
                         name="syntax",

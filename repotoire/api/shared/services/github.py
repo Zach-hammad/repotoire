@@ -324,6 +324,337 @@ class GitHubAppClient:
         threshold = timedelta(minutes=threshold_minutes)
         return expires_at - now < threshold
 
+    # =========================================================================
+    # PR Creation Methods
+    # =========================================================================
+
+    async def get_ref(
+        self,
+        access_token: str,
+        owner: str,
+        repo: str,
+        ref: str,
+    ) -> dict[str, Any]:
+        """Get a git reference (branch or tag).
+
+        Args:
+            access_token: Installation access token.
+            owner: Repository owner.
+            repo: Repository name.
+            ref: Reference name (e.g., "heads/main" for main branch).
+
+        Returns:
+            Reference data including SHA.
+
+        Raises:
+            httpx.HTTPStatusError: If the API request fails.
+        """
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{GITHUB_API_BASE}/repos/{owner}/{repo}/git/ref/{ref}",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def create_ref(
+        self,
+        access_token: str,
+        owner: str,
+        repo: str,
+        ref: str,
+        sha: str,
+    ) -> dict[str, Any]:
+        """Create a new git reference (branch).
+
+        Args:
+            access_token: Installation access token.
+            owner: Repository owner.
+            repo: Repository name.
+            ref: Full reference name (e.g., "refs/heads/new-branch").
+            sha: SHA to point the reference to.
+
+        Returns:
+            Created reference data.
+
+        Raises:
+            httpx.HTTPStatusError: If the API request fails.
+        """
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{GITHUB_API_BASE}/repos/{owner}/{repo}/git/refs",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                json={
+                    "ref": ref,
+                    "sha": sha,
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def get_file_sha(
+        self,
+        access_token: str,
+        owner: str,
+        repo: str,
+        path: str,
+        ref: Optional[str] = None,
+    ) -> Optional[str]:
+        """Get the SHA of a file (needed for updates).
+
+        Args:
+            access_token: Installation access token.
+            owner: Repository owner.
+            repo: Repository name.
+            path: File path in repository.
+            ref: Branch or commit reference.
+
+        Returns:
+            File SHA if exists, None if file doesn't exist.
+        """
+        try:
+            async with httpx.AsyncClient() as client:
+                params = {"ref": ref} if ref else {}
+                response = await client.get(
+                    f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
+                    params=params,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                )
+                if response.status_code == 404:
+                    return None
+                response.raise_for_status()
+                return response.json().get("sha")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                return None
+            raise
+
+    async def create_or_update_file(
+        self,
+        access_token: str,
+        owner: str,
+        repo: str,
+        path: str,
+        content: str,
+        message: str,
+        branch: str,
+        file_sha: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Create or update a file in a repository.
+
+        Args:
+            access_token: Installation access token.
+            owner: Repository owner.
+            repo: Repository name.
+            path: File path in repository.
+            content: File content (will be base64 encoded).
+            message: Commit message.
+            branch: Branch to commit to.
+            file_sha: SHA of existing file (required for updates).
+
+        Returns:
+            Commit data.
+
+        Raises:
+            httpx.HTTPStatusError: If the API request fails.
+        """
+        import base64
+
+        payload: dict[str, Any] = {
+            "message": message,
+            "content": base64.b64encode(content.encode()).decode(),
+            "branch": branch,
+        }
+        if file_sha:
+            payload["sha"] = file_sha
+
+        async with httpx.AsyncClient() as client:
+            response = await client.put(
+                f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def create_pull_request(
+        self,
+        access_token: str,
+        owner: str,
+        repo: str,
+        title: str,
+        body: str,
+        head: str,
+        base: str,
+        draft: bool = False,
+    ) -> dict[str, Any]:
+        """Create a pull request.
+
+        Args:
+            access_token: Installation access token.
+            owner: Repository owner.
+            repo: Repository name.
+            title: PR title.
+            body: PR description (Markdown supported).
+            head: Branch containing changes.
+            base: Branch to merge into.
+            draft: Create as draft PR.
+
+        Returns:
+            Created PR data including number and URL.
+
+        Raises:
+            httpx.HTTPStatusError: If the API request fails.
+        """
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                json={
+                    "title": title,
+                    "body": body,
+                    "head": head,
+                    "base": base,
+                    "draft": draft,
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def create_fix_pr(
+        self,
+        installation_id: int,
+        owner: str,
+        repo: str,
+        base_branch: str,
+        fix_branch: str,
+        file_path: str,
+        fixed_code: str,
+        title: str,
+        description: str,
+    ) -> dict[str, Any]:
+        """Create a PR for an auto-fix change.
+
+        This is a high-level method that handles the full workflow:
+        1. Get installation token
+        2. Get base branch SHA
+        3. Create fix branch
+        4. Update file with fix
+        5. Create PR
+
+        Args:
+            installation_id: GitHub App installation ID.
+            owner: Repository owner.
+            repo: Repository name.
+            base_branch: Branch to base changes on (e.g., "main").
+            fix_branch: Branch name for the fix.
+            file_path: Path to the file being fixed.
+            fixed_code: The fixed code content.
+            title: PR title.
+            description: PR description.
+
+        Returns:
+            Dict with PR URL and number.
+
+        Raises:
+            httpx.HTTPStatusError: If any API request fails.
+        """
+        # Get installation token
+        token, _ = await self.get_installation_token(installation_id)
+
+        # Get base branch SHA
+        base_ref = await self.get_ref(token, owner, repo, f"heads/{base_branch}")
+        base_sha = base_ref["object"]["sha"]
+
+        # Create fix branch
+        try:
+            await self.create_ref(
+                token, owner, repo, f"refs/heads/{fix_branch}", base_sha
+            )
+            logger.info(f"Created branch {fix_branch} from {base_branch}")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 422:
+                # Branch already exists, continue
+                logger.info(f"Branch {fix_branch} already exists, reusing")
+            else:
+                raise
+
+        # Get current file SHA (needed for update)
+        file_sha = await self.get_file_sha(
+            token, owner, repo, file_path, ref=fix_branch
+        )
+
+        # Update file with fix
+        commit_message = f"fix: {title}\n\n{description}\n\nGenerated by Repotoire Auto-Fix"
+        await self.create_or_update_file(
+            token,
+            owner,
+            repo,
+            file_path,
+            fixed_code,
+            commit_message,
+            fix_branch,
+            file_sha,
+        )
+        logger.info(f"Updated {file_path} on branch {fix_branch}")
+
+        # Create PR
+        pr_body = f"""## Auto-Fix: {title}
+
+{description}
+
+---
+
+### Changes
+- **File**: `{file_path}`
+- **Type**: Auto-generated fix
+
+### Review Checklist
+- [ ] Code changes look correct
+- [ ] Tests pass
+- [ ] No unintended side effects
+
+---
+*Generated by [Repotoire](https://repotoire.com) Auto-Fix*
+"""
+        pr_data = await self.create_pull_request(
+            token,
+            owner,
+            repo,
+            title=f"fix: {title}",
+            body=pr_body,
+            head=fix_branch,
+            base=base_branch,
+        )
+
+        logger.info(f"Created PR #{pr_data['number']}: {pr_data['html_url']}")
+
+        return {
+            "pr_number": pr_data["number"],
+            "pr_url": pr_data["html_url"],
+            "branch": fix_branch,
+        }
+
 
 def get_github_client() -> GitHubAppClient:
     """FastAPI dependency that provides GitHub App client.

@@ -175,4 +175,5 @@ jobs:
         run: npm run build
         working-directory: repotoire/web
         env:
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          # Publishable keys are public (embedded in frontend JS), so safe to include as fallback
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || 'pk_live_Y2xlcmsucmVwb3RvaXJlLmNvbSQ' }}
