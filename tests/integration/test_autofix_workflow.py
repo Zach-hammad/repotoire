@@ -100,11 +100,11 @@ class TestAutoFixEngineIntegration:
     """Integration tests for AutoFixEngine."""
 
     @pytest.mark.asyncio
-    @patch("repotoire.autofix.engine.OpenAI")
+    @patch("repotoire.autofix.engine.LLMClient")
     @patch("repotoire.autofix.engine.CodeEmbedder")
     @patch("repotoire.autofix.engine.GraphRAGRetriever")
     async def test_generate_fix_with_mocked_llm(
-        self, mock_retriever_class, mock_embedder_class, mock_openai_class, sample_finding, temp_repo
+        self, mock_retriever_class, mock_embedder_class, mock_llm_class, sample_finding, temp_repo
     ):
         """Test fix generation with mocked LLM response."""
         repo_path, _ = temp_repo
@@ -113,13 +113,9 @@ class TestAutoFixEngineIntegration:
         mock_neo4j = Mock()
         mock_neo4j.close = Mock()
 
-        # Mock LLM response
-        mock_client = Mock()
-        mock_response = Mock()
-        mock_response.choices = [
-            Mock(
-                message=Mock(
-                    content="""```json
+        # Mock LLM client - LLMClient.generate returns string directly
+        mock_llm = Mock()
+        mock_llm.generate.return_value = """```json
 {
     "title": "Fix None comparison",
     "description": "Change == None to is None",
@@ -139,11 +135,7 @@ class TestAutoFixEngineIntegration:
     }]
 }
 ```"""
-                )
-            )
-        ]
-        mock_client.chat.completions.create.return_value = mock_response
-        mock_openai_class.return_value = mock_client
+        mock_llm_class.return_value = mock_llm
 
         # Mock RAG retriever
         mock_retriever = Mock()
@@ -347,11 +339,11 @@ class TestEndToEndWorkflow:
     """End-to-end tests of the complete auto-fix workflow."""
 
     @pytest.mark.asyncio
-    @patch("repotoire.autofix.engine.OpenAI")
+    @patch("repotoire.autofix.engine.LLMClient")
     @patch("repotoire.autofix.engine.CodeEmbedder")
     @patch("repotoire.autofix.engine.GraphRAGRetriever")
     async def test_complete_workflow(
-        self, mock_retriever_class, mock_embedder_class, mock_openai_class, sample_finding, temp_repo
+        self, mock_retriever_class, mock_embedder_class, mock_llm_class, sample_finding, temp_repo
     ):
         """Test complete workflow: generate -> review -> apply."""
         repo_path, repo = temp_repo
@@ -359,13 +351,9 @@ class TestEndToEndWorkflow:
         # Mock Neo4j
         mock_neo4j = Mock()
 
-        # Mock LLM
-        mock_client = Mock()
-        mock_response = Mock()
-        mock_response.choices = [
-            Mock(
-                message=Mock(
-                    content="""```json
+        # Mock LLM client - LLMClient.generate returns string directly
+        mock_llm = Mock()
+        mock_llm.generate.return_value = """```json
 {
     "title": "Fix None comparison",
     "description": "Change == None to is None",
@@ -385,11 +373,7 @@ class TestEndToEndWorkflow:
     }]
 }
 ```"""
-                )
-            )
-        ]
-        mock_client.chat.completions.create.return_value = mock_response
-        mock_openai_class.return_value = mock_client
+        mock_llm_class.return_value = mock_llm
 
         # Mock RAG
         mock_retriever = Mock()

@@ -2,10 +2,9 @@
 
 Tests cover:
 - Getting subscription details
-- Creating checkout sessions
-- Creating customer portal sessions
-- Getting available plans
-- Price calculation
+
+Note: Checkout, portal, and plans endpoints have been removed.
+Subscription management is now handled by Clerk Billing.
 """
 
 import os
@@ -51,26 +50,6 @@ def client(app):
 class TestResponseModels:
     """Tests for response model serialization."""
 
-    def test_checkout_response_model(self):
-        """CheckoutResponse should serialize correctly."""
-        from repotoire.api.v1.routes.billing import CheckoutResponse
-
-        response = CheckoutResponse(
-            checkout_url="https://checkout.stripe.com/test_session_123"
-        )
-
-        assert "checkout.stripe.com" in response.checkout_url
-
-    def test_portal_response_model(self):
-        """PortalResponse should serialize correctly."""
-        from repotoire.api.v1.routes.billing import PortalResponse
-
-        response = PortalResponse(
-            portal_url="https://billing.stripe.com/test_portal"
-        )
-
-        assert "billing.stripe.com" in response.portal_url
-
     def test_subscription_response_model(self):
         """SubscriptionResponse should serialize correctly."""
         from repotoire.api.v1.routes.billing import SubscriptionResponse, UsageInfo
@@ -93,23 +72,6 @@ class TestResponseModels:
         assert response.seats == 5
         assert response.monthly_cost_cents == 7900
 
-    def test_price_calculation_response_model(self):
-        """PriceCalculationResponse should serialize correctly."""
-        from repotoire.api.v1.routes.billing import PriceCalculationResponse
-
-        response = PriceCalculationResponse(
-            tier=PlanTier.PRO,
-            seats=5,
-            base_price_cents=2900,
-            seat_price_cents=4000,
-            total_monthly_cents=6900,
-            repos_limit=50,
-            analyses_limit=500,
-        )
-
-        assert response.total_monthly_cents == 6900
-        assert response.repos_limit == 50
-
 
 # =============================================================================
 # Unit Tests (No Database)
@@ -122,24 +84,6 @@ class TestBillingEndpointsUnit:
     def test_unauthorized_access_subscription(self, client):
         """GET /subscription should return 401 without auth header."""
         response = client.get("/api/v1/billing/subscription")
-        assert response.status_code == 401
-
-    def test_unauthorized_access_checkout(self, client):
-        """POST /checkout should return 401 without auth header."""
-        response = client.post(
-            "/api/v1/billing/checkout",
-            json={"tier": "pro", "seats": 1},
-        )
-        assert response.status_code == 401
-
-    def test_unauthorized_access_portal(self, client):
-        """POST /portal should return 401 without auth header."""
-        response = client.post("/api/v1/billing/portal")
-        assert response.status_code == 401
-
-    def test_unauthorized_access_plans(self, client):
-        """GET /plans should return 401 without auth header."""
-        response = client.get("/api/v1/billing/plans")
         assert response.status_code == 401
 
 
@@ -322,54 +266,6 @@ class TestBillingEndpointsIntegration:
         # Verify Stripe customer ID is set on org
         assert org.stripe_customer_id is not None
         assert org.stripe_customer_id.startswith("cus_")
-
-
-# =============================================================================
-# Price Calculation Tests
-# =============================================================================
-
-
-class TestPriceCalculation:
-    """Tests for price calculation logic."""
-
-    def test_pro_tier_pricing_structure(self):
-        """Pro tier should have base price plus seat pricing."""
-        from repotoire.api.v1.routes.billing import PriceCalculationResponse
-
-        # Test with 5 seats
-        response = PriceCalculationResponse(
-            tier=PlanTier.PRO,
-            seats=5,
-            base_price_cents=3300,
-            seat_price_cents=800 * 5,  # 800 per seat
-            total_monthly_cents=3300 + 800 * 5,
-            repos_limit=25,
-            analyses_limit=-1,  # Unlimited
-        )
-
-        assert response.tier == PlanTier.PRO
-        assert response.seats == 5
-        assert response.total_monthly_cents == 7300
-        # -1 means unlimited analyses
-        assert response.analyses_limit == -1
-
-    def test_free_tier_pricing(self):
-        """Free tier should have zero cost."""
-        from repotoire.api.v1.routes.billing import PriceCalculationResponse
-
-        response = PriceCalculationResponse(
-            tier=PlanTier.FREE,
-            seats=1,
-            base_price_cents=0,
-            seat_price_cents=0,
-            total_monthly_cents=0,
-            repos_limit=3,
-            analyses_limit=10,
-        )
-
-        assert response.tier == PlanTier.FREE
-        assert response.total_monthly_cents == 0
-        assert response.repos_limit == 3
 
 
 # =============================================================================
