@@ -9,28 +9,24 @@ interface ClerkProviderProps {
   children: ReactNode;
 }
 
-// Check if Clerk is configured (key is available)
-const isClerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+// Use a placeholder key for builds without Clerk secrets (CI)
+// This allows the build to succeed - auth features just won't work
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || "pk_test_placeholder";
 
 /**
  * Themed ClerkProvider that syncs with the app's dark/light mode
  * Uses shadcn/ui design tokens for consistent styling
  *
- * Falls back to rendering children without Clerk if the publishable key
- * is not configured (e.g., in CI builds without secrets)
+ * Uses a placeholder key during CI builds to allow static generation
+ * to succeed. Auth features won't work without a real key at runtime.
  */
 export function ClerkProvider({ children }: ClerkProviderProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  // If Clerk is not configured, render children without the provider
-  // This allows builds to succeed in CI without Clerk secrets
-  if (!isClerkConfigured) {
-    return <>{children}</>;
-  }
-
   return (
     <BaseClerkProvider
+      publishableKey={clerkPublishableKey}
       appearance={{
         baseTheme: isDark ? dark : undefined,
         variables: {
