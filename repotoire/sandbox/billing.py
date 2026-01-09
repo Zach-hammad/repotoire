@@ -33,8 +33,9 @@ Stripe Setup:
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 from uuid import UUID
 
 import stripe
@@ -46,8 +47,8 @@ from repotoire.sandbox.metrics import SandboxMetrics
 
 logger = logging.getLogger(__name__)
 
-# Configure Stripe
-stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+# Note: Stripe API key is configured lazily in SandboxBillingService._ensure_stripe_configured()
+# to support key rotation and easier testing.
 
 # Stripe price ID for sandbox metered billing
 # This should be a metered price with usage_type="metered"
@@ -55,7 +56,9 @@ STRIPE_SANDBOX_PRICE_ID = os.environ.get("STRIPE_SANDBOX_PRICE_ID", "")
 
 # Sandbox minute rate for converting cost to billable units
 # E.g., if cost is $0.01 and rate is $0.01/minute, report 1 minute
-SANDBOX_MINUTE_RATE_USD = float(os.environ.get("SANDBOX_MINUTE_RATE_USD", "0.01"))
+# Minimum value is 0.001 to prevent division by zero
+_rate_str = os.environ.get("SANDBOX_MINUTE_RATE_USD", "0.01")
+SANDBOX_MINUTE_RATE_USD = max(0.001, float(_rate_str) if _rate_str else 0.01)
 
 
 class SandboxBillingError(Exception):
@@ -83,15 +86,21 @@ class SandboxBillingService:
         self,
         sandbox_price_id: Optional[str] = None,
         minute_rate_usd: Optional[float] = None,
+        stripe_api_key: Optional[str] = None,
     ):
         """Initialize billing service.
 
         Args:
             sandbox_price_id: Stripe price ID (defaults to env var)
             minute_rate_usd: Rate per minute (defaults to env var)
+            stripe_api_key: Stripe API key (defaults to env var, for testing)
         """
         self.sandbox_price_id = sandbox_price_id or STRIPE_SANDBOX_PRICE_ID
-        self.minute_rate_usd = minute_rate_usd or SANDBOX_MINUTE_RATE_USD
+        # Ensure minute rate is never zero to prevent division errors
+        rate = minute_rate_usd if minute_rate_usd is not None else SANDBOX_MINUTE_RATE_USD
+        self.minute_rate_usd = max(0.001, rate)
+        self._stripe_api_key = stripe_api_key
+        self._stripe_configured = False
 
         if not self.sandbox_price_id:
             logger.warning(
@@ -99,9 +108,30 @@ class SandboxBillingService:
                 "Sandbox billing will not be reported to Stripe."
             )
 
+    def _ensure_stripe_configured(self) -> bool:
+        """Lazily configure Stripe API key.
+
+        This allows for key rotation without process restart and
+        makes testing easier by deferring configuration.
+
+        Returns:
+            True if Stripe is configured, False otherwise.
+        """
+        if self._stripe_configured:
+            return bool(stripe.api_key)
+
+        # Use injected key or get from environment
+        api_key = self._stripe_api_key or os.environ.get("STRIPE_SECRET_KEY", "")
+        if api_key:
+            stripe.api_key = api_key
+            self._stripe_configured = True
+            return True
+
+        return False
+
     def is_configured(self) -> bool:
         """Check if Stripe billing is configured."""
-        return bool(stripe.api_key and self.sandbox_price_id)
+        return self._ensure_stripe_configured() and bool(self.sandbox_price_id)
 
     async def get_subscription_item_id(
         self,
@@ -193,13 +223,28 @@ class SandboxBillingService:
             return None
 
         if sandbox_minutes <= 0:
+            logger.debug(
+                "Skipping zero/negative usage report",
+                extra={
+                    "organization_id": str(organization_id),
+                    "sandbox_minutes": sandbox_minutes,
+                    "operation_type": operation_type,
+                },
+            )
             return None
 
         subscription_item_id = await self.get_subscription_item_id(db, organization_id)
         if not subscription_item_id:
-            logger.debug(
-                f"No sandbox subscription item for org {organization_id}, "
-                "skipping usage report"
+            # Log at warning level with structured data for monitoring
+            # This helps identify orgs using sandbox without proper billing setup
+            logger.warning(
+                "Unbilled sandbox usage: no subscription item found",
+                extra={
+                    "organization_id": str(organization_id),
+                    "sandbox_minutes": sandbox_minutes,
+                    "operation_type": operation_type,
+                    "unbilled": True,
+                },
             )
             return None
 
@@ -254,6 +299,14 @@ class SandboxBillingService:
             Stripe usage record dict, or None if not reported
         """
         if not metrics.customer_id:
+            logger.debug(
+                "Skipping billing report: no customer_id in metrics",
+                extra={
+                    "operation_id": metrics.operation_id,
+                    "operation_type": metrics.operation_type,
+                    "cost_usd": metrics.cost_usd,
+                },
+            )
             return None
 
         # Convert cost to minutes
@@ -273,7 +326,16 @@ class SandboxBillingService:
             )
             org = result.scalar_one_or_none()
             if not org:
-                logger.debug(f"Organization not found for customer {metrics.customer_id}")
+                logger.warning(
+                    "Unbilled sandbox usage: organization not found",
+                    extra={
+                        "customer_id": metrics.customer_id,
+                        "operation_id": metrics.operation_id,
+                        "operation_type": metrics.operation_type,
+                        "cost_usd": metrics.cost_usd,
+                        "unbilled": True,
+                    },
+                )
                 return None
             org_id = org.id
 
@@ -343,6 +405,7 @@ class SandboxBillingService:
         # Get local usage from metrics
         from repotoire.sandbox.metrics import SandboxMetricsCollector
 
+        collector: Optional[SandboxMetricsCollector] = None
         try:
             collector = SandboxMetricsCollector()
             await collector.connect()
@@ -367,10 +430,14 @@ class SandboxBillingService:
                 else:
                     result["local_usage"] = 0
 
-            await collector.close()
-
         except Exception as e:
             logger.warning(f"Failed to get local usage metrics: {e}")
+        finally:
+            if collector:
+                try:
+                    await collector.close()
+                except Exception:
+                    pass  # Best effort cleanup
 
         return result
 
@@ -380,11 +447,31 @@ _billing_service: Optional[SandboxBillingService] = None
 
 
 def get_sandbox_billing_service() -> SandboxBillingService:
-    """Get or create the global sandbox billing service."""
+    """Get or create the global sandbox billing service.
+
+    The service is lazily initialized on first access. Use
+    `reset_sandbox_billing_service()` to reset the singleton
+    (useful for testing).
+    """
     global _billing_service
     if _billing_service is None:
         _billing_service = SandboxBillingService()
     return _billing_service
+
+
+def reset_sandbox_billing_service(
+    service: Optional[SandboxBillingService] = None,
+) -> None:
+    """Reset or replace the global sandbox billing service.
+
+    Primarily used for testing to inject mock services or reset state.
+
+    Args:
+        service: Optional replacement service. If None, the singleton
+                 will be re-created on next access.
+    """
+    global _billing_service
+    _billing_service = service
 
 
 async def report_sandbox_usage_to_stripe(
