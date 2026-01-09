@@ -2,10 +2,12 @@
 
 import { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -13,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useFindings, useFindingsSummary, useFindingsByDetector, useRepositories } from '@/lib/hooks';
+import { useFindings, useFindingsSummary, useFindingsByDetector, useRepositories, useFixes } from '@/lib/hooks';
 import {
   AlertTriangle,
   AlertCircle,
@@ -26,9 +28,11 @@ import {
   Wrench,
   GitCommit,
   ArrowUpDown,
+  CheckCircle2,
+  ChevronRight as ChevronRightIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Finding, FindingFilters, Severity } from '@/types';
+import { Finding, FindingFilters, Severity, FixProposal } from '@/types';
 import { IssueOriginBadge } from '@/components/findings/issue-origin-badge';
 
 function Skeleton({ className }: { className?: string }) {
@@ -63,69 +67,132 @@ interface FindingCardProps {
   finding: Finding;
   /** Repository full name for GitHub links (e.g., "owner/repo") */
   repositoryFullName?: string;
+  /** Related fix if one exists */
+  relatedFix?: FixProposal;
+  /** Whether card is selected for bulk actions */
+  isSelected?: boolean;
+  /** Callback when selection changes */
+  onSelectChange?: (selected: boolean) => void;
 }
 
-function FindingCard({ finding, repositoryFullName }: FindingCardProps) {
+function FindingCard({ finding, repositoryFullName, relatedFix, isSelected, onSelectChange }: FindingCardProps) {
   const Icon = severityIcons[finding.severity];
 
+  // Format the detector name for readability
+  const detectorName = finding.detector.replace('Detector', '').replace(/_/g, ' ');
+
+  // Truncate file path for display
+  const primaryFile = finding.affected_files?.[0];
+  const displayFile = primaryFile
+    ? primaryFile.split('/').slice(-2).join('/')
+    : null;
+
   return (
-    <div className="rounded-lg border p-4 hover:bg-muted/50 transition-colors">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3 min-w-0 flex-1">
-          <div className={cn(
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-            severityBadgeVariants[finding.severity]
-          )}>
-            <Icon className="h-4 w-4" />
+    <Link
+      href={`/dashboard/findings/${finding.id}`}
+      className="block rounded-lg border p-4 hover:bg-muted/50 hover:border-primary/50 transition-all group"
+    >
+      <div className="flex items-start gap-4">
+        {/* Selection checkbox */}
+        {onSelectChange && (
+          <div
+            className="pt-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Checkbox
+              checked={isSelected}
+              onCheckedChange={onSelectChange}
+              aria-label={`Select finding: ${finding.title}`}
+            />
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="font-medium truncate">{finding.title}</h3>
-              <Badge
-                variant="secondary"
-                className={cn('shrink-0', severityBadgeVariants[finding.severity])}
-              >
-                {finding.severity}
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-              {finding.description}
-            </p>
-            <div className="flex flex-wrap gap-2 mt-2">
-              <Badge variant="outline" className="flex items-center gap-1">
-                <Wrench className="h-3 w-3" />
-                {finding.detector}
-              </Badge>
-              {finding.affected_files?.length > 0 && (
-                <Badge variant="outline" className="flex items-center gap-1">
-                  <FileCode2 className="h-3 w-3" />
-                  {finding.affected_files[0]}
-                  {finding.line_start && `:${finding.line_start}`}
+        )}
+
+        {/* Severity icon */}
+        <div className={cn(
+          'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg',
+          severityBadgeVariants[finding.severity]
+        )}>
+          <Icon className="h-5 w-5" />
+        </div>
+
+        {/* Content */}
+        <div className="min-w-0 flex-1">
+          {/* Header row */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <h3 className="font-semibold text-base group-hover:text-primary transition-colors">
+                {finding.title}
+              </h3>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <Badge
+                  variant="secondary"
+                  className={cn('capitalize text-xs', severityBadgeVariants[finding.severity])}
+                >
+                  {finding.severity}
                 </Badge>
-              )}
-              {finding.estimated_effort && (
-                <Badge variant="outline" className="flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  {finding.estimated_effort}
-                </Badge>
-              )}
-              {/* Git Provenance Badge */}
-              <IssueOriginBadge
-                findingId={finding.id}
-                repositoryFullName={repositoryFullName}
-                compact
-              />
-            </div>
-            {finding.suggested_fix && (
-              <div className="mt-3 p-2 bg-muted rounded text-sm">
-                <span className="font-medium">Suggested fix: </span>
-                {finding.suggested_fix}
+                <span className="text-xs text-muted-foreground">
+                  {detectorName}
+                </span>
+                {displayFile && (
+                  <>
+                    <span className="text-muted-foreground">in</span>
+                    <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
+                      {displayFile}
+                      {finding.line_start && `:${finding.line_start}`}
+                    </code>
+                  </>
+                )}
               </div>
+            </div>
+
+            {/* Fix status & arrow */}
+            <div className="flex items-center gap-2 shrink-0">
+              {relatedFix && (
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'flex items-center gap-1 text-xs',
+                    relatedFix.status === 'applied' && 'bg-green-500/10 text-green-600 border-green-500/30',
+                    relatedFix.status === 'approved' && 'bg-blue-500/10 text-blue-600 border-blue-500/30',
+                    relatedFix.status === 'pending' && 'bg-yellow-500/10 text-yellow-600 border-yellow-500/30'
+                  )}
+                >
+                  <CheckCircle2 className="h-3 w-3" />
+                  Fix {relatedFix.status}
+                </Badge>
+              )}
+              <ChevronRightIcon className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
+            </div>
+          </div>
+
+          {/* Description */}
+          <p className="text-sm text-muted-foreground mt-2 line-clamp-2">
+            {finding.description}
+          </p>
+
+          {/* Metadata row */}
+          <div className="flex flex-wrap items-center gap-3 mt-3 text-xs text-muted-foreground">
+            {finding.estimated_effort && (
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {finding.estimated_effort}
+              </span>
             )}
+            {finding.affected_files?.length > 1 && (
+              <span className="flex items-center gap-1">
+                <FileCode2 className="h-3 w-3" />
+                {finding.affected_files.length} files affected
+              </span>
+            )}
+            <IssueOriginBadge
+              findingId={finding.id}
+              repositoryFullName={repositoryFullName}
+              compact
+            />
           </div>
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -153,6 +220,7 @@ function FindingsContent() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(() => {
     return (searchParams.get('direction') as 'asc' | 'desc') || 'desc';
   });
+  const [selectedFindings, setSelectedFindings] = useState<Set<string>>(new Set());
   const pageSize = 20;
 
   const filters: FindingFilters = {};
@@ -169,7 +237,43 @@ function FindingsContent() {
   const { data: repositories } = useRepositories();
   const { data: detectors } = useFindingsByDetector(undefined, repositoryId);
 
+  // Fetch fixes to show fix status on findings
+  const { data: fixes } = useFixes(
+    repositoryId ? { repository_id: repositoryId } : undefined,
+    undefined,
+    1,
+    100 // Get enough to cover most findings on the page
+  );
+
+  // Create a map of finding_id -> fix for quick lookup
+  const fixesByFindingId = new Map<string, FixProposal>();
+  fixes?.items.forEach((fix) => {
+    if (fix.finding_id) {
+      fixesByFindingId.set(fix.finding_id, fix);
+    }
+  });
+
   const totalPages = findings ? Math.ceil(findings.total / pageSize) : 1;
+
+  // Bulk selection handlers
+  const toggleSelectAll = () => {
+    if (!findings) return;
+    if (selectedFindings.size === findings.items.length) {
+      setSelectedFindings(new Set());
+    } else {
+      setSelectedFindings(new Set(findings.items.map(f => f.id)));
+    }
+  };
+
+  const toggleSelectFinding = (id: string, selected: boolean) => {
+    const newSelection = new Set(selectedFindings);
+    if (selected) {
+      newSelection.add(id);
+    } else {
+      newSelection.delete(id);
+    }
+    setSelectedFindings(newSelection);
+  };
 
   return (
     <div className="space-y-6">
@@ -348,17 +452,65 @@ function FindingsContent() {
         </CardContent>
       </Card>
 
+      {/* Bulk Actions Bar */}
+      {selectedFindings.size > 0 && (
+        <Card className="bg-primary/5 border-primary/20">
+          <CardContent className="py-3 flex items-center justify-between">
+            <span className="text-sm font-medium">
+              {selectedFindings.size} finding{selectedFindings.size !== 1 ? 's' : ''} selected
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedFindings(new Set())}
+              >
+                Clear Selection
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled
+                title="Coming soon"
+              >
+                Mark as Won&apos;t Fix
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled
+                title="Coming soon"
+              >
+                Mark as False Positive
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Findings List */}
       <Card>
-        <CardHeader>
-          <CardTitle>
-            {isLoading ? 'Loading...' : `${findings?.total ?? 0} Findings`}
-          </CardTitle>
-          <CardDescription>
-            {severityFilter !== 'all' && `Filtered by ${severityFilter} severity`}
-            {severityFilter !== 'all' && detectorFilter !== 'all' && ' and '}
-            {detectorFilter !== 'all' && `${detectorFilter} detector`}
-          </CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle>
+              {isLoading ? 'Loading...' : `${findings?.total ?? 0} Findings`}
+            </CardTitle>
+            <CardDescription>
+              {severityFilter !== 'all' && `Filtered by ${severityFilter} severity`}
+              {severityFilter !== 'all' && detectorFilter !== 'all' && ' and '}
+              {detectorFilter !== 'all' && `${detectorFilter} detector`}
+              {!severityFilter && !detectorFilter && 'Click a finding to see details and code'}
+            </CardDescription>
+          </div>
+          {findings && findings.items.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleSelectAll}
+            >
+              {selectedFindings.size === findings.items.length ? 'Deselect All' : 'Select All'}
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -373,15 +525,19 @@ function FindingsContent() {
               <p className="text-muted-foreground">No findings match your filters</p>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {findings?.items.map((finding) => {
                 // Get the repository full name for GitHub links
                 const repo = repositories?.find(r => r.id === repositoryFilter);
+                const relatedFix = fixesByFindingId.get(finding.id);
                 return (
                   <FindingCard
                     key={finding.id}
                     finding={finding}
                     repositoryFullName={repo?.full_name}
+                    relatedFix={relatedFix}
+                    isSelected={selectedFindings.has(finding.id)}
+                    onSelectChange={(selected) => toggleSelectFinding(finding.id, selected)}
                   />
                 );
               })}
