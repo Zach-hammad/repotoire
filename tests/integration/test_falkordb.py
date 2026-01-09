@@ -47,15 +47,10 @@ from repotoire.detectors.graph_algorithms import GraphAlgorithms
 # Set REPOTOIRE_TEST_DB=both to test both databases
 TEST_DB = os.environ.get("REPOTOIRE_TEST_DB", "falkordb")
 
-# FalkorDB connection settings (using port 6381 for Redis protocol)
-FALKORDB_REDIS_PORT = int(os.environ.get("REPOTOIRE_FALKORDB_PORT", "6381"))
+# FalkorDB connection settings (using port 6379 for Redis protocol, matching CI)
+FALKORDB_REDIS_PORT = int(os.environ.get("REPOTOIRE_FALKORDB_PORT", "6379"))
 FALKORDB_HOST = os.environ.get("REPOTOIRE_FALKORDB_HOST", "localhost")
 FALKORDB_PASSWORD = os.environ.get("REPOTOIRE_FALKORDB_PASSWORD", None)
-
-# Neo4j connection settings (standard test port)
-NEO4J_PORT = int(os.environ.get("REPOTOIRE_NEO4J_PORT", "7687"))
-FALKORDB_HOST = os.environ.get("FALKORDB_HOST", f"bolt://localhost:{NEO4J_PORT}")
-FALKORDB_PASSWORD = os.environ.get("FALKORDB_PASSWORD", "password")
 
 
 def is_docker_available() -> bool:
@@ -698,16 +693,18 @@ class TestFalkorDBVectorSearch:
             "MATCH (f:Function {qualifiedName: 'test.vector_func'}) DELETE f"
         )
 
-    def test_vector_similarity_search(self):
+    def test_vector_similarity_search(self, falkordb_client):
         """Test vector similarity search query."""
         from repotoire.graph import FalkorDBClient
         from repotoire.graph.schema import GraphSchema
         import time
 
-        # Use dedicated client with low retries for faster test failure
+        # Use dedicated client with separate graph for isolation
+        # Note: We pass falkordb_client fixture to ensure skip logic runs,
+        # but create our own client for a dedicated graph name
         client = FalkorDBClient(
-            host=FALKORDB_HOST,
-            port=FALKORDB_REDIS_PORT,
+            host="localhost",
+            port=int(os.environ.get("REPOTOIRE_FALKORDB_PORT", "6379")),
             graph_name="vector_search_test",
             max_retries=1,
         )
