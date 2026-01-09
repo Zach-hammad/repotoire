@@ -59,6 +59,17 @@ import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { cn } from '@/lib/utils';
 import { FixConfidence, FixFilters, FixProposal, FixStatus, FixType, SortOptions } from '@/types';
 import { invalidateCache, invalidateFix } from '@/lib/cache-keys';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  confidenceConfig,
+  statusConfig,
+  fixTypeConfig,
+  batchActionWarnings,
+} from '@/lib/fixes-utils';
 
 // Badge color mappings
 const confidenceBadgeColors: Record<FixConfidence, string> = {
@@ -122,6 +133,7 @@ function FixesListContent() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
 
   // Build filters with repository
   const filtersWithRepo = repositoryFilter !== 'all'
@@ -173,10 +185,11 @@ function FixesListContent() {
     });
   }, []);
 
-  const handleBatchApprove = async () => {
+  const handleBatchApproveConfirm = async () => {
     const ids = Array.from(selectedIds);
     await batchApprove(ids);
     setSelectedIds(new Set());
+    setApproveDialogOpen(false);
     // Centralized cache invalidation for batch approve
     await invalidateCache('fix-approved');
   };
@@ -234,7 +247,7 @@ function FixesListContent() {
                 <Button
                   size="sm"
                   className="bg-green-600 hover:bg-green-700"
-                  onClick={handleBatchApprove}
+                  onClick={() => setApproveDialogOpen(true)}
                   disabled={isApproving}
                 >
                   <CheckCircle2 className="mr-2 h-4 w-4" />
@@ -477,14 +490,30 @@ function FixesListContent() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={confidenceBadgeColors[fix.confidence]}>
-                        {fix.confidence}
-                      </Badge>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge variant="outline" className={cn(confidenceBadgeColors[fix.confidence], 'cursor-help')}>
+                            {confidenceConfig[fix.confidence].emoji} {fix.confidence}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          <p className="font-medium">{confidenceConfig[fix.confidence].plainEnglish}</p>
+                          <p className="text-xs opacity-80 mt-1">{confidenceConfig[fix.confidence].shortHelp}</p>
+                        </TooltipContent>
+                      </Tooltip>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={statusBadgeColors[fix.status]}>
-                        {fix.status}
-                      </Badge>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge variant="outline" className={cn(statusBadgeColors[fix.status], 'cursor-help')}>
+                            {statusConfig[fix.status].emoji} {statusConfig[fix.status].label}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          <p className="font-medium">{statusConfig[fix.status].plainEnglish}</p>
+                          <p className="text-xs opacity-80 mt-1">{statusConfig[fix.status].nextAction}</p>
+                        </TooltipContent>
+                      </Tooltip>
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       {fix.changes.length} file{fix.changes.length !== 1 ? 's' : ''}
@@ -570,31 +599,70 @@ function FixesListContent() {
         )}
       </Card>
 
+      {/* Batch Approve Dialog */}
+      <Dialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-green-500" />
+              {batchActionWarnings.approve.title}
+            </DialogTitle>
+            <DialogDescription className="pt-2">
+              {batchActionWarnings.approve.description}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg bg-muted p-3 text-sm">
+            <p className="font-medium mb-2">You are approving {selectedPendingCount} fix(es):</p>
+            <ul className="list-disc list-inside text-muted-foreground space-y-1">
+              <li>Each fix will be marked as &quot;Approved&quot;</li>
+              <li>You can still apply them individually</li>
+              <li>Review carefully - approved fixes can affect your code</li>
+            </ul>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setApproveDialogOpen(false)}>
+              {batchActionWarnings.approve.cancelText}
+            </Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700"
+              onClick={handleBatchApproveConfirm}
+              disabled={isApproving}
+            >
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+              {isApproving ? 'Approving...' : `${batchActionWarnings.approve.confirmText} (${selectedPendingCount})`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Batch Reject Dialog */}
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reject {selectedPendingCount} Fix(es)</DialogTitle>
-            <DialogDescription>
-              Please provide a reason for rejecting these fixes. This helps improve future suggestions.
+            <DialogTitle className="flex items-center gap-2">
+              <XCircle className="h-5 w-5 text-red-500" />
+              {batchActionWarnings.reject.title}
+            </DialogTitle>
+            <DialogDescription className="pt-2">
+              {batchActionWarnings.reject.description}
             </DialogDescription>
           </DialogHeader>
           <Textarea
-            placeholder="Reason for rejection..."
+            placeholder="Reason for rejection (helps improve AI suggestions)..."
             value={rejectReason}
             onChange={(e) => setRejectReason(e.target.value)}
             rows={4}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>
-              Cancel
+              {batchActionWarnings.reject.cancelText}
             </Button>
             <Button
               variant="destructive"
               onClick={handleBatchReject}
               disabled={isRejecting || !rejectReason.trim()}
             >
-              {isRejecting ? 'Rejecting...' : `Reject ${selectedPendingCount} Fix(es)`}
+              {isRejecting ? 'Rejecting...' : `${batchActionWarnings.reject.confirmText} (${selectedPendingCount})`}
             </Button>
           </DialogFooter>
         </DialogContent>

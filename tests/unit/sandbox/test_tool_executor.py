@@ -1,6 +1,7 @@
 """Unit tests for sandbox tool executor.
 
-Tests the ToolExecutor, SecretFileFilter, and ToolExecutorConfig classes.
+Tests the ToolExecutor, SecretFileFilter, and ToolExecutorConfig classes,
+including content-based secret scanning.
 """
 
 import pytest
@@ -12,9 +13,13 @@ from repotoire.sandbox.tool_executor import (
     ToolExecutorConfig,
     ToolExecutorResult,
     SecretFileFilter,
+    SecretScanResult,
     DEFAULT_SENSITIVE_PATTERNS,
     DEFAULT_INCLUDE_PATTERNS,
     DEFAULT_EXCLUDE_NON_SOURCE,
+    SECRET_CONTENT_PATTERNS,
+    SCANNABLE_EXTENSIONS,
+    MAX_CONTENT_SCAN_SIZE_BYTES,
 )
 from repotoire.sandbox.config import SandboxConfig
 from repotoire.sandbox.exceptions import SandboxConfigurationError
@@ -565,3 +570,391 @@ class TestDefaultIncludePatterns:
             assert pattern in DEFAULT_INCLUDE_PATTERNS, (
                 f"Python tool config '{pattern}' missing from include patterns"
             )
+
+
+class TestContentBasedSecretScanning:
+    """Tests for content-based secret detection.
+
+    These tests verify that the SecretFileFilter correctly identifies
+    secrets embedded in file contents, not just by filename patterns.
+    """
+
+    def test_detect_aws_access_key(self, tmp_path):
+        """Test detection of AWS access key IDs in content."""
+        filter = SecretFileFilter(
+            sensitive_patterns=[],
+            include_patterns=[],
+            exclude_non_source=[],
+            enable_content_scanning=True,
+        )
+
+        # Create file with AWS access key
+        test_file = tmp_path / "config.py"
+        test_file.write_text('AWS_ACCESS_KEY = "AKIAIOSFODNN7EXAMPLE"')
+
+        result = filter.scan_content_for_secrets(test_file)
+        assert result.has_secrets
+        assert len(result.secrets_found) >= 1
+        assert any("aws" in s[0].lower() for s in result.secrets_found)
+
+    def test_detect_github_token(self, tmp_path):
+        """Test detection of GitHub personal access tokens."""
+        filter = SecretFileFilter(
+            sensitive_patterns=[],
+            include_patterns=[],
+            exclude_non_source=[],
+            enable_content_scanning=True,
+        )
+
+        # Create file with GitHub token
+        test_file = tmp_path / "deploy.py"
+        test_file.write_text('GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"')
+
+        result = filter.scan_content_for_secrets(test_file)
+        assert result.has_secrets
+        assert any("github" in s[0].lower() for s in result.secrets_found)
+
+    def test_detect_stripe_key(self, tmp_path):
+        """Test detection of Stripe secret keys."""
+        filter = SecretFileFilter(
+            sensitive_patterns=[],
+            include_patterns=[],
+            exclude_non_source=[],
+            enable_content_scanning=True,
+        )
+
+        test_file = tmp_path / "billing.py"
+        test_file.write_text('stripe.api_key = "sk_test_FAKE0000000000000000000000"')
+
+        result = filter.scan_content_for_secrets(test_file)
+        assert result.has_secrets
+        assert any("stripe" in s[0].lower() for s in result.secrets_found)
+
+    def test_detect_private_key_header(self, tmp_path):
+        """Test detection of RSA private key headers."""
+        filter = SecretFileFilter(
+            sensitive_patterns=[],
+            include_patterns=[],
+            exclude_non_source=[],
+            enable_content_scanning=True,
+        )
+
+        test_file = tmp_path / "crypto.py"
+        test_file.write_text('''
+PRIVATE_KEY = """-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEA...
+-----END RSA PRIVATE KEY-----"""
+''')
+
+        result = filter.scan_content_for_secrets(test_file)
+        assert result.has_secrets
+        assert any("private_key" in s[0].lower() for s in result.secrets_found)
+
+    def test_detect_jwt_token(self, tmp_path):
+        """Test detection of JWT tokens."""
+        filter = SecretFileFilter(
+            sensitive_patterns=[],
+            include_patterns=[],
+            exclude_non_source=[],
+            enable_content_scanning=True,
+        )
+
+        # Real JWT structure (header.payload.signature)
+        jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+        test_file = tmp_path / "auth.py"
+        test_file.write_text(f'TOKEN = "{jwt}"')
+
+        result = filter.scan_content_for_secrets(test_file)
+        assert result.has_secrets
+        assert any("jwt" in s[0].lower() for s in result.secrets_found)
+
+    def test_detect_database_connection_string(self, tmp_path):
+        """Test detection of database connection strings with passwords."""
+        filter = SecretFileFilter(
+            sensitive_patterns=[],
+            include_patterns=[],
+            exclude_non_source=[],
+            enable_content_scanning=True,
+        )
+
+        test_file = tmp_path / "database.py"
+        test_file.write_text('DATABASE_URL = "postgresql://user:secret_password@localhost:5432/mydb"')
+
+        result = filter.scan_content_for_secrets(test_file)
+        assert result.has_secrets
+        assert any("postgres" in s[0].lower() for s in result.secrets_found)
+
+    def test_detect_generic_api_key_assignment(self, tmp_path):
+        """Test detection of generic API key assignments."""
+        filter = SecretFileFilter(
+            sensitive_patterns=[],
+            include_patterns=[],
+            exclude_non_source=[],
+            enable_content_scanning=True,
+        )
+
+        test_file = tmp_path / "config.py"
+        test_file.write_text('API_KEY = "abc123def456ghi789jkl012mno345pqr678"')
+
+        result = filter.scan_content_for_secrets(test_file)
+        assert result.has_secrets
+        assert any("generic_api_key" in s[0].lower() or "api" in s[0].lower() for s in result.secrets_found)
+
+    def test_no_false_positive_for_placeholder(self, tmp_path):
+        """Test that placeholder values don't trigger false positives."""
+        filter = SecretFileFilter(
+            sensitive_patterns=[],
+            include_patterns=[],
+            exclude_non_source=[],
+            enable_content_scanning=True,
+        )
+
+        # Placeholders that should NOT be detected
+        test_file = tmp_path / "config.py"
+        test_file.write_text('''
+# Configuration file
+API_KEY = os.getenv("API_KEY")  # Get from environment
+DATABASE_URL = "sqlite:///test.db"  # No password
+''')
+
+        result = filter.scan_content_for_secrets(test_file)
+        # Should not detect placeholders or env var references
+        # SQLite with no password should not match
+
+    def test_exclude_file_with_embedded_secret(self, tmp_path):
+        """Test that files with embedded secrets are excluded from upload."""
+        filter = SecretFileFilter(
+            sensitive_patterns=DEFAULT_SENSITIVE_PATTERNS,
+            include_patterns=DEFAULT_INCLUDE_PATTERNS,
+            exclude_non_source=DEFAULT_EXCLUDE_NON_SOURCE,
+            enable_content_scanning=True,
+        )
+
+        # Create a normal-looking Python file with an embedded secret
+        secret_file = tmp_path / "api_client.py"
+        secret_file.write_text('''
+import requests
+
+class APIClient:
+    # Hardcoded API key (bad practice!)
+    API_KEY = "sk_test_FAKE0000000000000000000000"
+
+    def call_api(self):
+        headers = {"Authorization": f"Bearer {self.API_KEY}"}
+        return requests.get("https://api.example.com", headers=headers)
+''')
+
+        # This file should be excluded despite having a normal filename
+        assert not filter.should_include(secret_file, tmp_path)
+
+    def test_include_file_without_secrets(self, tmp_path):
+        """Test that clean files are included."""
+        filter = SecretFileFilter(
+            sensitive_patterns=DEFAULT_SENSITIVE_PATTERNS,
+            include_patterns=DEFAULT_INCLUDE_PATTERNS,
+            exclude_non_source=DEFAULT_EXCLUDE_NON_SOURCE,
+            enable_content_scanning=True,
+        )
+
+        # Create a clean Python file
+        clean_file = tmp_path / "utils.py"
+        clean_file.write_text('''
+def add(a: int, b: int) -> int:
+    """Add two numbers."""
+    return a + b
+
+def multiply(a: int, b: int) -> int:
+    """Multiply two numbers."""
+    return a * b
+''')
+
+        # This file should be included
+        assert filter.should_include(clean_file, tmp_path)
+
+    def test_content_scanning_can_be_disabled(self, tmp_path):
+        """Test that content scanning can be disabled."""
+        filter = SecretFileFilter(
+            sensitive_patterns=[],
+            include_patterns=[],
+            exclude_non_source=[],
+            enable_content_scanning=False,  # Disabled
+        )
+
+        # Create file with secret
+        secret_file = tmp_path / "config.py"
+        secret_file.write_text('API_KEY = "sk_test_FAKE0000000000000000000000"')
+
+        # With content scanning disabled, file should be included
+        assert filter.should_include(secret_file, tmp_path)
+
+    def test_skip_binary_files(self, tmp_path):
+        """Test that binary files are skipped during content scanning."""
+        filter = SecretFileFilter(
+            sensitive_patterns=[],
+            include_patterns=[],
+            exclude_non_source=[],
+            enable_content_scanning=True,
+        )
+
+        # Create a binary file (e.g., an image)
+        binary_file = tmp_path / "image.png"
+        binary_file.write_bytes(b'\x89PNG\r\n\x1a\n' + b'\x00' * 100)
+
+        result = filter.scan_content_for_secrets(binary_file)
+        # Binary files should not be scanned
+        assert not result.has_secrets
+
+    def test_skip_large_files(self, tmp_path):
+        """Test that large files are skipped for performance."""
+        filter = SecretFileFilter(
+            sensitive_patterns=[],
+            include_patterns=[],
+            exclude_non_source=[],
+            enable_content_scanning=True,
+        )
+
+        # Create a large file (over MAX_CONTENT_SCAN_SIZE_BYTES)
+        large_file = tmp_path / "large.py"
+        large_file.write_text("x = 1\n" * (MAX_CONTENT_SCAN_SIZE_BYTES // 6 + 1))
+
+        result = filter.scan_content_for_secrets(large_file)
+        # Large files should be skipped
+        assert not result.has_secrets
+
+    def test_content_exclusion_details(self, tmp_path):
+        """Test that content exclusion details are tracked."""
+        filter = SecretFileFilter(
+            sensitive_patterns=DEFAULT_SENSITIVE_PATTERNS,
+            include_patterns=DEFAULT_INCLUDE_PATTERNS,
+            exclude_non_source=DEFAULT_EXCLUDE_NON_SOURCE,
+            enable_content_scanning=True,
+        )
+
+        # Create files with secrets
+        (tmp_path / "api_config.py").write_text('KEY = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"')
+        (tmp_path / "db_config.py").write_text('URL = "postgresql://user:pass@host/db"')
+        (tmp_path / "clean.py").write_text('x = 1')
+
+        files, patterns = filter.filter_files(tmp_path)
+        details = filter.get_content_exclusion_details()
+
+        # Should have exclusion details for the secret-containing files
+        assert len(details) == 2
+        assert any("api_config.py" in path for path in details.keys())
+        assert any("db_config.py" in path for path in details.keys())
+
+    def test_cache_prevents_rescanning(self, tmp_path):
+        """Test that content scan results are cached."""
+        filter = SecretFileFilter(
+            sensitive_patterns=[],
+            include_patterns=[],
+            exclude_non_source=[],
+            enable_content_scanning=True,
+        )
+
+        test_file = tmp_path / "test.py"
+        test_file.write_text('API_KEY = "sk_test_FAKE0000000000000000000000"')
+
+        # First scan
+        result1 = filter.scan_content_for_secrets(test_file)
+        # Second scan (should use cache)
+        result2 = filter.scan_content_for_secrets(test_file)
+
+        assert result1 is result2  # Same object from cache
+
+    def test_clear_cache(self, tmp_path):
+        """Test that cache can be cleared."""
+        filter = SecretFileFilter(
+            sensitive_patterns=[],
+            include_patterns=[],
+            exclude_non_source=[],
+            enable_content_scanning=True,
+        )
+
+        test_file = tmp_path / "test.py"
+        test_file.write_text('API_KEY = "sk_test_FAKE0000000000000000000000"')
+
+        # First scan
+        result1 = filter.scan_content_for_secrets(test_file)
+
+        # Clear cache
+        filter.clear_cache()
+
+        # Second scan (should be a new scan)
+        result2 = filter.scan_content_for_secrets(test_file)
+
+        assert result1 is not result2  # Different objects after cache clear
+
+
+class TestSecretContentPatterns:
+    """Tests for the SECRET_CONTENT_PATTERNS constant."""
+
+    def test_patterns_are_compiled(self):
+        """Test that all patterns are pre-compiled regex objects."""
+        import re
+        for name, pattern, desc in SECRET_CONTENT_PATTERNS:
+            assert isinstance(pattern, re.Pattern), f"Pattern '{name}' is not compiled"
+            assert isinstance(name, str)
+            assert isinstance(desc, str)
+
+    def test_critical_patterns_present(self):
+        """Test that critical secret patterns are defined."""
+        pattern_names = [name for name, _, _ in SECRET_CONTENT_PATTERNS]
+
+        critical_patterns = [
+            "aws_access_key",
+            "github_token_classic",
+            "stripe_key",
+            "private_key_rsa",
+            "jwt_token",
+            "postgres_uri",
+            "generic_api_key",
+        ]
+
+        for critical in critical_patterns:
+            assert critical in pattern_names, f"Critical pattern '{critical}' missing"
+
+    def test_scannable_extensions_include_common_types(self):
+        """Test that common file types are in scannable extensions."""
+        common_extensions = [".py", ".js", ".ts", ".json", ".yaml", ".yml", ".toml", ".env"]
+
+        for ext in common_extensions:
+            assert ext in SCANNABLE_EXTENSIONS, f"Extension '{ext}' should be scannable"
+
+
+class TestToolExecutorConfigContentScanning:
+    """Tests for content scanning configuration."""
+
+    def test_content_scanning_enabled_by_default(self):
+        """Test that content scanning is enabled by default."""
+        with patch.dict("os.environ", {}, clear=True):
+            config = ToolExecutorConfig.from_env()
+
+        assert config.enable_content_scanning is True
+
+    def test_content_scanning_can_be_disabled_via_env(self):
+        """Test that content scanning can be disabled via environment."""
+        with patch.dict("os.environ", {"SANDBOX_CONTENT_SCANNING": "false"}):
+            config = ToolExecutorConfig.from_env()
+
+        assert config.enable_content_scanning is False
+
+    def test_executor_uses_content_scanning_config(self, tmp_path):
+        """Test that ToolExecutor respects content scanning config."""
+        sandbox_config = SandboxConfig(api_key=None)
+
+        # With content scanning enabled
+        config_enabled = ToolExecutorConfig(
+            sandbox_config=sandbox_config,
+            enable_content_scanning=True,
+        )
+        executor_enabled = ToolExecutor(config_enabled)
+        assert executor_enabled._file_filter.enable_content_scanning is True
+
+        # With content scanning disabled
+        config_disabled = ToolExecutorConfig(
+            sandbox_config=sandbox_config,
+            enable_content_scanning=False,
+        )
+        executor_disabled = ToolExecutor(config_disabled)
+        assert executor_disabled._file_filter.enable_content_scanning is False

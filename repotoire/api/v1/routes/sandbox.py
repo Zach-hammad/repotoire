@@ -25,6 +25,10 @@ from repotoire.sandbox.enforcement import (
     QuotaType,
     get_quota_enforcer,
 )
+from repotoire.sandbox.billing import get_sandbox_billing_service
+from repotoire.db.session import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
+from uuid import UUID
 
 logger = get_logger(__name__)
 
@@ -697,3 +701,142 @@ async def admin_get_quota_override(
         raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
     finally:
         await enforcer.close()
+
+
+# =============================================================================
+# Billing Endpoints
+# =============================================================================
+
+
+class BillingUsageResponse(BaseModel):
+    """Response with current billing period usage."""
+
+    stripe_usage: Optional[int] = Field(
+        description="Sandbox minutes reported to Stripe"
+    )
+    local_usage: Optional[int] = Field(
+        description="Sandbox minutes tracked locally"
+    )
+    period_start: Optional[str] = Field(description="Billing period start (ISO 8601)")
+    period_end: Optional[str] = Field(description="Billing period end (ISO 8601)")
+    rate_per_minute_usd: float = Field(description="USD rate per sandbox minute")
+    estimated_cost_usd: Optional[float] = Field(
+        description="Estimated cost for current period"
+    )
+    billing_configured: bool = Field(description="Whether Stripe billing is configured")
+
+
+@router.get("/billing/usage", response_model=BillingUsageResponse)
+async def get_billing_usage(
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BillingUsageResponse:
+    """Get current billing period sandbox usage for authenticated user.
+
+    Returns usage information from both Stripe and local metrics tracking.
+    This helps users understand their sandbox usage costs.
+
+    **What This Shows:**
+    - `stripe_usage`: Minutes reported to Stripe for billing
+    - `local_usage`: Minutes tracked in our metrics database
+    - `period_start/end`: Current billing period dates
+    - `estimated_cost_usd`: Approximate cost for the period
+
+    **Note:** There may be a small delay between local tracking and Stripe reporting.
+    """
+    service = get_sandbox_billing_service()
+
+    # Get organization from user
+    from repotoire.db.models import Organization
+    from sqlalchemy import select
+
+    org_result = await db.execute(
+        select(Organization).where(Organization.clerk_org_id == user.org_id)
+    )
+    org = org_result.scalar_one_or_none()
+
+    if not org:
+        return BillingUsageResponse(
+            stripe_usage=None,
+            local_usage=None,
+            period_start=None,
+            period_end=None,
+            rate_per_minute_usd=service.minute_rate_usd,
+            estimated_cost_usd=None,
+            billing_configured=service.is_configured(),
+        )
+
+    usage = await service.get_current_period_usage(db, org.id)
+
+    # Calculate estimated cost
+    estimated_cost = None
+    if usage.get("stripe_usage") is not None:
+        estimated_cost = usage["stripe_usage"] * service.minute_rate_usd
+    elif usage.get("local_usage") is not None:
+        estimated_cost = usage["local_usage"] * service.minute_rate_usd
+
+    return BillingUsageResponse(
+        stripe_usage=usage.get("stripe_usage"),
+        local_usage=usage.get("local_usage"),
+        period_start=(
+            usage["period_start"].isoformat()
+            if usage.get("period_start")
+            else None
+        ),
+        period_end=(
+            usage["period_end"].isoformat()
+            if usage.get("period_end")
+            else None
+        ),
+        rate_per_minute_usd=service.minute_rate_usd,
+        estimated_cost_usd=round(estimated_cost, 2) if estimated_cost else None,
+        billing_configured=service.is_configured(),
+    )
+
+
+class BillingStatusResponse(BaseModel):
+    """Response with billing configuration status."""
+
+    stripe_configured: bool = Field(description="Whether Stripe API is configured")
+    sandbox_price_configured: bool = Field(
+        description="Whether sandbox metered price is configured"
+    )
+    subscription_item_id: Optional[str] = Field(
+        description="Stripe subscription item ID for sandbox metering"
+    )
+    rate_per_minute_usd: float = Field(description="USD rate per sandbox minute")
+
+
+@router.get("/billing/status", response_model=BillingStatusResponse)
+async def get_billing_status(
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BillingStatusResponse:
+    """Get sandbox billing configuration status.
+
+    Returns information about whether billing is properly configured
+    for the user's organization.
+    """
+    import stripe as stripe_module
+
+    service = get_sandbox_billing_service()
+
+    # Get organization from user
+    from repotoire.db.models import Organization
+    from sqlalchemy import select
+
+    subscription_item_id = None
+    org_result = await db.execute(
+        select(Organization).where(Organization.clerk_org_id == user.org_id)
+    )
+    org = org_result.scalar_one_or_none()
+
+    if org:
+        subscription_item_id = await service.get_subscription_item_id(db, org.id)
+
+    return BillingStatusResponse(
+        stripe_configured=bool(stripe_module.api_key),
+        sandbox_price_configured=bool(service.sandbox_price_id),
+        subscription_item_id=subscription_item_id,
+        rate_per_minute_usd=service.minute_rate_usd,
+    )

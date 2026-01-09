@@ -545,3 +545,158 @@ export interface CommitHistoryResponse {
   /** Whether there are more commits to fetch */
   has_more: boolean;
 }
+
+// ==========================================
+// Sandbox Metrics Types
+// ==========================================
+
+/** Sandbox cost and usage summary */
+export interface SandboxCostSummary {
+  total_operations: number;
+  successful_operations: number;
+  success_rate: number;
+  total_cost_usd: number;
+  avg_duration_ms: number;
+  total_cpu_seconds: number;
+  total_memory_gb_seconds: number;
+}
+
+/** Cost breakdown by operation type */
+export interface SandboxOperationTypeCost {
+  operation_type: string;
+  count: number;
+  total_cost_usd: number;
+  percentage: number;
+  avg_duration_ms: number;
+  success_rate: number;
+}
+
+/** Details of a slow operation */
+export interface SandboxSlowOperation {
+  time: string;
+  operation_id: string;
+  operation_type: string;
+  duration_ms: number;
+  cost_usd: number;
+  success: boolean;
+  customer_id?: string;
+  sandbox_id?: string;
+}
+
+/** Details of a failed operation */
+export interface SandboxFailedOperation {
+  time: string;
+  operation_id: string;
+  operation_type: string;
+  error_message?: string;
+  duration_ms: number;
+  customer_id?: string;
+  sandbox_id?: string;
+}
+
+/** Failure rate statistics */
+export interface SandboxFailureRate {
+  period_hours: number;
+  total_operations: number;
+  failures: number;
+  failure_rate: number;
+}
+
+/** Complete usage statistics */
+export interface SandboxUsageStats {
+  summary: SandboxCostSummary;
+  by_operation_type: SandboxOperationTypeCost[];
+  recent_failures: SandboxFailedOperation[];
+  slow_operations: SandboxSlowOperation[];
+}
+
+/** Quota limit definition */
+export interface SandboxQuotaLimits {
+  max_concurrent_sandboxes: number;
+  max_daily_sandbox_minutes: number;
+  max_monthly_sandbox_minutes: number;
+  max_sandboxes_per_day: number;
+}
+
+/** Warning level for quota usage */
+export type SandboxWarningLevel = 'ok' | 'warning' | 'critical' | 'exceeded';
+
+/** Usage for a single quota type */
+export interface SandboxQuotaUsageItem {
+  quota_type: string;
+  current: number;
+  limit: number;
+  usage_percent: number;
+  warning_level: SandboxWarningLevel;
+  allowed: boolean;
+}
+
+/** Complete quota status */
+export interface SandboxQuotaStatus {
+  customer_id: string;
+  tier: string;
+  limits: SandboxQuotaLimits;
+  concurrent: SandboxQuotaUsageItem;
+  daily_minutes: SandboxQuotaUsageItem;
+  monthly_minutes: SandboxQuotaUsageItem;
+  daily_sessions: SandboxQuotaUsageItem;
+  overall_warning_level: SandboxWarningLevel;
+  has_override: boolean;
+}
+
+/** Sandbox billing usage information */
+export interface SandboxBillingUsage {
+  stripe_usage: number | null;
+  local_usage: number | null;
+  period_start: string | null;
+  period_end: string | null;
+  rate_per_minute_usd: number;
+  estimated_cost_usd: number | null;
+  billing_configured: boolean;
+}
+
+/** Sandbox billing configuration status */
+export interface SandboxBillingStatus {
+  stripe_configured: boolean;
+  sandbox_price_configured: boolean;
+  subscription_item_id: string | null;
+  rate_per_minute_usd: number;
+}
+
+// ==========================================
+// Health Score Delta Types
+// ==========================================
+
+/** Impact level classification for health score changes */
+export type ImpactLevel = 'critical' | 'high' | 'medium' | 'low' | 'negligible';
+
+/** Health score delta for a single finding */
+export interface HealthScoreDelta {
+  before_score: number;
+  after_score: number;
+  score_delta: number;
+  before_grade: string;
+  after_grade: string;
+  grade_improved: boolean;
+  grade_change: string | null;
+  structure_delta: number;
+  quality_delta: number;
+  architecture_delta: number;
+  impact_level: ImpactLevel;
+  affected_metric: string;
+  finding_id: string | null;
+  finding_severity: string | null;
+}
+
+/** Batch health score delta for multiple findings */
+export interface BatchHealthScoreDelta {
+  before_score: number;
+  after_score: number;
+  score_delta: number;
+  before_grade: string;
+  after_grade: string;
+  grade_improved: boolean;
+  grade_change: string | null;
+  findings_count: number;
+  individual_deltas: HealthScoreDelta[];
+}

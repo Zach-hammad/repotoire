@@ -2,6 +2,7 @@ import {
   AnalyticsSummary,
   ApiResponse,
   BackfillJobStatus,
+  BatchHealthScoreDelta,
   BulkUpdateStatusResponse,
   CommitHistoryResponse,
   CommitProvenance,
@@ -14,11 +15,20 @@ import {
   FixProposal,
   GitHistoryStatus,
   HealthScore,
+  HealthScoreDelta,
   HistoricalQueryResponse,
   IssueOrigin,
   PaginatedResponse,
   PreviewResult,
   ProvenanceSettings,
+  SandboxBillingStatus,
+  SandboxBillingUsage,
+  SandboxCostSummary,
+  SandboxFailureRate,
+  SandboxOperationTypeCost,
+  SandboxQuotaLimits,
+  SandboxQuotaStatus,
+  SandboxUsageStats,
   SortOptions,
   Subscription,
   TrendDataPoint,
@@ -208,6 +218,21 @@ export const fixesApi = {
         max_fixes: options?.maxFixes ?? 10,
         severity_filter: options?.severityFilter ?? ['critical', 'high'],
       }),
+    });
+  },
+
+  // Estimate health score impact of applying a fix
+  estimateImpact: async (id: string): Promise<HealthScoreDelta> => {
+    return request<HealthScoreDelta>(`/fixes/${id}/estimate-impact`, {
+      method: 'POST',
+    });
+  },
+
+  // Estimate health score impact of applying multiple fixes
+  estimateBatchImpact: async (ids: string[]): Promise<BatchHealthScoreDelta> => {
+    return request<BatchHealthScoreDelta>('/fixes/batch/estimate-impact', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
     });
   },
 };
@@ -489,6 +514,65 @@ export const provenanceSettingsApi = {
       method: 'PUT',
       body: JSON.stringify(settings),
     });
+  },
+};
+
+// Sandbox API
+export const sandboxApi = {
+  /**
+   * Get sandbox metrics summary
+   */
+  getMetricsSummary: async (days: number = 30): Promise<SandboxCostSummary> => {
+    return request<SandboxCostSummary>(`/sandbox/metrics?days=${days}`);
+  },
+
+  /**
+   * Get cost breakdown by operation type
+   */
+  getCostBreakdown: async (days: number = 30): Promise<SandboxOperationTypeCost[]> => {
+    return request<SandboxOperationTypeCost[]>(`/sandbox/metrics/costs?days=${days}`);
+  },
+
+  /**
+   * Get complete usage statistics
+   */
+  getUsageStats: async (days: number = 30): Promise<SandboxUsageStats> => {
+    return request<SandboxUsageStats>(`/sandbox/metrics/usage?days=${days}`);
+  },
+
+  /**
+   * Get failure rate over recent period
+   */
+  getFailureRate: async (hours: number = 1): Promise<SandboxFailureRate> => {
+    return request<SandboxFailureRate>(`/sandbox/metrics/failures?hours=${hours}`);
+  },
+
+  /**
+   * Get current quota and usage
+   */
+  getQuota: async (): Promise<SandboxQuotaStatus> => {
+    return request<SandboxQuotaStatus>('/sandbox/quota');
+  },
+
+  /**
+   * Get quota limits for user's tier
+   */
+  getQuotaLimits: async (): Promise<SandboxQuotaLimits> => {
+    return request<SandboxQuotaLimits>('/sandbox/quota/limits');
+  },
+
+  /**
+   * Get current billing period sandbox usage
+   */
+  getBillingUsage: async (): Promise<SandboxBillingUsage> => {
+    return request<SandboxBillingUsage>('/sandbox/billing/usage');
+  },
+
+  /**
+   * Get billing configuration status
+   */
+  getBillingStatus: async (): Promise<SandboxBillingStatus> => {
+    return request<SandboxBillingStatus>('/sandbox/billing/status');
   },
 };
 

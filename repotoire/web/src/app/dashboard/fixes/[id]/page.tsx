@@ -44,6 +44,20 @@ import { mutate } from 'swr';
 import { toast } from 'sonner';
 import { invalidateFix, invalidateCache, cacheKeys } from '@/lib/cache-keys';
 import { showErrorToast, showSuccessToast } from '@/lib/error-utils';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  confidenceConfig,
+  statusConfig,
+  fixTypeConfig,
+  jargonExplanations,
+  getWorkflowSteps,
+} from '@/lib/fixes-utils';
+import { HelpCircle } from 'lucide-react';
+import { HealthScoreDeltaView } from '@/components/fixes/health-score-delta';
 
 // Badge color mappings
 const confidenceBadgeColors: Record<FixConfidence, string> = {
@@ -220,15 +234,40 @@ export default function FixReviewPage({
             <h1 className="text-2xl font-bold">{fix.title}</h1>
           </div>
           <div className="flex items-center gap-2 ml-10">
-            <Badge variant="outline" className={statusBadgeColors[fix.status]}>
-              {fix.status.charAt(0).toUpperCase() + fix.status.slice(1)}
-            </Badge>
-            <Badge variant="outline" className={confidenceBadgeColors[fix.confidence]}>
-              {fix.confidence.charAt(0).toUpperCase() + fix.confidence.slice(1)} Confidence
-            </Badge>
-            <Badge variant="secondary">
-              {fixTypeLabels[fix.fix_type]}
-            </Badge>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className={cn(statusBadgeColors[fix.status], 'cursor-help')}>
+                  {statusConfig[fix.status].emoji} {statusConfig[fix.status].label}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <p className="font-medium">{statusConfig[fix.status].plainEnglish}</p>
+                <p className="text-xs opacity-80 mt-1">{statusConfig[fix.status].description}</p>
+                <p className="text-xs text-green-400 mt-2">Next: {statusConfig[fix.status].nextAction}</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className={cn(confidenceBadgeColors[fix.confidence], 'cursor-help')}>
+                  {confidenceConfig[fix.confidence].emoji} {fix.confidence.charAt(0).toUpperCase() + fix.confidence.slice(1)} Confidence
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <p className="font-medium">{confidenceConfig[fix.confidence].plainEnglish}</p>
+                <p className="text-xs opacity-80 mt-1">{confidenceConfig[fix.confidence].whatItMeans}</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="secondary" className="cursor-help">
+                  {fixTypeConfig[fix.fix_type].emoji} {fixTypeLabels[fix.fix_type]}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <p className="font-medium">{fixTypeConfig[fix.fix_type].description}</p>
+                <p className="text-xs opacity-80 mt-1">Example: {fixTypeConfig[fix.fix_type].example}</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
 
@@ -318,6 +357,50 @@ export default function FixReviewPage({
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Left Column - Diff and Changes */}
         <div className="lg:col-span-2 space-y-4">
+          {/* Workflow Guide */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Sparkles className="h-4 w-4" />
+                How to Review This Fix
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                {getWorkflowSteps(fix.status, hasRunPreview).map((step, index) => (
+                  <div key={step.step} className="flex items-center">
+                    <div className={cn(
+                      'flex flex-col items-center',
+                      step.status === 'completed' && 'opacity-60',
+                    )}>
+                      <div className={cn(
+                        'w-10 h-10 rounded-full flex items-center justify-center text-lg',
+                        step.status === 'completed' && 'bg-green-500/20 text-green-500',
+                        step.status === 'current' && 'bg-blue-500/20 text-blue-500 ring-2 ring-blue-500/50',
+                        step.status === 'upcoming' && 'bg-muted text-muted-foreground',
+                      )}>
+                        {step.status === 'completed' ? '✓' : step.icon}
+                      </div>
+                      <p className={cn(
+                        'text-xs mt-2 text-center max-w-[80px]',
+                        step.status === 'current' && 'font-medium text-blue-500',
+                        step.status === 'upcoming' && 'text-muted-foreground',
+                      )}>
+                        {step.title}
+                      </p>
+                    </div>
+                    {index < 3 && (
+                      <div className={cn(
+                        'w-12 h-0.5 mx-2 mt-[-16px]',
+                        step.status === 'completed' ? 'bg-green-500/50' : 'bg-muted',
+                      )} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Preview Required Notice */}
           {canApprove && !hasRunPreview && (
             <div className="flex items-center gap-3 p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
@@ -509,12 +592,49 @@ export default function FixReviewPage({
             </CardContent>
           </Card>
 
+          {/* Health Score Impact */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Sparkles className="h-4 w-4" />
+                Health Score Impact
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="font-medium">How does this fix affect your health score?</p>
+                    <p className="text-xs opacity-80 mt-1">
+                      This shows the projected impact on your codebase health score if you apply this fix.
+                      The score considers code structure, quality, and architecture.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </CardTitle>
+              <CardDescription>
+                See how applying this fix would improve your codebase health
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <HealthScoreDeltaView fixId={id} />
+            </CardContent>
+          </Card>
+
           {/* Rationale */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <Sparkles className="h-4 w-4" />
-                AI Rationale
+                {jargonExplanations.rationale.plainEnglish}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="font-medium">{jargonExplanations.rationale.term}</p>
+                    <p className="text-xs opacity-80 mt-1">{jargonExplanations.rationale.fullExplanation}</p>
+                  </TooltipContent>
+                </Tooltip>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -527,21 +647,69 @@ export default function FixReviewPage({
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <BookOpen className="h-4 w-4" />
-                Evidence
+                {jargonExplanations.evidence.plainEnglish}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="font-medium">{jargonExplanations.evidence.term}</p>
+                    <p className="text-xs opacity-80 mt-1">{jargonExplanations.evidence.fullExplanation}</p>
+                  </TooltipContent>
+                </Tooltip>
               </CardTitle>
-              <CardDescription>
-                Supporting context for this fix ({fix.evidence.rag_context_count} RAG contexts)
+              <CardDescription className="flex items-center gap-2">
+                <span>{fix.evidence.rag_context_count} related code snippets found</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="font-medium">{jargonExplanations.rag_context.term}</p>
+                    <p className="text-xs opacity-80 mt-1">{jargonExplanations.rag_context.fullExplanation}</p>
+                  </TooltipContent>
+                </Tooltip>
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Tabs defaultValue="patterns" className="w-full">
                 <TabsList className="w-full">
-                  <TabsTrigger value="patterns" className="flex-1">Patterns</TabsTrigger>
-                  <TabsTrigger value="docs" className="flex-1">Docs</TabsTrigger>
-                  <TabsTrigger value="practices" className="flex-1">Practices</TabsTrigger>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <TabsTrigger value="patterns" className="flex-1">
+                        Code Examples ({fix.evidence.similar_patterns.length})
+                      </TabsTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">{jargonExplanations.similar_patterns.plainEnglish}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <TabsTrigger value="docs" className="flex-1">
+                        Docs ({fix.evidence.documentation_refs.length})
+                      </TabsTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">{jargonExplanations.documentation_refs.plainEnglish}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <TabsTrigger value="practices" className="flex-1">
+                        Standards ({fix.evidence.best_practices.length})
+                      </TabsTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">{jargonExplanations.best_practices.plainEnglish}</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </TabsList>
 
                 <TabsContent value="patterns" className="mt-3">
+                  <p className="text-xs text-muted-foreground mb-3">
+                    {jargonExplanations.similar_patterns.fullExplanation}
+                  </p>
                   {fix.evidence.similar_patterns.length > 0 ? (
                     <ul className="space-y-2">
                       {fix.evidence.similar_patterns.map((pattern, i) => (
@@ -553,12 +721,15 @@ export default function FixReviewPage({
                     </ul>
                   ) : (
                     <p className="text-sm text-muted-foreground text-center py-2">
-                      No similar patterns found
+                      No similar patterns found in your codebase
                     </p>
                   )}
                 </TabsContent>
 
                 <TabsContent value="docs" className="mt-3">
+                  <p className="text-xs text-muted-foreground mb-3">
+                    {jargonExplanations.documentation_refs.fullExplanation}
+                  </p>
                   {fix.evidence.documentation_refs.length > 0 ? (
                     <ul className="space-y-2">
                       {fix.evidence.documentation_refs.map((ref, i) => (
@@ -570,12 +741,15 @@ export default function FixReviewPage({
                     </ul>
                   ) : (
                     <p className="text-sm text-muted-foreground text-center py-2">
-                      No documentation references
+                      No documentation references found
                     </p>
                   )}
                 </TabsContent>
 
                 <TabsContent value="practices" className="mt-3">
+                  <p className="text-xs text-muted-foreground mb-3">
+                    {jargonExplanations.best_practices.fullExplanation}
+                  </p>
                   {fix.evidence.best_practices.length > 0 ? (
                     <ul className="space-y-2">
                       {fix.evidence.best_practices.map((practice, i) => (
@@ -587,7 +761,7 @@ export default function FixReviewPage({
                     </ul>
                   ) : (
                     <p className="text-sm text-muted-foreground text-center py-2">
-                      No best practices found
+                      No best practices referenced
                     </p>
                   )}
                 </TabsContent>

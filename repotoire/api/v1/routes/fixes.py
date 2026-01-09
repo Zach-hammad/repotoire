@@ -34,6 +34,12 @@ from repotoire.db.models.user import User
 from repotoire.db.repositories.fix import FixRepository
 from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
+from repotoire.detectors.health_delta import (
+    HealthScoreDeltaCalculator,
+    HealthScoreDelta,
+    BatchHealthScoreDelta,
+    ImpactLevel,
+)
 from sqlalchemy import select
 
 if TYPE_CHECKING:
@@ -352,6 +358,297 @@ async def get_fix(
     if fix is None:
         raise HTTPException(status_code=404, detail="Fix not found")
     return _fix_to_dict(fix)
+
+
+class HealthScoreDeltaResponse(BaseModel):
+    """Response with health score delta estimation."""
+
+    before_score: float = Field(..., description="Current health score")
+    after_score: float = Field(..., description="Projected score after fix")
+    score_delta: float = Field(..., description="Points improvement (positive = better)")
+    before_grade: str = Field(..., description="Current letter grade (A-F)")
+    after_grade: str = Field(..., description="Projected letter grade after fix")
+    grade_improved: bool = Field(..., description="Whether grade would improve")
+    grade_change: Optional[str] = Field(None, description="Grade change string (e.g., 'B → A')")
+    structure_delta: float = Field(..., description="Points change in structure category")
+    quality_delta: float = Field(..., description="Points change in quality category")
+    architecture_delta: float = Field(..., description="Points change in architecture category")
+    impact_level: str = Field(..., description="Impact classification: critical, high, medium, low, negligible")
+    affected_metric: str = Field(..., description="Which metric would be improved")
+    finding_id: Optional[str] = Field(None, description="ID of the related finding")
+    finding_severity: Optional[str] = Field(None, description="Severity of the finding")
+
+
+class BatchHealthScoreDeltaRequest(BaseModel):
+    """Request for batch impact estimation."""
+
+    ids: List[str] = Field(
+        ...,
+        description="List of fix IDs to estimate impact for",
+        min_length=1,
+        max_length=50,
+    )
+
+
+class BatchHealthScoreDeltaResponse(BaseModel):
+    """Response with batch health score delta estimation."""
+
+    before_score: float
+    after_score: float
+    score_delta: float
+    before_grade: str
+    after_grade: str
+    grade_improved: bool
+    grade_change: Optional[str] = None
+    findings_count: int
+    individual_deltas: List[HealthScoreDeltaResponse] = []
+
+
+@router.post(
+    "/{fix_id}/estimate-impact",
+    response_model=HealthScoreDeltaResponse,
+    summary="Estimate fix health impact",
+    description="""
+Estimate how applying this fix would impact the codebase health score.
+
+**What This Shows:**
+- Before/after health score comparison
+- Grade change (A-F) if applicable
+- Category-level improvements (Structure, Quality, Architecture)
+- Impact classification (critical, high, medium, low, negligible)
+
+**Impact Levels:**
+- `critical`: >5 points improvement or grade change
+- `high`: 2-5 points improvement
+- `medium`: 0.5-2 points improvement
+- `low`: <0.5 points improvement
+- `negligible`: <0.1 points improvement
+
+**Note:** This is an estimation based on the fix's detector type and the
+current codebase metrics. Actual impact may vary depending on codebase state.
+    """,
+    responses={
+        200: {"description": "Impact estimation successful"},
+        400: {"description": "Invalid fix ID format"},
+        404: {"description": "Fix not found"},
+        503: {"description": "Metrics not available for estimation"},
+    },
+)
+async def estimate_fix_impact(
+    fix_id: str,
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> HealthScoreDeltaResponse:
+    """Estimate how applying this fix would impact the health score."""
+    from repotoire.db.models import AnalysisRun, Repository
+    from repotoire.models import Finding, Severity, MetricsBreakdown
+
+    repo = FixRepository(db)
+    try:
+        fix_uuid = UUID(fix_id)
+        fix = await repo.get_by_id(fix_uuid)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid fix ID format")
+
+    if fix is None:
+        raise HTTPException(status_code=404, detail="Fix not found")
+
+    # Get repository and latest analysis metrics
+    if fix.repository_id:
+        from sqlalchemy import desc
+
+        result = await db.execute(
+            select(AnalysisRun)
+            .where(AnalysisRun.repository_id == fix.repository_id)
+            .order_by(desc(AnalysisRun.created_at))
+            .limit(1)
+        )
+        latest_analysis = result.scalar_one_or_none()
+
+        if latest_analysis and latest_analysis.metrics:
+            metrics_data = latest_analysis.metrics
+        else:
+            # Use default metrics if no analysis available
+            metrics_data = {}
+    else:
+        metrics_data = {}
+
+    # Build MetricsBreakdown from stored metrics or defaults
+    metrics = MetricsBreakdown(
+        total_files=metrics_data.get("total_files", 100),
+        total_classes=metrics_data.get("total_classes", 50),
+        total_functions=metrics_data.get("total_functions", 200),
+        modularity=metrics_data.get("modularity", 0.7),
+        avg_coupling=metrics_data.get("avg_coupling", 3.0),
+        circular_dependencies=metrics_data.get("circular_dependencies", 0),
+        bottleneck_count=metrics_data.get("bottleneck_count", 2),
+        dead_code_percentage=metrics_data.get("dead_code_percentage", 0.05),
+        duplication_percentage=metrics_data.get("duplication_percentage", 0.03),
+        god_class_count=metrics_data.get("god_class_count", 1),
+        layer_violations=metrics_data.get("layer_violations", 0),
+        boundary_violations=metrics_data.get("boundary_violations", 0),
+        abstraction_ratio=metrics_data.get("abstraction_ratio", 0.5),
+    )
+
+    # Create a Finding object from the fix data
+    # Map fix type to a detector name for delta calculation
+    detector_mapping = {
+        FixType.REFACTOR: "GodClassDetector",
+        FixType.SIMPLIFY: "GodClassDetector",
+        FixType.EXTRACT: "FeatureEnvyDetector",
+        FixType.RENAME: "MiddleManDetector",
+        FixType.REMOVE: "DeadCodeDetector",
+        FixType.SECURITY: "BanditDetector",
+        FixType.TYPE_HINT: "MypyDetector",
+        FixType.DOCUMENTATION: "PylintDetector",
+    }
+
+    detector = detector_mapping.get(fix.fix_type, "GodClassDetector")
+
+    finding = Finding(
+        id=str(fix.finding_id) if fix.finding_id else str(fix.id),
+        title=fix.title,
+        description=fix.description,
+        severity=Severity.MEDIUM,  # Default, could be extracted from finding if available
+        detector=detector,
+        affected_files=[fix.file_path],
+    )
+
+    # Calculate delta
+    calculator = HealthScoreDeltaCalculator()
+    delta = calculator.calculate_delta(metrics, finding)
+
+    return HealthScoreDeltaResponse(
+        before_score=round(delta.before_score, 1),
+        after_score=round(delta.after_score, 1),
+        score_delta=round(delta.score_delta, 2),
+        before_grade=delta.before_grade,
+        after_grade=delta.after_grade,
+        grade_improved=delta.grade_improved,
+        grade_change=delta.grade_change_str,
+        structure_delta=round(delta.structure_delta, 2),
+        quality_delta=round(delta.quality_delta, 2),
+        architecture_delta=round(delta.architecture_delta, 2),
+        impact_level=delta.impact_level.value,
+        affected_metric=delta.affected_metric,
+        finding_id=str(fix.finding_id) if fix.finding_id else None,
+        finding_severity=finding.severity.value,
+    )
+
+
+@router.post(
+    "/batch/estimate-impact",
+    response_model=BatchHealthScoreDeltaResponse,
+    summary="Estimate batch fix health impact",
+    description="""
+Estimate the aggregate health score impact of applying multiple fixes.
+
+Shows both:
+- Total aggregate impact if all fixes are applied
+- Individual impact of each fix
+    """,
+    responses={
+        200: {"description": "Batch impact estimation successful"},
+        400: {"description": "Invalid fix ID format"},
+    },
+)
+async def estimate_batch_fix_impact(
+    request: BatchHealthScoreDeltaRequest,
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BatchHealthScoreDeltaResponse:
+    """Estimate aggregate impact of applying multiple fixes."""
+    from repotoire.models import Finding, Severity, MetricsBreakdown
+
+    repo = FixRepository(db)
+    individual_deltas: List[HealthScoreDeltaResponse] = []
+    findings: List[Finding] = []
+
+    # Get default metrics (would be fetched from latest analysis in production)
+    metrics = MetricsBreakdown(
+        total_files=100,
+        total_classes=50,
+        total_functions=200,
+        modularity=0.7,
+        avg_coupling=3.0,
+        circular_dependencies=0,
+        bottleneck_count=2,
+        dead_code_percentage=0.05,
+        duplication_percentage=0.03,
+        god_class_count=1,
+        layer_violations=0,
+        boundary_violations=0,
+        abstraction_ratio=0.5,
+    )
+
+    detector_mapping = {
+        FixType.REFACTOR: "GodClassDetector",
+        FixType.SIMPLIFY: "GodClassDetector",
+        FixType.EXTRACT: "FeatureEnvyDetector",
+        FixType.RENAME: "MiddleManDetector",
+        FixType.REMOVE: "DeadCodeDetector",
+        FixType.SECURITY: "BanditDetector",
+        FixType.TYPE_HINT: "MypyDetector",
+        FixType.DOCUMENTATION: "PylintDetector",
+    }
+
+    calculator = HealthScoreDeltaCalculator()
+
+    for fix_id in request.ids:
+        try:
+            fix_uuid = UUID(fix_id)
+            fix = await repo.get_by_id(fix_uuid)
+        except ValueError:
+            continue
+
+        if fix is None:
+            continue
+
+        detector = detector_mapping.get(fix.fix_type, "GodClassDetector")
+
+        finding = Finding(
+            id=str(fix.finding_id) if fix.finding_id else str(fix.id),
+            title=fix.title,
+            description=fix.description,
+            severity=Severity.MEDIUM,
+            detector=detector,
+            affected_files=[fix.file_path],
+        )
+        findings.append(finding)
+
+        # Calculate individual delta
+        delta = calculator.calculate_delta(metrics, finding)
+        individual_deltas.append(HealthScoreDeltaResponse(
+            before_score=round(delta.before_score, 1),
+            after_score=round(delta.after_score, 1),
+            score_delta=round(delta.score_delta, 2),
+            before_grade=delta.before_grade,
+            after_grade=delta.after_grade,
+            grade_improved=delta.grade_improved,
+            grade_change=delta.grade_change_str,
+            structure_delta=round(delta.structure_delta, 2),
+            quality_delta=round(delta.quality_delta, 2),
+            architecture_delta=round(delta.architecture_delta, 2),
+            impact_level=delta.impact_level.value,
+            affected_metric=delta.affected_metric,
+            finding_id=str(fix.finding_id) if fix.finding_id else None,
+            finding_severity=finding.severity.value,
+        ))
+
+    # Calculate batch delta
+    batch_delta = calculator.calculate_batch_delta(metrics, findings)
+
+    return BatchHealthScoreDeltaResponse(
+        before_score=round(batch_delta.before_score, 1),
+        after_score=round(batch_delta.after_score, 1),
+        score_delta=round(batch_delta.score_delta, 2),
+        before_grade=batch_delta.before_grade,
+        after_grade=batch_delta.after_grade,
+        grade_improved=batch_delta.grade_improved,
+        grade_change=f"{batch_delta.before_grade} → {batch_delta.after_grade}" if batch_delta.grade_improved else None,
+        findings_count=batch_delta.findings_count,
+        individual_deltas=individual_deltas,
+    )
 
 
 @router.post(
