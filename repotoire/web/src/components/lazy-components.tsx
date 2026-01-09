@@ -63,6 +63,14 @@ export const LazyKeyboardShortcuts = dynamic(
   }
 );
 
+// Lazy load command palette (Cmd+K)
+export const LazyCommandPalette = dynamic(
+  () => import('@/components/dashboard/command-palette').then((mod) => mod.CommandPalette),
+  {
+    ssr: false,
+  }
+);
+
 // Higher-order component for lazy loading any component
 export function withLazyLoading<P extends object>(
   importFn: () => Promise<{ default: ComponentType<P> }>,

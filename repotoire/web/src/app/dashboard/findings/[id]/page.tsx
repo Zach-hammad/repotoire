@@ -17,6 +17,8 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  HelpCircle,
+  ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -29,6 +31,12 @@ import {
 } from '@/components/ui/card';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { Separator } from '@/components/ui/separator';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useFinding, useFixes, useRepositoriesFull, useUpdateFindingStatus } from '@/lib/hooks';
 import { cn } from '@/lib/utils';
 import { FindingStatus, Severity, FixProposal } from '@/types';
@@ -43,22 +51,14 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { IssueOriginBadge } from '@/components/findings/issue-origin-badge';
-
-const severityColors: Record<Severity, string> = {
-  critical: 'bg-red-500',
-  high: 'bg-orange-500',
-  medium: 'bg-yellow-500',
-  low: 'bg-blue-500',
-  info: 'bg-gray-500',
-};
-
-const severityBadgeVariants: Record<Severity, string> = {
-  critical: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
-  high: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
-  medium: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
-  low: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
-  info: 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200',
-};
+import {
+  severityConfig,
+  statusConfig,
+  getDetectorFriendlyName,
+  getDetectorDescription,
+  getDetectorCategory,
+  formatGraphContext,
+} from '@/lib/findings-utils';
 
 const severityIcons: Record<Severity, React.ElementType> = {
   critical: AlertTriangle,
@@ -68,14 +68,13 @@ const severityIcons: Record<Severity, React.ElementType> = {
   info: Info,
 };
 
-const severityDescriptions: Record<Severity, string> = {
-  critical: 'Requires immediate attention. May cause security vulnerabilities or system failures.',
-  high: 'Should be addressed soon. Can lead to significant technical debt or maintenance issues.',
-  medium: 'Worth addressing in regular development cycles. Improves code quality.',
-  low: 'Minor improvement. Can be addressed when working in the affected area.',
-  info: 'Informational. Consider addressing for best practices.',
+// Helper to get badge classes from severityConfig
+const getSeverityBadgeClasses = (severity: Severity) => {
+  const config = severityConfig[severity];
+  return `${config.bgColor} ${config.color}`;
 };
 
+// Status badge colors
 const statusBadgeVariants: Record<FindingStatus, string> = {
   open: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200',
   acknowledged: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
@@ -84,16 +83,6 @@ const statusBadgeVariants: Record<FindingStatus, string> = {
   wontfix: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
   false_positive: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200',
   duplicate: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
-};
-
-const statusLabels: Record<FindingStatus, string> = {
-  open: 'Open',
-  acknowledged: 'Acknowledged',
-  in_progress: 'In Progress',
-  resolved: 'Resolved',
-  wontfix: "Won't Fix",
-  false_positive: 'False Positive',
-  duplicate: 'Duplicate',
 };
 
 function formatDate(dateString: string) {
@@ -147,8 +136,9 @@ export default function FindingDetailPage({ params }: FindingDetailPageProps) {
 
     try {
       await updateStatus({ status: newStatus });
+      const config = statusConfig[newStatus];
       toast.success('Status updated', {
-        description: `Finding marked as ${statusLabels[newStatus]}`,
+        description: `${config.emoji} Finding marked as ${config.label}`,
       });
       mutateFinding();
     } catch (error) {
@@ -190,6 +180,11 @@ export default function FindingDetailPage({ params }: FindingDetailPageProps) {
   }
 
   const SeverityIcon = severityIcons[finding.severity];
+  const sevConfig = severityConfig[finding.severity];
+  const currentStatusConfig = statusConfig[finding.status || 'open'];
+  const detectorFriendlyName = getDetectorFriendlyName(finding.detector);
+  const detectorDescription = getDetectorDescription(finding.detector);
+  const detectorCategory = getDetectorCategory(finding.detector);
   const primaryFile = finding.affected_files?.[0];
   const language = primaryFile ? getLanguageFromPath(primaryFile) : 'text';
 
@@ -199,7 +194,8 @@ export default function FindingDetailPage({ params }: FindingDetailPageProps) {
     : undefined;
 
   return (
-    <div className="space-y-6">
+    <TooltipProvider>
+      <div className="space-y-6">
       {/* Breadcrumb */}
       <Breadcrumb
         items={[
@@ -211,32 +207,62 @@ export default function FindingDetailPage({ params }: FindingDetailPageProps) {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
         <div className="flex items-start gap-4">
-          <div
-            className={cn(
-              'flex h-12 w-12 shrink-0 items-center justify-center rounded-lg',
-              severityBadgeVariants[finding.severity]
-            )}
-          >
-            <SeverityIcon className="h-6 w-6" />
-          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className={cn(
+                  'flex h-12 w-12 shrink-0 items-center justify-center rounded-lg cursor-help',
+                  getSeverityBadgeClasses(finding.severity)
+                )}
+              >
+                <SeverityIcon className="h-6 w-6" />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="max-w-xs">
+              <p className="font-semibold">{sevConfig.plainEnglish}</p>
+              <p className="text-xs text-muted-foreground mt-1">{sevConfig.description}</p>
+            </TooltipContent>
+          </Tooltip>
           <div>
             <h1 className="text-2xl font-bold tracking-tight">{finding.title}</h1>
             <div className="flex flex-wrap items-center gap-2 mt-2">
-              <Badge
-                variant="secondary"
-                className={cn('capitalize', severityBadgeVariants[finding.severity])}
-              >
-                {finding.severity}
-              </Badge>
-              <Badge variant="outline" className="flex items-center gap-1">
-                <Wrench className="h-3 w-3" />
-                {finding.detector.replace('Detector', '')}
-              </Badge>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="secondary"
+                    className={cn('cursor-help', getSeverityBadgeClasses(finding.severity))}
+                  >
+                    {sevConfig.emoji} {sevConfig.plainEnglish}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{sevConfig.shortHelp}</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="flex items-center gap-1 cursor-help">
+                    <Wrench className="h-3 w-3" />
+                    {detectorFriendlyName}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p className="font-semibold">{detectorCategory}</p>
+                  <p className="text-xs mt-1">{detectorDescription}</p>
+                </TooltipContent>
+              </Tooltip>
               {finding.estimated_effort && (
-                <Badge variant="outline" className="flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  {finding.estimated_effort}
-                </Badge>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className="flex items-center gap-1 cursor-help">
+                      <Clock className="h-3 w-3" />
+                      {finding.estimated_effort}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Estimated time to fix this issue</p>
+                  </TooltipContent>
+                </Tooltip>
               )}
               <IssueOriginBadge
                 findingId={finding.id}
@@ -254,61 +280,75 @@ export default function FindingDetailPage({ params }: FindingDetailPageProps) {
                 variant="outline"
                 disabled={isUpdatingStatus}
                 className={cn(
-                  'min-w-32',
+                  'min-w-40',
                   finding.status && statusBadgeVariants[finding.status]
                 )}
               >
                 {isUpdatingStatus ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : null}
-                {statusLabels[finding.status || 'open']}
+                {currentStatusConfig.emoji} {currentStatusConfig.label}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" className="w-64">
               <DropdownMenuLabel>Update Status</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => handleStatusUpdate('open')}
                 disabled={finding.status === 'open'}
+                className="flex flex-col items-start"
               >
-                Open
+                <span>{statusConfig.open.emoji} {statusConfig.open.label}</span>
+                <span className="text-xs text-muted-foreground">{statusConfig.open.description}</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => handleStatusUpdate('acknowledged')}
                 disabled={finding.status === 'acknowledged'}
+                className="flex flex-col items-start"
               >
-                Acknowledged
+                <span>{statusConfig.acknowledged.emoji} {statusConfig.acknowledged.label}</span>
+                <span className="text-xs text-muted-foreground">{statusConfig.acknowledged.description}</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => handleStatusUpdate('in_progress')}
                 disabled={finding.status === 'in_progress'}
+                className="flex flex-col items-start"
               >
-                In Progress
+                <span>{statusConfig.in_progress.emoji} {statusConfig.in_progress.label}</span>
+                <span className="text-xs text-muted-foreground">{statusConfig.in_progress.description}</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => handleStatusUpdate('resolved')}
                 disabled={finding.status === 'resolved'}
+                className="flex flex-col items-start"
               >
-                Resolved
+                <span>{statusConfig.resolved.emoji} {statusConfig.resolved.label}</span>
+                <span className="text-xs text-muted-foreground">{statusConfig.resolved.description}</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => handleStatusUpdate('wontfix')}
                 disabled={finding.status === 'wontfix'}
+                className="flex flex-col items-start"
               >
-                Won&apos;t Fix
+                <span>{statusConfig.wontfix.emoji} {statusConfig.wontfix.label}</span>
+                <span className="text-xs text-muted-foreground">{statusConfig.wontfix.description}</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => handleStatusUpdate('false_positive')}
                 disabled={finding.status === 'false_positive'}
+                className="flex flex-col items-start"
               >
-                False Positive
+                <span>{statusConfig.false_positive.emoji} {statusConfig.false_positive.label}</span>
+                <span className="text-xs text-muted-foreground">{statusConfig.false_positive.description}</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => handleStatusUpdate('duplicate')}
                 disabled={finding.status === 'duplicate'}
+                className="flex flex-col items-start"
               >
-                Duplicate
+                <span>{statusConfig.duplicate.emoji} {statusConfig.duplicate.label}</span>
+                <span className="text-xs text-muted-foreground">{statusConfig.duplicate.description}</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -338,12 +378,81 @@ export default function FindingDetailPage({ params }: FindingDetailPageProps) {
       </div>
 
       {/* Severity explanation */}
-      <Card className={cn('border-l-4', `border-l-${severityColors[finding.severity].replace('bg-', '')}`)}>
+      <Card className={cn('border-l-4', sevConfig.borderColor)}>
         <CardContent className="py-4">
           <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground capitalize">{finding.severity}:</span>{' '}
-            {severityDescriptions[finding.severity]}
+            <span className="font-medium text-foreground">{sevConfig.emoji} {sevConfig.plainEnglish}:</span>{' '}
+            {sevConfig.description}
           </p>
+        </CardContent>
+      </Card>
+
+      {/* What should I do? - Workflow guidance */}
+      <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 border-blue-200 dark:border-blue-800">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <HelpCircle className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            What should I do?
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {finding.severity === 'critical' || finding.severity === 'high' ? (
+            <div className="space-y-2">
+              <div className="flex items-start gap-2">
+                <ChevronRight className="h-4 w-4 mt-0.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <p className="text-sm">
+                  <span className="font-medium">Review the issue</span> - Read the description and look at the affected code.
+                </p>
+              </div>
+              <div className="flex items-start gap-2">
+                <ChevronRight className="h-4 w-4 mt-0.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <p className="text-sm">
+                  <span className="font-medium">Check for an AI fix</span> - If one is available, review and apply it.
+                </p>
+              </div>
+              <div className="flex items-start gap-2">
+                <ChevronRight className="h-4 w-4 mt-0.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <p className="text-sm">
+                  <span className="font-medium">Update the status</span> - Mark as &quot;{statusConfig.in_progress.label}&quot; while fixing, then &quot;{statusConfig.resolved.label}&quot; when done.
+                </p>
+              </div>
+            </div>
+          ) : finding.severity === 'medium' ? (
+            <div className="space-y-2">
+              <div className="flex items-start gap-2">
+                <ChevronRight className="h-4 w-4 mt-0.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <p className="text-sm">
+                  <span className="font-medium">Add to backlog</span> - Mark as &quot;{statusConfig.acknowledged.label}&quot; to track for later.
+                </p>
+              </div>
+              <div className="flex items-start gap-2">
+                <ChevronRight className="h-4 w-4 mt-0.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <p className="text-sm">
+                  <span className="font-medium">Fix when nearby</span> - Address this when you&apos;re working on related code.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-start gap-2">
+                <ChevronRight className="h-4 w-4 mt-0.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <p className="text-sm">
+                  <span className="font-medium">Quick win opportunity</span> - These are easy to fix and improve code quality.
+                </p>
+              </div>
+              <div className="flex items-start gap-2">
+                <ChevronRight className="h-4 w-4 mt-0.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <p className="text-sm">
+                  <span className="font-medium">Not urgent</span> - Mark as &quot;{statusConfig.wontfix.label}&quot; if it&apos;s intentional.
+                </p>
+              </div>
+            </div>
+          )}
+          {!relatedFix && (
+            <p className="text-xs text-muted-foreground pt-2 border-t">
+              No AI fix available yet. You can manually fix this issue or wait for an automated fix to be generated.
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -479,12 +588,19 @@ export default function FindingDetailPage({ params }: FindingDetailPageProps) {
               <div>
                 <dt className="text-sm text-muted-foreground">Status</dt>
                 <dd>
-                  <Badge
-                    variant="secondary"
-                    className={cn('mt-1', statusBadgeVariants[finding.status || 'open'])}
-                  >
-                    {statusLabels[finding.status || 'open']}
-                  </Badge>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant="secondary"
+                        className={cn('mt-1 cursor-help', statusBadgeVariants[finding.status || 'open'])}
+                      >
+                        {currentStatusConfig.emoji} {currentStatusConfig.label}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{currentStatusConfig.description}</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </dd>
               </div>
               {finding.status_reason && (
@@ -499,7 +615,17 @@ export default function FindingDetailPage({ params }: FindingDetailPageProps) {
               <Separator />
               <div>
                 <dt className="text-sm text-muted-foreground">Detector</dt>
-                <dd className="font-medium">{finding.detector}</dd>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <dd className="font-medium cursor-help">
+                      {detectorFriendlyName}
+                      <span className="text-xs text-muted-foreground ml-1">({detectorCategory})</span>
+                    </dd>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>{detectorDescription}</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
               <Separator />
               <div>
@@ -566,20 +692,39 @@ export default function FindingDetailPage({ params }: FindingDetailPageProps) {
           {finding.graph_context && Object.keys(finding.graph_context).length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Graph Context</CardTitle>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  Code Analysis Context
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      <p>Additional details from analyzing how this code connects to other parts of your codebase.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </CardTitle>
                 <CardDescription>
-                  Additional context from code analysis
+                  How this code connects to the rest of your project
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <pre className="text-xs bg-muted p-3 rounded-lg overflow-auto max-h-48">
-                  {JSON.stringify(finding.graph_context, null, 2)}
-                </pre>
+                <dl className="space-y-2">
+                  {formatGraphContext(finding.graph_context as Record<string, unknown>).map((item) => (
+                    <div key={item.label} className={cn(
+                      'flex justify-between items-center py-1',
+                      item.isImportant && 'font-medium'
+                    )}>
+                      <dt className="text-sm text-muted-foreground">{item.label}</dt>
+                      <dd className="text-sm font-mono">{item.value}</dd>
+                    </div>
+                  ))}
+                </dl>
               </CardContent>
             </Card>
           )}
         </div>
       </div>
-    </div>
+      </div>
+    </TooltipProvider>
   );
 }

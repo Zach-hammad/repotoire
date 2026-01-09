@@ -55,6 +55,7 @@ import {
   ArrowUpDown,
   Trash2,
 } from 'lucide-react';
+import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { cn } from '@/lib/utils';
 import { FixConfidence, FixFilters, FixProposal, FixStatus, FixType, SortOptions } from '@/types';
 import { invalidateCache, invalidateFix } from '@/lib/cache-keys';
@@ -208,6 +209,13 @@ function FixesListContent() {
 
   return (
     <div className="space-y-6">
+      {/* Breadcrumb */}
+      <Breadcrumb
+        items={[
+          { label: 'AI Fixes' },
+        ]}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -442,6 +450,26 @@ function FixesListContent() {
                       <p className="text-xs text-muted-foreground truncate max-w-[300px]">
                         {fix.description}
                       </p>
+                      {/* Evidence preview inline */}
+                      {fix.evidence && (
+                        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground/80">
+                          {fix.evidence.rag_context_count > 0 && (
+                            <span className="bg-muted px-1.5 py-0.5 rounded">
+                              {fix.evidence.rag_context_count} context{fix.evidence.rag_context_count !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {fix.evidence.similar_patterns?.length > 0 && (
+                            <span className="bg-muted px-1.5 py-0.5 rounded">
+                              {fix.evidence.similar_patterns.length} pattern{fix.evidence.similar_patterns.length !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {fix.evidence.best_practices?.length > 0 && (
+                            <span className="bg-muted px-1.5 py-0.5 rounded">
+                              {fix.evidence.best_practices.length} practice{fix.evidence.best_practices.length !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">

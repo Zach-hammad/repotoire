@@ -95,6 +95,7 @@ export default function FixReviewPage({
   const [newComment, setNewComment] = useState('');
   const [diffMode, setDiffMode] = useState<'unified' | 'split'>('unified');
   const [localPreviewResult, setLocalPreviewResult] = useState<PreviewResult | null>(null);
+  const [hasRunPreview, setHasRunPreview] = useState(false);
 
   const handleApprove = async () => {
     try {
@@ -152,10 +153,13 @@ export default function FixReviewPage({
       const result = await preview();
       if (result) {
         setLocalPreviewResult(result);
+        setHasRunPreview(true);
         if (result.success) {
-          showSuccessToast('Preview completed', 'All checks passed');
+          showSuccessToast('Preview completed', 'All checks passed. You can now approve this fix.');
         } else {
-          toast.warning('Preview completed with issues');
+          toast.warning('Preview completed with issues', {
+            description: 'Review the results before approving.',
+          });
         }
       }
     } catch (error) {
@@ -229,27 +233,39 @@ export default function FixReviewPage({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Preview button - always available for pending fixes */}
+          {/* Preview button - required before approval for pending fixes */}
           {canApprove && (
             <Button
-              variant="outline"
+              variant={hasRunPreview ? 'outline' : 'default'}
               onClick={handlePreview}
               disabled={isPreviewing}
+              className={!hasRunPreview ? 'bg-blue-600 hover:bg-blue-700' : ''}
             >
               <Eye className="mr-2 h-4 w-4" />
-              {isPreviewing ? 'Running Preview...' : 'Run Preview'}
+              {isPreviewing ? 'Running Preview...' : hasRunPreview ? 'Re-run Preview' : 'Run Preview First'}
             </Button>
           )}
 
           {canApprove && (
-            <Button
-              onClick={handleApprove}
-              disabled={isApproving}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              <CheckCircle2 className="mr-2 h-4 w-4" />
-              {isApproving ? 'Approving...' : 'Approve'}
-            </Button>
+            <div className="relative group">
+              <Button
+                onClick={handleApprove}
+                disabled={isApproving || !hasRunPreview}
+                className={cn(
+                  hasRunPreview
+                    ? 'bg-green-600 hover:bg-green-700'
+                    : 'bg-gray-400 cursor-not-allowed opacity-60'
+                )}
+              >
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                {isApproving ? 'Approving...' : 'Approve'}
+              </Button>
+              {!hasRunPreview && (
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-popover border rounded-md text-xs text-muted-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-md">
+                  Run preview before approving
+                </div>
+              )}
+            </div>
           )}
 
           {canReject && (
@@ -302,6 +318,31 @@ export default function FixReviewPage({
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Left Column - Diff and Changes */}
         <div className="lg:col-span-2 space-y-4">
+          {/* Preview Required Notice */}
+          {canApprove && !hasRunPreview && (
+            <div className="flex items-center gap-3 p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
+              <Eye className="h-5 w-5 text-blue-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-blue-600 dark:text-blue-400">
+                  Preview Required Before Approval
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Run preview to verify the fix works correctly before approving. This runs tests and validates the changes in a sandbox.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePreview}
+                disabled={isPreviewing}
+                className="shrink-0 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
+              >
+                <Eye className="mr-1.5 h-3.5 w-3.5" />
+                {isPreviewing ? 'Running...' : 'Run Preview'}
+              </Button>
+            </div>
+          )}
+
           {/* Description */}
           <Card>
             <CardHeader>
