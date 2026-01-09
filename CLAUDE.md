@@ -4,7 +4,7 @@ This file provides essential guidance to Claude Code (claude.ai/code) and develo
 
 ## Project Overview
 
-Repotoire is a graph-powered code health platform that analyzes codebases using knowledge graphs to detect code smells, architectural issues, and technical debt. Unlike traditional linters that examine files in isolation, Repotoire builds a Neo4j knowledge graph combining:
+Repotoire is a graph-powered code health platform that analyzes codebases using knowledge graphs to detect code smells, architectural issues, and technical debt. Unlike traditional linters that examine files in isolation, Repotoire builds a FalkorDB knowledge graph combining:
 - **Structural analysis** (AST parsing)
 - **Semantic understanding** (NLP + AI)
 - **Relational patterns** (graph algorithms)
@@ -170,7 +170,7 @@ Repotoire provides an MCP server for use with Claude Code, Cursor, and other MCP
 
 | Tier | Features | Requirements |
 |------|----------|--------------|
-| **Free** | Graph analysis, detectors, Cypher queries | Local Neo4j |
+| **Free** | Graph analysis, detectors, Cypher queries | Local FalkorDB |
 | **Pro** | AI search, RAG Q&A, embeddings | `REPOTOIRE_API_KEY` |
 
 **Start the MCP server:**
@@ -186,8 +186,9 @@ repotoire-mcp
       "type": "stdio",
       "command": "repotoire-mcp",
       "env": {
-        "REPOTOIRE_NEO4J_URI": "bolt://localhost:7688",
-        "REPOTOIRE_NEO4J_PASSWORD": "your-password",
+        "FALKORDB_HOST": "localhost",
+        "FALKORDB_PORT": "6379",
+        "FALKORDB_PASSWORD": "your-password",
         "REPOTOIRE_API_KEY": "${REPOTOIRE_API_KEY}"
       }
     }
@@ -211,16 +212,16 @@ See [docs/guides/mcp-server.md](docs/guides/mcp-server.md) for complete document
 ### Core Pipeline Flow
 
 ```
-Codebase → Parser (AST) → Entities + Relationships → Neo4j Graph → Detectors → Analysis Engine → Health Report → CLI/Reports
+Codebase → Parser (AST) → Entities + Relationships → FalkorDB Graph → Detectors → Analysis Engine → Health Report → CLI/Reports
 ```
 
 ### System Components
 
-**Neo4j Schema**: Nodes (File, Module, Class, Function, Variable, Attribute, Concept), Relationships (IMPORTS, CALLS, CONTAINS, INHERITS, USES, DEFINES, DESCRIBES), unique constraints on qualified names
+**Graph Schema**: Nodes (File, Module, Class, Function, Variable, Attribute, Concept), Relationships (IMPORTS, CALLS, CONTAINS, INHERITS, USES, DEFINES, DESCRIBES), unique constraints on qualified names
 
 **Core Modules**:
 1. **Parsers** (`repotoire/parsers/`): `CodeParser` abstract base, `PythonParser` (AST), future TypeScript/Java (tree-sitter)
-2. **Graph Layer** (`repotoire/graph/`): `Neo4jClient` (connection pooling, retry logic, batch ops), `GraphSchema` (constraints, indexes, vector indexes)
+2. **Graph Layer** (`repotoire/graph/`): `FalkorDBClient` (connection pooling, retry logic, batch ops), `GraphSchema` (constraints, indexes, vector indexes)
 3. **Pipeline** (`repotoire/pipeline/`): `IngestionPipeline` orchestrates scan → parse → batch (100) → load with security validation
 4. **Detectors** (`repotoire/detectors/`): Graph-based (Cypher queries) + 8 hybrid detectors (Ruff, Pylint, Mypy, Bandit, Radon, Jscpd, Vulture, Semgrep)
 
@@ -249,11 +250,11 @@ Codebase → Parser (AST) → Entities + Relationships → Neo4j Graph → Detec
 
 ## Design Decisions (Key Points)
 
-### Why Neo4j?
-- Native graph storage optimized for traversals
+### Why FalkorDB?
+- Redis-based graph database with native graph storage
 - Cypher for expressive pattern matching
-- Built-in GDS algorithms (modularity, centrality)
-- ACID transactions
+- High performance with in-memory processing
+- Production-ready with Redis ecosystem compatibility
 
 ### Why Batch Processing?
 - Memory efficiency (prevents loading entire codebase)
@@ -263,7 +264,7 @@ Codebase → Parser (AST) → Entities + Relationships → Neo4j Graph → Detec
 ### Why Qualified Names as IDs?
 - Human readable (e.g., `module.Class.method`)
 - Globally unique, no collisions
-- Fast direct lookups in Neo4j
+- Fast direct lookups in FalkorDB
 
 ### Why Three-Category Scoring?
 - Holistic view: Structure (40%) + Quality (30%) + Architecture (30%)
@@ -282,7 +283,7 @@ Repotoire provides **10-100x faster re-analysis** through intelligent incrementa
 
 ### How It Works
 
-1. **Hash-based Change Detection**: MD5 hashes stored in Neo4j detect file modifications
+1. **Hash-based Change Detection**: MD5 hashes stored in FalkorDB detect file modifications
 2. **Dependency-Aware Analysis**: Graph queries find files that import changed files
 3. **Selective Re-ingestion**: Only affected files are re-parsed and updated
 4. **Graph Cleanup**: Deleted files automatically removed from knowledge graph
@@ -368,21 +369,22 @@ pre-commit install
 The `repotoire-pre-commit` command accepts these arguments:
 
 - `--fail-on {critical,high,medium,low}`: Minimum severity to fail commit (default: critical)
-- `--neo4j-uri NEO4J_URI`: Neo4j connection URI (default: bolt://localhost:7687)
-- `--neo4j-password PASSWORD`: Neo4j password (or use `REPOTOIRE_NEO4J_PASSWORD` env var)
+- `--falkordb-host HOST`: FalkorDB host (default: localhost)
+- `--falkordb-password PASSWORD`: FalkorDB password (or use `FALKORDB_PASSWORD` env var)
 - `--skip-ingestion`: Skip ingestion and only run analysis (for cached data)
 
 Example with custom configuration:
 ```yaml
-args: [--fail-on=high, --neo4j-uri=bolt://localhost:7688]
+args: [--fail-on=high, --falkordb-host=localhost]
 ```
 
 ### Environment Variables
 
-Set environment variables for Neo4j authentication:
+Set environment variables for FalkorDB authentication:
 ```bash
-export REPOTOIRE_NEO4J_PASSWORD=your-password
-export REPOTOIRE_NEO4J_URI=bolt://localhost:7688  # Optional
+export FALKORDB_PASSWORD=your-password
+export FALKORDB_HOST=localhost  # Optional
+export FALKORDB_PORT=6379  # Optional
 ```
 
 ### Usage Example
@@ -499,7 +501,7 @@ embeddings:
 - **CodeEmbedder**: Supports OpenAI (1536d), DeepInfra (4096d), and local (1024d) backends
 - **GraphRAGRetriever**: Hybrid vector + graph search
 - **FastAPI Endpoints**: `/search`, `/ask`, `/embeddings/status`
-- **Vector Indexes**: Neo4j 5.18+ native vector support (dimensions auto-configured)
+- **Vector Indexes**: FalkorDB native vector support (dimensions auto-configured)
 
 ### Performance
 
@@ -583,11 +585,11 @@ For detailed examples and step-by-step guides, see the relevant documentation fi
 
 ## Troubleshooting
 
-**Common Issues**: Neo4j connection failures, ingestion performance, parser errors, missing findings, configuration not loading, memory issues.
+**Common Issues**: FalkorDB connection failures, ingestion performance, parser errors, missing findings, configuration not loading, memory issues.
 
 **Quick Fixes**:
-- Connection: `repotoire validate`, check `docker ps | grep neo4j`, verify `bolt://` URI
-- Performance: Increase batch size, filter test files, increase Neo4j heap
+- Connection: `repotoire validate`, check `docker ps | grep falkordb`, verify host/port settings
+- Performance: Increase batch size, filter test files, increase Redis memory
 - Errors: Check Python version, UTF-8 encoding, review skipped files
 
 See full troubleshooting guide in project documentation.
@@ -602,7 +604,7 @@ See full troubleshooting guide in project documentation.
 
 ### Completed Features ✅
 - Core architecture and models
-- Neo4j client with retry logic and connection pooling
+- FalkorDB client with retry logic and connection pooling
 - Ingestion pipeline with security validation
 - **Incremental analysis** (10-100x faster re-analysis with dependency tracking)
 - **Pre-commit hooks integration** (instant code quality checks before commits)
@@ -630,7 +632,7 @@ See full troubleshooting guide in project documentation.
 ## Dependencies
 
 ### Core
-- **neo4j** (>=5.14.0): Graph database driver
+- **falkordb** (>=1.0.0): FalkorDB graph database client
 - **click** (>=8.1.0): CLI framework
 - **rich** (>=13.0.0): Terminal formatting
 - **pydantic** (>=2.0.0): Data validation
@@ -646,7 +648,7 @@ See full troubleshooting guide in project documentation.
 - **tomli** (>=2.0.0): TOML support (Python <3.11)
 
 ### Optional
-- **graphdatascience** (>=1.9.0): Neo4j GDS algorithms
+- **networkx** (>=3.0.0): Graph algorithms (alternative to FalkorDB native)
 - **tree-sitter** (>=0.20.0): Multi-language parsing
 - **sentence-transformers** (>=2.2.0): Local embeddings (free, no API key)
 - **e2b** (>=0.17.0): E2B cloud sandbox for secure execution
@@ -670,14 +672,14 @@ See full troubleshooting guide in project documentation.
 
 ### Memory Usage
 - **Batch size**: Larger (500) = faster but more memory
-- **Neo4j heap**: Default 512MB, increase for large codebases
+- **FalkorDB/Redis memory**: Default 512MB, increase for large codebases
 - **Python process**: ~100-500MB depending on batch size
 
-### Neo4j Connection Pool
+### FalkorDB Connection Pool
 
-**Env vars**: `NEO4J_MAX_POOL_SIZE`, `NEO4J_CONNECTION_TIMEOUT`, `NEO4J_QUERY_TIMEOUT`, `NEO4J_ENCRYPTED`
+**Env vars**: `FALKORDB_HOST`, `FALKORDB_PORT`, `FALKORDB_PASSWORD`, `FALKORDB_MAX_CONNECTIONS`
 
-**Guidelines**: Dev (pool=20, timeout=60s), Staging (pool=100, timeout=30s), Production (pool=200, timeout=15s, encrypted=true)
+**Guidelines**: Dev (pool=20, timeout=60s), Staging (pool=100, timeout=30s), Production (pool=200, timeout=15s)
 
 ## Security Considerations
 
@@ -689,20 +691,20 @@ See full troubleshooting guide in project documentation.
 
 ### Credential Management
 - Never commit passwords to version control
-- Use environment variables: `${NEO4J_PASSWORD}`
+- Use environment variables: `${FALKORDB_PASSWORD}`
 - Restrict config file permissions: `chmod 600 .repotoirerc`
-- Use secure connections in production: `bolt+s://`
+- Use secure connections in production (TLS/SSL)
 
-### Neo4j Access Control
-- Use dedicated Neo4j user for Repotoire
-- Limit permissions to necessary operations
-- Enable authentication and encryption for production
+### FalkorDB Access Control
+- Use dedicated Redis ACL user for Repotoire
+- Limit permissions to necessary graph operations
+- Enable authentication and TLS for production
 
 ## References
 
-- [Neo4j Documentation](https://neo4j.com/docs/)
+- [FalkorDB Documentation](https://docs.falkordb.com/)
 - [Python AST Documentation](https://docs.python.org/3/library/ast.html)
-- [Cypher Query Language](https://neo4j.com/docs/cypher-manual/)
+- [Cypher Query Language](https://docs.falkordb.com/cypher/)
 - [Click Framework](https://click.palletsprojects.com/)
 - [Rich Terminal Library](https://rich.readthedocs.io/)
 - [Tree-sitter](https://tree-sitter.github.io/)
