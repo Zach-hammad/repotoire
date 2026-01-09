@@ -219,12 +219,16 @@ def validate_module(code: str, module_name: str, file_path: str, project_root: s
         if parent_dir:
             os.makedirs(parent_dir, exist_ok=True)
             # Create __init__.py files for package structure
+            # Handle absolute paths by preserving leading /
             parts = parent_dir.split(os.sep)
-            current = ""
+            if parent_dir.startswith(os.sep):
+                current = os.sep  # Start with / for absolute paths
+            else:
+                current = ""
             for part in parts:
-                if not part:  # Skip empty parts (from leading /)
+                if not part:  # Skip empty parts
                     continue
-                current = os.path.join(current, part) if current else part
+                current = os.path.join(current, part)
                 # Ensure directory exists before creating __init__.py
                 os.makedirs(current, exist_ok=True)
                 init_file = os.path.join(current, "__init__.py")
