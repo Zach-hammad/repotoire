@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useFindings, useFindingsSummary, useFindingsByDetector, useRepositories, useFixes } from '@/lib/hooks';
+import { useFindings, useFindingsSummary, useFindingsByDetector, useRepositories, useFixes, useBulkUpdateFindingStatus } from '@/lib/hooks';
 import {
   AlertTriangle,
   AlertCircle,
@@ -30,9 +30,16 @@ import {
   ArrowUpDown,
   CheckCircle2,
   ChevronRight as ChevronRightIcon,
+  LayoutGrid,
+  List,
+  XCircle,
+  Ban,
+  Loader2,
 } from 'lucide-react';
+import { toast } from 'sonner';
+import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { cn } from '@/lib/utils';
-import { Finding, FindingFilters, Severity, FixProposal } from '@/types';
+import { Finding, FindingFilters, FindingStatus, Severity, FixProposal } from '@/types';
 import { IssueOriginBadge } from '@/components/findings/issue-origin-badge';
 
 function Skeleton({ className }: { className?: string }) {
@@ -61,6 +68,26 @@ const severityIcons: Record<Severity, React.ElementType> = {
   medium: AlertCircle,
   low: Info,
   info: Info,
+};
+
+const statusBadgeVariants: Record<FindingStatus, string> = {
+  open: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200',
+  acknowledged: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+  in_progress: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
+  resolved: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+  wontfix: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
+  false_positive: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200',
+  duplicate: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
+};
+
+const statusLabels: Record<FindingStatus, string> = {
+  open: 'Open',
+  acknowledged: 'Acknowledged',
+  in_progress: 'In Progress',
+  resolved: 'Resolved',
+  wontfix: "Won't Fix",
+  false_positive: 'False Positive',
+  duplicate: 'Duplicate',
 };
 
 interface FindingCardProps {
@@ -130,6 +157,14 @@ function FindingCard({ finding, repositoryFullName, relatedFix, isSelected, onSe
                 >
                   {finding.severity}
                 </Badge>
+                {finding.status && finding.status !== 'open' && (
+                  <Badge
+                    variant="secondary"
+                    className={cn('text-xs', statusBadgeVariants[finding.status])}
+                  >
+                    {statusLabels[finding.status]}
+                  </Badge>
+                )}
                 <span className="text-xs text-muted-foreground">
                   {detectorName}
                 </span>
@@ -196,8 +231,13 @@ function FindingCard({ finding, repositoryFullName, relatedFix, isSelected, onSe
   );
 }
 
+type ViewMode = 'list' | 'grouped';
+
 function FindingsContent() {
   const searchParams = useSearchParams();
+
+  // Bulk status update hook
+  const { trigger: bulkUpdateStatus, isMutating: isUpdatingStatus } = useBulkUpdateFindingStatus();
 
   // Read initial state from URL params
   const [page, setPage] = useState(() => {
@@ -221,6 +261,7 @@ function FindingsContent() {
     return (searchParams.get('direction') as 'asc' | 'desc') || 'desc';
   });
   const [selectedFindings, setSelectedFindings] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
   const pageSize = 20;
 
   const filters: FindingFilters = {};
@@ -232,7 +273,7 @@ function FindingsContent() {
   }
 
   const repositoryId = repositoryFilter !== 'all' ? repositoryFilter : undefined;
-  const { data: findings, isLoading } = useFindings(filters, page, pageSize, sortBy, sortDirection, repositoryId);
+  const { data: findings, isLoading, mutate: mutateFindings } = useFindings(filters, page, pageSize, sortBy, sortDirection, repositoryId);
   const { data: summary } = useFindingsSummary(undefined, repositoryId);
   const { data: repositories } = useRepositories();
   const { data: detectors } = useFindingsByDetector(undefined, repositoryId);
@@ -275,13 +316,85 @@ function FindingsContent() {
     setSelectedFindings(newSelection);
   };
 
+  // Handler for bulk status updates
+  const handleBulkStatusUpdate = async (status: FindingStatus, reason?: string) => {
+    if (selectedFindings.size === 0) return;
+
+    try {
+      const result = await bulkUpdateStatus({
+        findingIds: Array.from(selectedFindings),
+        status,
+        reason,
+      });
+
+      if (result.updated_count > 0) {
+        toast.success('Status updated', {
+          description: `${result.updated_count} finding${result.updated_count !== 1 ? 's' : ''} marked as ${statusLabels[status]}`,
+        });
+        // Clear selection and refresh data
+        setSelectedFindings(new Set());
+        mutateFindings();
+      }
+
+      if (result.failed_ids.length > 0) {
+        toast.error('Some updates failed', {
+          description: `${result.failed_ids.length} finding${result.failed_ids.length !== 1 ? 's' : ''} could not be updated`,
+        });
+      }
+    } catch (error) {
+      toast.error('Update failed', {
+        description: error instanceof Error ? error.message : 'An error occurred',
+      });
+    }
+  };
+
+  // Group findings by file for grouped view
+  const groupedByFile = findings?.items.reduce((acc, finding) => {
+    const file = finding.affected_files?.[0] || 'Unknown';
+    if (!acc[file]) {
+      acc[file] = [];
+    }
+    acc[file].push(finding);
+    return acc;
+  }, {} as Record<string, Finding[]>) || {};
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Findings</h1>
-        <p className="text-muted-foreground">
-          Browse detected code issues and quality problems
-        </p>
+      {/* Breadcrumb */}
+      <Breadcrumb
+        items={[
+          { label: 'Findings' },
+        ]}
+      />
+
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Findings</h1>
+          <p className="text-muted-foreground">
+            Browse detected code issues and quality problems
+          </p>
+        </div>
+        {/* View mode toggle */}
+        <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
+          <Button
+            variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-8 px-3"
+            onClick={() => setViewMode('list')}
+          >
+            <List className="h-4 w-4 mr-1.5" />
+            List
+          </Button>
+          <Button
+            variant={viewMode === 'grouped' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-8 px-3"
+            onClick={() => setViewMode('grouped')}
+          >
+            <LayoutGrid className="h-4 w-4 mr-1.5" />
+            By File
+          </Button>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -464,24 +577,45 @@ function FindingsContent() {
                 variant="outline"
                 size="sm"
                 onClick={() => setSelectedFindings(new Set())}
+                disabled={isUpdatingStatus}
               >
                 Clear Selection
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                disabled
-                title="Coming soon"
+                onClick={() => handleBulkStatusUpdate('acknowledged')}
+                disabled={isUpdatingStatus}
               >
-                Mark as Won&apos;t Fix
+                {isUpdatingStatus ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-1" />}
+                Acknowledge
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                disabled
-                title="Coming soon"
+                onClick={() => handleBulkStatusUpdate('wontfix')}
+                disabled={isUpdatingStatus}
               >
-                Mark as False Positive
+                {isUpdatingStatus ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Ban className="h-4 w-4 mr-1" />}
+                Won&apos;t Fix
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleBulkStatusUpdate('false_positive')}
+                disabled={isUpdatingStatus}
+              >
+                {isUpdatingStatus ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <XCircle className="h-4 w-4 mr-1" />}
+                False Positive
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleBulkStatusUpdate('resolved')}
+                disabled={isUpdatingStatus}
+              >
+                {isUpdatingStatus ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-1" />}
+                Resolved
               </Button>
             </div>
           </CardContent>
@@ -524,7 +658,39 @@ function FindingsContent() {
               <Search className="h-12 w-12 text-muted-foreground mb-4" />
               <p className="text-muted-foreground">No findings match your filters</p>
             </div>
+          ) : viewMode === 'grouped' ? (
+            /* Grouped by file view */
+            <div className="space-y-6">
+              {Object.entries(groupedByFile).map(([file, fileFindings]) => (
+                <div key={file} className="space-y-2">
+                  <div className="flex items-center gap-2 px-1">
+                    <FileCode2 className="h-4 w-4 text-muted-foreground" />
+                    <code className="text-sm font-mono font-medium truncate">{file}</code>
+                    <Badge variant="secondary" className="text-xs">
+                      {fileFindings.length} issue{fileFindings.length !== 1 ? 's' : ''}
+                    </Badge>
+                  </div>
+                  <div className="space-y-2 pl-6 border-l-2 border-border ml-2">
+                    {fileFindings.map((finding) => {
+                      const repo = repositories?.find(r => r.id === repositoryFilter);
+                      const relatedFix = fixesByFindingId.get(finding.id);
+                      return (
+                        <FindingCard
+                          key={finding.id}
+                          finding={finding}
+                          repositoryFullName={repo?.full_name}
+                          relatedFix={relatedFix}
+                          isSelected={selectedFindings.has(finding.id)}
+                          onSelectChange={(selected) => toggleSelectFinding(finding.id, selected)}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : (
+            /* Flat list view */
             <div className="space-y-3">
               {findings?.items.map((finding) => {
                 // Get the repository full name for GitHub links

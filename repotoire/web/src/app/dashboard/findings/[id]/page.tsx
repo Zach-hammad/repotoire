@@ -29,10 +29,19 @@ import {
 } from '@/components/ui/card';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { Separator } from '@/components/ui/separator';
-import { useFinding, useFixes, useRepositoriesFull } from '@/lib/hooks';
+import { useFinding, useFixes, useRepositoriesFull, useUpdateFindingStatus } from '@/lib/hooks';
 import { cn } from '@/lib/utils';
-import { Severity, FixProposal } from '@/types';
+import { FindingStatus, Severity, FixProposal } from '@/types';
 import { CodeSnippet, CodeDiff, getLanguageFromPath } from '@/components/code-snippet';
+import { toast } from 'sonner';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { IssueOriginBadge } from '@/components/findings/issue-origin-badge';
 
 const severityColors: Record<Severity, string> = {
@@ -67,6 +76,26 @@ const severityDescriptions: Record<Severity, string> = {
   info: 'Informational. Consider addressing for best practices.',
 };
 
+const statusBadgeVariants: Record<FindingStatus, string> = {
+  open: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200',
+  acknowledged: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+  in_progress: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
+  resolved: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+  wontfix: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
+  false_positive: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200',
+  duplicate: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
+};
+
+const statusLabels: Record<FindingStatus, string> = {
+  open: 'Open',
+  acknowledged: 'Acknowledged',
+  in_progress: 'In Progress',
+  resolved: 'Resolved',
+  wontfix: "Won't Fix",
+  false_positive: 'False Positive',
+  duplicate: 'Duplicate',
+};
+
 function formatDate(dateString: string) {
   return new Date(dateString).toLocaleDateString('en-US', {
     month: 'short',
@@ -88,8 +117,11 @@ interface FindingDetailPageProps {
 export default function FindingDetailPage({ params }: FindingDetailPageProps) {
   const { id } = use(params);
   const router = useRouter();
-  const { data: finding, isLoading, error } = useFinding(id);
+  const { data: finding, isLoading, error, mutate: mutateFinding } = useFinding(id);
   const { data: repositories } = useRepositoriesFull();
+
+  // Status update hook
+  const { trigger: updateStatus, isMutating: isUpdatingStatus } = useUpdateFindingStatus(id);
 
   // Fetch fixes that might be related to this finding
   const { data: relatedFixes } = useFixes(
@@ -108,6 +140,23 @@ export default function FindingDetailPage({ params }: FindingDetailPageProps) {
   const repository = repositories?.find(
     (r) => r.repository_id === finding?.analysis_run_id?.split('-')[0]
   );
+
+  // Handler for status updates
+  const handleStatusUpdate = async (newStatus: FindingStatus) => {
+    if (!finding) return;
+
+    try {
+      await updateStatus({ status: newStatus });
+      toast.success('Status updated', {
+        description: `Finding marked as ${statusLabels[newStatus]}`,
+      });
+      mutateFinding();
+    } catch (error) {
+      toast.error('Update failed', {
+        description: error instanceof Error ? error.message : 'An error occurred',
+      });
+    }
+  };
 
   if (isLoading) {
     return (
@@ -198,6 +247,72 @@ export default function FindingDetailPage({ params }: FindingDetailPageProps) {
         </div>
 
         <div className="flex gap-2">
+          {/* Status dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                disabled={isUpdatingStatus}
+                className={cn(
+                  'min-w-32',
+                  finding.status && statusBadgeVariants[finding.status]
+                )}
+              >
+                {isUpdatingStatus ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : null}
+                {statusLabels[finding.status || 'open']}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Update Status</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => handleStatusUpdate('open')}
+                disabled={finding.status === 'open'}
+              >
+                Open
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleStatusUpdate('acknowledged')}
+                disabled={finding.status === 'acknowledged'}
+              >
+                Acknowledged
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleStatusUpdate('in_progress')}
+                disabled={finding.status === 'in_progress'}
+              >
+                In Progress
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleStatusUpdate('resolved')}
+                disabled={finding.status === 'resolved'}
+              >
+                Resolved
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => handleStatusUpdate('wontfix')}
+                disabled={finding.status === 'wontfix'}
+              >
+                Won&apos;t Fix
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleStatusUpdate('false_positive')}
+                disabled={finding.status === 'false_positive'}
+              >
+                False Positive
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleStatusUpdate('duplicate')}
+                disabled={finding.status === 'duplicate'}
+              >
+                Duplicate
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           {relatedFix ? (
             <Button asChild>
               <Link href={`/dashboard/fixes/${relatedFix.id}`}>
@@ -361,6 +476,27 @@ export default function FindingDetailPage({ params }: FindingDetailPageProps) {
               <CardTitle className="text-lg">Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div>
+                <dt className="text-sm text-muted-foreground">Status</dt>
+                <dd>
+                  <Badge
+                    variant="secondary"
+                    className={cn('mt-1', statusBadgeVariants[finding.status || 'open'])}
+                  >
+                    {statusLabels[finding.status || 'open']}
+                  </Badge>
+                </dd>
+              </div>
+              {finding.status_reason && (
+                <>
+                  <Separator />
+                  <div>
+                    <dt className="text-sm text-muted-foreground">Status Reason</dt>
+                    <dd className="text-sm mt-1">{finding.status_reason}</dd>
+                  </div>
+                </>
+              )}
+              <Separator />
               <div>
                 <dt className="text-sm text-muted-foreground">Detector</dt>
                 <dd className="font-medium">{finding.detector}</dd>

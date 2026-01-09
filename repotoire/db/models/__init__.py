@@ -25,7 +25,7 @@ Usage:
 from .analysis import AnalysisRun, AnalysisStatus
 from .api_deprecation import APIDeprecation, DeprecationStatus
 from .audit import AuditLog, AuditStatus, EventSource
-from .finding import Finding, FindingSeverity
+from .finding import Finding, FindingSeverity, FindingStatus
 from .fix import Fix, FixComment, FixConfidence, FixStatus, FixType
 from .quota_override import QuotaOverride, QuotaOverrideType
 from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -119,6 +119,7 @@ __all__ = [
     "EventSource",
     "Finding",
     "FindingSeverity",
+    "FindingStatus",
     "Fix",
     "FixComment",
     "FixConfidence",

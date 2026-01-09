@@ -2,11 +2,13 @@ import {
   AnalyticsSummary,
   ApiResponse,
   BackfillJobStatus,
+  BulkUpdateStatusResponse,
   CommitHistoryResponse,
   CommitProvenance,
   FileHotspot,
   Finding,
   FindingFilters,
+  FindingStatus,
   FixComment,
   FixFilters,
   FixProposal,
@@ -268,6 +270,34 @@ export const findingsApi = {
     if (repositoryId) params.set('repository_id', repositoryId);
     return request(`/findings/by-detector?${params}`);
   },
+
+  // Update a single finding's status
+  updateStatus: async (
+    id: string,
+    status: FindingStatus,
+    reason?: string
+  ): Promise<Finding> => {
+    return request<Finding>(`/findings/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, reason }),
+    });
+  },
+
+  // Bulk update finding statuses
+  bulkUpdateStatus: async (
+    findingIds: string[],
+    status: FindingStatus,
+    reason?: string
+  ): Promise<BulkUpdateStatusResponse> => {
+    return request<BulkUpdateStatusResponse>('/findings/batch/status', {
+      method: 'POST',
+      body: JSON.stringify({
+        finding_ids: findingIds,
+        status,
+        reason,
+      }),
+    });
+  },
 };
 
 // Analytics API
@@ -280,11 +310,19 @@ export const analyticsApi = {
   // Get trend data for charts
   trends: async (
     period: 'day' | 'week' | 'month' = 'week',
-    limit: number = 30
+    limit: number = 30,
+    dateRange?: { from: Date; to: Date } | null
   ): Promise<TrendDataPoint[]> => {
-    return request<TrendDataPoint[]>(
-      `/analytics/trends?period=${period}&limit=${limit}`
-    );
+    const params = new URLSearchParams();
+    params.set('period', period);
+    params.set('limit', String(limit));
+    if (dateRange?.from) {
+      params.set('date_from', dateRange.from.toISOString().split('T')[0]);
+    }
+    if (dateRange?.to) {
+      params.set('date_to', dateRange.to.toISOString().split('T')[0]);
+    }
+    return request<TrendDataPoint[]>(`/analytics/trends?${params}`);
   },
 
   // Get breakdown by detector type

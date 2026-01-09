@@ -20,6 +20,7 @@ from repotoire.db.models import (
     AnalysisRun,
     Finding,
     FindingSeverity,
+    FindingStatus,
     Organization,
     Repository,
 )
@@ -49,6 +50,10 @@ class FindingResponse(BaseModel):
         ...,
         description="Severity level: critical, high, medium, low, info",
     )
+    status: str = Field(
+        default="open",
+        description="Review status: open, acknowledged, in_progress, resolved, wontfix, false_positive, duplicate",
+    )
     title: str = Field(..., description="Short summary of the issue")
     description: str = Field(..., description="Detailed explanation of the issue and why it matters")
     affected_files: List[str] = Field(
@@ -70,7 +75,14 @@ class FindingResponse(BaseModel):
         None,
         description="Additional context from graph analysis (related entities, metrics)",
     )
+    status_reason: Optional[str] = Field(
+        None,
+        description="Reason for the current status (e.g., why marked as false positive)",
+    )
+    status_changed_by: Optional[str] = Field(None, description="User ID who last changed the status")
+    status_changed_at: Optional[datetime] = Field(None, description="When the status was last changed")
     created_at: datetime = Field(..., description="When this finding was created")
+    updated_at: Optional[datetime] = Field(None, description="When the finding was last updated")
 
     model_config = {
         "from_attributes": True,
@@ -80,6 +92,7 @@ class FindingResponse(BaseModel):
                 "analysis_run_id": "660e8400-e29b-41d4-a716-446655440001",
                 "detector": "cyclomatic-complexity",
                 "severity": "medium",
+                "status": "open",
                 "title": "High cyclomatic complexity",
                 "description": "Function 'process_data' has cyclomatic complexity of 15, exceeding threshold of 10.",
                 "affected_files": ["src/processors/data.py"],
@@ -89,7 +102,11 @@ class FindingResponse(BaseModel):
                 "suggested_fix": "Consider breaking this function into smaller, focused functions.",
                 "estimated_effort": "medium",
                 "graph_context": {"calls_count": 8, "callers_count": 3},
+                "status_reason": None,
+                "status_changed_by": None,
+                "status_changed_at": None,
                 "created_at": "2025-01-15T10:35:00Z",
+                "updated_at": "2025-01-15T10:35:00Z",
             }
         },
     }
@@ -169,6 +186,86 @@ class FindingsByDetector(BaseModel):
             "example": {
                 "detector": "ruff",
                 "count": 25,
+            }
+        }
+    }
+
+
+# =============================================================================
+# Request Models
+# =============================================================================
+
+
+class UpdateFindingStatusRequest(BaseModel):
+    """Request model for updating a finding's status."""
+
+    status: str = Field(
+        ...,
+        description="New status: open, acknowledged, in_progress, resolved, wontfix, false_positive, duplicate",
+    )
+    reason: Optional[str] = Field(
+        None,
+        max_length=1000,
+        description="Optional reason for the status change (e.g., why marked as false positive)",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "status": "false_positive",
+                "reason": "This is intentional behavior for backwards compatibility",
+            }
+        }
+    }
+
+
+class BulkUpdateStatusRequest(BaseModel):
+    """Request model for bulk updating finding statuses."""
+
+    finding_ids: List[UUID] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="List of finding IDs to update (max 100)",
+    )
+    status: str = Field(
+        ...,
+        description="New status for all findings: open, acknowledged, in_progress, resolved, wontfix, false_positive, duplicate",
+    )
+    reason: Optional[str] = Field(
+        None,
+        max_length=1000,
+        description="Optional reason for the status change",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "finding_ids": [
+                    "550e8400-e29b-41d4-a716-446655440000",
+                    "550e8400-e29b-41d4-a716-446655440001",
+                ],
+                "status": "wontfix",
+                "reason": "Accepted technical debt for legacy module",
+            }
+        }
+    }
+
+
+class BulkUpdateStatusResponse(BaseModel):
+    """Response model for bulk status update."""
+
+    updated_count: int = Field(..., description="Number of findings successfully updated")
+    failed_ids: List[UUID] = Field(
+        default_factory=list,
+        description="IDs of findings that failed to update (access denied or not found)",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "updated_count": 5,
+                "failed_ids": [],
             }
         }
     }
@@ -388,6 +485,7 @@ async def list_findings(
                 analysis_run_id=f.analysis_run_id,
                 detector=f.detector,
                 severity=f.severity.value,
+                status=f.status.value if f.status else "open",
                 title=f.title,
                 description=f.description,
                 affected_files=f.affected_files or [],
@@ -397,7 +495,11 @@ async def list_findings(
                 suggested_fix=f.suggested_fix,
                 estimated_effort=f.estimated_effort,
                 graph_context=f.graph_context,
+                status_reason=f.status_reason,
+                status_changed_by=f.status_changed_by,
+                status_changed_at=f.status_changed_at,
                 created_at=f.created_at,
+                updated_at=f.updated_at,
             )
             for f in findings
         ],
@@ -664,6 +766,7 @@ async def get_finding(
         analysis_run_id=finding.analysis_run_id,
         detector=finding.detector,
         severity=finding.severity.value,
+        status=finding.status.value if finding.status else "open",
         title=finding.title,
         description=finding.description,
         affected_files=finding.affected_files or [],
@@ -673,5 +776,273 @@ async def get_finding(
         suggested_fix=finding.suggested_fix,
         estimated_effort=finding.estimated_effort,
         graph_context=finding.graph_context,
+        status_reason=finding.status_reason,
+        status_changed_by=finding.status_changed_by,
+        status_changed_at=finding.status_changed_at,
         created_at=finding.created_at,
+        updated_at=finding.updated_at,
+    )
+
+
+@router.patch(
+    "/{finding_id}/status",
+    response_model=FindingResponse,
+    summary="Update finding status",
+    description="""
+Update the review status of a single finding.
+
+**Available Statuses:**
+- `open` - Newly detected, not yet reviewed (default)
+- `acknowledged` - Team is aware, may address later
+- `in_progress` - Currently being worked on
+- `resolved` - Issue has been fixed
+- `wontfix` - Intentionally not fixing (acceptable tech debt)
+- `false_positive` - Not a real issue (detector mistake)
+- `duplicate` - Duplicate of another finding
+
+**Reason Field:**
+The optional `reason` field is especially useful for:
+- `false_positive`: Explain why this isn't actually an issue
+- `wontfix`: Document why this tech debt is acceptable
+- `duplicate`: Reference the original finding
+    """,
+    responses={
+        200: {"description": "Status updated successfully"},
+        400: {
+            "description": "Invalid status value",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "bad_request",
+                        "detail": "Invalid status value",
+                        "error_code": "BAD_REQUEST",
+                    }
+                }
+            },
+        },
+        403: {
+            "description": "Access denied to this finding",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "forbidden",
+                        "detail": "Access denied",
+                        "error_code": "FORBIDDEN",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "Finding not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "not_found",
+                        "detail": "Finding not found",
+                        "error_code": "NOT_FOUND",
+                    }
+                }
+            },
+        },
+    },
+)
+async def update_finding_status(
+    finding_id: UUID,
+    request: UpdateFindingStatusRequest,
+    user: ClerkUser = Depends(require_org),
+    session: AsyncSession = Depends(get_db),
+) -> FindingResponse:
+    """Update the review status of a single finding."""
+    # Validate status value
+    try:
+        new_status = FindingStatus(request.status.lower())
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status value: {request.status}. Valid values are: {', '.join(s.value for s in FindingStatus)}",
+        )
+
+    # Get finding with access check
+    query = (
+        select(Finding)
+        .join(AnalysisRun, Finding.analysis_run_id == AnalysisRun.id)
+        .join(Repository, AnalysisRun.repository_id == Repository.id)
+        .where(Finding.id == finding_id)
+    )
+
+    result = await session.execute(query)
+    finding = result.scalar_one_or_none()
+
+    if not finding:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Finding not found",
+        )
+
+    # Get repository and check access
+    analysis = await session.get(AnalysisRun, finding.analysis_run_id)
+    repo = await session.get(Repository, analysis.repository_id)
+
+    if not await _user_has_repo_access(session, user, repo):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+    # Update status
+    finding.status = new_status
+    finding.status_reason = request.reason
+    finding.status_changed_by = user.user_id
+    finding.status_changed_at = func.now()
+
+    await session.commit()
+    await session.refresh(finding)
+
+    logger.info(
+        f"Finding {finding_id} status updated to {new_status.value}",
+        extra={
+            "finding_id": str(finding_id),
+            "new_status": new_status.value,
+            "user_id": user.user_id,
+            "org_slug": user.org_slug,
+        },
+    )
+
+    return FindingResponse(
+        id=finding.id,
+        analysis_run_id=finding.analysis_run_id,
+        detector=finding.detector,
+        severity=finding.severity.value,
+        status=finding.status.value if finding.status else "open",
+        title=finding.title,
+        description=finding.description,
+        affected_files=finding.affected_files or [],
+        affected_nodes=finding.affected_nodes or [],
+        line_start=finding.line_start,
+        line_end=finding.line_end,
+        suggested_fix=finding.suggested_fix,
+        estimated_effort=finding.estimated_effort,
+        graph_context=finding.graph_context,
+        status_reason=finding.status_reason,
+        status_changed_by=finding.status_changed_by,
+        status_changed_at=finding.status_changed_at,
+        created_at=finding.created_at,
+        updated_at=finding.updated_at,
+    )
+
+
+@router.post(
+    "/batch/status",
+    response_model=BulkUpdateStatusResponse,
+    summary="Bulk update finding statuses",
+    description="""
+Update the review status of multiple findings at once.
+
+**Limits:**
+- Maximum 100 findings per request
+
+**Behavior:**
+- All findings must belong to repositories the user has access to
+- Findings that can't be updated (not found or access denied) are returned in `failed_ids`
+- Partial success is possible: some findings may update while others fail
+
+**Use Cases:**
+- Mark multiple related findings as `wontfix` (accepted tech debt)
+- Triage findings after review: bulk `acknowledge` low-priority items
+- Close multiple findings after a fix: bulk mark as `resolved`
+    """,
+    responses={
+        200: {"description": "Bulk update completed (check failed_ids for partial failures)"},
+        400: {
+            "description": "Invalid status value",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "bad_request",
+                        "detail": "Invalid status value",
+                        "error_code": "BAD_REQUEST",
+                    }
+                }
+            },
+        },
+        403: {
+            "description": "Organization not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "forbidden",
+                        "detail": "Organization not found",
+                        "error_code": "FORBIDDEN",
+                    }
+                }
+            },
+        },
+    },
+)
+async def bulk_update_finding_status(
+    request: BulkUpdateStatusRequest,
+    user: ClerkUser = Depends(require_org),
+    session: AsyncSession = Depends(get_db),
+) -> BulkUpdateStatusResponse:
+    """Update the review status of multiple findings at once."""
+    # Validate status value
+    try:
+        new_status = FindingStatus(request.status.lower())
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status value: {request.status}. Valid values are: {', '.join(s.value for s in FindingStatus)}",
+        )
+
+    # Get user's organization
+    org = await _get_user_org(session, user)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization not found",
+        )
+
+    # Get all findings with access check
+    query = (
+        select(Finding)
+        .join(AnalysisRun, Finding.analysis_run_id == AnalysisRun.id)
+        .join(Repository, AnalysisRun.repository_id == Repository.id)
+        .where(Finding.id.in_(request.finding_ids))
+        .where(Repository.organization_id == org.id)
+    )
+
+    result = await session.execute(query)
+    findings = {f.id: f for f in result.scalars().all()}
+
+    # Track results
+    updated_count = 0
+    failed_ids = []
+
+    for finding_id in request.finding_ids:
+        if finding_id in findings:
+            finding = findings[finding_id]
+            finding.status = new_status
+            finding.status_reason = request.reason
+            finding.status_changed_by = user.user_id
+            finding.status_changed_at = func.now()
+            updated_count += 1
+        else:
+            failed_ids.append(finding_id)
+
+    await session.commit()
+
+    logger.info(
+        f"Bulk status update: {updated_count} findings updated to {new_status.value}",
+        extra={
+            "updated_count": updated_count,
+            "failed_count": len(failed_ids),
+            "new_status": new_status.value,
+            "user_id": user.user_id,
+            "org_slug": user.org_slug,
+        },
+    )
+
+    return BulkUpdateStatusResponse(
+        updated_count=updated_count,
+        failed_ids=failed_ids,
     )

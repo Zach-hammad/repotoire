@@ -18,6 +18,16 @@ export type FixType =
 // Severity levels for findings
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
+// Finding status for workflow management
+export type FindingStatus =
+  | 'open'           // Newly detected, not yet reviewed
+  | 'acknowledged'   // Team is aware, may address later
+  | 'in_progress'    // Currently being worked on
+  | 'resolved'       // Issue has been fixed
+  | 'wontfix'        // Intentionally not fixing (acceptable tech debt)
+  | 'false_positive' // Not a real issue (detector mistake)
+  | 'duplicate';     // Duplicate of another finding
+
 // A single code change within a fix
 export interface CodeChange {
   file_path: string;
@@ -42,6 +52,7 @@ export interface Finding {
   analysis_run_id: string;
   detector: string;
   severity: Severity;
+  status: FindingStatus;
   title: string;
   description: string;
   affected_files: string[];
@@ -51,15 +62,39 @@ export interface Finding {
   suggested_fix?: string;
   estimated_effort?: string;
   graph_context?: Record<string, unknown>;
+  status_reason?: string;
+  status_changed_by?: string;
+  status_changed_at?: string;
   created_at: string;
+  updated_at?: string;
 }
 
 // Filters for findings list
 export interface FindingFilters {
   severity?: Severity[];
+  status?: FindingStatus[];
   detector?: string;
   analysis_run_id?: string;
   repository_id?: string;
+}
+
+// Request to update a single finding's status
+export interface UpdateFindingStatusRequest {
+  status: FindingStatus;
+  reason?: string;
+}
+
+// Request for bulk updating finding statuses
+export interface BulkUpdateStatusRequest {
+  finding_ids: string[];
+  status: FindingStatus;
+  reason?: string;
+}
+
+// Response from bulk status update
+export interface BulkUpdateStatusResponse {
+  updated_count: number;
+  failed_ids: string[];
 }
 
 // A complete fix proposal

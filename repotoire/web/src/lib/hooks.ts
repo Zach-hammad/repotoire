@@ -4,10 +4,12 @@ import {
   AnalyticsSummary,
   AnalysisRunStatus,
   BackfillJobStatus,
+  BulkUpdateStatusResponse,
   CommitHistoryResponse,
   FileHotspot,
   Finding,
   FindingFilters,
+  FindingStatus,
   FixComment,
   FixFilters,
   FixProposal,
@@ -83,6 +85,39 @@ export function useFindingsByDetector(analysisRunId?: string, repositoryId?: str
   return useSWR<Array<{ detector: string; count: number }>>(
     isAuthReady ? ['findings-by-detector', analysisRunId, repositoryId] : null,
     () => findingsApi.byDetector(analysisRunId, repositoryId)
+  );
+}
+
+/**
+ * Hook to update a single finding's status.
+ *
+ * Usage:
+ *   const { trigger, isMutating } = useUpdateFindingStatus(findingId);
+ *   await trigger({ status: 'false_positive', reason: 'Not applicable' });
+ */
+export function useUpdateFindingStatus(findingId: string) {
+  return useSWRMutation<Finding, Error, string[], { status: FindingStatus; reason?: string }>(
+    ['finding', findingId],
+    (_key, { arg }) => findingsApi.updateStatus(findingId, arg.status, arg.reason)
+  );
+}
+
+/**
+ * Hook to bulk update finding statuses.
+ *
+ * Usage:
+ *   const { trigger, isMutating } = useBulkUpdateFindingStatus();
+ *   await trigger({ findingIds: ['id1', 'id2'], status: 'wontfix', reason: 'Accepted tech debt' });
+ */
+export function useBulkUpdateFindingStatus() {
+  return useSWRMutation<
+    BulkUpdateStatusResponse,
+    Error,
+    string,
+    { findingIds: string[]; status: FindingStatus; reason?: string }
+  >(
+    'findings-batch-status',
+    (_key, { arg }) => findingsApi.bulkUpdateStatus(arg.findingIds, arg.status, arg.reason)
   );
 }
 
@@ -172,12 +207,13 @@ export function useAnalyticsSummary() {
 
 export function useTrends(
   period: 'day' | 'week' | 'month' = 'week',
-  limit: number = 30
+  limit: number = 30,
+  dateRange?: { from: Date; to: Date } | null
 ) {
   const { isAuthReady } = useApiAuth();
   return useSWR<TrendDataPoint[]>(
-    isAuthReady ? ['trends', period, limit] : null,
-    () => analyticsApi.trends(period, limit)
+    isAuthReady ? ['trends', period, limit, dateRange?.from?.toISOString(), dateRange?.to?.toISOString()] : null,
+    () => analyticsApi.trends(period, limit, dateRange)
   );
 }
 
