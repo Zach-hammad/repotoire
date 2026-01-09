@@ -425,30 +425,30 @@ class TestCollaborationMetadata:
             affected_nodes=["module.Core"],
             graph_context={"name": "Core"},
         )
-        god_class.collaboration_metadata = CollaborationMetadata(
+        god_class.collaboration_metadata = [CollaborationMetadata(
             detector="GodClassDetector",
             confidence=0.9,
             evidence=["high_method_count"],
             tags=["god_class"],
-        )
+        )]
 
         cascading = create_finding(
             detector="CircularDependencyDetector",
             severity=Severity.MEDIUM,
             affected_files=["src/core.py"],
         )
-        cascading.collaboration_metadata = CollaborationMetadata(
+        cascading.collaboration_metadata = [CollaborationMetadata(
             detector="CircularDependencyDetector",
             confidence=0.8,
             evidence=["cycle_detected"],
             tags=["circular"],
-        )
+        )]
 
         findings = [god_class, cascading]
         enriched = analyzer.analyze(findings)
 
         god_finding = next(f for f in enriched if f.detector == "GodClassDetector")
-        assert "root_cause" in god_finding.collaboration_metadata.tags
+        assert "root_cause" in god_finding.get_collaboration_tags()
 
         circ_finding = next(f for f in enriched if f.detector == "CircularDependencyDetector")
-        assert "cascading_issue" in circ_finding.collaboration_metadata.tags
+        assert "cascading_issue" in circ_finding.get_collaboration_tags()

@@ -233,7 +233,7 @@ class TestFindingFactory:
 
         finding = FindingFactory.build(analysis_run_id=uuid4(), circular_dependency=True)
 
-        assert finding.detector == "circular_dependency"
+        assert finding.detector == "graph:circular_dependency"
         assert finding.graph_context is not None
         assert "cycle_path" in finding.graph_context
 

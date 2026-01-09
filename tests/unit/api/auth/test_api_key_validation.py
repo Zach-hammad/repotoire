@@ -222,7 +222,13 @@ class TestAPIKeyValidationEndpoint:
     def test_user_scoped_key_without_org_returns_401(
         self, client, mock_clerk_client
     ):
-        """Test that user-scoped key without org returns 401."""
+        """Test that user-scoped key without org returns 401 if user not found."""
+        # Create mock db session that returns None (user not found)
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
         with patch(
             "repotoire.api.v1.routes.cli_auth.get_clerk_client",
             return_value=mock_clerk_client,
@@ -231,20 +237,25 @@ class TestAPIKeyValidationEndpoint:
                 "repotoire.api.v1.routes.cli_auth.asyncio.to_thread",
                 new_callable=AsyncMock,
             ) as mock_to_thread:
-                # User-scoped key without org
-                api_key_data = MagicMock()
-                api_key_data.subject = "user_test123"
-                api_key_data.org_id = None
-                mock_to_thread.return_value = api_key_data
+                with patch(
+                    "repotoire.api.v1.routes.cli_auth.get_db",
+                ) as mock_get_db:
+                    mock_get_db.return_value = mock_session
 
-                response = client.post(
-                    "/cli/auth/validate-key",
-                    headers={"Authorization": "Bearer user_only_key"},
-                )
+                    # User-scoped key without org - user not found
+                    api_key_data = MagicMock()
+                    api_key_data.subject = "user_test123"
+                    api_key_data.org_id = None
+                    mock_to_thread.return_value = api_key_data
 
-                assert response.status_code == status.HTTP_401_UNAUTHORIZED
-                data = response.json()["detail"]
-                assert "organization-scoped" in data["error"]
+                    response = client.post(
+                        "/cli/auth/validate-key",
+                        headers={"Authorization": "Bearer user_only_key"},
+                    )
+
+                    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+                    data = response.json()["detail"]
+                    assert "User not found" in data["error"]
 
     def test_org_not_found_returns_401(
         self, client, mock_clerk_client, mock_db_session

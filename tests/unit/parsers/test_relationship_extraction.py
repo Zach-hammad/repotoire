@@ -62,13 +62,14 @@ class Person:
         # Filter CONTAINS relationships
         contains_rels = [r for r in relationships if r.rel_type == RelationshipType.CONTAINS]
 
-        # File should contain: greet function, Person class, __init__ method
-        # So we should have 3 CONTAINS relationships
+        # File should contain: greet function, Person class
+        # Person class should contain: __init__ method
+        # So we should have at least 3 CONTAINS relationships
         assert len(contains_rels) >= 3
 
-        # All should have file as source
-        for rel in contains_rels:
-            assert rel.source_id == str(test_file)
+        # Top-level entities should have file as source
+        file_sourced_rels = [r for r in contains_rels if r.source_id == str(test_file)]
+        assert len(file_sourced_rels) >= 2  # greet function + Person class
 
     def test_calls_relationships(self, tmp_path):
         """Test extraction of CALLS relationships."""

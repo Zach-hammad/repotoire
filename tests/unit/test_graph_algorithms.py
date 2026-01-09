@@ -16,6 +16,7 @@ def mock_client():
     """Create a mock Neo4j client."""
     client = Mock()
     client.execute_query = Mock()
+    client.is_falkordb = False  # Explicitly set to avoid MagicMock truthy value
     return client
 
 

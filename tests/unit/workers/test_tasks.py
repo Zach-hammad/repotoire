@@ -93,8 +93,8 @@ class TestAnalyzeRepository:
         repo_id = str(mock_repo.id)
         commit_sha = "abc123def456"
 
-        with patch("repotoire.workers.tasks.IngestionPipeline") as mock_pipeline:
-            with patch("repotoire.workers.tasks.AnalysisEngine") as mock_engine:
+        with patch("repotoire.pipeline.ingestion.IngestionPipeline") as mock_pipeline:
+            with patch("repotoire.detectors.engine.AnalysisEngine") as mock_engine:
                 mock_pipeline.return_value.ingest.return_value = MagicMock(
                     files_processed=100
                 )

@@ -114,11 +114,13 @@ async def async_function():
 
         # Verify CONTAINS relationships
         contains_rels = [r for r in relationships if r.rel_type == RelationshipType.CONTAINS]
-        assert len(contains_rels) >= 8  # File contains 2 classes + 6+ functions
+        # File CONTAINS 2 classes + 2 top-level functions = 4 relationships
+        # Classes CONTAIN their methods = additional relationships
+        assert len(contains_rels) >= 8  # Total: 4 file-level + 5 class-method
 
-        # Verify all CONTAINS relationships have file as source
-        for rel in contains_rels:
-            assert rel.source_id == str(test_file)
+        # Verify top-level entities have file as source (2 classes + 2 standalone functions)
+        file_sourced_rels = [r for r in contains_rels if r.source_id == str(test_file)]
+        assert len(file_sourced_rels) >= 4
 
         # Verify IMPORTS relationships
         import_rels = [r for r in relationships if r.rel_type == RelationshipType.IMPORTS]

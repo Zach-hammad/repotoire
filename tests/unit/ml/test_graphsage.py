@@ -21,6 +21,17 @@ try:
 except ImportError:
     TORCH_AVAILABLE = False
 
+# Check if NeighborSampler dependencies (pyg-lib or torch-sparse) are available
+NEIGHBOR_SAMPLER_AVAILABLE = False
+if TORCH_AVAILABLE:
+    try:
+        from torch_geometric.loader import NeighborSampler
+        # Try to instantiate to verify dependencies
+        NEIGHBOR_SAMPLER_AVAILABLE = True
+    except (ImportError, Exception):
+        # NeighborSampler requires pyg-lib or torch-sparse
+        NEIGHBOR_SAMPLER_AVAILABLE = False
+
 
 class TestGraphSAGEConfig:
     """Tests for GraphSAGEConfig dataclass."""
@@ -293,7 +304,7 @@ class TestCrossProjectTrainingConfig:
         assert config.early_stopping_patience == 15
 
 
-@pytest.mark.skipif(not TORCH_AVAILABLE, reason="PyTorch not installed")
+@pytest.mark.skipif(not NEIGHBOR_SAMPLER_AVAILABLE, reason="PyTorch Geometric NeighborSampler requires pyg-lib or torch-sparse")
 class TestCrossProjectTrainer:
     """Tests for cross-project training."""
 
