@@ -6,7 +6,7 @@ for cases where custom filtering or complex traversal logic is needed.
 
 from typing import List, Dict, Any, Set, Callable, Optional
 from collections import deque
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import Neo4jClient
 from repotoire.validation import validate_identifier, ValidationError
 
 
@@ -17,7 +17,7 @@ class GraphTraversal:
         """Initialize traversal utilities.
 
         Args:
-            client: Neo4j client instance
+            client: FalkorDB client instance
         """
         self.client = client
 
@@ -213,6 +213,9 @@ class GraphTraversal:
     ) -> Dict[str, Any]:
         """Get subgraph reachable from starting nodes.
 
+        Performance fix: Uses batch queries to fetch all relationships in 1 query
+        instead of N queries (one per node).
+
         Args:
             start_node_ids: List of starting node elementIds
             relationship_type: Relationship type to traverse
@@ -227,8 +230,6 @@ class GraphTraversal:
             >>> print(f"Subgraph has {len(subgraph['nodes'])} nodes")
         """
         all_nodes: Dict[str, Dict[str, Any]] = {}
-        all_relationships: List[Dict[str, Any]] = []
-        visited: Set[str] = set()
 
         for start_id in start_node_ids:
             # BFS from each starting node
@@ -239,11 +240,9 @@ class GraphTraversal:
                 if node_id not in all_nodes:
                     all_nodes[node_id] = node
 
-                # Get relationships for this node
-                if node_id not in visited:
-                    rels = self._get_node_relationships(node_id, relationship_type)
-                    all_relationships.extend(rels)
-                    visited.add(node_id)
+        # Batch fetch all relationships for discovered nodes (single query instead of N)
+        all_node_ids = list(all_nodes.keys())
+        all_relationships = self._batch_get_node_relationships(all_node_ids, relationship_type)
 
         return {
             "nodes": list(all_nodes.values()),
@@ -278,6 +277,40 @@ class GraphTraversal:
                 **r["properties"],
             }
         return None
+
+    def _batch_get_node_properties(self, node_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Get properties of multiple nodes in a single query.
+
+        Performance fix: Uses UNWIND to batch all node property fetches into one query,
+        reducing N queries to 1 query.
+
+        Args:
+            node_ids: List of node elementIds
+
+        Returns:
+            Dictionary mapping node_id to node properties
+        """
+        if not node_ids:
+            return {}
+
+        query = """
+        UNWIND $node_ids AS node_id
+        MATCH (n)
+        WHERE elementId(n) = node_id
+        RETURN elementId(n) AS id,
+               labels(n) AS labels,
+               properties(n) AS properties
+        """
+        results = self.client.execute_query(query, parameters={"node_ids": node_ids})
+
+        return {
+            r["id"]: {
+                "id": r["id"],
+                "labels": r["labels"],
+                **r["properties"],
+            }
+            for r in results
+        }
 
     def _get_neighbors(
         self,
@@ -323,6 +356,60 @@ class GraphTraversal:
 
         return [r["neighbor_id"] for r in results]
 
+    def _batch_get_neighbors(
+        self,
+        node_ids: List[str],
+        relationship_type: str,
+        direction: str = "OUTGOING",
+    ) -> Dict[str, List[str]]:
+        """Get neighbor node IDs for multiple nodes in a single query.
+
+        Performance fix: Uses UNWIND to batch all neighbor fetches into one query,
+        reducing N queries to 1 query.
+
+        Args:
+            node_ids: List of node elementIds
+            relationship_type: Relationship type
+            direction: "OUTGOING", "INCOMING", or "BOTH"
+
+        Returns:
+            Dictionary mapping node_id to list of neighbor elementIds
+        """
+        if not node_ids:
+            return {}
+
+        # Validate inputs to prevent Cypher injection
+        validated_rel_type = validate_identifier(relationship_type, "relationship type")
+
+        # Validate direction parameter
+        valid_directions = {"OUTGOING", "INCOMING", "BOTH"}
+        if direction not in valid_directions:
+            raise ValidationError(
+                f"Invalid direction: {direction}",
+                f"Direction must be one of: {', '.join(valid_directions)}"
+            )
+
+        if direction == "OUTGOING":
+            rel_pattern = f"-[:{validated_rel_type}]->"
+        elif direction == "INCOMING":
+            rel_pattern = f"<-[:{validated_rel_type}]-"
+        else:  # BOTH
+            rel_pattern = f"-[:{validated_rel_type}]-"
+
+        query = f"""
+        UNWIND $node_ids AS node_id
+        MATCH (n)
+        WHERE elementId(n) = node_id
+        OPTIONAL MATCH (n){rel_pattern}(neighbor)
+        RETURN node_id, collect(DISTINCT elementId(neighbor)) AS neighbor_ids
+        """
+        results = self.client.execute_query(query, parameters={"node_ids": node_ids})
+
+        return {
+            r["node_id"]: [nid for nid in r["neighbor_ids"] if nid is not None]
+            for r in results
+        }
+
     def _get_node_relationships(
         self,
         node_id: str,
@@ -351,6 +438,53 @@ class GraphTraversal:
                properties(r) AS properties
         """
         results = self.client.execute_query(query, parameters={"node_id": node_id})
+
+        return [
+            {
+                "id": r["id"],
+                "type": r["type"],
+                "source": r["source"],
+                "target": r["target"],
+                **r["properties"],
+            }
+            for r in results
+        ]
+
+    def _batch_get_node_relationships(
+        self,
+        node_ids: List[str],
+        relationship_type: str,
+    ) -> List[Dict[str, Any]]:
+        """Get relationships for multiple nodes in a single query.
+
+        Performance fix: Uses UNWIND to batch all relationship fetches into one query,
+        reducing N queries to 1 query.
+
+        Args:
+            node_ids: List of node elementIds
+            relationship_type: Relationship type
+
+        Returns:
+            List of relationship dictionaries (deduplicated)
+        """
+        if not node_ids:
+            return []
+
+        # Validate input to prevent Cypher injection
+        validated_rel_type = validate_identifier(relationship_type, "relationship type")
+
+        query = f"""
+        UNWIND $node_ids AS node_id
+        MATCH (n)
+        WHERE elementId(n) = node_id
+        MATCH (n)-[r:{validated_rel_type}]-(other)
+        RETURN DISTINCT elementId(r) AS id,
+               type(r) AS type,
+               elementId(startNode(r)) AS source,
+               elementId(endNode(r)) AS target,
+               properties(r) AS properties
+        """
+        results = self.client.execute_query(query, parameters={"node_ids": node_ids})
 
         return [
             {

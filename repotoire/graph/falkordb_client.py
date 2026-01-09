@@ -38,6 +38,7 @@ class FalkorDBClient(DatabaseClient):
         ssl: bool = False,
         socket_timeout: Optional[float] = None,
         socket_connect_timeout: Optional[float] = None,
+        max_connections: Optional[int] = None,
         max_retries: int = 3,
         retry_base_delay: float = 1.0,
         retry_backoff_factor: float = 2.0,
@@ -53,6 +54,7 @@ class FalkorDBClient(DatabaseClient):
             ssl: Enable TLS/SSL connection (required for Fly.io external access)
             socket_timeout: Socket timeout in seconds
             socket_connect_timeout: Connection timeout in seconds
+            max_connections: Maximum connection pool size (default: 50)
             max_retries: Maximum retry attempts
             retry_base_delay: Base delay between retries
             retry_backoff_factor: Backoff multiplier
@@ -64,13 +66,14 @@ class FalkorDBClient(DatabaseClient):
         self.ssl = ssl
         self.socket_timeout = socket_timeout
         self.socket_connect_timeout = socket_connect_timeout
+        self.max_connections = max_connections or 50  # Default pool size
         self.max_retries = max_retries
         self.retry_base_delay = retry_base_delay
         self.retry_backoff_factor = retry_backoff_factor
 
         # Connect to FalkorDB
         self._connect()
-        logger.info(f"Connected to FalkorDB at {host}:{port}, graph: {graph_name}")
+        logger.info(f"Connected to FalkorDB at {host}:{port}, graph: {graph_name}, pool_size: {self.max_connections}")
 
     def _connect(self) -> None:
         """Establish connection to FalkorDB."""
@@ -90,6 +93,9 @@ class FalkorDBClient(DatabaseClient):
             conn_kwargs["socket_timeout"] = self.socket_timeout
         if self.socket_connect_timeout is not None:
             conn_kwargs["socket_connect_timeout"] = self.socket_connect_timeout
+        # Configure connection pool size to prevent unbounded connection growth
+        if self.max_connections is not None:
+            conn_kwargs["max_connections"] = self.max_connections
 
         self.db = FalkorDB(**conn_kwargs)
         self.graph = self.db.select_graph(self.graph_name)
@@ -492,8 +498,9 @@ class FalkorDBClient(DatabaseClient):
         # FalkorDB: delete the graph and recreate
         try:
             self.graph.delete()
-        except Exception:
-            pass  # Graph might not exist
+        except Exception as e:
+            # Graph might not exist yet, which is fine
+            logger.debug(f"Could not delete graph (may not exist): {e}")
         self.graph = self.db.select_graph(self.graph_name)
         logger.warning("Cleared all nodes from graph")
 
@@ -562,7 +569,8 @@ class FalkorDBClient(DatabaseClient):
             try:
                 result = self.execute_query(query)
                 stats[key] = result[0]["count"] if result else 0
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Could not get stat '{key}': {e}")
                 stats[key] = 0
 
         return stats
@@ -588,14 +596,24 @@ class FalkorDBClient(DatabaseClient):
         return {record["label"]: record["count"] for record in result if record.get("label")}
 
     def sample_nodes(self, label: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """Get sample nodes of a specific label."""
+        """Get sample nodes of a specific label.
+
+        Args:
+            label: Node label to sample
+            limit: Maximum number of nodes to return (default 5, max 100)
+
+        Returns:
+            List of node property dictionaries
+        """
         validated_label = validate_identifier(label, "label")
+        # Validate and clamp limit to prevent abuse (max 100)
+        safe_limit = max(1, min(int(limit), 100))
         query = f"""
         MATCH (n:{validated_label})
         RETURN n
-        LIMIT {int(limit)}
+        LIMIT $limit
         """
-        result = self.execute_query(query)
+        result = self.execute_query(query, parameters={"limit": safe_limit})
         return [record.get("n", {}) for record in result]
 
     def validate_schema_integrity(self) -> Dict[str, Any]:
@@ -613,8 +631,9 @@ class FalkorDBClient(DatabaseClient):
             missing = result[0]["count"] if result else 0
             if missing > 0:
                 issues["functions_missing_complexity"] = missing
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Could not validate schema integrity: {e}")
+            issues["validation_error"] = str(e)
 
         return {
             "valid": len(issues) == 0,
@@ -639,6 +658,37 @@ class FalkorDBClient(DatabaseClient):
         result = self.execute_query(query, {"path": file_path})
         return result[0] if result else None
 
+    def batch_get_file_metadata(self, file_paths: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Get file metadata for multiple files in a single query.
+
+        Performance: Uses UNWIND to fetch all metadata in O(1) query instead of O(N).
+
+        Args:
+            file_paths: List of file paths to fetch metadata for
+
+        Returns:
+            Dict mapping file_path to metadata dict (hash, lastModified).
+            Files not found in database are not included in result.
+        """
+        if not file_paths:
+            return {}
+
+        query = """
+        UNWIND $paths AS path
+        MATCH (f:File {filePath: path})
+        RETURN f.filePath as filePath, f.hash as hash, f.lastModified as lastModified
+        """
+        result = self.execute_query(query, {"paths": file_paths})
+
+        return {
+            record["filePath"]: {
+                "hash": record["hash"],
+                "lastModified": record["lastModified"]
+            }
+            for record in result
+            if record.get("filePath")
+        }
+
     def delete_file_entities(self, file_path: str) -> int:
         """Delete a file and all its related entities."""
         query = """
@@ -651,6 +701,44 @@ class FalkorDBClient(DatabaseClient):
         deleted_count = result[0]["deletedCount"] if result else 0
         logger.info(f"Deleted {deleted_count} nodes for file: {file_path}")
         return deleted_count
+
+    def batch_delete_file_entities(self, file_paths: List[str]) -> int:
+        """Delete multiple files and their related entities in a single query.
+
+        Performance: Uses UNWIND to delete all files in O(1) query instead of O(N).
+
+        Args:
+            file_paths: List of file paths to delete
+
+        Returns:
+            Total count of deleted nodes
+        """
+        if not file_paths:
+            return 0
+
+        query = """
+        UNWIND $paths AS path
+        MATCH (f:File {filePath: path})
+        OPTIONAL MATCH (f)-[:CONTAINS*]->(entity)
+        WITH f, collect(entity) as entities
+        DETACH DELETE f
+        WITH entities
+        UNWIND entities as entity
+        DETACH DELETE entity
+        RETURN count(*) as deletedCount
+        """
+        try:
+            result = self.execute_query(query, {"paths": file_paths})
+            deleted_count = result[0]["deletedCount"] if result else 0
+            logger.info(f"Batch deleted {deleted_count} nodes for {len(file_paths)} files")
+            return deleted_count
+        except Exception as e:
+            # Fallback to individual deletes if batch fails
+            logger.warning(f"Batch delete failed, falling back to individual deletes: {e}")
+            total_deleted = 0
+            for path in file_paths:
+                total_deleted += self.delete_file_entities(path)
+            return total_deleted
 
     def get_pool_metrics(self) -> Dict[str, Any]:
         """Get connection metrics."""

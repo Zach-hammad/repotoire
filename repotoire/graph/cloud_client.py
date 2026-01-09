@@ -206,7 +206,8 @@ class CloudProxyClient(DatabaseClient):
                 f"/files/{file_path}/metadata",
             )
             return response.get("metadata")
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Could not get metadata for file '{file_path}': {e}")
             return None
 
     def delete_file_entities(self, file_path: str) -> int:
@@ -271,16 +272,26 @@ class CloudProxyClient(DatabaseClient):
         }
 
     def sample_nodes(self, label: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """Get sample nodes of a specific label."""
+        """Get sample nodes of a specific label.
+
+        Args:
+            label: Node label to sample
+            limit: Maximum number of nodes to return (default 5, max 100)
+
+        Returns:
+            List of node property dictionaries
+        """
         # Basic validation to prevent injection
         if not label.replace("_", "").isalnum():
             raise ValueError(f"Invalid label: {label}")
+        # Validate and clamp limit to prevent abuse (max 100)
+        safe_limit = max(1, min(int(limit), 100))
         query = f"""
         MATCH (n:{label})
         RETURN n
-        LIMIT {limit}
+        LIMIT $limit
         """
-        result = self.execute_query(query)
+        result = self.execute_query(query, parameters={"limit": safe_limit})
         return [dict(record["n"]) for record in result if "n" in record]
 
     def ingest_git_commits(

@@ -536,7 +536,7 @@ class TestGraphTraversal:
             "node3": []
         }.get(node_id, []))
 
-        traversal._get_node_relationships = Mock(return_value=[])
+        traversal._batch_get_node_relationships = Mock(return_value=[])
 
         result = traversal.get_subgraph(
             start_node_ids=["node1"],

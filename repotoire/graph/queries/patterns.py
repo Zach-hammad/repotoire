@@ -5,7 +5,7 @@ and calculating graph metrics used by detectors.
 """
 
 from typing import List, Dict, Any, Optional
-from repotoire.graph.client import Neo4jClient
+from repotoire.graph import Neo4jClient
 from repotoire.validation import validate_identifier
 
 
@@ -16,7 +16,7 @@ class CypherPatterns:
         """Initialize patterns helper.
 
         Args:
-            client: Neo4j client instance
+            client: FalkorDB client instance
         """
         self.client = client
 
@@ -141,12 +141,14 @@ class CypherPatterns:
         self,
         node_label: str = "File",
         relationship_type: str = "IMPORTS",
+        max_depth: int = 15,
     ) -> List[Dict[str, Any]]:
         """Find connected components (groups of connected nodes).
 
         Args:
             node_label: Label of nodes to analyze
             relationship_type: Relationship type to traverse
+            max_depth: Maximum path depth to traverse (default 15, prevents unbounded traversal)
 
         Returns:
             List of dictionaries with 'component_id' and 'nodes' keys
@@ -160,11 +162,15 @@ class CypherPatterns:
         validated_label = validate_identifier(node_label, "node label")
         validated_rel_type = validate_identifier(relationship_type, "relationship type")
 
+        # Clamp max_depth to prevent unbounded traversals (max 50)
+        safe_max_depth = max(1, min(int(max_depth), 50))
+
         # Simple connected components using APOC or manual approach
         # For MVP, we'll use a simple approach: find all nodes reachable from each node
+        # Note: Uses bounded path length to prevent exponential memory usage
         query = f"""
         MATCH (n:{validated_label})
-        OPTIONAL MATCH path = (n)-[:{validated_rel_type}*]-(connected:{validated_label})
+        OPTIONAL MATCH path = (n)-[:{validated_rel_type}*1..{safe_max_depth}]-(connected:{validated_label})
         WITH n, collect(DISTINCT connected) + [n] AS component
         RETURN elementId(n) AS component_id,
                [node IN component | node.filePath] AS nodes,
