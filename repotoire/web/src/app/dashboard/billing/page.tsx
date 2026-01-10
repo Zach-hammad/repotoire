@@ -13,6 +13,7 @@
 
 import { Suspense, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { useClerk } from '@clerk/nextjs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Loader2 } from 'lucide-react';
@@ -20,7 +21,6 @@ import {
   useSubscription,
   useInvoices,
   usePaymentMethod,
-  useBillingPortalUrl,
 } from '@/lib/hooks';
 import {
   UsageDashboard,
@@ -35,27 +35,25 @@ import {
 function BillingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { openOrganizationProfile } = useClerk();
   const success = searchParams.get('success');
   const canceled = searchParams.get('canceled');
 
   const { subscription, usage, isLoading: subLoading } = useSubscription();
   const { data: invoiceData, isLoading: invLoading } = useInvoices(10);
   const { data: paymentMethod, isLoading: pmLoading } = usePaymentMethod();
-  const { data: portalData } = useBillingPortalUrl();
 
   const invoices = invoiceData?.invoices || [];
   const hasMore = invoiceData?.hasMore || false;
-  const portalUrl = portalData?.url;
 
   const [showSuccessBanner, setShowSuccessBanner] = useState(!!success);
   const [showCanceledBanner, setShowCanceledBanner] = useState(!!canceled);
 
   const isLoading = subLoading;
 
+  // Open Clerk's Organization Profile (includes billing tab)
   const handleOpenPortal = () => {
-    if (portalUrl) {
-      window.location.href = portalUrl;
-    }
+    openOrganizationProfile();
   };
 
   const handleUpgrade = () => {
