@@ -342,3 +342,60 @@ class BestOfNUsage(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return generate_repr(self, "id", "customer_id", "month", "runs_count")
+
+
+class ProcessedWebhookEvent(Base, UUIDPrimaryKeyMixin):
+    """Tracks processed inbound webhook events for idempotency.
+
+    Prevents duplicate processing of webhook events from Stripe, Clerk,
+    or other external services that may retry delivery.
+
+    Events are stored for 30 days before cleanup to handle delayed retries.
+
+    Attributes:
+        id: UUID primary key
+        event_id: Unique event ID from the external service (e.g., evt_xxx from Stripe)
+        source: Source service (stripe, stripe_connect, clerk, github)
+        event_type: Type of event (e.g., customer.subscription.created)
+        processed_at: When the event was processed
+        idempotency_key: Optional additional key for custom deduplication
+    """
+
+    __tablename__ = "processed_webhook_events"
+
+    event_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        index=True,
+        comment="Unique event ID from external service",
+    )
+    source: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        index=True,
+        comment="Source service: stripe, stripe_connect, clerk, github",
+    )
+    event_type: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        comment="Event type (e.g., customer.subscription.created)",
+    )
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        nullable=False,
+    )
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Optional additional deduplication key",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "source",
+            "event_id",
+            name="uq_processed_webhook_source_event",
+        ),
+        Index("ix_processed_webhook_events_processed_at", "processed_at"),
+    )

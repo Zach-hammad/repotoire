@@ -27,6 +27,81 @@ logger = logging.getLogger(__name__)
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 
 
+class StripeConfigError(Exception):
+    """Raised when Stripe configuration is invalid or missing."""
+
+    pass
+
+
+def validate_stripe_config(require_connect: bool = False) -> dict[str, Any]:
+    """Validate Stripe configuration at startup.
+
+    Checks that all required environment variables are set and valid.
+    Should be called during application startup to fail fast on misconfiguration.
+
+    Args:
+        require_connect: If True, also validate Connect-specific config
+
+    Returns:
+        Dict with configuration status and any warnings
+
+    Raises:
+        StripeConfigError: If critical configuration is missing
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    # Check API key
+    api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+    if not api_key:
+        errors.append("STRIPE_SECRET_KEY is not set")
+    elif api_key.startswith("sk_live_") and os.environ.get("ENVIRONMENT") == "development":
+        warnings.append("Using live Stripe key in development environment")
+    elif api_key.startswith("sk_test_") and os.environ.get("ENVIRONMENT") == "production":
+        errors.append("Using test Stripe key in production environment")
+
+    # Check webhook secret
+    webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+    if not webhook_secret:
+        warnings.append("STRIPE_WEBHOOK_SECRET not set - webhooks will fail")
+
+    # Check price IDs (optional but recommended)
+    price_vars = [
+        "STRIPE_PRICE_PRO_BASE",
+        "STRIPE_PRICE_PRO_SEAT",
+        "STRIPE_PRICE_ENTERPRISE_BASE",
+        "STRIPE_PRICE_ENTERPRISE_SEAT",
+    ]
+    missing_prices = [v for v in price_vars if not os.environ.get(v)]
+    if missing_prices:
+        warnings.append(f"Missing price IDs: {', '.join(missing_prices)} - tier mapping may fail")
+
+    # Check Connect config if required
+    if require_connect:
+        connect_secret = os.environ.get("STRIPE_CONNECT_WEBHOOK_SECRET", "")
+        if not connect_secret:
+            errors.append("STRIPE_CONNECT_WEBHOOK_SECRET is required for marketplace")
+
+        frontend_url = os.environ.get("FRONTEND_URL", "")
+        if not frontend_url:
+            warnings.append("FRONTEND_URL not set - using default https://repotoire.com")
+
+    if errors:
+        error_msg = "Stripe configuration errors:\n" + "\n".join(f"  - {e}" for e in errors)
+        logger.critical(error_msg)
+        raise StripeConfigError(error_msg)
+
+    if warnings:
+        for warning in warnings:
+            logger.warning(f"Stripe config warning: {warning}")
+
+    return {
+        "valid": True,
+        "warnings": warnings,
+        "mode": "live" if api_key.startswith("sk_live_") else "test",
+    }
+
+
 def handle_stripe_error(error: stripe.error.StripeError, context: str) -> HTTPException:
     """Convert Stripe errors to appropriate HTTP exceptions.
 

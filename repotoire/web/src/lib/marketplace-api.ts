@@ -952,6 +952,50 @@ export const marketplaceApi = {
     params.set('days', String(days));
     return request(`/marketplace/analytics/assets/@${publisherSlug}/${assetSlug}/trends?${params}`);
   },
+
+  // ==========================================
+  // Stripe Connect (Publisher Payouts)
+  // ==========================================
+
+  /**
+   * Start Stripe Connect onboarding to become a publisher.
+   * Returns the onboarding URL to redirect the user to.
+   */
+  createConnectAccount: async (): Promise<{ stripe_account_id: string; onboarding_url: string }> => {
+    return request('/marketplace/publishers/connect', {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * Get Stripe Connect account status.
+   */
+  getConnectStatus: async (): Promise<{
+    stripe_account_id: string | null;
+    charges_enabled: boolean;
+    payouts_enabled: boolean;
+    onboarding_complete: boolean;
+    dashboard_url: string | null;
+  }> => {
+    return request('/marketplace/publishers/connect/status');
+  },
+
+  /**
+   * Get a new onboarding link if the previous one expired.
+   */
+  getOnboardingLink: async (): Promise<{ onboarding_url: string }> => {
+    return request('/marketplace/publishers/connect/onboarding');
+  },
+
+  /**
+   * Get Connect account balance.
+   */
+  getConnectBalance: async (): Promise<{
+    available: Array<{ amount: number; currency: string }>;
+    pending: Array<{ amount: number; currency: string }>;
+  }> => {
+    return request('/marketplace/publishers/connect/balance');
+  },
 };
 
 export { API_BASE_URL };
