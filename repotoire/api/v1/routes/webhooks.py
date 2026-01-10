@@ -584,27 +584,41 @@ async def stripe_webhook(
 
     logger.info(f"Received Stripe webhook: {event_type}")
 
-    # Route to appropriate handler
-    if event_type == "checkout.session.completed":
-        await handle_checkout_completed(db, data)
+    # Route to appropriate handler with error handling
+    # Wrap handlers to prevent permanent failures from causing endless retries
+    try:
+        if event_type == "checkout.session.completed":
+            await handle_checkout_completed(db, data)
 
-    elif event_type == "customer.subscription.created":
-        await handle_subscription_created(db, data)
+        elif event_type == "customer.subscription.created":
+            await handle_subscription_created(db, data)
 
-    elif event_type == "customer.subscription.updated":
-        await handle_subscription_updated(db, data)
+        elif event_type == "customer.subscription.updated":
+            await handle_subscription_updated(db, data)
 
-    elif event_type == "customer.subscription.deleted":
-        await handle_subscription_deleted(db, data)
+        elif event_type == "customer.subscription.deleted":
+            await handle_subscription_deleted(db, data)
 
-    elif event_type == "invoice.payment_failed":
-        await handle_payment_failed(db, data)
+        elif event_type == "invoice.payment_failed":
+            await handle_payment_failed(db, data)
 
-    elif event_type == "invoice.paid":
-        await handle_invoice_paid(db, data)
+        elif event_type == "invoice.paid":
+            await handle_invoice_paid(db, data)
 
-    else:
-        logger.debug(f"Unhandled Stripe event type: {event_type}")
+        else:
+            logger.debug(f"Unhandled Stripe event type: {event_type}")
+
+    except HTTPException:
+        # Re-raise HTTP exceptions (these are intentional failures)
+        raise
+    except Exception as e:
+        # Log error but return success to prevent infinite retries
+        # Stripe will retry on 4xx/5xx, so we log and accept to avoid loops
+        logger.error(
+            f"Error processing Stripe webhook {event_type}: {e}",
+            exc_info=True,
+        )
+        # Return success - the event is logged, manual intervention may be needed
 
     return {"status": "ok"}
 
@@ -789,18 +803,29 @@ async def stripe_connect_webhook(
 
     logger.info(f"Received Stripe Connect webhook: {event_type}")
 
-    # Route to appropriate handler
-    if event_type == "account.updated":
-        await handle_account_updated(db, data)
+    # Route to appropriate handler with error handling
+    try:
+        if event_type == "account.updated":
+            await handle_account_updated(db, data)
 
-    elif event_type == "payment_intent.succeeded":
-        await handle_payment_intent_succeeded(db, data)
+        elif event_type == "payment_intent.succeeded":
+            await handle_payment_intent_succeeded(db, data)
 
-    elif event_type == "payout.paid":
-        await handle_payout_paid(db, data)
+        elif event_type == "payout.paid":
+            await handle_payout_paid(db, data)
 
-    else:
-        logger.debug(f"Unhandled Stripe Connect event type: {event_type}")
+        else:
+            logger.debug(f"Unhandled Stripe Connect event type: {event_type}")
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Log error but return success to prevent infinite retries
+        logger.error(
+            f"Error processing Stripe Connect webhook {event_type}: {e}",
+            exc_info=True,
+        )
 
     return {"status": "ok"}
 

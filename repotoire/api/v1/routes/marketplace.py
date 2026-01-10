@@ -1925,6 +1925,13 @@ async def get_connect_status(
             detail="Publisher profile not found",
         )
 
+    # Verify ownership - defense in depth
+    if not mp_service.verify_publisher_ownership(publisher, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this publisher's status",
+        )
+
     # Not connected
     if not publisher.stripe_account_id:
         return ConnectStatusResponse(
@@ -1991,6 +1998,13 @@ async def get_onboarding_link(
             detail="Publisher profile not found",
         )
 
+    # Verify ownership - defense in depth
+    if not mp_service.verify_publisher_ownership(publisher, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this publisher's onboarding",
+        )
+
     if not publisher.stripe_account_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -2030,6 +2044,13 @@ async def get_connect_balance(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Publisher profile not found",
+        )
+
+    # Verify ownership - prevent unauthorized access to balance info
+    if not mp_service.verify_publisher_ownership(publisher, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this publisher's balance",
         )
 
     if not publisher.stripe_account_id:

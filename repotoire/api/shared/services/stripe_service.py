@@ -10,8 +10,10 @@ Migration Note (2026-01):
 - Use Clerk's <PricingTable /> and <AccountPortal /> for new subscription management
 """
 
+import hashlib
 import logging
 import os
+import time
 from typing import Any, Dict
 
 import stripe
@@ -23,6 +25,65 @@ logger = logging.getLogger(__name__)
 
 # Configure Stripe API key (still needed for Stripe Connect + webhooks)
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+
+
+def handle_stripe_error(error: stripe.error.StripeError, context: str) -> HTTPException:
+    """Convert Stripe errors to appropriate HTTP exceptions.
+
+    Maps Stripe error types to HTTP status codes:
+    - CardError: 402 (Payment Required) - card was declined
+    - RateLimitError: 429 (Too Many Requests) - rate limited
+    - InvalidRequestError: 400 (Bad Request) - invalid parameters
+    - AuthenticationError: 401 (Unauthorized) - API key issue
+    - APIConnectionError: 503 (Service Unavailable) - network issue
+    - StripeError: 500 (Internal Server Error) - generic fallback
+
+    Args:
+        error: The Stripe error
+        context: Description of what operation failed
+
+    Returns:
+        HTTPException with appropriate status code and user-friendly message
+    """
+    logger.error(f"Stripe error in {context}: {type(error).__name__}: {error}")
+
+    if isinstance(error, stripe.error.CardError):
+        # Card was declined
+        return HTTPException(
+            status_code=402,
+            detail=error.user_message or "Your card was declined. Please try a different payment method.",
+        )
+    elif isinstance(error, stripe.error.RateLimitError):
+        # Too many requests to Stripe
+        return HTTPException(
+            status_code=429,
+            detail="Too many payment requests. Please wait a moment and try again.",
+        )
+    elif isinstance(error, stripe.error.InvalidRequestError):
+        # Invalid parameters sent to Stripe
+        return HTTPException(
+            status_code=400,
+            detail="Invalid payment request. Please check your details and try again.",
+        )
+    elif isinstance(error, stripe.error.AuthenticationError):
+        # API key issues - log as critical, return generic error
+        logger.critical(f"Stripe authentication failed: {error}")
+        return HTTPException(
+            status_code=500,
+            detail="Payment service configuration error. Please contact support.",
+        )
+    elif isinstance(error, stripe.error.APIConnectionError):
+        # Network issues connecting to Stripe
+        return HTTPException(
+            status_code=503,
+            detail="Payment service temporarily unavailable. Please try again.",
+        )
+    else:
+        # Generic Stripe error
+        return HTTPException(
+            status_code=500,
+            detail="Payment processing failed. Please try again or contact support.",
+        )
 
 
 # ============================================================================
@@ -119,7 +180,10 @@ class StripeService:
             return stripe.Subscription.retrieve(subscription_id)
         except stripe.error.StripeError as e:
             logger.error(f"Error retrieving subscription {subscription_id}: {e}")
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to retrieve subscription. Please try again or contact support."
+            )
 
 
 # ============================================================================
@@ -328,6 +392,12 @@ class StripeConnectService:
         platform_fee_cents = int(amount_cents * StripeConnectService.PLATFORM_FEE_PERCENT)
         creator_share_cents = amount_cents - platform_fee_cents
 
+        # Generate idempotency key to prevent duplicate charges
+        # Based on asset, buyer, and amount to ensure uniqueness per purchase attempt
+        idempotency_key = hashlib.sha256(
+            f"{asset_id}:{buyer_user_id}:{amount_cents}:{int(time.time() // 3600)}".encode()
+        ).hexdigest()[:32]
+
         try:
             payment_intent = stripe.PaymentIntent.create(
                 amount=amount_cents,
@@ -346,6 +416,7 @@ class StripeConnectService:
                 automatic_payment_methods={
                     "enabled": True,
                 },
+                idempotency_key=idempotency_key,
             )
             logger.info(
                 f"Created PaymentIntent: {payment_intent.id} for asset: {asset_id}, "
@@ -353,11 +424,7 @@ class StripeConnectService:
             )
             return payment_intent
         except stripe.error.StripeError as e:
-            logger.error(f"Failed to create PaymentIntent: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to process payment. Please try again.",
-            )
+            raise handle_stripe_error(e, "create_payment_intent")
 
     @staticmethod
     def get_balance(account_id: str) -> dict[str, Any]:
@@ -389,11 +456,7 @@ class StripeConnectService:
                 ],
             }
         except stripe.error.StripeError as e:
-            logger.error(f"Failed to get balance: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to retrieve balance information.",
-            )
+            raise handle_stripe_error(e, "get_balance")
 
     @staticmethod
     def list_payouts(account_id: str, limit: int = 10) -> list[dict[str, Any]]:
@@ -426,11 +489,7 @@ class StripeConnectService:
                 for p in payouts.data
             ]
         except stripe.error.StripeError as e:
-            logger.error(f"Failed to list payouts: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to retrieve payout history.",
-            )
+            raise handle_stripe_error(e, "list_payouts")
 
     @staticmethod
     def construct_connect_webhook_event(
