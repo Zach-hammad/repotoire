@@ -39,6 +39,7 @@ class FixStatus(str, enum.Enum):
     REJECTED = "rejected"  # Human rejected
     APPLIED = "applied"  # Successfully applied
     FAILED = "failed"  # Failed to apply
+    STALE = "stale"  # Code has changed, fix no longer applicable
 
 
 class FixConfidence(str, enum.Enum):

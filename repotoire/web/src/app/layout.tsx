@@ -1,26 +1,32 @@
 import type React from "react"
 import type { Metadata, Viewport } from "next"
-import { Inter, Space_Grotesk, Crimson_Pro } from "next/font/google"
+import { Plus_Jakarta_Sans, Instrument_Serif, IBM_Plex_Mono } from "next/font/google"
 import { ThemeProvider } from "next-themes"
 import { ClerkProvider } from "@/components/providers/clerk-provider"
 import { CookieConsent } from "@/components/cookie-consent"
 import { Toaster } from "sonner"
 import "./globals.css"
 
-const inter = Inter({
+// Primary sans-serif: Geometric but warm, more character than Inter
+const plusJakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
-  variable: "--font-inter",
+  variable: "--font-sans",
+  weight: ["400", "500", "600", "700", "800"],
 })
 
-const spaceGrotesk = Space_Grotesk({
+// Display/headlines: Editorial serif for authority and sophistication
+const instrumentSerif = Instrument_Serif({
   subsets: ["latin"],
-  variable: "--font-space",
-})
-
-const crimsonPro = Crimson_Pro({
-  subsets: ["latin"],
-  variable: "--font-crimson",
+  variable: "--font-display",
+  weight: "400",
   style: ["normal", "italic"],
+})
+
+// Monospace: Technical, precise, more character than system mono
+const ibmPlexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  weight: ["400", "500", "600"],
 })
 
 export const metadata: Metadata = {
@@ -30,21 +36,8 @@ export const metadata: Metadata = {
   generator: "v0.app",
   keywords: ["code analysis", "linter", "graph database", "AI", "technical debt", "code quality"],
   icons: {
-    icon: [
-      {
-        url: "/icon-light-32x32.png",
-        media: "(prefers-color-scheme: light)",
-      },
-      {
-        url: "/icon-dark-32x32.png",
-        media: "(prefers-color-scheme: dark)",
-      },
-      {
-        url: "/icon.svg",
-        type: "image/svg+xml",
-      },
-    ],
-    apple: "/apple-icon.png",
+    icon: "/logo.png",
+    apple: "/logo.png",
   },
   openGraph: {
     title: "Repotoire — Graph-Powered Code Intelligence",
@@ -67,7 +60,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${spaceGrotesk.variable} ${crimsonPro.variable} font-sans antialiased`}>
+      <body className={`${plusJakarta.variable} ${instrumentSerif.variable} ${ibmPlexMono.variable} font-sans antialiased`}>
+        {/* Skip link for keyboard navigation */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          Skip to main content
+        </a>
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"

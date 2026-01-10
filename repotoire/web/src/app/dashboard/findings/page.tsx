@@ -290,7 +290,14 @@ function FindingsContent() {
   // State
   const [page, setPage] = useState(() => {
     const pageParam = searchParams.get('page');
-    return pageParam ? parseInt(pageParam, 10) : 1;
+    if (pageParam) {
+      const parsed = parseInt(pageParam, 10);
+      // Validate: must be a positive integer
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+    return 1;
   });
   const [severityFilter, setSeverityFilter] = useState<Severity | 'all'>(() => {
     const severity = searchParams.get('severity');
@@ -357,13 +364,15 @@ function FindingsContent() {
   );
 
   const fixesByFindingId = new Map<string, FixProposal>();
-  fixes?.items.forEach((fix) => {
-    if (fix.finding_id) {
-      fixesByFindingId.set(fix.finding_id, fix);
-    }
-  });
+  if (fixes?.items && Array.isArray(fixes.items)) {
+    fixes.items.forEach((fix) => {
+      if (fix.finding_id) {
+        fixesByFindingId.set(fix.finding_id, fix);
+      }
+    });
+  }
 
-  const totalPages = findings ? Math.ceil(findings.total / pageSize) : 1;
+  const totalPages = findings && findings.total > 0 ? Math.ceil(findings.total / pageSize) : 1;
   const hasActiveFilters = severityFilter !== 'all' || detectorFilter !== 'all' || repositoryFilter !== 'all';
   const totalIssues = summary ? (summary.critical + summary.high + summary.medium + summary.low + summary.info) : 0;
   const criticalAndHigh = summary ? (summary.critical + summary.high) : 0;

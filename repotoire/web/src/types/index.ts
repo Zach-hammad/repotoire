@@ -27,7 +27,7 @@ export type FindingStatus =
   | 'duplicate';     // Duplicate of another finding
 
 // Fix status lifecycle
-export type FixStatus = 'pending' | 'approved' | 'rejected' | 'applied' | 'failed';
+export type FixStatus = 'pending' | 'approved' | 'rejected' | 'applied' | 'failed' | 'stale';
 
 // Confidence levels for AI-generated fixes
 export type FixConfidence = 'high' | 'medium' | 'low';

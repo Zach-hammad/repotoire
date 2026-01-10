@@ -52,10 +52,16 @@ export function FAQ() {
   }, [])
 
   return (
-    <section ref={sectionRef} id="faq" className="py-24 px-4 sm:px-6 lg:px-8 dot-grid">
+    <section
+      ref={sectionRef}
+      id="faq"
+      className="py-24 px-4 sm:px-6 lg:px-8 dot-grid"
+      aria-labelledby="faq-heading"
+    >
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-10">
           <h2
+            id="faq-heading"
             className={`text-3xl sm:text-4xl tracking-tight text-foreground mb-4 opacity-0 ${
               isVisible ? "animate-fade-up" : ""
             }`}

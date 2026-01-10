@@ -20,9 +20,14 @@ export function FinalCTA() {
   }, [])
 
   return (
-    <section ref={sectionRef} className="py-32 px-4 sm:px-6 lg:px-8 bg-primary/5 border-y border-primary/10">
+    <section
+      ref={sectionRef}
+      className="py-32 px-4 sm:px-6 lg:px-8 bg-primary/5 border-y border-primary/10"
+      aria-labelledby="final-cta-heading"
+    >
       <div className="max-w-3xl mx-auto text-center">
         <h2
+          id="final-cta-heading"
           className={`text-4xl sm:text-5xl lg:text-6xl tracking-tight text-foreground mb-6 text-balance opacity-0 ${isVisible ? "animate-fade-up" : ""}`}
         >
           <span className="font-display font-bold">Ready to understand</span>

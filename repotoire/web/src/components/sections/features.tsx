@@ -47,9 +47,15 @@ export function Features() {
   }, [])
 
   return (
-    <section ref={sectionRef} id="features" className="py-24 px-4 sm:px-6 lg:px-8 dot-grid">
+    <section
+      ref={sectionRef}
+      id="features"
+      className="py-24 px-4 sm:px-6 lg:px-8 dot-grid"
+      aria-labelledby="features-heading"
+    >
       <div className="max-w-6xl mx-auto">
         <h2
+          id="features-heading"
           className={`text-3xl sm:text-4xl tracking-tight text-foreground mb-4 text-center opacity-0 ${isVisible ? "animate-fade-up" : ""}`}
         >
           <span className="font-serif italic text-muted-foreground">8 integrated</span>{" "}
@@ -61,19 +67,21 @@ export function Features() {
           Graph algorithms + Ruff, Pylint, Mypy, Bandit, Semgrep working together.
         </p>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4" role="list" aria-label="Analysis tools">
           {detectors.map((detector, i) => (
             <div
               key={detector.name}
+              role="listitem"
               className={`card-elevated rounded-xl p-5 opacity-0 hover:border-border/80 transition-colors ${isVisible ? "animate-scale-in" : ""}`}
               style={{ animationDelay: `${150 + i * 50}ms` }}
             >
               <div className="flex items-center gap-2 mb-3">
-                <span className={`w-2 h-2 rounded-full ${dotColorMap[detector.color]}`} />
+                <span className={`w-2 h-2 rounded-full ${dotColorMap[detector.color]}`} aria-hidden="true" />
                 <span className="text-sm font-medium text-foreground">{detector.name}</span>
               </div>
               <code
                 className={`inline-block text-xs px-2.5 py-1.5 rounded-md border font-mono ${colorMap[detector.color]}`}
+                aria-label={`Example output: ${detector.output}`}
               >
                 {detector.output}
               </code>

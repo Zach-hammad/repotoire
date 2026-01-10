@@ -68,7 +68,7 @@ function Sidebar({ className }: { className?: string }) {
   return (
     <div className={cn('flex h-full flex-col gap-2', className)}>
       <div className="flex h-16 items-center border-b border-border/50 px-4">
-        <Link href="/dashboard" className="flex items-center">
+        <Link href="/dashboard" className="flex items-center" aria-label="Repotoire dashboard home">
           <Image
             src="/logo.png"
             alt="Repotoire"
@@ -204,7 +204,7 @@ export default function DashboardLayout({
             </Sheet>
 
             {/* Main Content */}
-            <main className="flex-1 overflow-auto dot-grid">
+            <main id="main-content" className="flex-1 overflow-auto dot-grid">
               <div className="container max-w-7xl p-6 md:p-8">
                 <ErrorBoundary>
                   <PageTransition>{children}</PageTransition>

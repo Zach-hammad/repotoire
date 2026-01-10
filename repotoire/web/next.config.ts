@@ -10,6 +10,15 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname_resolved,
   },
+  // Optimize package imports for faster builds and smaller bundles
+  experimental: {
+    optimizePackageImports: [
+      "lucide-react",
+      "framer-motion",
+      "@radix-ui/react-icons",
+      "recharts",
+    ],
+  },
 };
 
 export default withSentryConfig(nextConfig, {

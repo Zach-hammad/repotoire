@@ -111,6 +111,14 @@ export const statusConfig: Record<FixStatus, StatusConfig> = {
     nextAction: 'Check the error details and try again, or reject this fix.',
     category: 'closed',
   },
+  stale: {
+    label: 'Stale',
+    emoji: '⏰',
+    plainEnglish: 'Code has changed',
+    description: 'The target code has been modified since this fix was generated.',
+    nextAction: 'Regenerate the fix to get an updated version.',
+    category: 'closed',
+  },
 };
 
 // ==========================================

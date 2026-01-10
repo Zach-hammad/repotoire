@@ -18,9 +18,14 @@ export function ProblemSolution() {
   }, [])
 
   return (
-    <section ref={sectionRef} className="py-24 px-4 sm:px-6 lg:px-8 border-t border-border">
+    <section
+      ref={sectionRef}
+      className="py-24 px-4 sm:px-6 lg:px-8 border-t border-border"
+      aria-labelledby="problem-solution-heading"
+    >
       <div className="max-w-4xl mx-auto">
         <h2
+          id="problem-solution-heading"
           className={`text-3xl sm:text-4xl tracking-tight text-foreground mb-4 text-center opacity-0 ${isVisible ? "animate-fade-up" : ""}`}
         >
           <span className="font-serif italic text-muted-foreground">Linters check files.</span>
@@ -139,12 +144,12 @@ export function ProblemSolution() {
         <div
           className={`card-elevated rounded-xl overflow-hidden opacity-0 ${isVisible ? "animate-scale-in delay-300" : ""}`}
         >
-          <table className="w-full text-sm">
+          <table className="w-full text-sm" aria-label="Comparison of traditional linters vs Repotoire">
             <thead>
               <tr className="border-b border-border">
-                <th className="text-left p-4 font-display font-medium text-muted-foreground"></th>
-                <th className="text-center p-4 font-display font-medium text-muted-foreground">ESLint / Pylint</th>
-                <th className="text-center p-4 font-display font-medium text-primary">Repotoire</th>
+                <th className="text-left p-4 font-display font-medium text-muted-foreground" scope="col">Feature</th>
+                <th className="text-center p-4 font-display font-medium text-muted-foreground" scope="col">ESLint / Pylint</th>
+                <th className="text-center p-4 font-display font-medium text-primary" scope="col">Repotoire</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">

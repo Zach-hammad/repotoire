@@ -24,10 +24,16 @@ export function HowItWorks() {
   }, [])
 
   return (
-    <section ref={sectionRef} id="how-it-works" className="py-24 px-4 sm:px-6 lg:px-8 border-t border-border">
+    <section
+      ref={sectionRef}
+      id="how-it-works"
+      className="py-24 px-4 sm:px-6 lg:px-8 border-t border-border"
+      aria-labelledby="how-it-works-heading"
+    >
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-12">
           <h2
+            id="how-it-works-heading"
             className={`text-3xl sm:text-4xl tracking-tight text-foreground mb-4 opacity-0 ${
               isVisible ? "animate-fade-up" : ""
             }`}
@@ -44,11 +50,11 @@ export function HowItWorks() {
           </p>
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-6">
+        <div className="grid lg:grid-cols-3 gap-6" role="list" aria-label="Setup steps">
           {/* Step 1 */}
-          <div className={`card-elevated rounded-xl p-6 opacity-0 ${isVisible ? "animate-scale-in delay-200" : ""}`}>
+          <div role="listitem" className={`card-elevated rounded-xl p-6 opacity-0 ${isVisible ? "animate-scale-in delay-200" : ""}`}>
             <div className="flex items-center gap-3 mb-5">
-              <span className="text-3xl font-serif italic text-muted-foreground/30">01</span>
+              <span className="text-3xl font-serif italic text-muted-foreground/30" aria-hidden="true">01</span>
               <h3 className="text-lg font-display font-semibold text-foreground">Connect</h3>
             </div>
             <div className="bg-muted rounded-lg p-4 font-mono text-sm">
@@ -60,9 +66,9 @@ export function HowItWorks() {
           </div>
 
           {/* Step 2 */}
-          <div className={`card-elevated rounded-xl p-6 opacity-0 ${isVisible ? "animate-scale-in delay-300" : ""}`}>
+          <div role="listitem" className={`card-elevated rounded-xl p-6 opacity-0 ${isVisible ? "animate-scale-in delay-300" : ""}`}>
             <div className="flex items-center gap-3 mb-5">
-              <span className="text-3xl font-serif italic text-muted-foreground/30">02</span>
+              <span className="text-3xl font-serif italic text-muted-foreground/30" aria-hidden="true">02</span>
               <h3 className="text-lg font-display font-semibold text-foreground">Analyze</h3>
             </div>
             <div className="bg-muted rounded-lg p-4 font-mono text-sm">
@@ -82,14 +88,14 @@ export function HowItWorks() {
           </div>
 
           {/* Step 3 */}
-          <div className={`card-elevated rounded-xl p-6 opacity-0 ${isVisible ? "animate-scale-in delay-400" : ""}`}>
+          <div role="listitem" className={`card-elevated rounded-xl p-6 opacity-0 ${isVisible ? "animate-scale-in delay-400" : ""}`}>
             <div className="flex items-center gap-3 mb-5">
-              <span className="text-3xl font-serif italic text-muted-foreground/30">03</span>
+              <span className="text-3xl font-serif italic text-muted-foreground/30" aria-hidden="true">03</span>
               <h3 className="text-lg font-display font-semibold text-foreground">Fix</h3>
             </div>
             <div className="bg-muted rounded-lg p-4 text-sm">
               <div className="flex items-center gap-2 text-red-400 font-medium mb-3">
-                <span className="w-2 h-2 rounded-full bg-red-500" />
+                <span className="w-2 h-2 rounded-full bg-red-500" aria-hidden="true" />
                 Circular dependency
               </div>
               <div className="text-xs text-muted-foreground mb-4 font-mono">auth.ts → user.ts → auth.ts</div>
