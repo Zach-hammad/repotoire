@@ -71,6 +71,7 @@ class ProgressTracker:
         current_step: str | None = None,
         error_message: str | None = None,
         started_at: datetime | None = None,
+        completed_at: datetime | None = None,
     ) -> None:
         """Update progress in database and broadcast via Redis.
 
@@ -80,12 +81,18 @@ class ProgressTracker:
             current_step: Human-readable description of current step.
             error_message: Error message if failed.
             started_at: When the analysis started (for RUNNING status).
+            completed_at: When the analysis finished (auto-set for terminal statuses).
         """
+        now = datetime.now(timezone.utc)
+
         # Build update values
-        values: dict = {"updated_at": datetime.now(timezone.utc)}
+        values: dict = {"updated_at": now}
 
         if status is not None:
             values["status"] = status
+            # Automatically set completed_at for terminal statuses
+            if status in (AnalysisStatus.COMPLETED, AnalysisStatus.FAILED, AnalysisStatus.CANCELLED):
+                values["completed_at"] = completed_at or now
         if progress_percent is not None:
             values["progress_percent"] = progress_percent
         if current_step is not None:
@@ -94,6 +101,9 @@ class ProgressTracker:
             values["error_message"] = error_message
         if started_at is not None:
             values["started_at"] = started_at
+        # Allow explicit completed_at override even for non-terminal statuses
+        if completed_at is not None and "completed_at" not in values:
+            values["completed_at"] = completed_at
 
         # Update database
         try:

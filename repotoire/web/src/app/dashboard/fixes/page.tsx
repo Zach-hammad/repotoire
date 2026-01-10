@@ -84,6 +84,7 @@ const statusBadgeColors: Record<FixStatus, string> = {
   rejected: 'bg-red-500/10 text-red-500 border-red-500/20',
   applied: 'bg-green-500/10 text-green-500 border-green-500/20',
   failed: 'bg-orange-500/10 text-orange-500 border-orange-500/20',
+  stale: 'bg-gray-500/10 text-gray-500 border-gray-500/20',
 };
 
 const fixTypeLabels: Record<FixType, string> = {
@@ -97,7 +98,7 @@ const fixTypeLabels: Record<FixType, string> = {
   documentation: 'Documentation',
 };
 
-const statusOptions: FixStatus[] = ['pending', 'approved', 'rejected', 'applied', 'failed'];
+const statusOptions: FixStatus[] = ['pending', 'approved', 'rejected', 'applied', 'failed', 'stale'];
 const confidenceOptions: FixConfidence[] = ['high', 'medium', 'low'];
 const typeOptions: FixType[] = ['refactor', 'simplify', 'extract', 'rename', 'remove', 'security', 'type_hint', 'documentation'];
 
@@ -115,7 +116,16 @@ function FixesListContent() {
   const initialFixType = searchParams.get('fix_type')?.split(',').filter(Boolean) as FixType[] | undefined;
   const initialSearch = searchParams.get('search') || '';
   const initialRepository = searchParams.get('repository') || 'all';
-  const initialPage = parseInt(searchParams.get('page') || '1', 10);
+  const initialPage = (() => {
+    const pageParam = searchParams.get('page');
+    if (pageParam) {
+      const parsed = parseInt(pageParam, 10);
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+    return 1;
+  })();
 
   // Filter state
   const [filters, setFilters] = useState<FixFilters>({

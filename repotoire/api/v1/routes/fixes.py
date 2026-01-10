@@ -1011,10 +1011,11 @@ async def apply_fix(
 
         except Exception as e:
             logger.error(f"Failed to create GitHub PR for fix {fix_id}: {e}")
-            fix = await repo.update_status(fix_uuid, FixStatus.FAILED)
+            # Don't mark fix as FAILED here - leave it as APPROVED so user can retry
+            # The fix status only changes to APPLIED on success, or user can reject
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to create GitHub PR: {str(e)}"
+                detail=f"Failed to create GitHub PR: {str(e)}. The fix remains approved - please try again."
             )
 
     # If repository_path provided (local mode), apply the fix to filesystem

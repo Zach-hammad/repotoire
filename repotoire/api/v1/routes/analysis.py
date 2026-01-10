@@ -569,11 +569,14 @@ async def stream_analysis_progress(
         )
 
     async def event_generator() -> AsyncGenerator[dict, None]:
-        redis = await aioredis.from_url(REDIS_URL)
-        pubsub = redis.pubsub()
-        await pubsub.subscribe(f"analysis:{analysis_run_id}")
+        redis_client: aioredis.Redis | None = None
+        pubsub: aioredis.client.PubSub | None = None
 
         try:
+            redis_client = await aioredis.from_url(REDIS_URL)
+            pubsub = redis_client.pubsub()
+            await pubsub.subscribe(f"analysis:{analysis_run_id}")
+
             async for message in pubsub.listen():
                 # Check if client disconnected
                 if await request.is_disconnected():
@@ -586,9 +589,31 @@ async def stream_analysis_progress(
                         if isinstance(message["data"], bytes)
                         else message["data"],
                     }
+
+                    # Check if analysis completed (close stream)
+                    try:
+                        import json
+                        data = json.loads(message["data"] if isinstance(message["data"], str) else message["data"].decode())
+                        if data.get("status") in ("completed", "failed", "cancelled"):
+                            break
+                    except (json.JSONDecodeError, KeyError):
+                        pass
+
+        except Exception as e:
+            logger.warning(f"SSE stream error for analysis {analysis_run_id}: {e}")
         finally:
-            await pubsub.unsubscribe(f"analysis:{analysis_run_id}")
-            await redis.close()
+            # Clean up Redis resources
+            if pubsub is not None:
+                try:
+                    await pubsub.unsubscribe(f"analysis:{analysis_run_id}")
+                    await pubsub.close()
+                except Exception as e:
+                    logger.warning(f"Error closing pubsub: {e}")
+            if redis_client is not None:
+                try:
+                    await redis_client.close()
+                except Exception as e:
+                    logger.warning(f"Error closing redis: {e}")
 
     return EventSourceResponse(event_generator())
 

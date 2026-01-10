@@ -224,6 +224,7 @@ class FixRepository:
         analysis_run_id: Optional[UUID] = None,
         repository_id: Optional[UUID] = None,
         status: Optional[List[FixStatus]] = None,
+        exclude_status: Optional[List[FixStatus]] = None,
         confidence: Optional[List[FixConfidence]] = None,
         fix_type: Optional[List[FixType]] = None,
         file_path: Optional[str] = None,
@@ -240,6 +241,7 @@ class FixRepository:
             analysis_run_id: Filter by analysis run
             repository_id: Filter by repository (via analysis_run)
             status: Filter by status(es)
+            exclude_status: Exclude fixes with these statuses
             confidence: Filter by confidence level(s)
             fix_type: Filter by fix type(s)
             file_path: Filter by file path (partial match)
@@ -274,6 +276,10 @@ class FixRepository:
         if status:
             query = query.where(Fix.status.in_(status))
             count_query = count_query.where(Fix.status.in_(status))
+
+        if exclude_status:
+            query = query.where(~Fix.status.in_(exclude_status))
+            count_query = count_query.where(~Fix.status.in_(exclude_status))
 
         if confidence:
             query = query.where(Fix.confidence.in_(confidence))
@@ -323,7 +329,10 @@ class FixRepository:
         new_status: FixStatus,
         validate_transition: bool = True,
     ) -> Fix:
-        """Update the status of a fix.
+        """Update the status of a fix with row-level locking.
+
+        Uses SELECT FOR UPDATE to prevent race conditions when multiple
+        requests try to update the same fix concurrently.
 
         Args:
             fix_id: The fix ID
@@ -337,7 +346,15 @@ class FixRepository:
             FixNotFoundError: If the fix is not found
             InvalidStatusTransitionError: If the transition is invalid
         """
-        fix = await self.get_by_id_or_raise(fix_id)
+        # Use SELECT FOR UPDATE to lock the row during status check and update
+        # This prevents race conditions where two requests both pass the
+        # status validation check before either has updated the status
+        query = select(Fix).where(Fix.id == fix_id).with_for_update()
+        result = await self.db.execute(query)
+        fix = result.scalar_one_or_none()
+
+        if fix is None:
+            raise FixNotFoundError(fix_id)
 
         if validate_transition:
             valid_transitions = VALID_STATUS_TRANSITIONS.get(fix.status, set())

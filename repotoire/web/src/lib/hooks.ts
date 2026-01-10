@@ -198,47 +198,49 @@ export function useBatchReject() {
 }
 
 // Analytics hooks - wait for auth to be ready before making API calls
-export function useAnalyticsSummary() {
+// All analytics hooks now support optional repositoryId for filtering
+export function useAnalyticsSummary(repositoryId?: string) {
   const { isAuthReady } = useApiAuth();
   return useSWR<AnalyticsSummary>(
-    isAuthReady ? 'analytics-summary' : null,
-    () => analyticsApi.summary()
+    isAuthReady ? ['analytics-summary', repositoryId] : null,
+    () => analyticsApi.summary(repositoryId)
   );
 }
 
 export function useTrends(
   period: 'day' | 'week' | 'month' = 'week',
   limit: number = 30,
-  dateRange?: { from: Date; to: Date } | null
+  dateRange?: { from: Date; to: Date } | null,
+  repositoryId?: string
 ) {
   const { isAuthReady } = useApiAuth();
   return useSWR<TrendDataPoint[]>(
-    isAuthReady ? ['trends', period, limit, dateRange?.from?.toISOString(), dateRange?.to?.toISOString()] : null,
-    () => analyticsApi.trends(period, limit, dateRange)
+    isAuthReady ? ['trends', period, limit, dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), repositoryId] : null,
+    () => analyticsApi.trends(period, limit, dateRange, repositoryId)
   );
 }
 
-export function useByType() {
+export function useByType(repositoryId?: string) {
   const { isAuthReady } = useApiAuth();
   return useSWR<Record<string, number>>(
-    isAuthReady ? 'by-type' : null,
-    () => analyticsApi.byType()
+    isAuthReady ? ['by-type', repositoryId] : null,
+    () => analyticsApi.byType(repositoryId)
   );
 }
 
-export function useFileHotspots(limit: number = 10) {
+export function useFileHotspots(limit: number = 10, repositoryId?: string) {
   const { isAuthReady } = useApiAuth();
   return useSWR<FileHotspot[]>(
-    isAuthReady ? ['file-hotspots', limit] : null,
-    () => analyticsApi.fileHotspots(limit)
+    isAuthReady ? ['file-hotspots', limit, repositoryId] : null,
+    () => analyticsApi.fileHotspots(limit, repositoryId)
   );
 }
 
-export function useHealthScore() {
+export function useHealthScore(repositoryId?: string) {
   const { isAuthReady } = useApiAuth();
   return useSWR<HealthScore>(
-    isAuthReady ? 'health-score' : null,
-    () => analyticsApi.healthScore()
+    isAuthReady ? ['health-score', repositoryId] : null,
+    () => analyticsApi.healthScore(repositoryId)
   );
 }
 
@@ -474,7 +476,7 @@ export function useGenerateFixes() {
 }
 
 // Fix statistics hook
-export function useFixStats() {
+export function useFixStats(repositoryId?: string) {
   const { isAuthReady } = useApiAuth();
   return useSWR<{
     total: number;
@@ -485,8 +487,8 @@ export function useFixStats() {
     failed: number;
     by_status: Record<string, number>;
   }>(
-    isAuthReady ? 'fix-stats' : null,
-    () => analyticsApi.fixStats()
+    isAuthReady ? ['fix-stats', repositoryId] : null,
+    () => analyticsApi.fixStats(repositoryId)
   );
 }
 

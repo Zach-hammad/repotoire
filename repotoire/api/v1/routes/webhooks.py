@@ -61,12 +61,56 @@ def _validate_webhook_secret(secret: str, service_name: str) -> None:
 # ============================================================================
 
 
+async def try_claim_event(
+    db: AsyncSession,
+    event_id: str,
+    source: str,
+    event_type: str,
+) -> bool:
+    """Atomically try to claim a webhook event for processing.
+
+    Uses INSERT ... ON CONFLICT DO NOTHING to atomically check and mark
+    an event as being processed. This prevents TOCTOU race conditions
+    where two concurrent requests both pass the "is processed" check.
+
+    Args:
+        db: Database session
+        event_id: Unique event ID from external service
+        source: Source service (stripe, stripe_connect, clerk, github)
+        event_type: Type of event (e.g., customer.subscription.created)
+
+    Returns:
+        True if this request successfully claimed the event (should process it)
+        False if event was already claimed by another request (skip processing)
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    stmt = pg_insert(ProcessedWebhookEvent).values(
+        event_id=event_id,
+        source=source,
+        event_type=event_type,
+        processed_at=datetime.now(timezone.utc),
+    ).on_conflict_do_nothing(
+        index_elements=["event_id", "source"]
+    )
+
+    result = await db.execute(stmt)
+    await db.flush()  # Ensure the insert is visible within this transaction
+
+    # If rowcount > 0, we successfully inserted (claimed the event)
+    # If rowcount == 0, the row already existed (duplicate event)
+    return result.rowcount > 0
+
+
 async def is_event_processed(
     db: AsyncSession,
     event_id: str,
     source: str,
 ) -> bool:
     """Check if a webhook event has already been processed.
+
+    DEPRECATED: Use try_claim_event() instead for atomic check-and-claim.
+    This function is kept for backwards compatibility but has TOCTOU issues.
 
     Args:
         db: Database session
@@ -92,6 +136,9 @@ async def mark_event_processed(
     event_type: str,
 ) -> None:
     """Mark a webhook event as processed for deduplication.
+
+    DEPRECATED: Use try_claim_event() instead for atomic check-and-claim.
+    This function is kept for backwards compatibility.
 
     Args:
         db: Database session
@@ -716,8 +763,8 @@ async def stripe_webhook(
 
     logger.info(f"Received Stripe webhook: {event_type} (event_id={event_id})")
 
-    # Check for duplicate event (idempotency)
-    if await is_event_processed(db, event_id, "stripe"):
+    # Atomically try to claim this event for processing (prevents TOCTOU race conditions)
+    if not await try_claim_event(db, event_id, "stripe", event_type):
         logger.info(f"Skipping duplicate Stripe event: {event_id}")
         return {"status": "ok", "message": "duplicate event skipped"}
 
@@ -763,8 +810,8 @@ async def stripe_webhook(
         )
         # Return success - the event is logged, manual intervention may be needed
 
-    # Mark event as processed (idempotency - prevents duplicate processing on retry)
-    await mark_event_processed(db, event_id, "stripe", event_type)
+    # Commit the transaction (event was already marked as processed by try_claim_event)
+    await db.commit()
 
     return {"status": "ok"}
 
@@ -978,8 +1025,8 @@ async def stripe_connect_webhook(
 
     logger.info(f"Received Stripe Connect webhook: {event_type} (event_id={event_id})")
 
-    # Check for duplicate event (idempotency)
-    if await is_event_processed(db, event_id, "stripe_connect"):
+    # Atomically try to claim this event for processing (prevents TOCTOU race conditions)
+    if not await try_claim_event(db, event_id, "stripe_connect", event_type):
         logger.info(f"Skipping duplicate Stripe Connect event: {event_id}")
         return {"status": "ok", "message": "duplicate event skipped"}
 
@@ -1010,8 +1057,8 @@ async def stripe_connect_webhook(
             exc_info=True,
         )
 
-    # Mark event as processed (idempotency - prevents duplicate processing on retry)
-    await mark_event_processed(db, event_id, "stripe_connect", event_type)
+    # Commit the transaction (event was already marked as processed by try_claim_event)
+    await db.commit()
 
     return {"status": "ok"}
 

@@ -186,6 +186,9 @@ export const fixesApi = {
 
   // Batch approve fixes
   batchApprove: async (ids: string[]): Promise<ApiResponse<{ approved: number }>> => {
+    if (!ids || ids.length === 0) {
+      throw new ApiError('At least one fix ID is required', 400);
+    }
     return request<ApiResponse<{ approved: number }>>('/fixes/batch/approve', {
       method: 'POST',
       body: JSON.stringify({ ids }),
@@ -197,9 +200,15 @@ export const fixesApi = {
     ids: string[],
     reason: string
   ): Promise<ApiResponse<{ rejected: number }>> => {
+    if (!ids || ids.length === 0) {
+      throw new ApiError('At least one fix ID is required', 400);
+    }
+    if (!reason || reason.trim().length === 0) {
+      throw new ApiError('Rejection reason is required', 400);
+    }
     return request<ApiResponse<{ rejected: number }>>('/fixes/batch/reject', {
       method: 'POST',
-      body: JSON.stringify({ ids, reason }),
+      body: JSON.stringify({ ids, reason: reason.trim() }),
     });
   },
 
@@ -215,10 +224,18 @@ export const fixesApi = {
     analysisRunId: string,
     options?: { maxFixes?: number; severityFilter?: string[] }
   ): Promise<{ status: string; message: string; task_id?: string }> => {
-    return request(`/fixes/generate/${analysisRunId}`, {
+    if (!analysisRunId || analysisRunId.trim().length === 0) {
+      throw new ApiError('Analysis run ID is required', 400);
+    }
+    const maxFixes = options?.maxFixes ?? 10;
+    // Validate maxFixes is within reasonable bounds
+    if (maxFixes < 1 || maxFixes > 100) {
+      throw new ApiError('maxFixes must be between 1 and 100', 400);
+    }
+    return request(`/fixes/generate/${encodeURIComponent(analysisRunId.trim())}`, {
       method: 'POST',
       body: JSON.stringify({
-        max_fixes: options?.maxFixes ?? 10,
+        max_fixes: maxFixes,
         severity_filter: options?.severityFilter ?? ['critical', 'high'],
       }),
     });
@@ -317,12 +334,15 @@ export const findingsApi = {
     status: FindingStatus,
     reason?: string
   ): Promise<BulkUpdateStatusResponse> => {
+    if (!findingIds || findingIds.length === 0) {
+      throw new ApiError('At least one finding ID is required', 400);
+    }
     return request<BulkUpdateStatusResponse>('/findings/batch/status', {
       method: 'POST',
       body: JSON.stringify({
         finding_ids: findingIds,
         status,
-        reason,
+        reason: reason?.trim() || undefined,
       }),
     });
   },
@@ -331,15 +351,19 @@ export const findingsApi = {
 // Analytics API
 export const analyticsApi = {
   // Get dashboard summary
-  summary: async (): Promise<AnalyticsSummary> => {
-    return request<AnalyticsSummary>('/analytics/summary');
+  summary: async (repositoryId?: string): Promise<AnalyticsSummary> => {
+    const params = new URLSearchParams();
+    if (repositoryId) params.set('repository_id', repositoryId);
+    const query = params.toString();
+    return request<AnalyticsSummary>(`/analytics/summary${query ? `?${query}` : ''}`);
   },
 
   // Get trend data for charts
   trends: async (
     period: 'day' | 'week' | 'month' = 'week',
     limit: number = 30,
-    dateRange?: { from: Date; to: Date } | null
+    dateRange?: { from: Date; to: Date } | null,
+    repositoryId?: string
   ): Promise<TrendDataPoint[]> => {
     const params = new URLSearchParams();
     params.set('period', period);
@@ -350,27 +374,42 @@ export const analyticsApi = {
     if (dateRange?.to) {
       params.set('date_to', dateRange.to.toISOString().split('T')[0]);
     }
+    if (repositoryId) {
+      params.set('repository_id', repositoryId);
+    }
     return request<TrendDataPoint[]>(`/analytics/trends?${params}`);
   },
 
   // Get breakdown by detector type
-  byType: async (): Promise<Record<string, number>> => {
-    return request<Record<string, number>>('/analytics/by-type');
+  byType: async (repositoryId?: string): Promise<Record<string, number>> => {
+    const params = new URLSearchParams();
+    if (repositoryId) params.set('repository_id', repositoryId);
+    const query = params.toString();
+    return request<Record<string, number>>(`/analytics/by-type${query ? `?${query}` : ''}`);
   },
 
   // Get file hotspots
-  fileHotspots: async (limit: number = 10): Promise<FileHotspot[]> => {
-    return request<FileHotspot[]>(`/analytics/by-file?limit=${limit}`);
+  fileHotspots: async (limit: number = 10, repositoryId?: string): Promise<FileHotspot[]> => {
+    const params = new URLSearchParams();
+    params.set('limit', String(limit));
+    if (repositoryId) params.set('repository_id', repositoryId);
+    return request<FileHotspot[]>(`/analytics/by-file?${params}`);
   },
 
   // Get health score
-  healthScore: async (): Promise<HealthScore> => {
-    return request<HealthScore>('/analytics/health-score');
+  healthScore: async (repositoryId?: string): Promise<HealthScore> => {
+    const params = new URLSearchParams();
+    if (repositoryId) params.set('repository_id', repositoryId);
+    const query = params.toString();
+    return request<HealthScore>(`/analytics/health-score${query ? `?${query}` : ''}`);
   },
 
   // Get fix statistics
-  fixStats: async (): Promise<FixStatistics> => {
-    return request<FixStatistics>('/analytics/fix-stats');
+  fixStats: async (repositoryId?: string): Promise<FixStatistics> => {
+    const params = new URLSearchParams();
+    if (repositoryId) params.set('repository_id', repositoryId);
+    const query = params.toString();
+    return request<FixStatistics>(`/analytics/fix-stats${query ? `?${query}` : ''}`);
   },
 };
 

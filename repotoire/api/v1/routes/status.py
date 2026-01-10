@@ -6,6 +6,7 @@ They provide real-time service health information for the status page.
 
 from __future__ import annotations
 
+import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Literal
@@ -774,7 +775,7 @@ async def get_rss_feed(
     incidents = result.scalars().all()
 
     # Generate RSS feed
-    base_url = "https://api.repotoire.io"  # TODO: Make configurable
+    base_url = os.environ.get("REPOTOIRE_API_BASE_URL", "https://api.repotoire.io")
     rss_content = _generate_rss_feed(list(incidents), base_url)
 
     return Response(

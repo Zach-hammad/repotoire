@@ -331,15 +331,16 @@ async def complete_installation(
         installation_id
     )
 
-    # Check if installation already exists by installation_id
+    account_login = account.get("login", "")
+
+    # Use SELECT FOR UPDATE to prevent race conditions when multiple requests
+    # try to complete the same installation concurrently
     result = await db.execute(
-        select(GitHubInstallation).where(
-            GitHubInstallation.installation_id == installation_id
-        )
+        select(GitHubInstallation)
+        .where(GitHubInstallation.installation_id == installation_id)
+        .with_for_update(skip_locked=False)
     )
     installation = result.scalar_one_or_none()
-
-    account_login = account.get("login", "")
 
     if installation:
         # Update existing installation
@@ -350,11 +351,14 @@ async def complete_installation(
     else:
         # Check if there's an existing installation for the same account (reinstall case)
         # This handles when user uninstalls and reinstalls - GitHub gives new installation_id
+        # Use FOR UPDATE to lock these rows during the transaction
         result = await db.execute(
-            select(GitHubInstallation).where(
+            select(GitHubInstallation)
+            .where(
                 GitHubInstallation.organization_id == org.id,
                 GitHubInstallation.account_login == account_login,
             )
+            .with_for_update(skip_locked=False)
         )
         existing_for_account = result.scalars().all()
 

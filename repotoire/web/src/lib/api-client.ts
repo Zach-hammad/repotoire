@@ -5,6 +5,9 @@ import { useCallback, useMemo } from "react";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
+/** Default network timeout in milliseconds (30 seconds) */
+const DEFAULT_TIMEOUT_MS = 30000;
+
 /**
  * Error class for API errors with status code
  */
@@ -22,8 +25,10 @@ export class ApiClientError extends Error {
 /**
  * Type for request options
  */
-interface RequestOptions extends Omit<RequestInit, "body"> {
+interface RequestOptions extends Omit<RequestInit, "body" | "signal"> {
   body?: unknown;
+  /** Request timeout in milliseconds (default: 30000) */
+  timeout?: number;
 }
 
 /**
@@ -46,10 +51,11 @@ export function useApiClient() {
 
   /**
    * Make an authenticated request to the API
+   * Includes network timeout and auto-redirect on 401
    */
   const fetchWithAuth = useCallback(
     async <T>(endpoint: string, options: RequestOptions = {}): Promise<T> => {
-      const { body, headers: customHeaders, ...restOptions } = options;
+      const { body, headers: customHeaders, timeout = DEFAULT_TIMEOUT_MS, ...restOptions } = options;
 
       // Get the Clerk token
       const token = await getToken();
@@ -64,34 +70,61 @@ export function useApiClient() {
         (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        ...restOptions,
-        headers,
-        body: body ? JSON.stringify(body) : undefined,
-      });
+      // Set up timeout with AbortController
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-      if (!response.ok) {
-        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-        let details: unknown;
+      try {
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+          ...restOptions,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+          signal: controller.signal,
+        });
 
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.detail || errorData.message || errorMessage;
-          details = errorData;
-        } catch {
-          // Use default error message if JSON parsing fails
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          // Auto-redirect to sign-in on 401 Unauthorized
+          if (response.status === 401) {
+            // Store the current path for redirect after login
+            const returnUrl = typeof window !== "undefined" ? window.location.pathname : "/dashboard";
+            window.location.href = `/sign-in?redirect_url=${encodeURIComponent(returnUrl)}`;
+            // Throw error to prevent further processing
+            throw new ApiClientError("Session expired. Redirecting to sign in...", 401);
+          }
+
+          let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+          let details: unknown;
+
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.detail || errorData.message || errorMessage;
+            details = errorData;
+          } catch {
+            // Use default error message if JSON parsing fails
+          }
+
+          throw new ApiClientError(errorMessage, response.status, details);
         }
 
-        throw new ApiClientError(errorMessage, response.status, details);
-      }
+        // Handle empty responses
+        const text = await response.text();
+        if (!text) {
+          return {} as T;
+        }
 
-      // Handle empty responses
-      const text = await response.text();
-      if (!text) {
-        return {} as T;
-      }
+        return JSON.parse(text);
+      } catch (error) {
+        clearTimeout(timeoutId);
 
-      return JSON.parse(text);
+        // Handle timeout errors
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new ApiClientError(`Request timeout after ${timeout}ms`, 408);
+        }
+
+        throw error;
+      }
     },
     [getToken]
   );
@@ -163,7 +196,7 @@ export async function fetchWithServerAuth<T>(
   token: string | null,
   options: RequestOptions = {}
 ): Promise<T> {
-  const { body, headers: customHeaders, ...restOptions } = options;
+  const { body, headers: customHeaders, timeout = DEFAULT_TIMEOUT_MS, ...restOptions } = options;
 
   const headers: HeadersInit = {
     "Content-Type": "application/json",
@@ -174,31 +207,49 @@ export async function fetchWithServerAuth<T>(
     (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...restOptions,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  // Set up timeout with AbortController
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-  if (!response.ok) {
-    let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-    let details: unknown;
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...restOptions,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
 
-    try {
-      const errorData = await response.json();
-      errorMessage = errorData.detail || errorData.message || errorMessage;
-      details = errorData;
-    } catch {
-      // Use default error message
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      let details: unknown;
+
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.detail || errorData.message || errorMessage;
+        details = errorData;
+      } catch {
+        // Use default error message
+      }
+
+      throw new ApiClientError(errorMessage, response.status, details);
     }
 
-    throw new ApiClientError(errorMessage, response.status, details);
-  }
+    const text = await response.text();
+    if (!text) {
+      return {} as T;
+    }
 
-  const text = await response.text();
-  if (!text) {
-    return {} as T;
-  }
+    return JSON.parse(text);
+  } catch (error) {
+    clearTimeout(timeoutId);
 
-  return JSON.parse(text);
+    // Handle timeout errors
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new ApiClientError(`Request timeout after ${timeout}ms`, 408);
+    }
+
+    throw error;
+  }
 }

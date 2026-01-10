@@ -22,6 +22,9 @@ import {
   Loader2,
   Wand2,
 } from 'lucide-react';
+import { StaggerReveal, StaggerItem, FadeIn } from '@/components/transitions/stagger-reveal';
+import { HealthGauge } from '@/components/dashboard/health-gauge';
+import { SeverityPulse, SeverityBar } from '@/components/dashboard/severity-pulse';
 import { useAnalyticsSummary, useTrends, useFileHotspots, useHealthScore, useAnalysisHistory, useFindings, useGenerateFixes, useFixStats, useRepositories, useGitHubInstallations, useFixes } from '@/lib/hooks';
 import { OnboardingWizard } from '@/components/onboarding/onboarding-wizard';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -100,12 +103,14 @@ function HealthScoreGauge({ loading }: { loading?: boolean }) {
 
   if (loading || !healthScore) {
     return (
-      <Card className="card-elevated">
+      <Card className="card-elevated card-diagnostic">
         <CardHeader className="pb-3">
           <CardTitle className="font-display text-sm">Health Score</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Skeleton className="h-16 w-full" />
+          <div className="flex justify-center">
+            <Skeleton className="h-[180px] w-[180px] rounded-full" />
+          </div>
           <div className="space-y-2">
             <Skeleton className="h-6 w-full" />
             <Skeleton className="h-6 w-full" />
@@ -116,29 +121,29 @@ function HealthScoreGauge({ loading }: { loading?: boolean }) {
     );
   }
 
-  const { score, grade, trend, categories } = healthScore;
+  const { score, trend, categories } = healthScore;
+  const scoreValue = score ?? 0;
 
   const TrendIcon = trend === 'improving' ? TrendingUp : trend === 'declining' ? TrendingDown : Minus;
-  const trendColor = trend === 'improving' ? 'text-green-500' : trend === 'declining' ? 'text-red-500' : 'text-muted-foreground';
+  const trendColor = trend === 'improving' ? 'status-nominal' : trend === 'declining' ? 'status-critical' : 'text-muted-foreground';
 
-  // Category colors matching the brand gradient
+  // Category colors - updated to clinical teal palette
   const categoryColors: Record<string, string> = {
-    structure: '#8b5cf6',
-    quality: '#ec4899',
-    architecture: '#f97316',
+    structure: 'var(--chart-1)',
+    quality: 'var(--chart-2)',
+    architecture: 'var(--chart-3)',
   };
 
   // Navigate to findings filtered by category detectors
   const handleCategoryClick = (category: string) => {
     const detectors = categoryDetectorMapping[category];
     if (detectors && detectors.length > 0) {
-      // Navigate to findings page with detector filter
       router.push(`/dashboard/findings?category=${category}`);
     }
   };
 
   return (
-    <Card className="card-elevated">
+    <Card className="card-elevated card-diagnostic">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="font-display text-sm">Health Score</CardTitle>
@@ -149,42 +154,31 @@ function HealthScoreGauge({ loading }: { loading?: boolean }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Big Number Hero */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-baseline gap-1">
-            <span className="text-4xl font-bold font-display text-gradient">{score}</span>
-            <span className="text-lg text-muted-foreground">/100</span>
-          </div>
-          {grade && (
-            <Badge
-              className="text-white text-xs px-2 py-0.5"
-              style={{ backgroundColor: gradeColors[grade] }}
-            >
-              Grade {grade}
-            </Badge>
-          )}
+        {/* Animated Health Gauge */}
+        <div className="flex justify-center py-2">
+          <HealthGauge score={scoreValue} size="md" showPulse={scoreValue < 70} />
         </div>
 
         {/* Category Breakdown - Clickable Bars */}
         {categories && (
-          <div className="space-y-2">
+          <div className="space-y-2.5 pt-2">
             {Object.entries(categories).map(([key, value]) => (
               <button
                 key={key}
                 onClick={() => handleCategoryClick(key)}
-                className="w-full space-y-1 text-left hover:bg-muted/50 rounded-md p-1 -m-1 transition-colors cursor-pointer group"
+                className="w-full space-y-1 text-left hover:bg-muted/50 rounded-md p-1.5 -m-1 transition-colors cursor-pointer group"
                 title={`View ${key} issues`}
               >
                 <div className="flex items-center justify-between text-xs">
                   <span className="capitalize font-medium group-hover:text-primary transition-colors">{key}</span>
-                  <span className="text-muted-foreground tabular-nums">{value}%</span>
+                  <span className="text-muted-foreground tabular-nums font-mono">{value}%</span>
                 </div>
-                <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+                <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all duration-500"
                     style={{
                       width: `${value}%`,
-                      backgroundColor: categoryColors[key] || '#6366f1',
+                      backgroundColor: categoryColors[key] || 'var(--primary)',
                     }}
                   />
                 </div>
@@ -194,8 +188,8 @@ function HealthScoreGauge({ loading }: { loading?: boolean }) {
         )}
 
         {/* Actionable hint */}
-        <p className="text-[10px] text-muted-foreground/70 text-center">
-          Click a category to see related issues
+        <p className="text-[10px] text-muted-foreground/60 text-center font-mono uppercase tracking-wide">
+          Click category to drill down
         </p>
       </CardContent>
     </Card>
@@ -1237,7 +1231,9 @@ export default function DashboardPage() {
     try {
       await exportToPdf();
     } catch (error) {
-      console.error('Export failed:', error);
+      toast.error('Export failed', {
+        description: error instanceof Error ? error.message : 'Unable to generate PDF',
+      });
     } finally {
       setIsExporting(false);
     }
@@ -1255,12 +1251,12 @@ export default function DashboardPage() {
       )}
 
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <FadeIn className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight font-display">
+          <h1 className="headline-lg tracking-tight">
             <span className="text-gradient">Dashboard</span>
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Code health analysis and findings overview
           </p>
         </div>
@@ -1291,45 +1287,53 @@ export default function DashboardPage() {
             </Button>
           </Link>
         </div>
-      </div>
+      </FadeIn>
 
       {/* Dashboard content for PDF export */}
       <div id="dashboard-content" className="space-y-6">
-      {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="Total Findings"
-          value={summary?.total_findings || 0}
-          description="Issues detected in analysis"
-          icon={Zap}
-          loading={isLoading}
-          trend={trends.total}
-        />
-        <StatCard
-          title="Critical"
-          value={summary?.critical || 0}
-          description="Urgent issues requiring attention"
-          icon={AlertTriangle}
-          loading={isLoading}
-          trend={trends.critical}
-        />
-        <StatCard
-          title="High Severity"
-          value={summary?.high || 0}
-          description="Important issues to address"
-          icon={XCircle}
-          loading={isLoading}
-          trend={trends.high}
-        />
-        <StatCard
-          title="Medium/Low"
-          value={(summary?.medium || 0) + (summary?.low || 0)}
-          description="Less urgent improvements"
-          icon={Clock}
-          loading={isLoading}
-          trend={trends.mediumLow}
-        />
-      </div>
+      {/* Stats Grid with Staggered Animation */}
+      <StaggerReveal className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <StaggerItem>
+          <StatCard
+            title="Total Findings"
+            value={summary?.total_findings || 0}
+            description="Issues detected in analysis"
+            icon={Zap}
+            loading={isLoading}
+            trend={trends.total}
+          />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard
+            title="Critical"
+            value={summary?.critical || 0}
+            description="Urgent issues requiring attention"
+            icon={AlertTriangle}
+            loading={isLoading}
+            trend={trends.critical}
+          />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard
+            title="High Severity"
+            value={summary?.high || 0}
+            description="Important issues to address"
+            icon={XCircle}
+            loading={isLoading}
+            trend={trends.high}
+          />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard
+            title="Medium/Low"
+            value={(summary?.medium || 0) + (summary?.low || 0)}
+            description="Less urgent improvements"
+            icon={Clock}
+            loading={isLoading}
+            trend={trends.mediumLow}
+          />
+        </StaggerItem>
+      </StaggerReveal>
 
       {/* Severity Cards - Clickable with colored left border */}
       {/* Shows all if no filter, or only filtered severities */}
