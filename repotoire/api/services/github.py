@@ -19,6 +19,9 @@ logger = get_logger(__name__)
 # GitHub API base URL
 GITHUB_API_BASE = "https://api.github.com"
 
+# Default timeout for GitHub API requests
+DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+
 
 class GitHubAppClient:
     """Client for GitHub App API calls.
@@ -100,7 +103,7 @@ class GitHubAppClient:
         """
         jwt_token = self.generate_jwt()
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.post(
                 f"{GITHUB_API_BASE}/app/installations/{installation_id}/access_tokens",
                 headers={
@@ -135,7 +138,7 @@ class GitHubAppClient:
         """
         jwt_token = self.generate_jwt()
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{GITHUB_API_BASE}/app/installations/{installation_id}",
                 headers={
@@ -166,7 +169,7 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{GITHUB_API_BASE}/installation/repositories",
                 params={"per_page": per_page, "page": page},
@@ -232,7 +235,7 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
                 headers={
@@ -263,7 +266,7 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{GITHUB_API_BASE}/repos/{owner}/{repo}",
                 headers={

@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from svix.webhooks import Webhook, WebhookVerificationError
@@ -29,6 +31,14 @@ from repotoire.services.audit import get_audit_service
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
+
+# Rate limiter for webhook endpoints
+# Prevents abuse while allowing legitimate webhook traffic
+# Stripe/Clerk may retry on failure, so limits are generous
+webhook_limiter = Limiter(
+    key_func=get_remote_address,
+    storage_uri=os.getenv("REDIS_URL", "memory://"),
+)
 
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 STRIPE_CONNECT_WEBHOOK_SECRET = os.environ.get("STRIPE_CONNECT_WEBHOOK_SECRET", "")
@@ -732,6 +742,7 @@ async def handle_charge_refunded(
 
 
 @router.post("/stripe")
+@webhook_limiter.limit("100/minute")
 async def stripe_webhook(
     request: Request,
     stripe_signature: str = Header(alias="Stripe-Signature"),
@@ -802,13 +813,16 @@ async def stripe_webhook(
         # Re-raise HTTP exceptions (these are intentional failures)
         raise
     except Exception as e:
-        # Log error but return success to prevent infinite retries
-        # Stripe will retry on 4xx/5xx, so we log and accept to avoid loops
+        # Log error and re-raise to return 500, allowing Stripe to retry
+        # Stripe retries webhooks up to 3 days with exponential backoff
         logger.error(
             f"Error processing Stripe webhook {event_type}: {e}",
             exc_info=True,
         )
-        # Return success - the event is logged, manual intervention may be needed
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error processing webhook: {event_type}",
+        )
 
     # Commit the transaction (event was already marked as processed by try_claim_event)
     await db.commit()
@@ -991,6 +1005,7 @@ async def handle_payout_failed(
 
 
 @router.post("/stripe/connect")
+@webhook_limiter.limit("100/minute")
 async def stripe_connect_webhook(
     request: Request,
     stripe_signature: str = Header(alias="Stripe-Signature"),
@@ -1172,7 +1187,10 @@ async def handle_clerk_subscription_created(
     current_period_end = (
         datetime.fromtimestamp(period_end, tz=timezone.utc)
         if period_end
-        else now.replace(month=now.month + 1 if now.month < 12 else 1)
+        else now.replace(
+            year=now.year + 1 if now.month == 12 else now.year,
+            month=1 if now.month == 12 else now.month + 1,
+        )
     )
 
     # Get seat count from metadata or quantity
@@ -1632,6 +1650,7 @@ async def handle_organization_deleted(
 
 
 @router.post("/clerk")
+@webhook_limiter.limit("100/minute")
 async def clerk_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -1727,6 +1746,7 @@ async def clerk_webhook(
 
 
 @router.post("/github")
+@webhook_limiter.limit("200/minute")
 async def github_webhook_alias(
     request: Request,
     db: AsyncSession = Depends(get_db),

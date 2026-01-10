@@ -118,6 +118,16 @@ export function HealthTrendChart({
         </div>
       </CardHeader>
       <CardContent>
+        <div
+          role="img"
+          aria-label={`Health score trend chart showing ${data.length} data points. ${
+            trend.direction === 'up'
+              ? `Score increased by ${trend.change} points`
+              : trend.direction === 'down'
+              ? `Score decreased by ${trend.change} points`
+              : 'Score remained stable'
+          }. Latest score: ${data[data.length - 1]?.score || 'N/A'}.`}
+        >
         <ResponsiveContainer width="100%" height={height}>
           {showCategories ? (
             <LineChart data={data} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
@@ -198,6 +208,7 @@ export function HealthTrendChart({
             </AreaChart>
           )}
         </ResponsiveContainer>
+        </div>
 
         {showCategories && (
           <div className="flex items-center justify-center gap-4 mt-4 text-xs">

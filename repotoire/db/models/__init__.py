@@ -58,6 +58,7 @@ from .changelog import (
     DigestFrequency,
     UserChangelogRead,
 )
+from .cli_token import CLIToken, generate_token, hash_token
 from .marketplace import (
     AssetType,
     AssetVisibility,
@@ -167,4 +168,8 @@ __all__ = [
     "PricingType",
     "AssetVisibility",
     "PurchaseStatus",
+    # CLI Token
+    "CLIToken",
+    "generate_token",
+    "hash_token",
 ]

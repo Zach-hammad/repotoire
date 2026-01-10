@@ -280,6 +280,7 @@ export const findingsApi = {
       if (filters.detector) params.set('detector', filters.detector);
       if (filters.analysis_run_id) params.set('analysis_run_id', filters.analysis_run_id);
       if (filters.repository_id) params.set('repository_id', filters.repository_id);
+      if (filters.search) params.set('search', filters.search);
     }
 
     return request<PaginatedResponse<Finding>>(`/findings?${params}`);

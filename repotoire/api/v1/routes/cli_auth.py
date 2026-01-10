@@ -36,11 +36,13 @@ from repotoire.api.shared.auth.state_store import (
 from repotoire.db.models import (
     AuditLog,
     AuditStatus,
+    CLIToken,
     EventSource,
     Organization,
     OrganizationMembership,
     PlanTier,
     User,
+    hash_token,
 )
 from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
@@ -396,18 +398,18 @@ async def exchange_cli_token(
                 org_slug = org.slug
                 tier = org.plan_tier.value if org.plan_tier else "free"
 
+        # Create a secure token pair and store in database
+        cli_token, refresh_token, access_token = CLIToken.create_token_pair(
+            user_id=db_user.id,
+            user_agent=None,  # Could extract from request headers
+            ip_address=None,  # Could extract from request
+        )
+        db.add(cli_token)
         await db.commit()
-
-        # Generate access token (using Clerk session token)
-        # In production, you might want to generate your own JWT
-        access_token = session.last_active_token.jwt if session.last_active_token else request.code
 
         # Token expires in 1 hour
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(hours=1)
-
-        # Create a simple refresh token (in production, use a more secure method)
-        refresh_token = secrets.token_urlsafe(64)
 
         logger.info(f"CLI token exchange successful for user {user_email}")
 
@@ -467,18 +469,43 @@ async def cli_auth_callback(
 @router.post("/auth/refresh", response_model=CLITokenResponse)
 async def refresh_cli_token(
     request: CLIRefreshRequest,
-    user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CLITokenResponse:
     """Refresh expired CLI access token.
 
-    Requires a valid (possibly expired) access token and refresh token.
+    Validates the refresh token and generates new token pair.
+    Uses token rotation - old tokens become invalid after refresh.
     """
-    # In a real implementation, you would verify the refresh token
-    # and generate a new access token
+    # Validate the refresh token by looking up its hash
+    token_hash = hash_token(request.refresh_token)
+    result = await db.execute(
+        select(CLIToken).where(CLIToken.refresh_token_hash == token_hash)
+    )
+    cli_token = result.scalar_one_or_none()
+
+    if not cli_token:
+        logger.warning("CLI token refresh failed: invalid refresh token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+
+    if cli_token.is_revoked:
+        logger.warning(f"CLI token refresh failed: token revoked for user {cli_token.user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has been revoked",
+        )
+
+    if cli_token.is_expired:
+        logger.warning(f"CLI token refresh failed: token expired for user {cli_token.user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has expired",
+        )
 
     # Get user from database
-    result = await db.execute(select(User).where(User.clerk_user_id == user.user_id))
+    result = await db.execute(select(User).where(User.id == cli_token.user_id))
     db_user = result.scalar_one_or_none()
 
     if not db_user:
@@ -508,14 +535,14 @@ async def refresh_cli_token(
             org_slug = org.slug
             tier = org.plan_tier.value if org.plan_tier else "free"
 
-    # Generate new tokens
+    # Rotate tokens - generates new pair and invalidates old tokens
+    new_refresh_token, new_access_token = cli_token.rotate()
+
+    # Commit the token rotation
+    await db.commit()
+
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(hours=1)
-    new_refresh_token = secrets.token_urlsafe(64)
-
-    # In production, generate a proper JWT
-    # For now, we'll create a simple token
-    new_access_token = secrets.token_urlsafe(32)
 
     logger.info(f"CLI token refreshed for user {db_user.email}")
 
@@ -523,7 +550,7 @@ async def refresh_cli_token(
         access_token=new_access_token,
         refresh_token=new_refresh_token,
         expires_at=expires_at.isoformat(),
-        user_id=user.user_id,
+        user_id=db_user.clerk_user_id,
         user_email=db_user.email,
         org_id=org_id,
         org_slug=org_slug,
@@ -576,12 +603,17 @@ async def switch_cli_org(
             detail=f"You are not a member of organization '{request.org_slug}'",
         )
 
-    # Generate new tokens with org context
+    # Create a secure token pair and store in database
+    cli_token, new_refresh_token, new_access_token = CLIToken.create_token_pair(
+        user_id=db_user.id,
+        user_agent=None,
+        ip_address=None,
+    )
+    db.add(cli_token)
+    await db.commit()
+
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(hours=1)
-    new_access_token = secrets.token_urlsafe(32)
-    new_refresh_token = secrets.token_urlsafe(64)
-
     tier = target_org.plan_tier.value if target_org.plan_tier else "free"
 
     logger.info(f"CLI org switched to {target_org.slug} for user {db_user.email}")

@@ -439,9 +439,11 @@ async def ingest_git_history(request: IngestGitRequest, user: ClerkUser = Depend
                 detail="OPENAI_API_KEY environment variable not set"
             )
 
-        # Get FalkorDB credentials
-        falkor_uri = os.getenv("REPOTOIRE_FALKOR_URI", "falkor://localhost:6379")
-        falkor_password = os.getenv("REPOTOIRE_FALKOR_PASSWORD")
+        # Get FalkorDB credentials (support both FALKORDB_* and REPOTOIRE_* prefixes)
+        falkor_host = os.getenv("FALKORDB_HOST", os.getenv("REPOTOIRE_FALKORDB_HOST", "localhost"))
+        falkor_port = os.getenv("FALKORDB_PORT", os.getenv("REPOTOIRE_FALKORDB_PORT", "6379"))
+        falkor_uri = os.getenv("REPOTOIRE_FALKOR_URI", f"falkor://{falkor_host}:{falkor_port}")
+        falkor_password = os.getenv("FALKORDB_PASSWORD", os.getenv("REPOTOIRE_FALKOR_PASSWORD"))
 
         # Initialize Graphiti with FalkorDB
         graphiti = Graphiti(falkor_uri, falkor_password)

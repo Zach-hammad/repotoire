@@ -424,7 +424,7 @@ async def _send_via_sendgrid(message: EmailMessage, api_key: str) -> bool:
     try:
         import httpx
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
             response = await client.post(
                 "https://api.sendgrid.com/v3/mail/send",
                 headers={

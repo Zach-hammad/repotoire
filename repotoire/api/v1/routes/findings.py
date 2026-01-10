@@ -399,6 +399,7 @@ async def list_findings(
         example=["critical", "high"],
     ),
     detector: Optional[str] = Query(None, description="Filter by detector name (e.g., 'ruff', 'bandit')"),
+    search: Optional[str] = Query(None, description="Search term to filter by title or description"),
     all_runs: bool = Query(False, description="Include findings from all runs, not just the latest per repo"),
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(20, ge=1, le=100, description="Number of items per page"),
@@ -460,6 +461,13 @@ async def list_findings(
 
     if detector:
         query = query.where(Finding.detector == detector)
+
+    if search:
+        # Case-insensitive search on title and description
+        search_term = f"%{search}%"
+        query = query.where(
+            (Finding.title.ilike(search_term)) | (Finding.description.ilike(search_term))
+        )
 
     # Count total
     count_query = select(func.count()).select_from(query.subquery())

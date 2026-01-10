@@ -185,6 +185,7 @@ export interface FindingFilters {
   detector?: string;
   analysis_run_id?: string;
   repository_id?: string;
+  search?: string;
 }
 
 // A single code change within a fix

@@ -317,7 +317,7 @@ class NotificationService:
             ],
         }
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
             await client.post(self.slack_webhook_url, json=payload)
 
 

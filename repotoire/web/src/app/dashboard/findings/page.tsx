@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Suspense, useEffect } from 'react';
+import { useState, Suspense, useEffect, useDeferredValue } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -316,6 +316,7 @@ function FindingsContent() {
     return (searchParams.get('direction') as 'asc' | 'desc') || 'desc';
   });
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [selectedFindings, setSelectedFindings] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [detailLevel, setDetailLevel] = useState<DetailLevel>('simple');
@@ -348,6 +349,9 @@ function FindingsContent() {
   }
   if (detectorFilter !== 'all') {
     filters.detector = detectorFilter;
+  }
+  if (deferredSearchQuery.trim()) {
+    filters.search = deferredSearchQuery.trim();
   }
 
   const repositoryId = repositoryFilter !== 'all' ? repositoryFilter : undefined;

@@ -252,7 +252,7 @@ class PythonASTVisitor(ast.NodeVisitor):
                 try:
                     decorator_name = ast.unparse(decorator)
                     decorators.append(decorator_name)
-                except:
+                except (ValueError, TypeError, RecursionError):
                     decorators.append("unknown_decorator")
 
         # Build qualified name
@@ -562,7 +562,7 @@ class PythonASTVisitor(ast.NodeVisitor):
         else:
             try:
                 return ast.unparse(decorator)
-            except:
+            except (ValueError, TypeError, RecursionError):
                 return "unknown_decorator"
 
     def _resolve_decorator_name(self, decorator: ast.expr) -> Optional[str]:

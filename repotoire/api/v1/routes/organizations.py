@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -100,6 +100,9 @@ class MembersListResponse(BaseModel):
 
     members: List[MemberResponse]
     total: int
+    page: int = 1
+    page_size: int = 50
+    has_more: bool = False
 
 
 # =============================================================================
@@ -432,10 +435,12 @@ async def delete_organization(
 @router.get("/{slug}/members", response_model=MembersListResponse)
 async def list_members(
     slug: str,
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(50, ge=1, le=100, description="Number of items per page"),
     user: ClerkUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> MembersListResponse:
-    """List all members of an organization.
+    """List all members of an organization with pagination.
 
     User must be a member to view the member list.
     """
@@ -454,12 +459,23 @@ async def list_members(
             detail="Not a member of this organization",
         )
 
-    # Get members with user details
+    # Get total count
+    count_result = await session.execute(
+        select(func.count(OrganizationMembership.id)).where(
+            OrganizationMembership.organization_id == org.id
+        )
+    )
+    total = count_result.scalar() or 0
+
+    # Get paginated members with user details
+    offset = (page - 1) * page_size
     result = await session.execute(
         select(OrganizationMembership, User)
         .join(User, OrganizationMembership.user_id == User.id)
         .where(OrganizationMembership.organization_id == org.id)
         .order_by(OrganizationMembership.role, User.email)
+        .offset(offset)
+        .limit(page_size)
     )
 
     members = []
@@ -478,7 +494,10 @@ async def list_members(
 
     return MembersListResponse(
         members=members,
-        total=len(members),
+        total=total,
+        page=page,
+        page_size=page_size,
+        has_more=(offset + len(members)) < total,
     )
 
 

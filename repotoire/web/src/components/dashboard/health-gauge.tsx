@@ -175,20 +175,25 @@ export function HealthGauge({ score, size = 'md', showPulse = true, className }:
 
 // Compact inline version for tables/lists
 export function HealthGaugeInline({ score, className }: { score: number; className?: string }) {
-  const { grade, color } = getGrade(score);
+  const { grade, color, status } = getGrade(score);
 
   return (
-    <div className={cn('inline-flex items-center gap-2', className)}>
+    <div
+      className={cn('inline-flex items-center gap-2', className)}
+      role="img"
+      aria-label={`Health score: ${score.toFixed(1)}, Grade: ${grade}, Status: ${status}`}
+    >
       <span
         className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold"
         style={{
           backgroundColor: `color-mix(in oklch, ${color} 15%, transparent)`,
           color,
         }}
+        aria-hidden="true"
       >
         {grade}
       </span>
-      <span className="text-sm tabular-nums text-muted-foreground">{score.toFixed(1)}</span>
+      <span className="text-sm tabular-nums text-muted-foreground" aria-hidden="true">{score.toFixed(1)}</span>
     </div>
   );
 }
