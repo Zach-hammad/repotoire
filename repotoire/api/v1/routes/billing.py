@@ -260,28 +260,28 @@ async def get_invoices(
 
 @router.get(
     "/payment-method",
-    response_model=PaymentMethodResponse,
+    response_model=PaymentMethodResponse | None,
     summary="Get payment method (stub)",
     description="Returns null. Payment methods managed via Clerk.",
 )
 async def get_payment_method(
     user: ClerkUser = Depends(get_current_user),
-) -> PaymentMethodResponse:
+) -> PaymentMethodResponse | None:
     """Stub endpoint - payment methods are now managed via Clerk."""
-    return PaymentMethodResponse()
+    return None
 
 
 @router.get(
     "/portal",
     response_model=PortalUrlResponse,
     summary="Get billing portal URL (stub)",
-    description="Returns null. Use Clerk's AccountPortal component instead.",
+    description="Returns empty URL. Use Clerk's AccountPortal component instead.",
 )
 async def get_billing_portal_url(
     user: ClerkUser = Depends(get_current_user),
 ) -> PortalUrlResponse:
     """Stub endpoint - billing portal is now via Clerk's AccountPortal component."""
-    return PortalUrlResponse(url=None)
+    return PortalUrlResponse()
 
 
 # NOTE: Full checkout, portal, calculate-price, and plans endpoints have been removed.
