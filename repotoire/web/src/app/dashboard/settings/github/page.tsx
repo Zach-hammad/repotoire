@@ -8,6 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { GitHubInstallButton, GitHubInstallButtonSecondary } from "@/components/github/install-button";
 import { InstallationList } from "@/components/github/installation-card";
 import { useApiClient } from "@/lib/api-client";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 
 // Types matching backend response
 interface GitHubInstallation {
@@ -48,7 +49,7 @@ function GitHubSettingsContent() {
       router.replace(`/dashboard/settings/github?status=${result.status}&action=${action}&account=${result.account || ""}`);
     } catch (err) {
       console.error("Failed to complete installation:", err);
-      setError("Failed to complete GitHub installation. Please try again.");
+      setError("Unable to complete GitHub installation. Check that the GitHub App has the required permissions, then try connecting again. (ERR_REPO_003)");
       // Clear the installation params from URL
       router.replace("/dashboard/settings/github");
     } finally {
@@ -75,7 +76,7 @@ function GitHubSettingsContent() {
       setInstallations(data);
     } catch (err) {
       console.error("Failed to load installations:", err);
-      setError("Failed to load GitHub installations. Please try again.");
+      setError("Unable to load GitHub connections. Check your network connection and refresh the page. (ERR_REPO_003)");
     } finally {
       setLoading(false);
     }
@@ -83,11 +84,19 @@ function GitHubSettingsContent() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">GitHub Integration</h1>
-        <p className="text-muted-foreground">
-          Connect your GitHub repositories for automatic code health analysis.
-        </p>
+      <div className="space-y-4">
+        <Breadcrumb
+          items={[
+            { label: 'Settings', href: '/dashboard/settings' },
+            { label: 'GitHub Integration' },
+          ]}
+        />
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">GitHub Integration</h1>
+          <p className="text-muted-foreground">
+            Connect your GitHub repositories for automatic code health analysis.
+          </p>
+        </div>
       </div>
 
       {/* Completing Installation */}

@@ -3,29 +3,22 @@
 /**
  * Billing Page - Subscription & Usage Management
  *
- * Comprehensive billing dashboard with:
- * - Subscription status banners
- * - Usage tracking and limits
- * - Payment method management
- * - Invoice history
- * - Seat management (for Pro/Enterprise)
+ * Billing is managed through Clerk. This page shows:
+ * - Usage tracking and limits (from our API)
+ * - Links to Clerk's billing management
+ * - Plan upgrade options
  */
 
 import { Suspense, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useClerk } from '@clerk/nextjs';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2 } from 'lucide-react';
-import {
-  useSubscription,
-  useInvoices,
-  usePaymentMethod,
-} from '@/lib/hooks';
+import { Loader2, CreditCard, Receipt, ExternalLink } from 'lucide-react';
+import { useSubscription } from '@/lib/hooks';
 import {
   UsageDashboard,
-  PaymentMethodCard,
-  InvoiceHistory,
   SeatManagement,
   SubscriptionBanner,
   AutoSubscriptionBanner,
@@ -40,11 +33,6 @@ function BillingContent() {
   const canceled = searchParams.get('canceled');
 
   const { subscription, usage, isLoading: subLoading } = useSubscription();
-  const { data: invoiceData, isLoading: invLoading } = useInvoices(10);
-  const { data: paymentMethod, isLoading: pmLoading } = usePaymentMethod();
-
-  const invoices = invoiceData?.invoices || [];
-  const hasMore = invoiceData?.hasMore || false;
 
   const [showSuccessBanner, setShowSuccessBanner] = useState(!!success);
   const [showCanceledBanner, setShowCanceledBanner] = useState(!!canceled);
@@ -117,7 +105,6 @@ function BillingContent() {
       <Tabs defaultValue="overview" className="space-y-6">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="invoices">Invoices</TabsTrigger>
           {subscription.tier !== 'free' && (
             <TabsTrigger value="manage">Manage Plan</TabsTrigger>
           )}
@@ -140,46 +127,58 @@ function BillingContent() {
               showWarnings
             />
 
-            {/* Payment Method */}
-            <PaymentMethodCard
-              paymentMethod={paymentMethod}
-              isLoading={pmLoading}
-              onUpdatePaymentMethod={handleOpenPortal}
-            />
+            {/* Payment & Invoices Card - Links to Clerk */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CreditCard className="h-5 w-5" />
+                  Payment & Invoices
+                </CardTitle>
+                <CardDescription>
+                  Manage your payment method and view invoices
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                  <CreditCard className="h-8 w-8 text-muted-foreground" />
+                  <div className="flex-1">
+                    <p className="font-medium">Payment Method</p>
+                    <p className="text-sm text-muted-foreground">
+                      Add or update your card
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                  <Receipt className="h-8 w-8 text-muted-foreground" />
+                  <div className="flex-1">
+                    <p className="font-medium">Invoices</p>
+                    <p className="text-sm text-muted-foreground">
+                      View and download invoices
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+              <CardFooter>
+                <Button onClick={handleOpenPortal} className="w-full">
+                  Open Billing Settings
+                  <ExternalLink className="ml-2 h-4 w-4" />
+                </Button>
+              </CardFooter>
+            </Card>
           </div>
 
           {/* Seat Management (Pro/Enterprise only) */}
           {(subscription.tier === 'pro' || subscription.tier === 'enterprise') && (
             <SeatManagement
               currentSeats={subscription.seats}
-              usedSeats={subscription.seats} // Assume all purchased seats are in use
+              usedSeats={subscription.seats}
               minSeats={subscription.tier === 'pro' ? 1 : 3}
               maxSeats={subscription.tier === 'pro' ? 50 : -1}
               pricePerSeat={subscription.tier === 'pro' ? 10 : 20}
               basePrice={subscription.tier === 'pro' ? 33 : 199}
               planName={subscription.tier === 'pro' ? 'Pro' : 'Enterprise'}
-              onUpdateSeats={async (newCount) => {
-                // This would call the API to update seats
-                console.log('Update seats to:', newCount);
-              }}
+              onUpdateSeats={async () => { handleOpenPortal(); }}
             />
-          )}
-
-          {/* Recent Invoices Preview */}
-          {invoices.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Recent Invoices</CardTitle>
-                <CardDescription>Your last 3 invoices</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <InvoiceHistory
-                  invoices={invoices.slice(0, 3)}
-                  isLoading={invLoading}
-                  className="border-0 shadow-none"
-                />
-              </CardContent>
-            </Card>
           )}
 
           {/* Upgrade CTA for Free Users */}
@@ -193,22 +192,12 @@ function BillingContent() {
           )}
         </TabsContent>
 
-        {/* Invoices Tab */}
-        <TabsContent value="invoices">
-          <InvoiceHistory
-            invoices={invoices}
-            isLoading={invLoading}
-            hasMore={hasMore}
-          />
-        </TabsContent>
-
         {/* Manage Plan Tab */}
         {subscription.tier !== 'free' && (
           <TabsContent value="manage" className="space-y-6">
             <PricingTable
               currentPlan={subscription.tier as 'free' | 'pro' | 'enterprise'}
               onSelectPlan={(plan, seats, annual) => {
-                // Navigate to pricing page or open checkout
                 router.push(`/pricing?plan=${plan}&seats=${seats}&annual=${annual}`);
               }}
             />
@@ -238,9 +227,9 @@ function BillingContent() {
                   </p>
                 </div>
                 <div>
-                  <h4 className="font-medium mb-1">How do I update my payment method?</h4>
+                  <h4 className="font-medium mb-1">How do I manage my billing?</h4>
                   <p className="text-sm text-muted-foreground">
-                    Click the &quot;Update&quot; button on your payment method card above, or contact support@repotoire.com for assistance.
+                    Click &quot;Open Billing Settings&quot; above to manage your payment method, view invoices, and update your subscription.
                   </p>
                 </div>
               </CardContent>

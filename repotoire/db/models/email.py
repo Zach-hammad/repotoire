@@ -71,6 +71,11 @@ class EmailPreferences(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         default=True,
         nullable=False,
     )
+    in_app_notifications: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
 
     # Threshold for regression alerts (only alert if score drops by this much)
     regression_threshold: Mapped[int] = mapped_column(

@@ -39,8 +39,10 @@ from .billing import (
     UsageRecord,
 )
 from .email import EmailPreferences
+from .notification import InAppNotification, NotificationType
 from .gdpr import ConsentRecord, ConsentType, DataExport, ExportStatus
 from .provenance_settings import ProvenanceSettings
+from .user_preferences import UserPreferences
 from .github import GitHubInstallation, GitHubRepository
 from .organization import (
     InviteStatus,
@@ -110,7 +112,10 @@ __all__ = [
     "DataExport",
     "ConsentRecord",
     "EmailPreferences",
+    "InAppNotification",
+    "NotificationType",
     "ProvenanceSettings",
+    "UserPreferences",
     # Enums
     "PlanTier",
     "MemberRole",

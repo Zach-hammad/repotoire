@@ -47,12 +47,51 @@ const pricingTypes: { value: PricingType; label: string; description: string }[]
   { value: 'paid', label: 'Paid', description: 'Requires purchase' },
 ];
 
+// Validation helpers
+const validateName = (name: string): string | null => {
+  if (!name.trim()) return 'Name is required';
+  if (name.trim().length < 3) return 'Name must be at least 3 characters';
+  if (name.trim().length > 50) return 'Name must be less than 50 characters';
+  return null;
+};
+
+const validateSlug = (slug: string): string | null => {
+  if (!slug.trim()) return 'Slug is required';
+  if (!/^[a-z0-9-]+$/.test(slug)) return 'Slug can only contain lowercase letters, numbers, and hyphens';
+  if (slug.length < 3) return 'Slug must be at least 3 characters';
+  if (slug.length > 50) return 'Slug must be less than 50 characters';
+  return null;
+};
+
+const validateDescription = (description: string): string | null => {
+  if (!description.trim()) return 'Description is required';
+  if (description.trim().length < 10) return 'Description must be at least 10 characters';
+  if (description.trim().length > 500) return 'Description must be less than 500 characters';
+  return null;
+};
+
+const validateVersion = (version: string): string | null => {
+  if (!version.trim()) return 'Version is required';
+  if (!/^\d+\.\d+\.\d+$/.test(version)) return 'Version must be in format x.y.z (e.g., 1.0.0)';
+  return null;
+};
+
+interface FieldErrors {
+  name?: string | null;
+  slug?: string | null;
+  description?: string | null;
+  version?: string | null;
+  file?: string | null;
+}
+
 export default function PublishPage() {
   const router = useRouter();
   const { trigger: publish, isMutating: isPublishing } = usePublishAsset();
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
 
   const [formData, setFormData] = useState<PublishRequest>({
     name: '',
@@ -67,15 +106,38 @@ export default function PublishPage() {
 
   const [tagInput, setTagInput] = useState('');
 
+  const validateField = useCallback((name: string, value: string): string | null => {
+    switch (name) {
+      case 'name':
+        return validateName(value);
+      case 'slug':
+        return validateSlug(value);
+      case 'description':
+        return validateDescription(value);
+      case 'version':
+        return validateVersion(value);
+      default:
+        return null;
+    }
+  }, []);
+
+  const handleBlur = useCallback((e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setTouched((prev) => ({ ...prev, [name]: true }));
+    const error = validateField(name, value);
+    setFieldErrors((prev) => ({ ...prev, [name]: error }));
+  }, [validateField]);
+
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
       const uploadedFile = acceptedFiles[0];
       // Validate file type
       if (!uploadedFile.name.endsWith('.tar.gz') && !uploadedFile.name.endsWith('.tgz')) {
-        setError('Please upload a .tar.gz or .tgz file');
+        setFieldErrors((prev) => ({ ...prev, file: 'Please upload a .tar.gz or .tgz file' }));
         return;
       }
       setFile(uploadedFile);
+      setFieldErrors((prev) => ({ ...prev, file: null }));
       setError(null);
     }
   }, []);
@@ -97,6 +159,17 @@ export default function PublishPage() {
       [name]: name === 'price_cents' ? parseInt(value) * 100 : value,
     }));
 
+    // Clear API error when typing
+    if (error) {
+      setError(null);
+    }
+
+    // Real-time validation for touched fields
+    if (touched[name]) {
+      const fieldError = validateField(name, value);
+      setFieldErrors((prev) => ({ ...prev, [name]: fieldError }));
+    }
+
     // Auto-generate slug from name
     if (name === 'name') {
       const slug = value
@@ -104,6 +177,10 @@ export default function PublishPage() {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-|-$/g, '');
       setFormData((prev) => ({ ...prev, slug }));
+      // Also validate slug if it was touched
+      if (touched.slug) {
+        setFieldErrors((prev) => ({ ...prev, slug: validateSlug(slug) }));
+      }
     }
   };
 
@@ -129,18 +206,40 @@ export default function PublishPage() {
     e.preventDefault();
     setError(null);
 
-    if (!file) {
-      setError('Please upload an asset file');
-      return;
-    }
+    // Mark all fields as touched
+    setTouched({ name: true, slug: true, description: true, version: true, file: true });
 
-    if (!formData.name || !formData.slug || !formData.description) {
-      setError('Please fill in all required fields');
+    // Validate all fields
+    const nameError = validateName(formData.name);
+    const slugError = validateSlug(formData.slug);
+    const descriptionError = validateDescription(formData.description);
+    const versionError = validateVersion(formData.version);
+    const fileError = file ? null : 'Please upload an asset file';
+
+    const errors: FieldErrors = {
+      name: nameError,
+      slug: slugError,
+      description: descriptionError,
+      version: versionError,
+      file: fileError,
+    };
+
+    setFieldErrors(errors);
+
+    // Check if there are any errors
+    const hasErrors = Object.values(errors).some((e) => e !== null);
+    if (hasErrors) {
+      // Focus on the first field with an error
+      const firstErrorField = Object.keys(errors).find((key) => errors[key as keyof FieldErrors]);
+      if (firstErrorField && firstErrorField !== 'file') {
+        const element = document.getElementById(firstErrorField);
+        element?.focus();
+      }
       return;
     }
 
     try {
-      await publish({ data: formData, file });
+      await publish({ data: formData, file: file! });
       setSuccess(true);
       // Redirect after success
       setTimeout(() => {
@@ -150,6 +249,9 @@ export default function PublishPage() {
       setError(err instanceof Error ? err.message : 'Failed to publish asset');
     }
   };
+
+  const getFieldError = (name: keyof FieldErrors) => touched[name] ? fieldErrors[name] : null;
+  const hasFieldError = (name: keyof FieldErrors) => !!(touched[name] && fieldErrors[name]);
 
   if (success) {
     return (
@@ -186,13 +288,17 @@ export default function PublishPage() {
 
       {/* Error Message */}
       {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 text-destructive shrink-0" />
+        <div
+          className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 flex items-center gap-2"
+          role="alert"
+          aria-live="polite"
+        >
+          <AlertCircle className="w-4 h-4 text-destructive shrink-0" aria-hidden="true" />
           <p className="text-sm text-destructive">{error}</p>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6" noValidate>
         {/* File Upload */}
         <Card>
           <CardHeader>
@@ -205,7 +311,7 @@ export default function PublishPage() {
             {file ? (
               <div className="flex items-center justify-between p-4 rounded-lg border border-border bg-muted/50">
                 <div className="flex items-center gap-3">
-                  <FileArchive className="w-8 h-8 text-muted-foreground" />
+                  <FileArchive className="w-8 h-8 text-muted-foreground" aria-hidden="true" />
                   <div>
                     <p className="font-medium text-foreground">{file.name}</p>
                     <p className="text-xs text-muted-foreground">
@@ -217,9 +323,13 @@ export default function PublishPage() {
                   type="button"
                   variant="ghost"
                   size="icon"
-                  onClick={() => setFile(null)}
+                  onClick={() => {
+                    setFile(null);
+                    setFieldErrors((prev) => ({ ...prev, file: null }));
+                  }}
+                  aria-label="Remove file"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-4 h-4" aria-hidden="true" />
                 </Button>
               </div>
             ) : (
@@ -229,11 +339,17 @@ export default function PublishPage() {
                   'border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors',
                   isDragActive
                     ? 'border-primary bg-primary/5'
-                    : 'border-border hover:border-primary/50'
+                    : 'border-border hover:border-primary/50',
+                  hasFieldError('file') && 'border-destructive'
                 )}
+                role="button"
+                tabIndex={0}
+                aria-label="Upload asset file, drag and drop or click to browse"
+                aria-invalid={hasFieldError('file') ? 'true' : undefined}
+                aria-describedby={hasFieldError('file') ? 'file-error' : undefined}
               >
-                <input {...getInputProps()} />
-                <Upload className="w-10 h-10 mx-auto text-muted-foreground mb-4" />
+                <input {...getInputProps()} aria-label="File upload" />
+                <Upload className="w-10 h-10 mx-auto text-muted-foreground mb-4" aria-hidden="true" />
                 <p className="text-foreground font-medium mb-1">
                   {isDragActive
                     ? 'Drop your file here'
@@ -243,6 +359,12 @@ export default function PublishPage() {
                   or click to browse (.tar.gz or .tgz)
                 </p>
               </div>
+            )}
+            {hasFieldError('file') && (
+              <p id="file-error" className="mt-2 flex items-center gap-1.5 text-sm text-destructive" role="alert">
+                <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                {getFieldError('file')}
+              </p>
             )}
           </CardContent>
         </Card>
@@ -264,8 +386,18 @@ export default function PublishPage() {
                 placeholder="My Awesome Command"
                 value={formData.name}
                 onChange={handleInputChange}
-                required
+                onBlur={handleBlur}
+                aria-invalid={hasFieldError('name') ? 'true' : undefined}
+                aria-describedby={hasFieldError('name') ? 'name-error' : undefined}
+                className={cn(hasFieldError('name') && 'border-destructive focus-visible:ring-destructive/50')}
+                aria-required="true"
               />
+              {hasFieldError('name') && (
+                <p id="name-error" className="flex items-center gap-1.5 text-sm text-destructive" role="alert">
+                  <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                  {getFieldError('name')}
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -276,11 +408,22 @@ export default function PublishPage() {
                 placeholder="my-awesome-command"
                 value={formData.slug}
                 onChange={handleInputChange}
-                required
+                onBlur={handleBlur}
+                aria-invalid={hasFieldError('slug') ? 'true' : undefined}
+                aria-describedby={hasFieldError('slug') ? 'slug-error' : 'slug-hint'}
+                className={cn(hasFieldError('slug') && 'border-destructive focus-visible:ring-destructive/50')}
+                aria-required="true"
               />
-              <p className="text-xs text-muted-foreground">
-                This will be used in the asset URL and install command
-              </p>
+              {hasFieldError('slug') ? (
+                <p id="slug-error" className="flex items-center gap-1.5 text-sm text-destructive" role="alert">
+                  <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                  {getFieldError('slug')}
+                </p>
+              ) : (
+                <p id="slug-hint" className="text-xs text-muted-foreground">
+                  This will be used in the asset URL and install command
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -291,9 +434,19 @@ export default function PublishPage() {
                 placeholder="A brief description of what your asset does..."
                 value={formData.description}
                 onChange={handleInputChange}
+                onBlur={handleBlur}
                 rows={3}
-                required
+                aria-invalid={hasFieldError('description') ? 'true' : undefined}
+                aria-describedby={hasFieldError('description') ? 'description-error' : undefined}
+                className={cn(hasFieldError('description') && 'border-destructive focus-visible:ring-destructive/50')}
+                aria-required="true"
               />
+              {hasFieldError('description') && (
+                <p id="description-error" className="flex items-center gap-1.5 text-sm text-destructive" role="alert">
+                  <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                  {getFieldError('description')}
+                </p>
+              )}
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -305,7 +458,7 @@ export default function PublishPage() {
                     setFormData((prev) => ({ ...prev, type: value as AssetType }))
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger aria-label="Select asset type" aria-required="true">
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent>
@@ -326,8 +479,18 @@ export default function PublishPage() {
                   placeholder="1.0.0"
                   value={formData.version}
                   onChange={handleInputChange}
-                  required
+                  onBlur={handleBlur}
+                  aria-invalid={hasFieldError('version') ? 'true' : undefined}
+                  aria-describedby={hasFieldError('version') ? 'version-error' : undefined}
+                  className={cn(hasFieldError('version') && 'border-destructive focus-visible:ring-destructive/50')}
+                  aria-required="true"
                 />
+                {hasFieldError('version') && (
+                  <p id="version-error" className="flex items-center gap-1.5 text-sm text-destructive" role="alert">
+                    <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                    {getFieldError('version')}
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>
@@ -519,15 +682,15 @@ export default function PublishPage() {
           <Button type="button" variant="outline" onClick={() => router.back()}>
             Cancel
           </Button>
-          <Button type="submit" disabled={isPublishing}>
+          <Button type="submit" disabled={isPublishing} aria-disabled={isPublishing}>
             {isPublishing ? (
               <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden="true" />
                 Publishing...
               </>
             ) : (
               <>
-                <Upload className="w-4 h-4 mr-2" />
+                <Upload className="w-4 h-4 mr-2" aria-hidden="true" />
                 Publish Asset
               </>
             )}

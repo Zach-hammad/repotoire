@@ -1,104 +1,97 @@
 'use client';
 
-import { useState } from 'react';
-import { Bell, CheckCircle2, AlertCircle, Lightbulb, X, Check, Trash2 } from 'lucide-react';
+import { useCallback } from 'react';
+import {
+  Bell,
+  CheckCircle2,
+  AlertCircle,
+  Lightbulb,
+  AlertTriangle,
+  Users,
+  CreditCard,
+  X,
+  Check,
+  Trash2,
+  Loader2,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
+import { toast } from 'sonner';
+import { mutate } from 'swr';
+import {
+  useNotifications,
+  useMarkNotificationsRead,
+  useMarkAllNotificationsRead,
+  useDeleteNotifications,
+  useDeleteAllNotifications,
+  type NotificationItem,
+} from '@/lib/hooks';
 
-export type NotificationType = 'analysis_complete' | 'new_finding' | 'fix_suggestion' | 'system';
-
-export interface Notification {
-  id: string;
-  type: NotificationType;
-  title: string;
-  message: string;
-  timestamp: Date;
-  read: boolean;
-  actionUrl?: string;
-  metadata?: {
-    repoName?: string;
-    findingCount?: number;
-    severity?: 'critical' | 'high' | 'medium' | 'low';
-  };
-}
+export type NotificationType = NotificationItem['type'];
 
 const notificationIcons: Record<NotificationType, React.ElementType> = {
   analysis_complete: CheckCircle2,
+  analysis_failed: X,
   new_finding: AlertCircle,
   fix_suggestion: Lightbulb,
+  health_regression: AlertTriangle,
+  team_invite: Users,
+  team_role_change: Users,
+  billing_event: CreditCard,
   system: Bell,
 };
 
 const notificationColors: Record<NotificationType, string> = {
   analysis_complete: 'text-green-500 bg-green-500/10',
+  analysis_failed: 'text-red-500 bg-red-500/10',
   new_finding: 'text-orange-500 bg-orange-500/10',
   fix_suggestion: 'text-blue-500 bg-blue-500/10',
+  health_regression: 'text-yellow-500 bg-yellow-500/10',
+  team_invite: 'text-purple-500 bg-purple-500/10',
+  team_role_change: 'text-purple-500 bg-purple-500/10',
+  billing_event: 'text-emerald-500 bg-emerald-500/10',
   system: 'text-muted-foreground bg-muted',
 };
 
-// Mock notifications - in production, these would come from an API/WebSocket
-const mockNotifications: Notification[] = [
-  {
-    id: '1',
-    type: 'analysis_complete',
-    title: 'Analysis Complete',
-    message: 'repotoire/web finished analyzing with a health score of 87',
-    timestamp: new Date(Date.now() - 1000 * 60 * 5), // 5 mins ago
-    read: false,
-    actionUrl: '/dashboard/repos/1',
-    metadata: { repoName: 'repotoire/web' },
-  },
-  {
-    id: '2',
-    type: 'new_finding',
-    title: '3 New Critical Findings',
-    message: 'Found potential security issues in authentication module',
-    timestamp: new Date(Date.now() - 1000 * 60 * 30), // 30 mins ago
-    read: false,
-    actionUrl: '/dashboard/findings?severity=critical',
-    metadata: { findingCount: 3, severity: 'critical' },
-  },
-  {
-    id: '3',
-    type: 'fix_suggestion',
-    title: 'AI Fix Available',
-    message: 'Automated fix ready for "unused import" in utils.ts',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-    read: true,
-    actionUrl: '/dashboard/fixes/1',
-  },
-  {
-    id: '4',
-    type: 'analysis_complete',
-    title: 'Analysis Complete',
-    message: 'api-server finished with 12 new findings',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
-    read: true,
-    actionUrl: '/dashboard/repos/2',
-    metadata: { repoName: 'api-server' },
-  },
-];
-
-interface NotificationItemProps {
-  notification: Notification;
+interface NotificationItemComponentProps {
+  notification: NotificationItem;
   onMarkRead: (id: string) => void;
   onDelete: (id: string) => void;
+  isMarkingRead?: boolean;
+  isDeleting?: boolean;
 }
 
-function NotificationItem({ notification, onMarkRead, onDelete }: NotificationItemProps) {
-  const Icon = notificationIcons[notification.type];
-  const colorClass = notificationColors[notification.type];
+function NotificationItemComponent({
+  notification,
+  onMarkRead,
+  onDelete,
+  isMarkingRead,
+  isDeleting,
+}: NotificationItemComponentProps) {
+  const Icon = notificationIcons[notification.type] || Bell;
+  const colorClass = notificationColors[notification.type] || notificationColors.system;
+
+  const handleClick = () => {
+    if (notification.action_url && !notification.read) {
+      onMarkRead(notification.id);
+    }
+    if (notification.action_url) {
+      window.location.href = notification.action_url;
+    }
+  };
 
   return (
     <div
       className={cn(
-        'group relative flex gap-3 p-3 rounded-lg transition-colors',
-        notification.read ? 'opacity-60' : 'bg-accent/50'
+        'group relative flex gap-3 p-3 rounded-lg transition-colors cursor-pointer',
+        notification.read ? 'opacity-60' : 'bg-accent/50',
+        notification.action_url && 'hover:bg-accent'
       )}
+      onClick={handleClick}
     >
       <div className={cn('shrink-0 p-2 rounded-full', colorClass)}>
         <Icon className="h-4 w-4" />
@@ -114,7 +107,7 @@ function NotificationItem({ notification, onMarkRead, onDelete }: NotificationIt
           {notification.message}
         </p>
         <p className="text-xs text-muted-foreground/70">
-          {formatDistanceToNow(notification.timestamp, { addSuffix: true })}
+          {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
         </p>
       </div>
       {/* Actions on hover */}
@@ -124,12 +117,17 @@ function NotificationItem({ notification, onMarkRead, onDelete }: NotificationIt
             variant="ghost"
             size="icon"
             className="h-6 w-6"
+            disabled={isMarkingRead}
             onClick={(e) => {
               e.stopPropagation();
               onMarkRead(notification.id);
             }}
           >
-            <Check className="h-3 w-3" />
+            {isMarkingRead ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Check className="h-3 w-3" />
+            )}
             <span className="sr-only">Mark as read</span>
           </Button>
         )}
@@ -137,12 +135,17 @@ function NotificationItem({ notification, onMarkRead, onDelete }: NotificationIt
           variant="ghost"
           size="icon"
           className="h-6 w-6 text-muted-foreground hover:text-destructive"
+          disabled={isDeleting}
           onClick={(e) => {
             e.stopPropagation();
             onDelete(notification.id);
           }}
         >
-          <Trash2 className="h-3 w-3" />
+          {isDeleting ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Trash2 className="h-3 w-3" />
+          )}
           <span className="sr-only">Delete</span>
         </Button>
       </div>
@@ -151,31 +154,68 @@ function NotificationItem({ notification, onMarkRead, onDelete }: NotificationIt
 }
 
 export function NotificationCenter() {
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
-  const [open, setOpen] = useState(false);
+  const {
+    notifications,
+    unreadCount,
+    isLoading,
+    refresh,
+  } = useNotifications(50);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const { trigger: markRead, isMutating: isMarkingRead } = useMarkNotificationsRead();
+  const { trigger: markAllRead, isMutating: isMarkingAllRead } = useMarkAllNotificationsRead();
+  const { trigger: deleteNotification, isMutating: isDeleting } = useDeleteNotifications();
+  const { trigger: deleteAll, isMutating: isDeletingAll } = useDeleteAllNotifications();
 
-  const markAsRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
-  };
+  const handleMarkRead = useCallback(async (id: string) => {
+    try {
+      await markRead([id]);
+      // Optimistically update local state and refresh
+      await refresh();
+      // Also refresh the unread count
+      await mutate('notifications-unread-count');
+    } catch (error) {
+      toast.error('Failed to mark notification as read');
+      console.error('Failed to mark notification as read:', error);
+    }
+  }, [markRead, refresh]);
 
-  const markAllAsRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-  };
+  const handleMarkAllRead = useCallback(async () => {
+    try {
+      await markAllRead();
+      await refresh();
+      await mutate('notifications-unread-count');
+      toast.success('All notifications marked as read');
+    } catch (error) {
+      toast.error('Failed to mark all notifications as read');
+      console.error('Failed to mark all notifications as read:', error);
+    }
+  }, [markAllRead, refresh]);
 
-  const deleteNotification = (id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
-  };
+  const handleDelete = useCallback(async (id: string) => {
+    try {
+      await deleteNotification([id]);
+      await refresh();
+      await mutate('notifications-unread-count');
+    } catch (error) {
+      toast.error('Failed to delete notification');
+      console.error('Failed to delete notification:', error);
+    }
+  }, [deleteNotification, refresh]);
 
-  const clearAll = () => {
-    setNotifications([]);
-  };
+  const handleClearAll = useCallback(async () => {
+    try {
+      await deleteAll();
+      await refresh();
+      await mutate('notifications-unread-count');
+      toast.success('All notifications cleared');
+    } catch (error) {
+      toast.error('Failed to clear notifications');
+      console.error('Failed to clear notifications:', error);
+    }
+  }, [deleteAll, refresh]);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
@@ -208,8 +248,12 @@ export function NotificationCenter() {
                 variant="ghost"
                 size="sm"
                 className="text-xs h-7"
-                onClick={markAllAsRead}
+                onClick={handleMarkAllRead}
+                disabled={isMarkingAllRead}
               >
+                {isMarkingAllRead ? (
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                ) : null}
                 Mark all read
               </Button>
             )}
@@ -218,8 +262,12 @@ export function NotificationCenter() {
                 variant="ghost"
                 size="sm"
                 className="text-xs h-7 text-muted-foreground hover:text-destructive"
-                onClick={clearAll}
+                onClick={handleClearAll}
+                disabled={isDeletingAll}
               >
+                {isDeletingAll ? (
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                ) : null}
                 Clear all
               </Button>
             )}
@@ -227,15 +275,22 @@ export function NotificationCenter() {
         </div>
 
         {/* Notification list */}
-        {notifications.length > 0 ? (
+        {isLoading ? (
+          <div className="py-12 text-center text-muted-foreground">
+            <Loader2 className="h-8 w-8 mx-auto mb-3 animate-spin opacity-50" />
+            <p className="text-sm">Loading notifications...</p>
+          </div>
+        ) : notifications.length > 0 ? (
           <ScrollArea className="h-[400px]">
             <div className="p-2 space-y-1">
               {notifications.map((notification) => (
-                <NotificationItem
+                <NotificationItemComponent
                   key={notification.id}
                   notification={notification}
-                  onMarkRead={markAsRead}
-                  onDelete={deleteNotification}
+                  onMarkRead={handleMarkRead}
+                  onDelete={handleDelete}
+                  isMarkingRead={isMarkingRead}
+                  isDeleting={isDeleting}
                 />
               ))}
             </div>
@@ -255,9 +310,11 @@ export function NotificationCenter() {
               variant="ghost"
               size="sm"
               className="w-full text-xs"
-              onClick={() => setOpen(false)}
+              onClick={() => {
+                window.location.href = '/dashboard/settings/notifications';
+              }}
             >
-              View all notifications
+              Notification settings
             </Button>
           </div>
         )}

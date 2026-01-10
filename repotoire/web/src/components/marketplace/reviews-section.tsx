@@ -111,56 +111,107 @@ function ReviewForm({ onSubmit, isSubmitting }: ReviewFormProps) {
   const [rating, setRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [comment, setComment] = useState("");
+  const [ratingError, setRatingError] = useState<string | null>(null);
+  const [touched, setTouched] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (rating > 0) {
-      onSubmit(rating, comment || undefined);
+    setTouched(true);
+
+    if (rating === 0) {
+      setRatingError("Please select a rating");
+      return;
+    }
+
+    setRatingError(null);
+    onSubmit(rating, comment || undefined);
+  };
+
+  const handleRatingSelect = (star: number) => {
+    setRating(star);
+    if (ratingError) {
+      setRatingError(null);
     }
   };
 
+  const hasRatingError = touched && ratingError;
+  const ratingErrorId = "review-rating-error";
+
   return (
-    <form onSubmit={handleSubmit} className="card-elevated rounded-xl p-5">
+    <form onSubmit={handleSubmit} className="card-elevated rounded-xl p-5" noValidate>
       <h4 className="text-sm font-medium text-foreground mb-4">Write a Review</h4>
 
       {/* Star Rating */}
-      <div className="flex items-center gap-1 mb-4">
-        {[1, 2, 3, 4, 5].map((star) => (
-          <button
-            key={star}
-            type="button"
-            onClick={() => setRating(star)}
-            onMouseEnter={() => setHoverRating(star)}
-            onMouseLeave={() => setHoverRating(0)}
-            className="focus:outline-none"
-          >
-            <Star
+      <fieldset className="mb-4">
+        <legend className="sr-only">Rating (required)</legend>
+        <div
+          className="flex items-center gap-1"
+          role="radiogroup"
+          aria-label="Rating"
+          aria-describedby={hasRatingError ? ratingErrorId : undefined}
+          aria-invalid={hasRatingError ? "true" : undefined}
+        >
+          {[1, 2, 3, 4, 5].map((star) => (
+            <button
+              key={star}
+              type="button"
+              role="radio"
+              aria-checked={rating === star}
+              aria-label={`${star} star${star !== 1 ? "s" : ""}`}
+              onClick={() => handleRatingSelect(star)}
+              onMouseEnter={() => setHoverRating(star)}
+              onMouseLeave={() => setHoverRating(0)}
               className={cn(
-                "w-6 h-6 transition-colors",
-                star <= (hoverRating || rating)
-                  ? "fill-amber-500 text-amber-500"
-                  : "text-muted-foreground hover:text-amber-400"
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm",
+                hasRatingError && "ring-1 ring-destructive"
               )}
-            />
-          </button>
-        ))}
-        <span className="ml-2 text-sm text-muted-foreground">
-          {rating > 0 ? `${rating} star${rating !== 1 ? "s" : ""}` : "Select rating"}
-        </span>
-      </div>
+            >
+              <Star
+                className={cn(
+                  "w-6 h-6 transition-colors",
+                  star <= (hoverRating || rating)
+                    ? "fill-amber-500 text-amber-500"
+                    : "text-muted-foreground hover:text-amber-400"
+                )}
+                aria-hidden="true"
+              />
+            </button>
+          ))}
+          <span className="ml-2 text-sm text-muted-foreground" aria-live="polite">
+            {rating > 0 ? `${rating} star${rating !== 1 ? "s" : ""}` : "Select rating"}
+          </span>
+        </div>
+        {hasRatingError && (
+          <p
+            id={ratingErrorId}
+            className="mt-2 text-sm text-destructive"
+            role="alert"
+          >
+            {ratingError}
+          </p>
+        )}
+      </fieldset>
 
       {/* Comment */}
-      <Textarea
-        placeholder="Share your experience with this asset (optional)"
-        value={comment}
-        onChange={(e) => setComment(e.target.value)}
-        className="mb-4 min-h-[100px]"
-      />
+      <div className="mb-4">
+        <label htmlFor="review-comment" className="sr-only">
+          Comment (optional)
+        </label>
+        <Textarea
+          id="review-comment"
+          placeholder="Share your experience with this asset (optional)"
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          className="min-h-[100px]"
+          aria-label="Review comment (optional)"
+        />
+      </div>
 
       <Button
         type="submit"
-        disabled={rating === 0 || isSubmitting}
+        disabled={isSubmitting}
         className="font-display font-medium"
+        aria-disabled={isSubmitting}
       >
         {isSubmitting ? "Submitting..." : "Submit Review"}
       </Button>

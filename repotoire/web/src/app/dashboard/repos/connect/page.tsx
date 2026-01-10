@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useGitHubInstallations, useAvailableRepos, useConnectRepos } from '@/lib/hooks';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,12 @@ export default function ConnectRepoPage() {
   const { data: availableRepos, isLoading: loadingRepos } = useAvailableRepos(selectedInstallation);
   const [selectedRepos, setSelectedRepos] = useState<Set<number>>(new Set());
   const { trigger: connectRepos, isMutating } = useConnectRepos();
+  const [isInstallingGitHubApp, setIsInstallingGitHubApp] = useState(false);
+
+  const handleInstallGitHubApp = useCallback(() => {
+    setIsInstallingGitHubApp(true);
+    // Navigation happens via the anchor - we just show loading state
+  }, []);
 
   const handleConnect = async () => {
     if (selectedRepos.size === 0 || !selectedInstallation) return;
@@ -100,10 +106,24 @@ export default function ConnectRepoPage() {
                 No GitHub App installations found
               </p>
               {githubAppUrl ? (
-                <Button asChild>
-                  <a href={githubAppUrl} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="mr-2 h-4 w-4" />
-                    Install GitHub App
+                <Button asChild disabled={isInstallingGitHubApp}>
+                  <a
+                    href={githubAppUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={handleInstallGitHubApp}
+                  >
+                    {isInstallingGitHubApp ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Redirecting to GitHub...
+                      </>
+                    ) : (
+                      <>
+                        <ExternalLink className="mr-2 h-4 w-4" />
+                        Install GitHub App
+                      </>
+                    )}
                   </a>
                 </Button>
               ) : (

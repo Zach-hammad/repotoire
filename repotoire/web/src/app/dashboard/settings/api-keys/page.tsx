@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Key,
   Plus,
@@ -24,7 +25,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Skeleton } from '@/components/ui/skeleton';
+import { ApiKeysTableSkeleton, Shimmer } from '@/components/dashboard/skeletons';
 import {
   Dialog,
   DialogContent,
@@ -93,6 +94,14 @@ function formatScope(scope: ApiKeyScope): string {
   return scope.replace(':', ' ').replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
+// Animation variants for table rows
+const rowVariants = {
+  initial: { opacity: 0, x: -10 },
+  animate: { opacity: 1, x: 0, transition: { duration: 0.2 } },
+  exit: { opacity: 0, x: 10, height: 0, transition: { duration: 0.2 } },
+  deleting: { opacity: 0.5, scale: 0.98, transition: { duration: 0.1 } },
+};
+
 export default function APIKeysPage() {
   const { data: apiKeys, isLoading, error, mutate } = useApiKeys();
   const { trigger: createKey, isMutating: isCreating } = useCreateApiKey();
@@ -118,18 +127,18 @@ export default function APIKeysPage() {
         toast.success('Copied to clipboard');
       }
     } catch {
-      toast.error('Failed to copy to clipboard');
+      toast.error('Unable to copy', { description: 'Your browser may not support clipboard access. Try selecting and copying manually.' });
     }
   };
 
   // Handle create key
   const handleCreateKey = async () => {
     if (!keyName.trim()) {
-      toast.error('Please enter a name for the API key');
+      toast.warning('Name Required', { description: 'Please enter a descriptive name for your API key.' });
       return;
     }
     if (selectedScopes.length === 0) {
-      toast.error('Please select at least one scope');
+      toast.warning('Scopes Required', { description: 'Select at least one permission scope for this API key.' });
       return;
     }
 
@@ -145,7 +154,9 @@ export default function APIKeysPage() {
       setSelectedScopes([]);
       mutate(); // Refresh the list
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create API key');
+      toast.error('Unable to Create API Key', {
+        description: err instanceof Error ? err.message : 'Check your connection and try again. (ERR_API_001)'
+      });
     }
   };
 
@@ -160,7 +171,9 @@ export default function APIKeysPage() {
       setKeyToRevoke(null);
       mutate(); // Refresh the list
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to revoke API key');
+      toast.error('Unable to Revoke API Key', {
+        description: err instanceof Error ? err.message : 'Check your connection and try again. (ERR_API_001)'
+      });
     }
   };
 
@@ -237,18 +250,8 @@ export default function APIKeysPage() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            // Loading state
-            <div className="space-y-4">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="flex items-center gap-4">
-                  <Skeleton className="h-12 w-12 rounded" />
-                  <div className="space-y-2 flex-1">
-                    <Skeleton className="h-4 w-[200px]" />
-                    <Skeleton className="h-3 w-[150px]" />
-                  </div>
-                </div>
-              ))}
-            </div>
+            // Loading state with proper skeleton
+            <ApiKeysTableSkeleton rows={3} />
           ) : !apiKeys || apiKeys.length === 0 ? (
             // Empty state
             <div className="text-center py-12">
@@ -266,77 +269,100 @@ export default function APIKeysPage() {
               </Button>
             </div>
           ) : (
-            // Keys table
+            // Keys table with optimistic UI
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Key</TableHead>
-                  <TableHead>Scopes</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Last Used</TableHead>
-                  <TableHead className="w-[50px]"></TableHead>
+                  <TableHead style={{ width: '20%' }}>Name</TableHead>
+                  <TableHead style={{ width: '25%' }}>Key</TableHead>
+                  <TableHead style={{ width: '25%' }}>Scopes</TableHead>
+                  <TableHead style={{ width: '15%' }}>Created</TableHead>
+                  <TableHead style={{ width: '10%' }}>Last Used</TableHead>
+                  <TableHead style={{ width: '48px' }}></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {apiKeys.map((key) => (
-                  <TableRow key={key.id}>
-                    <TableCell className="font-medium">{key.name}</TableCell>
-                    <TableCell>
-                      <code className="text-sm bg-muted px-2 py-1 rounded">
-                        {maskApiKey(key.key_prefix, key.key_suffix)}
-                      </code>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {key.scopes.slice(0, 2).map((scope) => (
-                          <Badge key={scope} variant="secondary" className="text-xs">
-                            {formatScope(scope)}
-                          </Badge>
-                        ))}
-                        {key.scopes.length > 2 && (
-                          <Badge variant="outline" className="text-xs">
-                            +{key.scopes.length - 2} more
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDate(key.created_at)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDate(key.last_used_at)}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="h-4 w-4" />
-                            <span className="sr-only">Open menu</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() => copyToClipboard(key.id)}
-                          >
-                            <Copy className="mr-2 h-4 w-4" />
-                            Copy Key ID
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => {
-                              setKeyToRevoke(key);
-                              setIsRevokeDialogOpen(true);
-                            }}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Revoke Key
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                <AnimatePresence mode="popLayout">
+                  {apiKeys.map((key) => {
+                    const isBeingDeleted = keyToRevoke?.id === key.id && isRevoking;
+                    return (
+                      <motion.tr
+                        key={key.id}
+                        layout
+                        initial="initial"
+                        animate={isBeingDeleted ? 'deleting' : 'animate'}
+                        exit="exit"
+                        variants={rowVariants}
+                        className="border-b transition-colors hover:bg-muted/50"
+                        style={{ height: '56px' }}
+                      >
+                        <TableCell className="font-medium">{key.name}</TableCell>
+                        <TableCell>
+                          <code className="text-sm bg-muted px-2 py-1 rounded">
+                            {maskApiKey(key.key_prefix, key.key_suffix)}
+                          </code>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {key.scopes.slice(0, 2).map((scope) => (
+                              <Badge key={scope} variant="secondary" className="text-xs">
+                                {formatScope(scope)}
+                              </Badge>
+                            ))}
+                            {key.scopes.length > 2 && (
+                              <Badge variant="outline" className="text-xs">
+                                +{key.scopes.length - 2} more
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {formatDate(key.created_at)}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {formatDate(key.last_used_at)}
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                disabled={isBeingDeleted}
+                              >
+                                {isBeingDeleted ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <MoreHorizontal className="h-4 w-4" />
+                                )}
+                                <span className="sr-only">Open menu</span>
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => copyToClipboard(key.id)}
+                              >
+                                <Copy className="mr-2 h-4 w-4" />
+                                Copy Key ID
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => {
+                                  setKeyToRevoke(key);
+                                  setIsRevokeDialogOpen(true);
+                                }}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Revoke Key
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </motion.tr>
+                    );
+                  })}
+                </AnimatePresence>
               </TableBody>
             </Table>
           )}

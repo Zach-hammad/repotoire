@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
 import { RepoCard } from '@/components/repos/repo-card';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Select,
@@ -18,6 +18,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import Link from 'next/link';
 import { useApiClient } from '@/lib/api-client';
 import { GitHubInstallButton } from '@/components/github/install-button';
+import { SummaryCardsSkeleton, Shimmer } from '@/components/dashboard/skeletons';
 import type { Repository } from '@/types';
 
 type SortOption = 'health-asc' | 'health-desc' | 'name' | 'last-analyzed';
@@ -45,26 +46,39 @@ interface GitHubInstallation {
   repo_count: number;
 }
 
+// Card animation variants
+const cardVariants = {
+  initial: { opacity: 0, y: 10 },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.2 } },
+  exit: { opacity: 0, scale: 0.95, transition: { duration: 0.15 } },
+};
+
 function RepositorySkeleton() {
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {[1, 2, 3, 4, 5, 6].map((i) => (
-        <div key={i} className="rounded-lg border p-4 space-y-3">
-          <div className="flex items-start justify-between">
-            <div className="space-y-2">
-              <Skeleton className="h-5 w-40" />
-              <Skeleton className="h-5 w-20" />
+        <Card key={i} style={{ height: '140px' }}>
+          <div className="p-4 space-y-3">
+            <div className="flex items-start justify-between">
+              <div className="space-y-2 flex-1">
+                <Shimmer className="h-5 w-3/4" />
+                <Shimmer className="h-5 w-20 rounded-full" />
+              </div>
+              <Shimmer className="h-8 w-8 rounded" />
             </div>
-            <Skeleton className="h-8 w-8 rounded" />
+            <div className="flex items-center justify-between pt-2">
+              <Shimmer className="h-8 w-16 rounded" />
+              <Shimmer className="h-4 w-24" />
+            </div>
           </div>
-          <div className="flex items-center justify-between">
-            <Skeleton className="h-8 w-16" />
-            <Skeleton className="h-4 w-24" />
-          </div>
-        </div>
+        </Card>
       ))}
     </div>
   );
+}
+
+function SummarySkeleton() {
+  return <SummaryCardsSkeleton count={4} />;
 }
 
 // Summary stats component
@@ -224,7 +238,7 @@ export default function RepositoriesPage() {
       setRepos(allRepos);
     } catch (err) {
       console.error('Failed to load data:', err);
-      setError('Failed to load repositories. Please try again.');
+      setError('Unable to load your repositories. Check your GitHub connection in Settings, or try refreshing the page. (ERR_REPO_003)');
     } finally {
       setLoading(false);
     }
@@ -368,17 +382,40 @@ export default function RepositoriesPage() {
             </div>
           )}
 
-          {/* Repo cards */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {convertedRepos.map((convertedRepo) => (
-              <RepoCard
-                key={convertedRepo.id}
-                repo={convertedRepo}
-                installationId={(convertedRepo as any)._installationId}
-                onUpdate={loadData}
-              />
-            ))}
-          </div>
+          {/* Repo cards with staggered animation */}
+          <motion.div
+            className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+            initial="hidden"
+            animate="visible"
+            variants={{
+              hidden: { opacity: 0 },
+              visible: {
+                opacity: 1,
+                transition: {
+                  staggerChildren: 0.05,
+                },
+              },
+            }}
+          >
+            <AnimatePresence mode="popLayout">
+              {convertedRepos.map((convertedRepo) => (
+                <motion.div
+                  key={convertedRepo.id}
+                  layout
+                  variants={cardVariants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                >
+                  <RepoCard
+                    repo={convertedRepo}
+                    installationId={(convertedRepo as any)._installationId}
+                    onUpdate={loadData}
+                  />
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </motion.div>
         </>
       )}
     </div>

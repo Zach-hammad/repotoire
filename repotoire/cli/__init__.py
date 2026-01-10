@@ -1061,13 +1061,46 @@ def analyze(
 
                 # Run analysis with progress indication
                 if not quiet:
+                    # Count total detectors for progress tracking
+                    total_detectors = len(engine.detectors)
+
                     with Progress(
                         SpinnerColumn(),
                         TextColumn("[progress.description]{task.description}"),
+                        BarColumn(),
+                        TaskProgressColumn(),
                         console=console,
+                        transient=True,  # Clear progress bar when done
                     ) as progress:
-                        progress.add_task("[cyan]Running detectors and analyzing codebase...", total=None)
-                        health = engine.analyze()
+                        task_id = progress.add_task(
+                            "[cyan]Running detectors...",
+                            total=total_detectors
+                        )
+
+                        def progress_callback(detector_name: str, current: int, total: int, status: str) -> None:
+                            """Update progress bar with current detector status."""
+                            if status == "starting":
+                                progress.update(
+                                    task_id,
+                                    description=f"[cyan]Running:[/cyan] {detector_name}"
+                                )
+                            elif status == "completed":
+                                progress.update(
+                                    task_id,
+                                    completed=current,
+                                    description=f"[green]Completed:[/green] {detector_name}"
+                                )
+                            elif status == "failed":
+                                progress.update(
+                                    task_id,
+                                    completed=current,
+                                    description=f"[red]Failed:[/red] {detector_name}"
+                                )
+
+                        health = engine.analyze(progress_callback=progress_callback)
+
+                    # Show completion message
+                    console.print(f"[green]Ran {total_detectors} detectors[/green]\n")
                 else:
                     health = engine.analyze()
 

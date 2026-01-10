@@ -210,8 +210,11 @@ export default async function IncidentHistoryPage() {
           )
         ) : (
           <div className="rounded-lg border bg-card p-8 text-center">
-            <p className="text-muted-foreground">
-              Unable to load incident history. Please try again later.
+            <p className="text-muted-foreground mb-2">
+              Unable to load incident history. Our status service may be temporarily unavailable.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              (Ref: ERR_API_004)
             </p>
           </div>
         )}

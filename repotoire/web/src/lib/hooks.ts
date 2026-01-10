@@ -32,7 +32,24 @@ import {
 
 // NOTE: Removed billing types (CheckoutResponse, PlansResponse, PortalResponse, PriceCalculationResponse)
 // as part of Clerk Billing migration. These are no longer used by frontend hooks.
-import { analyticsApi, billingApi, findingsApi, fixesApi, historicalApi, provenanceSettingsApi, repositoriesApi, request } from './api';
+import {
+  analyticsApi,
+  billingApi,
+  DeleteNotificationsResponse,
+  findingsApi,
+  fixesApi,
+  historicalApi,
+  MarkReadResponse,
+  NotificationItem,
+  NotificationPreferences,
+  notificationsApi,
+  NotificationsListResponse,
+  provenanceSettingsApi,
+  repositoriesApi,
+  request,
+  userPreferencesApi,
+  type UserPreferences,
+} from './api';
 import { useApiAuth } from '@/components/providers/api-auth-provider';
 
 // Generic fetcher for SWR
@@ -911,3 +928,236 @@ export function useCorrectAttribution(findingId: string) {
       historicalApi.correctAttribution(findingId, correctCommitSha)
   );
 }
+
+// ==========================================
+// User Preferences Hooks
+// ==========================================
+
+/** Default user preferences */
+const DEFAULT_USER_PREFERENCES: UserPreferences = {
+  theme: 'system',
+  new_fix_alerts: true,
+  critical_security_alerts: true,
+  weekly_summary: false,
+  auto_approve_high_confidence: false,
+  generate_tests: true,
+  create_git_branches: true,
+};
+
+/**
+ * Hook to fetch user's preferences.
+ * Returns defaults if not set.
+ */
+export function useUserPreferences() {
+  const { isAuthReady } = useApiAuth();
+
+  const { data, error, isLoading, mutate } = useSWR<UserPreferences>(
+    isAuthReady ? 'user-preferences' : null,
+    () => userPreferencesApi.get(),
+    {
+      revalidateOnFocus: false,
+      fallbackData: DEFAULT_USER_PREFERENCES,
+      onError: () => {
+        // Return defaults on error (preferences may not exist yet)
+      },
+    }
+  );
+
+  return {
+    preferences: data ?? DEFAULT_USER_PREFERENCES,
+    isLoading: !isAuthReady || isLoading,
+    error,
+    refresh: mutate,
+  };
+}
+
+/**
+ * Hook to update user preferences.
+ */
+export function useUpdateUserPreferences() {
+  return useSWRMutation<
+    UserPreferences,
+    Error,
+    string,
+    Partial<UserPreferences>
+  >(
+    'user-preferences',
+    async (_key, { arg }) => {
+      return userPreferencesApi.update(arg);
+    }
+  );
+}
+
+// ==========================================
+// Notifications Hooks
+// ==========================================
+
+/**
+ * Hook to fetch notifications for the current user.
+ * Includes unread count for badge display.
+ *
+ * @param limit - Maximum notifications to return (default: 50)
+ * @param unreadOnly - Only return unread notifications
+ */
+export function useNotifications(limit: number = 50, unreadOnly: boolean = false) {
+  const { isAuthReady } = useApiAuth();
+
+  const { data, error, isLoading, mutate } = useSWR<NotificationsListResponse>(
+    isAuthReady ? ['notifications', limit, unreadOnly] : null,
+    () => notificationsApi.list(limit, 0, unreadOnly),
+    {
+      // Refresh every 60 seconds to catch new notifications
+      refreshInterval: 60000,
+      revalidateOnFocus: true,
+    }
+  );
+
+  return {
+    notifications: data?.notifications ?? [],
+    unreadCount: data?.unread_count ?? 0,
+    total: data?.total ?? 0,
+    isLoading: !isAuthReady || isLoading,
+    error,
+    refresh: mutate,
+  };
+}
+
+/**
+ * Hook to get just the unread notification count.
+ * Lightweight polling for badge updates.
+ */
+export function useUnreadNotificationCount() {
+  const { isAuthReady } = useApiAuth();
+
+  const { data, error, isLoading, mutate } = useSWR<{ unread_count: number }>(
+    isAuthReady ? 'notifications-unread-count' : null,
+    () => notificationsApi.getUnreadCount(),
+    {
+      // Poll every 30 seconds for badge updates
+      refreshInterval: 30000,
+      revalidateOnFocus: true,
+    }
+  );
+
+  return {
+    unreadCount: data?.unread_count ?? 0,
+    isLoading: !isAuthReady || isLoading,
+    error,
+    refresh: mutate,
+  };
+}
+
+/**
+ * Hook to mark specific notifications as read.
+ */
+export function useMarkNotificationsRead() {
+  return useSWRMutation<MarkReadResponse, Error, string, string[]>(
+    'notifications-mark-read',
+    async (_key, { arg: notificationIds }) => {
+      return notificationsApi.markRead(notificationIds);
+    }
+  );
+}
+
+/**
+ * Hook to mark all notifications as read.
+ */
+export function useMarkAllNotificationsRead() {
+  return useSWRMutation<MarkReadResponse, Error, string>(
+    'notifications-mark-all-read',
+    async () => {
+      return notificationsApi.markAllRead();
+    }
+  );
+}
+
+/**
+ * Hook to delete specific notifications.
+ */
+export function useDeleteNotifications() {
+  return useSWRMutation<DeleteNotificationsResponse, Error, string, string[]>(
+    'notifications-delete',
+    async (_key, { arg: notificationIds }) => {
+      return notificationsApi.deleteNotifications(notificationIds);
+    }
+  );
+}
+
+/**
+ * Hook to delete all notifications.
+ */
+export function useDeleteAllNotifications() {
+  return useSWRMutation<DeleteNotificationsResponse, Error, string>(
+    'notifications-delete-all',
+    async () => {
+      return notificationsApi.deleteAll();
+    }
+  );
+}
+
+/** Default notification preferences */
+const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  analysis_complete: true,
+  analysis_failed: true,
+  health_regression: true,
+  weekly_digest: false,
+  team_notifications: true,
+  billing_notifications: true,
+  in_app_notifications: true,
+  regression_threshold: 10,
+};
+
+/**
+ * Hook to fetch notification preferences.
+ */
+export function useNotificationPreferences() {
+  const { isAuthReady } = useApiAuth();
+
+  const { data, error, isLoading, mutate } = useSWR<NotificationPreferences>(
+    isAuthReady ? 'notification-preferences' : null,
+    () => notificationsApi.getPreferences(),
+    {
+      revalidateOnFocus: false,
+      fallbackData: DEFAULT_NOTIFICATION_PREFERENCES,
+    }
+  );
+
+  return {
+    preferences: data ?? DEFAULT_NOTIFICATION_PREFERENCES,
+    isLoading: !isAuthReady || isLoading,
+    error,
+    refresh: mutate,
+  };
+}
+
+/**
+ * Hook to update notification preferences.
+ */
+export function useUpdateNotificationPreferences() {
+  return useSWRMutation<
+    NotificationPreferences,
+    Error,
+    string,
+    Partial<NotificationPreferences>
+  >(
+    'notification-preferences',
+    async (_key, { arg }) => {
+      return notificationsApi.updatePreferences(arg);
+    }
+  );
+}
+
+/**
+ * Hook to reset notification preferences to defaults.
+ */
+export function useResetNotificationPreferences() {
+  return useSWRMutation<NotificationPreferences, Error, string>(
+    'notification-preferences',
+    async () => {
+      return notificationsApi.resetPreferences();
+    }
+  );
+}
+
+// Re-export types for convenience
+export type { NotificationItem, NotificationPreferences, NotificationsListResponse };

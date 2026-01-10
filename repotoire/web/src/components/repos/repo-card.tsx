@@ -23,8 +23,7 @@ import { MoreVertical, Trash2, ExternalLink, Play, Loader2 } from 'lucide-react'
 import { RepoStatusBadge } from './repo-status-badge';
 import { HealthScoreBadge } from './health-score-badge';
 import { AnalysisProgress } from './analysis-progress';
-import { formatDistanceToNow } from 'date-fns';
-import { safeParseDate } from '@/lib/utils';
+import { formatDate } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { useApiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
@@ -174,10 +173,7 @@ function RepoCardComponent({ repo, installationId, onUpdate }: RepoCardProps) {
             </div>
             {repo.last_analyzed_at && (
               <span className="text-xs text-muted-foreground">
-                {(() => {
-                  const date = safeParseDate(repo.last_analyzed_at);
-                  return date ? formatDistanceToNow(date, { addSuffix: true }) : 'Unknown';
-                })()}
+                {formatDate(repo.last_analyzed_at, { style: 'smart', fallback: 'Unknown' })}
               </span>
             )}
           </div>

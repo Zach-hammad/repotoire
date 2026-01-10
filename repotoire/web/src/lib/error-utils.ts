@@ -2,26 +2,140 @@
  * Standardized error handling utilities.
  *
  * This module provides:
- * 1. Type-safe error message extraction
- * 2. Consistent toast error display
+ * 1. Type-safe error message extraction with error codes
+ * 2. Consistent toast error display with actionable messages
  * 3. Error boundary helpers
+ * 4. Integration with centralized error codes
  */
 
 import { toast } from 'sonner';
 import { ApiClientError } from './api-client';
+import {
+  ErrorCodes,
+  ErrorCode,
+  ErrorMessages,
+  getErrorCodeFromStatus,
+  getErrorCodeFromMessage,
+  getErrorInfo,
+  formatErrorWithCode,
+  shouldReportError,
+  type ErrorInfo,
+} from './error-codes';
+
+// Re-export error codes for convenience
+export { ErrorCodes, formatErrorWithCode, type ErrorCode, type ErrorInfo } from './error-codes';
 
 /**
  * Standard error response structure from the API.
+ * Now includes error_code field for machine-readable error identification.
  */
 export interface ApiErrorResponse {
-  detail?: string;
+  detail?: string | { detail?: string; error_code?: string; action?: string };
   message?: string;
   error?: string;
-  code?: string;
+  error_code?: string;
+  action?: string;
   errors?: Array<{
     field?: string;
     message: string;
   }>;
+}
+
+/**
+ * Parsed error information with user-friendly messaging.
+ */
+export interface ParsedError {
+  /** User-friendly error title */
+  title: string;
+  /** Detailed error message */
+  message: string;
+  /** What the user can do */
+  action: string;
+  /** Machine-readable error code for support */
+  code: ErrorCode;
+  /** HTTP status code if available */
+  status?: number;
+  /** Whether to report to error tracking */
+  reportable: boolean;
+}
+
+/**
+ * Parse any error into a structured error with user-friendly messaging.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await api.post('/endpoint', data);
+ * } catch (error) {
+ *   const parsed = parseError(error);
+ *   toast.error(parsed.title, { description: parsed.message });
+ *   console.log('Support ref:', parsed.code);
+ * }
+ * ```
+ */
+export function parseError(error: unknown): ParsedError {
+  let errorCode: ErrorCode = ErrorCodes.UNKNOWN;
+  let status: number | undefined;
+  let customMessage: string | undefined;
+  let customAction: string | undefined;
+
+  // Extract error code from API response if available
+  if (error instanceof ApiClientError) {
+    status = error.status;
+    const details = error.details as ApiErrorResponse | undefined;
+
+    // Check if API returned a structured error with error_code
+    if (details) {
+      // Handle nested detail object
+      const detailObj = typeof details.detail === 'object' ? details.detail : null;
+
+      if (detailObj?.error_code) {
+        errorCode = detailObj.error_code as ErrorCode;
+        customMessage = detailObj.detail;
+        customAction = detailObj.action;
+      } else if (details.error_code) {
+        errorCode = details.error_code as ErrorCode;
+        customAction = details.action;
+      } else {
+        // Fall back to status code mapping
+        errorCode = getErrorCodeFromStatus(status);
+      }
+
+      // Extract message from various formats
+      if (!customMessage) {
+        customMessage = typeof details.detail === 'string'
+          ? details.detail
+          : details.message || details.error;
+      }
+    } else {
+      errorCode = getErrorCodeFromStatus(status);
+    }
+  } else if (error instanceof Error) {
+    // Try to infer error code from message
+    errorCode = getErrorCodeFromMessage(error.message);
+    customMessage = error.message;
+  } else if (typeof error === 'string') {
+    errorCode = getErrorCodeFromMessage(error);
+    customMessage = error;
+  } else if (error && typeof error === 'object') {
+    const errorObj = error as ApiErrorResponse;
+    if (errorObj.error_code) {
+      errorCode = errorObj.error_code as ErrorCode;
+    }
+    customMessage = errorObj.detail as string || errorObj.message || errorObj.error;
+    customAction = errorObj.action;
+  }
+
+  const errorInfo = getErrorInfo(errorCode);
+
+  return {
+    title: errorInfo.title,
+    message: customMessage || errorInfo.message,
+    action: customAction || errorInfo.action,
+    code: errorCode,
+    status,
+    reportable: shouldReportError(errorCode),
+  };
 }
 
 /**
@@ -38,34 +152,15 @@ export interface ApiErrorResponse {
  * ```
  */
 export function getErrorMessage(error: unknown, fallback = 'An unexpected error occurred'): string {
-  // Handle ApiClientError (our custom error class)
-  if (error instanceof ApiClientError) {
-    // If we have structured details, try to extract more specific info
-    const details = error.details as ApiErrorResponse | undefined;
-    if (details?.errors?.length) {
-      // Format validation errors
-      return details.errors.map((e) => e.message).join('. ');
-    }
-    return error.message;
-  }
+  const parsed = parseError(error);
+  return parsed.message || fallback;
+}
 
-  // Handle standard Error objects
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  // Handle string errors
-  if (typeof error === 'string') {
-    return error;
-  }
-
-  // Handle objects with error-like properties
-  if (error && typeof error === 'object') {
-    const errorObj = error as ApiErrorResponse;
-    return errorObj.detail || errorObj.message || errorObj.error || fallback;
-  }
-
-  return fallback;
+/**
+ * Get the error code from an error.
+ */
+export function getErrorCode(error: unknown): ErrorCode {
+  return parseError(error).code;
 }
 
 /**
@@ -113,7 +208,23 @@ export function isNotFoundError(error: unknown): boolean {
 }
 
 /**
- * Display a standardized error toast notification.
+ * Check if an error is a rate limit error.
+ */
+export function isRateLimitError(error: unknown): boolean {
+  const code = getErrorCode(error);
+  return code === ErrorCodes.LIMIT_RATE_EXCEEDED ||
+    code === ErrorCodes.LIMIT_QUOTA_EXCEEDED ||
+    code === ErrorCodes.LIMIT_DAILY_EXCEEDED;
+}
+
+/**
+ * Display a standardized error toast notification with actionable messaging.
+ *
+ * Uses the error code system to provide:
+ * - Appropriate title based on error type
+ * - Detailed message explaining what went wrong
+ * - Actionable suggestion for the user
+ * - Error code for support reference
  *
  * @example
  * ```ts
@@ -124,28 +235,32 @@ export function isNotFoundError(error: unknown): boolean {
  * }
  * ```
  */
-export function showErrorToast(error: unknown, title = 'Error'): void {
-  const message = getErrorMessage(error);
+export function showErrorToast(error: unknown, customTitle?: string): void {
+  const parsed = parseError(error);
 
-  // Handle specific error types with custom titles
-  if (isNetworkError(error)) {
-    toast.error('Connection Error', {
-      description: 'Please check your internet connection and try again.',
-    });
-    return;
+  // Use parsed title or custom title
+  const title = customTitle || parsed.title;
+
+  // Build description with message and action
+  let description = parsed.message;
+  if (parsed.action && parsed.action !== parsed.message) {
+    description = `${parsed.message} ${parsed.action}`;
   }
 
-  if (isAuthError(error)) {
-    toast.error('Authentication Error', {
-      description: 'Your session may have expired. Please sign in again.',
-    });
-    return;
+  // Add error code for non-generic errors
+  if (parsed.code !== ErrorCodes.UNKNOWN) {
+    description = `${description} (${parsed.code})`;
   }
 
-  // Default error toast
-  toast.error(title, {
-    description: message,
-  });
+  // Use appropriate toast type based on severity
+  const errorInfo = getErrorInfo(parsed.code);
+  if (errorInfo.severity === 'warning') {
+    toast.warning(title, { description });
+  } else if (errorInfo.severity === 'info') {
+    toast.info(title, { description });
+  } else {
+    toast.error(title, { description });
+  }
 }
 
 /**

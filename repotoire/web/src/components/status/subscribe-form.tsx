@@ -79,7 +79,7 @@ export function SubscribeForm() {
   return (
     <div className="rounded-lg border bg-card p-6">
       <div className="flex items-center gap-2 mb-3">
-        <Mail className="h-5 w-5 text-muted-foreground" />
+        <Mail className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
         <h3 className="font-semibold">Subscribe to Updates</h3>
       </div>
       <p className="text-sm text-muted-foreground mb-4">
@@ -87,12 +87,12 @@ export function SubscribeForm() {
       </p>
 
       {status === "success" ? (
-        <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
-          <Check className="h-5 w-5" />
+        <div className="flex items-center gap-2 text-green-600 dark:text-green-400" role="status" aria-live="polite">
+          <Check className="h-5 w-5" aria-hidden="true" />
           <span className="text-sm">{message}</span>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="space-y-2">
+        <form onSubmit={handleSubmit} className="space-y-2" noValidate>
           <div className="flex gap-2">
             <div className="flex-1 space-y-1">
               <Input
@@ -111,7 +111,7 @@ export function SubscribeForm() {
             </div>
             <Button type="submit" disabled={status === "loading"}>
               {status === "loading" ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
                 "Subscribe"
               )}
@@ -125,7 +125,7 @@ export function SubscribeForm() {
               className="flex items-center gap-1.5 text-sm text-destructive"
               role="alert"
             >
-              <AlertCircle className="h-3.5 w-3.5" />
+              <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
               {fieldError}
             </p>
           )}
@@ -133,7 +133,7 @@ export function SubscribeForm() {
           {/* API error */}
           {status === "error" && message && (
             <p className="flex items-center gap-1.5 text-sm text-destructive" role="alert">
-              <AlertCircle className="h-3.5 w-3.5" />
+              <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
               {message}
             </p>
           )}

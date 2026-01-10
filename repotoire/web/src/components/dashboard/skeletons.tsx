@@ -2,16 +2,28 @@
 
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
-// Base shimmer skeleton
-function Shimmer({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+// Base shimmer skeleton with CSS animation
+function Shimmer({ className, style, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn('rounded-md skeleton-shimmer', className)}
+      style={style}
       {...props}
     />
   );
 }
+
+// Export Shimmer for use in other components
+export { Shimmer };
 
 // Card skeleton for generic cards
 export function CardSkeleton({ className }: { className?: string }) {
@@ -248,6 +260,209 @@ export function FindingsListSkeleton({ count = 5 }: { count?: number }) {
     <div className="space-y-3">
       {Array.from({ length: count }).map((_, i) => (
         <FindingItemSkeleton key={i} />
+      ))}
+    </div>
+  );
+}
+
+// Data table skeleton with proper column structure
+interface DataTableSkeletonProps {
+  /** Number of rows to display */
+  rows?: number;
+  /** Column configuration: array of { width: string, hasCheckbox?: boolean, hasActions?: boolean } */
+  columns?: Array<{
+    width: string;
+    isCheckbox?: boolean;
+    isActions?: boolean;
+    isBadge?: boolean;
+  }>;
+  /** Whether the table has a header */
+  showHeader?: boolean;
+  /** Fixed row height for consistent layout */
+  rowHeight?: number;
+}
+
+/**
+ * DataTableSkeleton - A table skeleton that matches the structure of data tables.
+ * Prevents layout shift by using fixed column widths.
+ */
+export function DataTableSkeleton({
+  rows = 5,
+  columns = [
+    { width: '48px', isCheckbox: true },
+    { width: '35%' },
+    { width: '15%', isBadge: true },
+    { width: '12%', isBadge: true },
+    { width: '12%', isBadge: true },
+    { width: '15%' },
+    { width: '10%' },
+    { width: '48px', isActions: true },
+  ],
+  showHeader = true,
+  rowHeight = 64,
+}: DataTableSkeletonProps) {
+  return (
+    <Table>
+      {showHeader && (
+        <TableHeader>
+          <TableRow>
+            {columns.map((col, i) => (
+              <TableHead
+                key={i}
+                style={{ width: col.width }}
+                className={cn(col.isCheckbox && 'w-12', col.isActions && 'w-12')}
+              >
+                {col.isCheckbox ? (
+                  <Shimmer className="h-4 w-4" />
+                ) : col.isActions ? null : (
+                  <Shimmer className="h-4 w-16" />
+                )}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+      )}
+      <TableBody>
+        {Array.from({ length: rows }).map((_, rowIndex) => (
+          <TableRow key={rowIndex} style={{ height: `${rowHeight}px` }}>
+            {columns.map((col, colIndex) => (
+              <TableCell key={colIndex} style={{ width: col.width }}>
+                {col.isCheckbox ? (
+                  <Shimmer className="h-4 w-4" />
+                ) : col.isActions ? (
+                  <Shimmer className="h-8 w-8" />
+                ) : col.isBadge ? (
+                  <Shimmer className="h-6 w-20 rounded-full" />
+                ) : colIndex === 1 ? (
+                  // Title column - multi-line
+                  <div className="space-y-2">
+                    <Shimmer className="h-4 w-4/5" />
+                    <Shimmer className="h-3 w-3/5" />
+                  </div>
+                ) : (
+                  <Shimmer
+                    className="h-4"
+                    style={{ width: `${60 + Math.random() * 30}%` }}
+                  />
+                )}
+              </TableCell>
+            ))}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+// API Keys table skeleton
+export function ApiKeysTableSkeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <DataTableSkeleton
+      rows={rows}
+      columns={[
+        { width: '20%' },
+        { width: '25%' },
+        { width: '25%', isBadge: true },
+        { width: '15%' },
+        { width: '10%' },
+        { width: '48px', isActions: true },
+      ]}
+      rowHeight={56}
+    />
+  );
+}
+
+// Fixes table skeleton
+export function FixesTableSkeleton({ rows = 5 }: { rows?: number }) {
+  return (
+    <DataTableSkeleton
+      rows={rows}
+      columns={[
+        { width: '48px', isCheckbox: true },
+        { width: '35%' },
+        { width: '12%', isBadge: true },
+        { width: '12%', isBadge: true },
+        { width: '12%', isBadge: true },
+        { width: '10%' },
+        { width: '12%' },
+        { width: '48px', isActions: true },
+      ]}
+      rowHeight={72}
+    />
+  );
+}
+
+// Bulk action bar skeleton
+export function BulkActionBarSkeleton() {
+  return (
+    <Card className="bg-primary/5 border-primary/20">
+      <CardContent className="py-4 flex items-center justify-between">
+        <Shimmer className="h-4 w-32" />
+        <div className="flex items-center gap-2">
+          <Shimmer className="h-9 w-24 rounded-md" />
+          <Shimmer className="h-9 w-24 rounded-md" />
+          <Shimmer className="h-9 w-20 rounded-md" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Page header skeleton
+export function PageHeaderSkeleton() {
+  return (
+    <div className="flex items-center justify-between">
+      <div className="space-y-2">
+        <Shimmer className="h-8 w-48" />
+        <Shimmer className="h-4 w-72" />
+      </div>
+      <Shimmer className="h-10 w-32 rounded-md" />
+    </div>
+  );
+}
+
+// Filter bar skeleton
+export function FilterBarSkeleton() {
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div className="flex flex-wrap gap-4">
+          <Shimmer className="h-10 w-64 rounded-md" />
+          <Shimmer className="h-10 w-36 rounded-md" />
+          <Shimmer className="h-10 w-36 rounded-md" />
+          <Shimmer className="h-10 w-36 rounded-md" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Full fixes page skeleton
+export function FixesPageSkeleton() {
+  return (
+    <div className="space-y-6">
+      <PageHeaderSkeleton />
+      <FilterBarSkeleton />
+      <Card>
+        <CardContent className="p-0">
+          <FixesTableSkeleton rows={5} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// Summary cards skeleton (for repos page)
+export function SummaryCardsSkeleton({ count = 4 }: { count?: number }) {
+  return (
+    <div className="grid gap-4 md:grid-cols-4">
+      {Array.from({ length: count }).map((_, i) => (
+        <Card key={i}>
+          <CardContent className="pt-4 pb-4">
+            <Shimmer className="h-8 w-16 mb-1" />
+            <Shimmer className="h-3 w-24" />
+          </CardContent>
+        </Card>
       ))}
     </div>
   );

@@ -226,13 +226,17 @@ class CLIAuth:
         server.timeout = OAUTH_TIMEOUT_SECONDS
 
         # Open browser
-        console.print("[dim]Opening browser for authentication...[/dim]")
+        console.print("\n[bold cyan]Opening browser for authentication...[/bold cyan]\n")
+
+        # Show the URL prominently BEFORE attempting to open browser
+        console.print("[bold]Authentication URL:[/bold]")
+        console.print(f"  [link={auth_url}]{auth_url}[/link]\n")
+        console.print("[dim]If your browser doesn't open automatically, copy and paste the URL above.[/dim]\n")
+
         webbrowser.open(auth_url)
         console.print(
-            f"[dim]Waiting for authentication (timeout: {OAUTH_TIMEOUT_SECONDS}s)...[/dim]"
+            f"[dim]Waiting for authentication (timeout: {OAUTH_TIMEOUT_SECONDS // 60} minutes)...[/dim]"
         )
-        console.print("[dim]If browser didn't open, visit:[/dim]")
-        console.print(f"[link={auth_url}]{auth_url}[/link]")
 
         # Handle single request (blocking)
         try:

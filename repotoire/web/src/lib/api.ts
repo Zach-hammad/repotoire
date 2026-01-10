@@ -568,6 +568,36 @@ export const historicalApi = {
   },
 };
 
+// User Preferences API
+export interface UserPreferences {
+  theme: 'light' | 'dark' | 'system';
+  new_fix_alerts: boolean;
+  critical_security_alerts: boolean;
+  weekly_summary: boolean;
+  auto_approve_high_confidence: boolean;
+  generate_tests: boolean;
+  create_git_branches: boolean;
+}
+
+export const userPreferencesApi = {
+  /**
+   * Get user's preferences
+   */
+  get: async (): Promise<UserPreferences> => {
+    return request<UserPreferences>('/account/preferences');
+  },
+
+  /**
+   * Update user's preferences
+   */
+  update: async (preferences: Partial<UserPreferences>): Promise<UserPreferences> => {
+    return request<UserPreferences>('/account/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(preferences),
+    });
+  },
+};
+
 // Provenance Settings API
 export const provenanceSettingsApi = {
   /**
@@ -644,6 +674,138 @@ export const sandboxApi = {
    */
   getBillingStatus: async (): Promise<SandboxBillingStatus> => {
     return request<SandboxBillingStatus>('/sandbox/billing/status');
+  },
+};
+
+// Notifications API
+export interface NotificationItem {
+  id: string;
+  type: 'analysis_complete' | 'analysis_failed' | 'new_finding' | 'fix_suggestion' | 'health_regression' | 'team_invite' | 'team_role_change' | 'billing_event' | 'system';
+  title: string;
+  message: string;
+  read: boolean;
+  read_at: string | null;
+  action_url: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface NotificationsListResponse {
+  notifications: NotificationItem[];
+  unread_count: number;
+  total: number;
+}
+
+export interface MarkReadResponse {
+  marked_count: number;
+  unread_count: number;
+}
+
+export interface DeleteNotificationsResponse {
+  deleted_count: number;
+}
+
+export interface NotificationPreferences {
+  analysis_complete: boolean;
+  analysis_failed: boolean;
+  health_regression: boolean;
+  weekly_digest: boolean;
+  team_notifications: boolean;
+  billing_notifications: boolean;
+  in_app_notifications: boolean;
+  regression_threshold: number;
+}
+
+export const notificationsApi = {
+  /**
+   * Get list of notifications for the current user
+   */
+  list: async (
+    limit: number = 50,
+    offset: number = 0,
+    unreadOnly: boolean = false
+  ): Promise<NotificationsListResponse> => {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
+    if (unreadOnly) {
+      params.set('unread_only', 'true');
+    }
+    return request<NotificationsListResponse>(`/notifications?${params}`);
+  },
+
+  /**
+   * Get unread notification count
+   */
+  getUnreadCount: async (): Promise<{ unread_count: number }> => {
+    return request<{ unread_count: number }>('/notifications/unread-count');
+  },
+
+  /**
+   * Mark specific notifications as read
+   */
+  markRead: async (notificationIds: string[]): Promise<MarkReadResponse> => {
+    return request<MarkReadResponse>('/notifications/mark-read', {
+      method: 'POST',
+      body: JSON.stringify({ notification_ids: notificationIds }),
+    });
+  },
+
+  /**
+   * Mark all notifications as read
+   */
+  markAllRead: async (): Promise<MarkReadResponse> => {
+    return request<MarkReadResponse>('/notifications/mark-all-read', {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * Delete specific notifications
+   */
+  deleteNotifications: async (notificationIds: string[]): Promise<DeleteNotificationsResponse> => {
+    return request<DeleteNotificationsResponse>('/notifications', {
+      method: 'DELETE',
+      body: JSON.stringify({ notification_ids: notificationIds }),
+    });
+  },
+
+  /**
+   * Delete all notifications
+   */
+  deleteAll: async (): Promise<DeleteNotificationsResponse> => {
+    return request<DeleteNotificationsResponse>('/notifications/all', {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Get notification preferences
+   */
+  getPreferences: async (): Promise<NotificationPreferences> => {
+    return request<NotificationPreferences>('/notifications/preferences');
+  },
+
+  /**
+   * Update notification preferences
+   */
+  updatePreferences: async (
+    preferences: Partial<NotificationPreferences>
+  ): Promise<NotificationPreferences> => {
+    return request<NotificationPreferences>('/notifications/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(preferences),
+    });
+  },
+
+  /**
+   * Reset notification preferences to defaults
+   */
+  resetPreferences: async (): Promise<NotificationPreferences> => {
+    return request<NotificationPreferences>('/notifications/preferences/reset', {
+      method: 'POST',
+    });
   },
 };
 

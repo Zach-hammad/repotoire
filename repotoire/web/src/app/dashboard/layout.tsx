@@ -62,13 +62,13 @@ const sidebarSections = [
   },
 ];
 
-function Sidebar({ className }: { className?: string }) {
+function Sidebar({ className, onNavigate }: { className?: string; onNavigate?: () => void }) {
   const pathname = usePathname();
 
   return (
     <div className={cn('flex h-full flex-col gap-2', className)}>
       <div className="flex h-16 items-center border-b border-border/50 px-4">
-        <Link href="/dashboard" className="flex items-center" aria-label="Repotoire dashboard home">
+        <Link href="/dashboard" className="flex items-center" aria-label="Repotoire dashboard home" onClick={onNavigate}>
           <Image
             src="/logo.png"
             alt="Repotoire"
@@ -107,6 +107,7 @@ function Sidebar({ className }: { className?: string }) {
                   <Link
                     key={link.href}
                     href={link.href}
+                    onClick={onNavigate}
                     className={cn(
                       'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200',
                       isActive
@@ -153,6 +154,7 @@ function Sidebar({ className }: { className?: string }) {
         </div>
         <Link
           href="/"
+          onClick={onNavigate}
           className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors py-1"
         >
           <ChevronLeft className="h-4 w-4" />
@@ -199,7 +201,7 @@ export default function DashboardLayout({
                 </Button>
               </SheetTrigger>
               <SheetContent side="left" className="w-64 p-0">
-                <Sidebar />
+                <Sidebar onNavigate={() => setOpen(false)} />
               </SheetContent>
             </Sheet>
 

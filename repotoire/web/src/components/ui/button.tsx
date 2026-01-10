@@ -168,3 +168,4 @@ function AnimatedButton({
 }
 
 export { Button, AnimatedButton, buttonVariants }
+export type { ButtonProps }

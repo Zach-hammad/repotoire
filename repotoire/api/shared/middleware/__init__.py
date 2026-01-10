@@ -5,6 +5,7 @@ request processing, including:
 - Usage enforcement (rate limits, quotas)
 - API versioning (version detection, headers)
 - Deprecation tracking (sunset headers)
+- Rate limiting with standard headers
 """
 
 from .deprecation import (
@@ -12,6 +13,23 @@ from .deprecation import (
     DeprecationMiddleware,
     deprecation_response_headers,
     is_past_sunset,
+)
+from .rate_limit import (
+    DEFAULT_RATE_LIMIT,
+    HEADER_LIMIT,
+    HEADER_POLICY,
+    HEADER_REMAINING,
+    HEADER_RESET,
+    HEADER_RETRY_AFTER,
+    RATE_LIMITS,
+    RateLimitConfig,
+    RateLimitMiddleware,
+    RateLimitStateStore,
+    RateLimitTier,
+    get_rate_limit_exceeded_headers,
+    get_rate_limit_for_tier,
+    get_rate_limit_headers,
+    set_rate_limit_info,
 )
 from .usage import (
     enforce_analysis_limit,
@@ -46,4 +64,20 @@ __all__ = [
     "DeprecationMiddleware",
     "deprecation_response_headers",
     "is_past_sunset",
+    # Rate limiting
+    "RATE_LIMITS",
+    "DEFAULT_RATE_LIMIT",
+    "RateLimitTier",
+    "RateLimitConfig",
+    "HEADER_LIMIT",
+    "HEADER_REMAINING",
+    "HEADER_RESET",
+    "HEADER_RETRY_AFTER",
+    "HEADER_POLICY",
+    "get_rate_limit_headers",
+    "get_rate_limit_exceeded_headers",
+    "get_rate_limit_for_tier",
+    "set_rate_limit_info",
+    "RateLimitMiddleware",
+    "RateLimitStateStore",
 ]

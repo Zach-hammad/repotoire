@@ -17,8 +17,10 @@ if TYPE_CHECKING:
     from .email import EmailPreferences
     from .fix import FixComment
     from .gdpr import ConsentRecord, DataExport
+    from .notification import InAppNotification
     from .organization import OrganizationMembership
     from .provenance_settings import ProvenanceSettings
+    from .user_preferences import UserPreferences
 
 
 class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -112,6 +114,18 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     fix_comments: Mapped[List["FixComment"]] = relationship(
         "FixComment",
         back_populates="user",
+    )
+    notifications: Mapped[List["InAppNotification"]] = relationship(
+        "InAppNotification",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="desc(InAppNotification.created_at)",
+    )
+    preferences: Mapped["UserPreferences | None"] = relationship(
+        "UserPreferences",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
 
     __table_args__ = (

@@ -1,6 +1,7 @@
 """Clerk authentication for FastAPI.
 
 This module provides JWT verification using Clerk's official Python SDK.
+Uses standardized error codes for consistent error handling.
 """
 
 import os
@@ -13,6 +14,11 @@ from clerk_backend_api import AuthenticateRequestOptions, Clerk
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from repotoire.api.shared.helpers.errors import (
+    ErrorCode,
+    APIError,
+    create_error_response,
+)
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -38,9 +44,10 @@ def get_clerk_client() -> Clerk:
     """Get Clerk SDK client instance."""
     secret_key = os.getenv("CLERK_SECRET_KEY")
     if not secret_key:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="CLERK_SECRET_KEY environment variable not set",
+        logger.error("CLERK_SECRET_KEY environment variable not set")
+        raise APIError(
+            error_code=ErrorCode.SYS_INTERNAL_ERROR,
+            detail="Authentication service configuration error.",
         )
     return Clerk(bearer_auth=secret_key)
 
@@ -58,9 +65,8 @@ async def get_current_user(
             return {"user_id": user.user_id}
     """
     if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authorization header",
+        raise APIError(
+            error_code=ErrorCode.AUTH_MISSING_TOKEN,
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -90,9 +96,12 @@ async def get_current_user(
 
         if not request_state.is_signed_in:
             logger.warning(f"Authentication failed: {request_state.reason}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Invalid or expired token: {request_state.reason}",
+            # Determine specific error based on reason
+            error_code = ErrorCode.AUTH_INVALID_TOKEN
+            if request_state.reason and "expired" in str(request_state.reason).lower():
+                error_code = ErrorCode.AUTH_SESSION_EXPIRED
+            raise APIError(
+                error_code=error_code,
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -117,13 +126,15 @@ async def get_current_user(
 
         return user
 
+    except APIError:
+        raise
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Authentication error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication failed",
+        raise APIError(
+            error_code=ErrorCode.AUTH_INVALID_TOKEN,
+            detail="Authentication failed. Please sign in again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -163,10 +174,7 @@ def require_org(user: ClerkUser = Depends(get_current_user)) -> ClerkUser:
             return {"org_id": user.org_id}
     """
     if not user.org_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Organization membership required",
-        )
+        raise APIError(error_code=ErrorCode.AUTH_ORG_REQUIRED)
     return user
 
 
@@ -180,13 +188,7 @@ def require_org_admin(user: ClerkUser = Depends(get_current_user)) -> ClerkUser:
             return {"admin": True}
     """
     if not user.org_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Organization membership required",
-        )
+        raise APIError(error_code=ErrorCode.AUTH_ORG_REQUIRED)
     if user.org_role not in ("admin", "org:admin"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Organization admin role required",
-        )
+        raise APIError(error_code=ErrorCode.AUTH_ADMIN_REQUIRED)
     return user

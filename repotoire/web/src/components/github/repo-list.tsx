@@ -171,8 +171,8 @@ export function RepositoryList({
       toast.success(`${repo.full_name} ${enabled ? "enabled" : "disabled"}`);
     } catch (error: any) {
       console.error("Failed to update repo:", error);
-      toast.error("Failed to update repository", {
-        description: error?.message || "Please try again",
+      toast.error("Unable to Update Repository", {
+        description: error?.message || "Check your connection and try again. (ERR_REPO_003)",
       });
 
       // Rollback optimistic update on error

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Mail, MessageSquare, Github, Loader2 } from "lucide-react";
+import { Mail, MessageSquare, Github, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface FormErrors {
@@ -14,14 +14,33 @@ interface FormErrors {
   message?: string;
 }
 
-function validateEmail(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+// Email validation regex
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateField(name: string, value: string): string | undefined {
+  switch (name) {
+    case "name":
+      if (!value.trim()) return "Name is required";
+      if (value.trim().length < 2) return "Name must be at least 2 characters";
+      return undefined;
+    case "email":
+      if (!value.trim()) return "Email is required";
+      if (!emailRegex.test(value)) return "Please enter a valid email address";
+      return undefined;
+    case "message":
+      if (!value.trim()) return "Message is required";
+      if (value.trim().length < 10) return "Message must be at least 10 characters";
+      return undefined;
+    default:
+      return undefined;
+  }
 }
 
 export default function ContactPage() {
   const [submitted, setSubmitted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -31,23 +50,13 @@ export default function ContactPage() {
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
 
-    if (!formData.name.trim()) {
-      newErrors.name = "Name is required";
-    } else if (formData.name.trim().length < 2) {
-      newErrors.name = "Name must be at least 2 characters";
-    }
+    const nameError = validateField("name", formData.name);
+    const emailError = validateField("email", formData.email);
+    const messageError = validateField("message", formData.message);
 
-    if (!formData.email.trim()) {
-      newErrors.email = "Email is required";
-    } else if (!validateEmail(formData.email)) {
-      newErrors.email = "Please enter a valid email address";
-    }
-
-    if (!formData.message.trim()) {
-      newErrors.message = "Message is required";
-    } else if (formData.message.trim().length < 10) {
-      newErrors.message = "Message must be at least 10 characters";
-    }
+    if (nameError) newErrors.name = nameError;
+    if (emailError) newErrors.email = emailError;
+    if (messageError) newErrors.message = messageError;
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -56,7 +65,18 @@ export default function ContactPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Mark all fields as touched
+    setTouched({ name: true, email: true, message: true });
+
     if (!validateForm()) {
+      // Focus on the first field with an error
+      const firstErrorField = Object.keys(errors).find(
+        (key) => errors[key as keyof FormErrors]
+      );
+      if (firstErrorField) {
+        const element = document.getElementById(firstErrorField);
+        element?.focus();
+      }
       return;
     }
 
@@ -70,16 +90,27 @@ export default function ContactPage() {
     setSubmitted(true);
   };
 
+  const handleBlur = useCallback((e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { id, value } = e.target;
+    setTouched((prev) => ({ ...prev, [id]: true }));
+    const error = validateField(id, value);
+    setErrors((prev) => ({ ...prev, [id]: error }));
+  }, []);
+
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
     const { id, value } = e.target;
     setFormData((prev) => ({ ...prev, [id]: value }));
-    // Clear error when user starts typing
-    if (errors[id as keyof FormErrors]) {
-      setErrors((prev) => ({ ...prev, [id]: undefined }));
+
+    // Real-time validation for touched fields
+    if (touched[id]) {
+      const error = validateField(id, value);
+      setErrors((prev) => ({ ...prev, [id]: error }));
     }
   };
+
+  const hasFieldError = (field: keyof FormErrors) => touched[field] && errors[field];
 
   return (
     <section className="py-24 px-4 sm:px-6 lg:px-8" aria-labelledby="contact-heading">
@@ -118,13 +149,16 @@ export default function ContactPage() {
                     placeholder="Your name"
                     value={formData.name}
                     onChange={handleInputChange}
-                    aria-invalid={!!errors.name}
-                    aria-describedby={errors.name ? "name-error" : undefined}
-                    className={cn(errors.name && "border-destructive focus-visible:ring-destructive")}
+                    onBlur={handleBlur}
+                    aria-invalid={hasFieldError("name") ? "true" : undefined}
+                    aria-describedby={hasFieldError("name") ? "name-error" : undefined}
+                    aria-required="true"
+                    className={cn(hasFieldError("name") && "border-destructive focus-visible:ring-destructive/50")}
                     disabled={isLoading}
                   />
-                  {errors.name && (
-                    <p id="name-error" className="text-sm text-destructive" role="alert">
+                  {hasFieldError("name") && (
+                    <p id="name-error" className="flex items-center gap-1.5 text-sm text-destructive" role="alert">
+                      <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
                       {errors.name}
                     </p>
                   )}
@@ -137,13 +171,16 @@ export default function ContactPage() {
                     placeholder="you@example.com"
                     value={formData.email}
                     onChange={handleInputChange}
-                    aria-invalid={!!errors.email}
-                    aria-describedby={errors.email ? "email-error" : undefined}
-                    className={cn(errors.email && "border-destructive focus-visible:ring-destructive")}
+                    onBlur={handleBlur}
+                    aria-invalid={hasFieldError("email") ? "true" : undefined}
+                    aria-describedby={hasFieldError("email") ? "email-error" : undefined}
+                    aria-required="true"
+                    className={cn(hasFieldError("email") && "border-destructive focus-visible:ring-destructive/50")}
                     disabled={isLoading}
                   />
-                  {errors.email && (
-                    <p id="email-error" className="text-sm text-destructive" role="alert">
+                  {hasFieldError("email") && (
+                    <p id="email-error" className="flex items-center gap-1.5 text-sm text-destructive" role="alert">
+                      <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
                       {errors.email}
                     </p>
                   )}
@@ -156,18 +193,21 @@ export default function ContactPage() {
                     rows={4}
                     value={formData.message}
                     onChange={handleInputChange}
-                    aria-invalid={!!errors.message}
-                    aria-describedby={errors.message ? "message-error" : undefined}
-                    className={cn(errors.message && "border-destructive focus-visible:ring-destructive")}
+                    onBlur={handleBlur}
+                    aria-invalid={hasFieldError("message") ? "true" : undefined}
+                    aria-describedby={hasFieldError("message") ? "message-error" : undefined}
+                    aria-required="true"
+                    className={cn(hasFieldError("message") && "border-destructive focus-visible:ring-destructive/50")}
                     disabled={isLoading}
                   />
-                  {errors.message && (
-                    <p id="message-error" className="text-sm text-destructive" role="alert">
+                  {hasFieldError("message") && (
+                    <p id="message-error" className="flex items-center gap-1.5 text-sm text-destructive" role="alert">
+                      <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
                       {errors.message}
                     </p>
                   )}
                 </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                <Button type="submit" className="w-full" disabled={isLoading} aria-disabled={isLoading}>
                   {isLoading ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />

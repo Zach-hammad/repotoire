@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useFixes, useBatchApprove, useBatchReject, useRepositories } from '@/lib/hooks';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -54,6 +55,7 @@ import {
   ChevronRight,
   ArrowUpDown,
   Trash2,
+  Loader2,
 } from 'lucide-react';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { cn } from '@/lib/utils';
@@ -70,6 +72,11 @@ import {
   fixTypeConfig,
   batchActionWarnings,
 } from '@/lib/fixes-utils';
+import {
+  FixesPageSkeleton,
+  FixesTableSkeleton,
+  Shimmer,
+} from '@/components/dashboard/skeletons';
 
 // Badge color mappings
 const confidenceBadgeColors: Record<FixConfidence, string> = {
@@ -102,9 +109,13 @@ const statusOptions: FixStatus[] = ['pending', 'approved', 'rejected', 'applied'
 const confidenceOptions: FixConfidence[] = ['high', 'medium', 'low'];
 const typeOptions: FixType[] = ['refactor', 'simplify', 'extract', 'rename', 'remove', 'security', 'type_hint', 'documentation'];
 
-function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('animate-pulse rounded-md bg-muted', className)} />;
-}
+// Row animation variants for optimistic updates
+const rowVariants = {
+  initial: { opacity: 0, x: -10 },
+  animate: { opacity: 1, x: 0, transition: { duration: 0.2 } },
+  exit: { opacity: 0, x: 10, scale: 0.95, transition: { duration: 0.15 } },
+  updating: { opacity: 0.5, transition: { duration: 0.1 } },
+};
 
 function FixesListContent() {
   const router = useRouter();
@@ -248,7 +259,12 @@ function FixesListContent() {
           </p>
         </div>
         {selectedIds.size > 0 && (
-          <div className="flex items-center gap-2">
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="flex items-center gap-2"
+          >
             <span className="text-sm text-muted-foreground">
               {selectedIds.size} selected
             </span>
@@ -256,21 +272,40 @@ function FixesListContent() {
               <>
                 <Button
                   size="sm"
-                  className="bg-green-600 hover:bg-green-700"
+                  className="bg-green-600 hover:bg-green-700 min-w-[120px]"
                   onClick={() => setApproveDialogOpen(true)}
-                  disabled={isApproving}
+                  disabled={isApproving || isRejecting}
                 >
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                  {isApproving ? 'Approving...' : `Approve (${selectedPendingCount})`}
+                  {isApproving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Approving...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                      Approve ({selectedPendingCount})
+                    </>
+                  )}
                 </Button>
                 <Button
                   size="sm"
                   variant="destructive"
+                  className="min-w-[100px]"
                   onClick={() => setRejectDialogOpen(true)}
-                  disabled={isRejecting}
+                  disabled={isRejecting || isApproving}
                 >
-                  <XCircle className="mr-2 h-4 w-4" />
-                  Reject ({selectedPendingCount})
+                  {isRejecting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Rejecting...
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="mr-2 h-4 w-4" />
+                      Reject ({selectedPendingCount})
+                    </>
+                  )}
                 </Button>
               </>
             )}
@@ -278,10 +313,11 @@ function FixesListContent() {
               size="sm"
               variant="ghost"
               onClick={() => setSelectedIds(new Set())}
+              disabled={isApproving || isRejecting}
             >
               Clear
             </Button>
-          </div>
+          </motion.div>
         )}
       </div>
 
@@ -432,15 +468,20 @@ function FixesListContent() {
             <TableBody>
               {isLoading ? (
                 Array.from({ length: 5 }).map((_, i) => (
-                  <TableRow key={i}>
-                    <TableCell><Skeleton className="h-4 w-4" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-48" /></TableCell>
-                    <TableCell><Skeleton className="h-6 w-20" /></TableCell>
-                    <TableCell><Skeleton className="h-6 w-16" /></TableCell>
-                    <TableCell><Skeleton className="h-6 w-16" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                    <TableCell><Skeleton className="h-8 w-8" /></TableCell>
+                  <TableRow key={i} style={{ height: '72px' }}>
+                    <TableCell style={{ width: '48px' }}><Shimmer className="h-4 w-4" /></TableCell>
+                    <TableCell style={{ width: '35%' }}>
+                      <div className="space-y-2">
+                        <Shimmer className="h-4 w-4/5" />
+                        <Shimmer className="h-3 w-3/5" />
+                      </div>
+                    </TableCell>
+                    <TableCell style={{ width: '12%' }}><Shimmer className="h-6 w-20 rounded-full" /></TableCell>
+                    <TableCell style={{ width: '12%' }}><Shimmer className="h-6 w-16 rounded-full" /></TableCell>
+                    <TableCell style={{ width: '12%' }}><Shimmer className="h-6 w-16 rounded-full" /></TableCell>
+                    <TableCell style={{ width: '10%' }}><Shimmer className="h-4 w-16" /></TableCell>
+                    <TableCell style={{ width: '12%' }}><Shimmer className="h-4 w-20" /></TableCell>
+                    <TableCell style={{ width: '48px' }}><Shimmer className="h-8 w-8" /></TableCell>
                   </TableRow>
                 ))
               ) : data?.items.length === 0 ? (
@@ -455,14 +496,27 @@ function FixesListContent() {
                   </TableCell>
                 </TableRow>
               ) : (
-                data?.items.map((fix) => (
-                  <TableRow key={fix.id} className="cursor-pointer hover:bg-muted/50">
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <Checkbox
-                        checked={selectedIds.has(fix.id)}
-                        onCheckedChange={() => handleSelect(fix.id)}
-                      />
-                    </TableCell>
+                <AnimatePresence mode="popLayout">
+                  {data?.items.map((fix) => (
+                    <motion.tr
+                      key={fix.id}
+                      layout
+                      initial="initial"
+                      animate={selectedIds.has(fix.id) && (isApproving || isRejecting) ? 'updating' : 'animate'}
+                      exit="exit"
+                      variants={rowVariants}
+                      className={cn(
+                        "cursor-pointer hover:bg-muted/50 border-b transition-colors",
+                        selectedIds.has(fix.id) && (isApproving || isRejecting) && "bg-muted/30"
+                      )}
+                    >
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={selectedIds.has(fix.id)}
+                          onCheckedChange={() => handleSelect(fix.id)}
+                          disabled={isApproving || isRejecting}
+                        />
+                      </TableCell>
                     <TableCell>
                       <Link
                         href={`/dashboard/fixes/${fix.id}`}
@@ -568,8 +622,9 @@ function FixesListContent() {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
-                  </TableRow>
-                ))
+                    </motion.tr>
+                  ))}
+                </AnimatePresence>
               )}
             </TableBody>
           </Table>
@@ -630,16 +685,29 @@ function FixesListContent() {
             </ul>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setApproveDialogOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setApproveDialogOpen(false)}
+              disabled={isApproving}
+            >
               {batchActionWarnings.approve.cancelText}
             </Button>
             <Button
-              className="bg-green-600 hover:bg-green-700"
+              className="bg-green-600 hover:bg-green-700 min-w-[140px]"
               onClick={handleBatchApproveConfirm}
               disabled={isApproving}
             >
-              <CheckCircle2 className="mr-2 h-4 w-4" />
-              {isApproving ? 'Approving...' : `${batchActionWarnings.approve.confirmText} (${selectedPendingCount})`}
+              {isApproving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Approving...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  {batchActionWarnings.approve.confirmText} ({selectedPendingCount})
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -664,15 +732,30 @@ function FixesListContent() {
             rows={4}
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setRejectDialogOpen(false)}
+              disabled={isRejecting}
+            >
               {batchActionWarnings.reject.cancelText}
             </Button>
             <Button
               variant="destructive"
+              className="min-w-[120px]"
               onClick={handleBatchReject}
               disabled={isRejecting || !rejectReason.trim()}
             >
-              {isRejecting ? 'Rejecting...' : `${batchActionWarnings.reject.confirmText} (${selectedPendingCount})`}
+              {isRejecting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Rejecting...
+                </>
+              ) : (
+                <>
+                  <XCircle className="mr-2 h-4 w-4" />
+                  {batchActionWarnings.reject.confirmText} ({selectedPendingCount})
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -682,34 +765,7 @@ function FixesListContent() {
 }
 
 function FixesListSkeleton() {
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="h-8 w-32 animate-pulse rounded bg-muted" />
-          <div className="mt-2 h-4 w-64 animate-pulse rounded bg-muted" />
-        </div>
-      </div>
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-wrap gap-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-10 w-32 animate-pulse rounded bg-muted" />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardContent className="p-0">
-          <div className="p-4 space-y-4">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-12 animate-pulse rounded bg-muted" />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
+  return <FixesPageSkeleton />;
 }
 
 export default function FixesListPage() {

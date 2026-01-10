@@ -1,10 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   Github,
   FolderGit2,
@@ -16,9 +26,20 @@ import {
   BarChart3,
   Shield,
   BookOpen,
+  Loader2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+
+// Constants for localStorage keys
+const ONBOARDING_DISMISSED_KEY = 'repotoire_onboarding_dismissed';
+const ONBOARDING_PROGRESS_KEY = 'repotoire_onboarding_progress';
+
+interface OnboardingProgress {
+  dismissedAt?: string;
+  lastStep?: string;
+  completedSteps?: string[];
+}
 
 interface OnboardingStep {
   id: string;
@@ -38,16 +59,143 @@ interface OnboardingWizardProps {
   hasRepositories: boolean;
   hasCompletedAnalysis: boolean;
   onDismiss?: () => void;
+  /** Called when onboarding progress changes (for syncing to backend) */
+  onProgressChange?: (progress: OnboardingProgress) => void;
 }
+
+// Helper to safely read from localStorage
+function getStoredProgress(): OnboardingProgress | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = localStorage.getItem(ONBOARDING_PROGRESS_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Helper to save progress to localStorage
+function saveProgress(progress: OnboardingProgress): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(ONBOARDING_PROGRESS_KEY, JSON.stringify(progress));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+// Check if onboarding was previously dismissed
+function wasOnboardingDismissed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem(ONBOARDING_DISMISSED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reset onboarding state - useful for settings page or testing.
+ * Clears dismissed state and progress from localStorage.
+ */
+export function resetOnboardingProgress(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(ONBOARDING_DISMISSED_KEY);
+    localStorage.removeItem(ONBOARDING_PROGRESS_KEY);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+/**
+ * Get the current onboarding progress from localStorage.
+ * Useful for syncing to backend or displaying in settings.
+ */
+export function getOnboardingProgress(): OnboardingProgress | null {
+  return getStoredProgress();
+}
+
+// Export the type for use in API calls
+export type { OnboardingProgress };
 
 export function OnboardingWizard({
   hasGitHubConnected,
   hasRepositories,
   hasCompletedAnalysis,
   onDismiss,
+  onProgressChange,
 }: OnboardingWizardProps) {
   const [dismissed, setDismissed] = useState(false);
+  const [showDismissDialog, setShowDismissDialog] = useState(false);
+  const [isInstallingGitHub, setIsInstallingGitHub] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
 
+  // Load dismissed state from localStorage on mount
+  useEffect(() => {
+    setIsHydrated(true);
+    if (wasOnboardingDismissed()) {
+      setDismissed(true);
+    }
+  }, []);
+
+  // Persist progress when steps complete
+  useEffect(() => {
+    if (!isHydrated) return;
+
+    const completedSteps: string[] = [];
+    if (hasGitHubConnected) completedSteps.push('connect');
+    if (hasRepositories) completedSteps.push('select');
+    if (hasCompletedAnalysis) completedSteps.push('analyze');
+
+    const currentStep = !hasGitHubConnected
+      ? 'connect'
+      : !hasRepositories
+      ? 'select'
+      : !hasCompletedAnalysis
+      ? 'analyze'
+      : 'complete';
+
+    const progress: OnboardingProgress = {
+      lastStep: currentStep,
+      completedSteps,
+    };
+
+    saveProgress(progress);
+    onProgressChange?.(progress);
+  }, [hasGitHubConnected, hasRepositories, hasCompletedAnalysis, isHydrated, onProgressChange]);
+
+  const handleDismiss = useCallback(() => {
+    setShowDismissDialog(true);
+  }, []);
+
+  const confirmDismiss = useCallback(() => {
+    setDismissed(true);
+    setShowDismissDialog(false);
+
+    // Persist dismissal to localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(ONBOARDING_DISMISSED_KEY, 'true');
+        const progress = getStoredProgress() || {};
+        progress.dismissedAt = new Date().toISOString();
+        saveProgress(progress);
+      } catch {
+        // Ignore storage errors
+      }
+    }
+
+    onDismiss?.();
+  }, [onDismiss]);
+
+  const handleGitHubInstall = useCallback(() => {
+    setIsInstallingGitHub(true);
+    // The navigation will happen via the Link component
+    // We keep loading state until page unloads
+  }, []);
+
+  // Don't render until hydrated to avoid flash
+  if (!isHydrated) return null;
   if (dismissed) return null;
 
   const steps: OnboardingStep[] = [
@@ -113,10 +261,7 @@ export function OnboardingWizard({
             variant="ghost"
             size="sm"
             className="text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              setDismissed(true);
-              onDismiss?.();
-            }}
+            onClick={handleDismiss}
           >
             Dismiss
           </Button>
@@ -197,14 +342,27 @@ export function OnboardingWizard({
                   <p className="text-sm text-muted-foreground">{step.description}</p>
                 </div>
                 {step.action && (
-                  <Link href={step.action.href}>
+                  <Link
+                    href={step.action.href}
+                    onClick={step.id === 'connect' && !hasGitHubConnected ? handleGitHubInstall : undefined}
+                  >
                     <Button
                       size="sm"
                       variant={isActive ? 'default' : 'outline'}
                       className={cn(isActive && 'bg-primary')}
+                      disabled={step.id === 'connect' && isInstallingGitHub}
                     >
-                      {step.action.label}
-                      <ArrowRight className="ml-2 h-4 w-4" />
+                      {step.id === 'connect' && isInstallingGitHub ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Redirecting...
+                        </>
+                      ) : (
+                        <>
+                          {step.action.label}
+                          <ArrowRight className="ml-2 h-4 w-4" />
+                        </>
+                      )}
                     </Button>
                   </Link>
                 )}
@@ -281,6 +439,25 @@ export function OnboardingWizard({
           </div>
         </div>
       </CardContent>
+
+      {/* Dismiss Confirmation Dialog */}
+      <AlertDialog open={showDismissDialog} onOpenChange={setShowDismissDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Dismiss onboarding?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You can always access these setup steps from Settings &gt; Getting Started.
+              Your progress ({completedSteps} of {steps.length} steps) will be saved.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Continue Setup</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDismiss}>
+              Dismiss
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

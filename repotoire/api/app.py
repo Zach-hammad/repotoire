@@ -28,8 +28,14 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from repotoire.api.models import ErrorResponse
-from repotoire.api.shared.middleware import DeprecationMiddleware, VersionMiddleware
+from repotoire.api.models import ErrorResponse, RateLimitError
+from repotoire.api.shared.middleware import (
+    DEFAULT_RATE_LIMIT,
+    DeprecationMiddleware,
+    RateLimitMiddleware,
+    VersionMiddleware,
+    get_rate_limit_exceeded_headers,
+)
 from repotoire.api.v1 import v1_app
 from repotoire.api.v2 import v2_app
 from repotoire.logging_config import clear_context, get_logger, set_context
@@ -157,6 +163,28 @@ This API uses URL-based versioning. Available versions:
 | v1 | **Stable** | [/api/v1/docs](/api/v1/docs) | Production API |
 | v2 | Preview | [/api/v2/docs](/api/v2/docs) | Breaking changes preview |
 
+## Rate Limits
+
+All API responses include rate limit headers:
+
+| Header | Description |
+|--------|-------------|
+| `X-RateLimit-Limit` | Maximum requests allowed per window |
+| `X-RateLimit-Remaining` | Requests remaining in current window |
+| `X-RateLimit-Reset` | Unix timestamp when limit resets |
+| `X-RateLimit-Policy` | Human-readable policy description |
+
+When rate limited (HTTP 429), additional headers are included:
+- `Retry-After`: Seconds until you can retry
+
+**Rate limits by tier:**
+
+| Tier | API Calls/Min | Analyses/Hour |
+|------|---------------|---------------|
+| Free | 60 | 2 |
+| Pro | 300 | 20 |
+| Enterprise | 1000 | Unlimited |
+
 ## Version Headers
 
 All responses include the `X-API-Version` header indicating the version used.
@@ -201,6 +229,9 @@ For full API documentation, visit `/api/v1/docs` or `/api/v2/docs`.
 # Add correlation ID middleware first (before CORS)
 app.add_middleware(CorrelationIdMiddleware)
 
+# Add rate limit header middleware (adds X-RateLimit-* headers to all responses)
+app.add_middleware(RateLimitMiddleware)
+
 # Add version detection middleware
 app.add_middleware(VersionMiddleware)
 
@@ -224,7 +255,16 @@ app.state.limiter = limiter
 
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
-    """Handle rate limit exceeded errors with proper 429 response."""
+    """Handle rate limit exceeded errors with proper 429 response.
+
+    Returns a standardized error response with rate limit headers:
+    - X-RateLimit-Limit: Maximum requests allowed per window
+    - X-RateLimit-Remaining: 0 (limit exceeded)
+    - X-RateLimit-Reset: Unix timestamp when the limit resets
+    - Retry-After: Seconds until retry is allowed
+    """
+    import time
+
     # Log rate limit violation for security monitoring
     client_ip = get_remote_address(request)
     logger.warning(
@@ -248,15 +288,52 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
         }
     )
 
-    # Return 429 with Retry-After header
+    # Parse rate limit info from exception detail (e.g., "10 per 1 minute")
+    # Default to the standard rate limit window if parsing fails
+    limit = DEFAULT_RATE_LIMIT.requests
+    window_seconds = DEFAULT_RATE_LIMIT.window_seconds
+
+    # Try to extract limit info from slowapi exception detail
+    detail_str = str(exc.detail) if exc.detail else ""
+    if detail_str:
+        try:
+            # Format is typically "10 per 1 minute" or "100 per 1 hour"
+            parts = detail_str.lower().split(" per ")
+            if len(parts) >= 2:
+                limit = int(parts[0].strip())
+                time_part = parts[1].strip()
+                if "hour" in time_part:
+                    window_seconds = 3600
+                elif "minute" in time_part:
+                    window_seconds = 60
+                elif "day" in time_part:
+                    window_seconds = 86400
+        except (ValueError, IndexError):
+            # Use defaults if parsing fails
+            pass
+
+    # Calculate reset timestamp and retry-after
+    reset_timestamp = int(time.time()) + window_seconds
+    retry_after = window_seconds
+
+    # Generate rate limit headers
+    headers = get_rate_limit_exceeded_headers(
+        limit=limit,
+        reset_timestamp=reset_timestamp,
+        retry_after=retry_after,
+        policy=f"{limit} per {window_seconds // 60} minute{'s' if window_seconds > 60 else ''}",
+    )
+
+    # Return 429 with rate limit error response
     return JSONResponse(
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-        content=ErrorResponse(
-            error="Rate limit exceeded",
-            detail=f"Too many requests. {exc.detail}",
+        content=RateLimitError(
+            error="rate_limit_exceeded",
+            detail=f"Too many requests. {detail_str or 'Please try again later.'}",
             error_code="RATE_LIMIT_EXCEEDED",
+            retry_after=retry_after,
         ).model_dump(),
-        headers={"Retry-After": str(60 * 60)},  # 1 hour for account endpoints
+        headers=headers,
     )
 
 
@@ -487,20 +564,56 @@ def custom_openapi() -> dict[str, Any]:
 
     openapi_schema["components"]["schemas"]["RateLimitError"] = {
         "type": "object",
+        "description": "Error response when rate limit is exceeded. Includes retry_after field "
+        "matching the Retry-After header for convenience.",
         "properties": {
-            "error": {"type": "string", "example": "rate_limit_exceeded"},
+            "error": {
+                "type": "string",
+                "example": "rate_limit_exceeded",
+                "description": "Error type identifier",
+            },
             "detail": {
                 "type": "string",
-                "example": "API rate limit exceeded. Try again in 60 seconds.",
+                "example": "Too many requests. 60 per 1 minute",
+                "description": "Human-readable error message with rate limit details",
             },
-            "error_code": {"type": "string", "example": "RATE_LIMIT_EXCEEDED"},
+            "error_code": {
+                "type": "string",
+                "example": "RATE_LIMIT_EXCEEDED",
+                "description": "Machine-readable error code",
+            },
             "retry_after": {
                 "type": "integer",
-                "description": "Seconds until rate limit resets",
+                "description": "Seconds until rate limit resets (matches Retry-After header)",
                 "example": 60,
             },
         },
-        "required": ["error", "detail", "error_code"],
+        "required": ["error", "detail", "error_code", "retry_after"],
+    }
+
+    # Add rate limit headers documentation
+    if "headers" not in openapi_schema["components"]:
+        openapi_schema["components"]["headers"] = {}
+
+    openapi_schema["components"]["headers"]["X-RateLimit-Limit"] = {
+        "description": "Maximum number of requests allowed per window",
+        "schema": {"type": "integer", "example": 60},
+    }
+    openapi_schema["components"]["headers"]["X-RateLimit-Remaining"] = {
+        "description": "Number of requests remaining in the current window",
+        "schema": {"type": "integer", "example": 55},
+    }
+    openapi_schema["components"]["headers"]["X-RateLimit-Reset"] = {
+        "description": "Unix timestamp (seconds) when the rate limit resets",
+        "schema": {"type": "integer", "example": 1704067260},
+    }
+    openapi_schema["components"]["headers"]["Retry-After"] = {
+        "description": "Seconds until the rate limit resets (only on 429 responses)",
+        "schema": {"type": "integer", "example": 60},
+    }
+    openapi_schema["components"]["headers"]["X-RateLimit-Policy"] = {
+        "description": "Human-readable rate limit policy description",
+        "schema": {"type": "string", "example": "60 requests per minute"},
     }
 
     app.openapi_schema = openapi_schema

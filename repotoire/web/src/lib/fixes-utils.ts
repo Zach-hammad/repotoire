@@ -106,9 +106,9 @@ export const statusConfig: Record<FixStatus, StatusConfig> = {
   failed: {
     label: 'Failed',
     emoji: '💥',
-    plainEnglish: 'Something went wrong',
+    plainEnglish: 'Fix application failed',
     description: 'The fix could not be applied due to an error.',
-    nextAction: 'Check the error details and try again, or reject this fix.',
+    nextAction: 'Review the error details below, then regenerate or reject this fix.',
     category: 'closed',
   },
   stale: {
@@ -336,37 +336,64 @@ export const batchActionWarnings: Record<string, BatchActionWarning> = {
 // User-Friendly Error Messages
 // ==========================================
 
-export function getFriendlyFixErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    const message = error.message.toLowerCase();
+import { parseError } from './error-utils';
+import { ErrorCodes, type ErrorCode } from './error-codes';
 
-    if (message.includes('preview') && message.includes('required')) {
-      return 'Please run a preview first to verify the fix works correctly.';
-    }
-    if (message.includes('already applied')) {
-      return 'This fix has already been applied to your codebase.';
-    }
-    if (message.includes('conflict') || message.includes('merge')) {
-      return 'The code has changed since this fix was generated. Try regenerating the fix.';
-    }
-    if (message.includes('syntax')) {
-      return 'The fix contains a syntax error. This has been reported for improvement.';
-    }
-    if (message.includes('timeout')) {
-      return 'The operation took too long. Please try again.';
-    }
-    if (message.includes('sandbox') || message.includes('e2b')) {
-      return 'The testing environment is temporarily unavailable. Please try again in a moment.';
-    }
-    if (message.includes('401') || message.includes('unauthorized')) {
-      return 'Your session expired. Please log in again.';
-    }
-    if (message.includes('403') || message.includes('forbidden')) {
-      return "You don't have permission to perform this action.";
-    }
-    if (message.includes('404') || message.includes('not found')) {
-      return "This fix couldn't be found. It may have been deleted.";
-    }
+/**
+ * Get a user-friendly error message for fix-related errors.
+ *
+ * Uses the centralized error code system to provide:
+ * - Specific, actionable error messages for fix operations
+ * - Error codes for support reference
+ * - Consistent messaging across the application
+ */
+export function getFriendlyFixErrorMessage(error: unknown): string {
+  const parsed = parseError(error);
+
+  // Return message with action and error code
+  let message = parsed.message;
+
+  // Add action if different from message
+  if (parsed.action && !message.includes(parsed.action)) {
+    message = `${message} ${parsed.action}`;
   }
-  return 'Something went wrong. Please try again.';
+
+  // Add error code for non-generic errors (especially useful for fix errors)
+  if (parsed.code !== ErrorCodes.UNKNOWN) {
+    message = `${message} (Ref: ${parsed.code})`;
+  }
+
+  return message;
+}
+
+/**
+ * Get structured error information for fix-related UI display.
+ */
+export function getFriendlyFixErrorInfo(error: unknown): {
+  title: string;
+  message: string;
+  action: string;
+  code: string;
+  isRecoverable: boolean;
+} {
+  const parsed = parseError(error);
+
+  // Determine if error is recoverable (user can try again)
+  const recoverableCodes: ErrorCode[] = [
+    ErrorCodes.API_TIMEOUT,
+    ErrorCodes.FIX_SANDBOX_UNAVAILABLE,
+    ErrorCodes.NET_CONNECTION_FAILED,
+    ErrorCodes.LIMIT_RATE_EXCEEDED,
+    ErrorCodes.SYS_INTERNAL_ERROR,
+  ];
+
+  const isRecoverable = recoverableCodes.includes(parsed.code as ErrorCode);
+
+  return {
+    title: parsed.title,
+    message: parsed.message,
+    action: parsed.action,
+    code: parsed.code,
+    isRecoverable,
+  };
 }

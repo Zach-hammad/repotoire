@@ -24,6 +24,7 @@ from repotoire.api.v1.routes import (
     marketplace,
     notifications,
     organizations,
+    preferences,
     provenance_settings,
     sandbox,
     status,
@@ -235,6 +236,7 @@ v1_app.include_router(historical.router)
 v1_app.include_router(marketplace.router)
 v1_app.include_router(notifications.router)
 v1_app.include_router(organizations.router)
+v1_app.include_router(preferences.router)
 v1_app.include_router(provenance_settings.router)
 v1_app.include_router(sandbox.router)
 v1_app.include_router(team.router)

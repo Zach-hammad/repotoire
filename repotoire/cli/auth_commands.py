@@ -13,16 +13,46 @@ console = Console()
 
 @click.group(name="auth")
 def auth_group():
-    """Authentication and account commands."""
+    """Authentication and account management commands.
+
+    \b
+    COMMANDS:
+      login    Authenticate via browser OAuth or API key
+      logout   Remove stored credentials
+      whoami   Show current authentication status
+
+    \b
+    EXAMPLES:
+      $ repotoire auth login           # Browser OAuth
+      $ repotoire auth whoami          # Check status
+
+    \b
+    Note: You can also use top-level shortcuts:
+      $ repotoire login
+      $ repotoire whoami
+    """
     pass
 
 
 @auth_group.command()
 def login():
-    """Login to Repotoire via browser.
+    """Login to Repotoire via browser OAuth.
 
-    Opens your default browser for authentication.
-    API key is stored securely in system keyring (or ~/.repotoire/credentials).
+    \b
+    Opens your default browser for secure OAuth authentication.
+    The authentication URL will be displayed if your browser doesn't open.
+
+    \b
+    Credentials are stored securely in:
+      - System keyring (macOS Keychain, Windows Credential Manager, etc.)
+      - Fallback: ~/.repotoire/credentials (chmod 600)
+
+    \b
+    For CI/CD or headless environments, use:
+      $ repotoire login <api-key>
+
+    \b
+    Get your API key at: https://repotoire.com/settings/api-keys
     """
     cli_auth = CLIAuth()
 
@@ -57,9 +87,16 @@ def login():
 
 @auth_group.command()
 def logout():
-    """Clear stored credentials.
+    """Remove stored credentials and log out.
 
-    Removes API key from system keyring or ~/.repotoire/credentials.
+    \b
+    Clears credentials from:
+      - System keyring (if used)
+      - ~/.repotoire/credentials (if used)
+
+    \b
+    This does NOT revoke the API key on the server. To revoke API keys:
+      https://repotoire.com/settings/api-keys
     """
     cli_auth = CLIAuth()
     cli_auth.logout()
@@ -67,19 +104,25 @@ def logout():
 
 @auth_group.command()
 def whoami():
-    """Show current authentication status.
+    """Display current authentication status.
 
-    Displays information about the stored API key and where it's stored.
+    \b
+    Shows:
+      - Whether you're logged in
+      - Your organization and plan
+      - Where credentials are stored
+      - Masked API key
+
+    \b
+    EXAMPLE OUTPUT:
+      Logged in as John Doe (john@example.com)
+        Organization: my-org (Pro plan)
+        API Key: rp_live_abc...xyz
+        Credentials stored in: system keyring
     """
     cli_auth = CLIAuth()
     cli_auth.whoami()
 
 
-@auth_group.command()
-def status():
-    """Show authentication status.
-
-    Same as 'whoami' - displays current authentication state.
-    """
-    cli_auth = CLIAuth()
-    cli_auth.whoami()
+# Note: 'status' command removed - it was a duplicate of 'whoami'.
+# Use 'repotoire whoami' or 'repotoire auth whoami' instead.

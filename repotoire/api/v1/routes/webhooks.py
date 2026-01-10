@@ -231,13 +231,13 @@ async def _send_welcome_email(
 
         email_service = get_email_service()
         await email_service.send_welcome(
-            to=user.email,
-            name=user.name,
+            user_email=user.email,
+            user_name=user.name,
         )
         logger.info(f"Sent welcome email to {user.email}")
 
     except Exception as e:
-        logger.error(f"Failed to send welcome email: {e}")
+        logger.error(f"Failed to send welcome email: {e}", exc_info=True)
 
 
 async def _send_payment_failed_email(

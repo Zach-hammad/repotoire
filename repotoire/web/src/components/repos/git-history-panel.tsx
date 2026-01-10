@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { formatDistanceToNow, format } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,7 +23,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { cn, safeParseDate } from '@/lib/utils';
+import { cn, formatDate } from '@/lib/utils';
 import {
   useGitHistoryStatus,
   useCommitHistory,
@@ -207,10 +206,7 @@ export function GitHistoryPanel({ repositoryId, repositoryFullName }: GitHistory
               </div>
               <div>
                 <p className="text-sm font-medium">
-                  {(() => {
-                    const date = safeParseDate(status.last_updated);
-                    return date ? formatDistanceToNow(date, { addSuffix: true }) : 'Never';
-                  })()}
+                  {formatDate(status.last_updated, { style: 'smart', fallback: 'Never' })}
                 </p>
                 <p className="text-xs text-muted-foreground">Last updated</p>
               </div>
@@ -226,16 +222,10 @@ export function GitHistoryPanel({ repositoryId, repositoryFullName }: GitHistory
               </div>
               <div>
                 <p className="text-sm font-medium">
-                  {(() => {
-                    const date = safeParseDate(status.oldest_commit_date);
-                    return date ? format(date, 'MMM d, yyyy') : 'N/A';
-                  })()}
+                  {formatDate(status.oldest_commit_date, { style: 'absolute', fallback: 'N/A' })}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  to {(() => {
-                    const date = safeParseDate(status.newest_commit_date);
-                    return date ? format(date, 'MMM d, yyyy') : 'N/A';
-                  })()}
+                  to {formatDate(status.newest_commit_date, { style: 'absolute', fallback: 'N/A' })}
                 </p>
               </div>
             </div>

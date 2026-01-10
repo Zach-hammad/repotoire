@@ -295,8 +295,13 @@ class AnalysisEngine:
             )
         )
 
-    def analyze(self) -> CodebaseHealth:
+    def analyze(self, progress_callback=None) -> CodebaseHealth:
         """Run complete analysis and generate health report.
+
+        Args:
+            progress_callback: Optional callback function(detector_name, current_index, total_count, status)
+                              Called before each detector starts and after it completes.
+                              status is "starting" or "completed".
 
         Returns:
             CodebaseHealth report
@@ -307,8 +312,8 @@ class AnalysisEngine:
             logger.info("Starting codebase analysis")
 
             try:
-                # Run all detectors
-                findings = self._run_detectors()
+                # Run all detectors with progress reporting
+                findings = self._run_detectors(progress_callback=progress_callback)
 
                 # Run root cause analysis (REPO-155)
                 # Identifies god classes that cause cascading issues
@@ -401,7 +406,7 @@ class AnalysisEngine:
                 else:
                     logger.info("Keeping detector metadata in graph for hotspot queries (use 'repotoire hotspots' command)")
 
-    def _run_detectors(self) -> List[Finding]:
+    def _run_detectors(self, progress_callback=None) -> List[Finding]:
         """Run all registered detectors with two-phase parallel execution.
 
         REPO-217: Implements parallel execution for improved performance.
@@ -411,12 +416,17 @@ class AnalysisEngine:
         Phase 2: Run dependent detectors (needs_previous_findings=True)
                  sequentially, passing accumulated findings.
 
+        Args:
+            progress_callback: Optional callback(detector_name, current, total, status)
+
         Returns:
             Combined list of all findings
         """
         # Classify detectors based on whether they need previous findings
         independent_detectors = [d for d in self.detectors if not d.needs_previous_findings]
         dependent_detectors = [d for d in self.detectors if d.needs_previous_findings]
+
+        total_detectors = len(self.detectors)
 
         logger.info(
             f"Detector classification: {len(independent_detectors)} independent, "
@@ -431,11 +441,21 @@ class AnalysisEngine:
                 f"Phase 1: Running {len(independent_detectors)} independent detectors "
                 f"in parallel (workers={self.max_workers})"
             )
-            phase1_findings = self._run_detectors_parallel(independent_detectors)
+            phase1_findings = self._run_detectors_parallel(
+                independent_detectors,
+                progress_callback=progress_callback,
+                start_index=0,
+                total=total_detectors
+            )
         else:
             mode = "sequentially" if not self.parallel else "sequentially (single detector)"
             logger.info(f"Phase 1: Running {len(independent_detectors)} independent detectors {mode}")
-            phase1_findings = self._run_detectors_sequential(independent_detectors)
+            phase1_findings = self._run_detectors_sequential(
+                independent_detectors,
+                progress_callback=progress_callback,
+                start_index=0,
+                total=total_detectors
+            )
 
         all_findings.extend(phase1_findings)
         logger.info(f"Phase 1 complete: {len(phase1_findings)} findings from independent detectors")
@@ -443,6 +463,7 @@ class AnalysisEngine:
         # Phase 2: Run dependent detectors (can also be parallel since they depend
         # on Phase 1 detectors, not on each other)
         if dependent_detectors:
+            phase2_start = len(independent_detectors)
             if self.parallel and len(dependent_detectors) > 1:
                 logger.info(
                     f"Phase 2: Running {len(dependent_detectors)} dependent detectors "
@@ -450,13 +471,19 @@ class AnalysisEngine:
                 )
                 phase2_findings = self._run_detectors_parallel_with_findings(
                     dependent_detectors,
-                    previous_findings=all_findings
+                    previous_findings=all_findings,
+                    progress_callback=progress_callback,
+                    start_index=phase2_start,
+                    total=total_detectors
                 )
             else:
                 logger.info(f"Phase 2: Running {len(dependent_detectors)} dependent detectors sequentially")
                 phase2_findings = self._run_detectors_sequential(
                     dependent_detectors,
-                    previous_findings=all_findings
+                    previous_findings=all_findings,
+                    progress_callback=progress_callback,
+                    start_index=phase2_start,
+                    total=total_detectors
                 )
             all_findings.extend(phase2_findings)
             logger.info(f"Phase 2 complete: {len(phase2_findings)} findings from dependent detectors")
@@ -469,16 +496,26 @@ class AnalysisEngine:
 
         return all_findings
 
-    def _run_detectors_parallel(self, detectors: list) -> List[Finding]:
+    def _run_detectors_parallel(
+        self,
+        detectors: list,
+        progress_callback=None,
+        start_index: int = 0,
+        total: int = 0
+    ) -> List[Finding]:
         """Run detectors in parallel using ThreadPoolExecutor.
 
         Args:
             detectors: List of detector instances to run
+            progress_callback: Optional callback(detector_name, current, total, status)
+            start_index: Starting index for progress tracking
+            total: Total number of detectors (for progress percentage)
 
         Returns:
             Combined list of findings from all detectors
         """
         all_findings: List[Finding] = []
+        completed_count = 0
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all detectors
@@ -487,27 +524,51 @@ class AnalysisEngine:
                 for d in detectors
             }
 
+            # Track which detectors are starting
+            if progress_callback:
+                for detector in detectors:
+                    detector_name = detector.__class__.__name__
+                    # Remove "Detector" suffix for cleaner display
+                    display_name = detector_name.replace("Detector", "")
+                    progress_callback(display_name, start_index, total, "starting")
+
             # Collect results as they complete
             for future in as_completed(future_to_detector):
                 detector = future_to_detector[future]
                 detector_name = detector.__class__.__name__
+                display_name = detector_name.replace("Detector", "")
 
                 try:
                     findings = future.result()
                     all_findings.extend(findings)
+                    completed_count += 1
+
+                    if progress_callback:
+                        progress_callback(
+                            display_name,
+                            start_index + completed_count,
+                            total,
+                            "completed"
+                        )
                 except Exception as e:
+                    completed_count += 1
                     logger.error(
                         f"Detector failed in parallel execution: {detector_name}",
                         extra={"error": str(e)},
                         exc_info=True
                     )
+                    if progress_callback:
+                        progress_callback(display_name, start_index + completed_count, total, "failed")
 
         return all_findings
 
     def _run_detectors_parallel_with_findings(
         self,
         detectors: list,
-        previous_findings: List[Finding]
+        previous_findings: List[Finding],
+        progress_callback=None,
+        start_index: int = 0,
+        total: int = 0
     ) -> List[Finding]:
         """Run dependent detectors in parallel, passing previous_findings to each.
 
@@ -517,11 +578,15 @@ class AnalysisEngine:
         Args:
             detectors: List of detector instances that need previous_findings
             previous_findings: Findings from Phase 1 (read-only, shared across threads)
+            progress_callback: Optional callback(detector_name, current, total, status)
+            start_index: Starting index for progress tracking
+            total: Total number of detectors (for progress percentage)
 
         Returns:
             Combined list of findings from all detectors
         """
         all_findings: List[Finding] = []
+        completed_count = 0
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all detectors with previous_findings
@@ -532,20 +597,40 @@ class AnalysisEngine:
                 for d in detectors
             }
 
+            # Track which detectors are starting
+            if progress_callback:
+                for detector in detectors:
+                    detector_name = detector.__class__.__name__
+                    display_name = detector_name.replace("Detector", "")
+                    progress_callback(display_name, start_index, total, "starting")
+
             # Collect results as they complete
             for future in as_completed(future_to_detector):
                 detector = future_to_detector[future]
                 detector_name = detector.__class__.__name__
+                display_name = detector_name.replace("Detector", "")
 
                 try:
                     findings = future.result()
                     all_findings.extend(findings)
+                    completed_count += 1
+
+                    if progress_callback:
+                        progress_callback(
+                            display_name,
+                            start_index + completed_count,
+                            total,
+                            "completed"
+                        )
                 except Exception as e:
+                    completed_count += 1
                     logger.error(
                         f"Detector failed in parallel execution: {detector_name}",
                         extra={"error": str(e)},
                         exc_info=True
                     )
+                    if progress_callback:
+                        progress_callback(display_name, start_index + completed_count, total, "failed")
 
         return all_findings
 
@@ -592,13 +677,19 @@ class AnalysisEngine:
     def _run_detectors_sequential(
         self,
         detectors: list,
-        previous_findings: List[Finding] = None
+        previous_findings: List[Finding] = None,
+        progress_callback=None,
+        start_index: int = 0,
+        total: int = 0
     ) -> List[Finding]:
         """Run detectors sequentially with optional previous findings.
 
         Args:
             detectors: List of detector instances to run
             previous_findings: Optional findings to pass to detectors that need them
+            progress_callback: Optional callback(detector_name, current, total, status)
+            start_index: Starting index for progress tracking
+            total: Total number of detectors (for progress percentage)
 
         Returns:
             Combined list of findings from all detectors
@@ -606,8 +697,14 @@ class AnalysisEngine:
         all_findings: List[Finding] = []
         accumulated_findings = list(previous_findings) if previous_findings else []
 
-        for detector in detectors:
+        for idx, detector in enumerate(detectors):
             detector_name = detector.__class__.__name__
+            display_name = detector_name.replace("Detector", "")
+            current_index = start_index + idx
+
+            # Report detector starting
+            if progress_callback:
+                progress_callback(display_name, current_index, total, "starting")
 
             with LogContext(detector=detector_name):
                 start_time = time.time()
@@ -633,6 +730,10 @@ class AnalysisEngine:
                     all_findings.extend(findings)
                     accumulated_findings.extend(findings)
 
+                    # Report detector completed
+                    if progress_callback:
+                        progress_callback(display_name, current_index + 1, total, "completed")
+
                 except Exception as e:
                     duration = time.time() - start_time
                     logger.error(
@@ -640,6 +741,9 @@ class AnalysisEngine:
                         extra={"error": str(e), "duration_seconds": round(duration, 3)},
                         exc_info=True
                     )
+                    # Report detector failed
+                    if progress_callback:
+                        progress_callback(display_name, current_index + 1, total, "failed")
 
         return all_findings
 

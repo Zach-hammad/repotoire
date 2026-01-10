@@ -51,8 +51,8 @@ const variantConfigs: Record<EmptyStateVariant, VariantConfig> = {
     icon: AlertCircle,
     iconColor: "text-red-500",
     bgColor: "bg-red-500/10",
-    defaultTitle: "Something went wrong",
-    defaultDescription: "Please try again or contact support",
+    defaultTitle: "Unable to Load",
+    defaultDescription: "We encountered an issue loading this content. This may be temporary.",
   },
   "getting-started": {
     icon: Sparkles,
@@ -422,18 +422,37 @@ export function NoResultsEmptyState({
   )
 }
 
+interface ErrorEmptyStateProps extends Partial<EmptyStateProps> {
+  onRetry?: () => void;
+  /** Error code for support reference (e.g., "ERR_SYS_001") */
+  errorCode?: string;
+  /** Actionable suggestion for the user */
+  actionHint?: string;
+}
+
 export function ErrorEmptyState({
   title,
   description,
   onRetry,
+  errorCode,
+  actionHint,
   ...props
-}: Partial<EmptyStateProps> & { onRetry?: () => void }) {
+}: ErrorEmptyStateProps) {
+  // Build description with action hint and error code
+  let fullDescription = description || "We encountered an issue loading this content.";
+  if (actionHint) {
+    fullDescription = `${fullDescription} ${actionHint}`;
+  }
+  if (errorCode) {
+    fullDescription = `${fullDescription} (Ref: ${errorCode})`;
+  }
+
   return (
     <EmptyState
       variant="error"
-      title={title}
-      description={description}
-      action={onRetry ? { label: "Try again", onClick: onRetry, icon: RefreshCw, variant: "outline" } : undefined}
+      title={title || "Unable to Load"}
+      description={fullDescription}
+      action={onRetry ? { label: "Try Again", onClick: onRetry, icon: RefreshCw, variant: "outline" } : undefined}
       {...props}
     />
   )

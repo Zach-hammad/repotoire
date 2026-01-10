@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { formatDistanceToNow } from 'date-fns';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,7 +28,7 @@ import {
   AlertTriangle,
   Settings,
 } from 'lucide-react';
-import { cn, safeParseDate } from '@/lib/utils';
+import { cn, formatDate, getDateTooltip } from '@/lib/utils';
 import { useProvenanceSettings } from '@/lib/hooks';
 import type { CommitProvenance, ProvenanceConfidence, ProvenanceSettings } from '@/types';
 import Link from 'next/link';
@@ -123,8 +122,8 @@ export function ProvenanceCard({
   // Merge user settings with any overrides
   const settings = { ...userSettings, ...settingsOverride };
 
-  const commitDate = safeParseDate(commit.commit_date);
-  const relativeDate = commitDate ? formatDistanceToNow(commitDate, { addSuffix: true }) : 'Unknown date';
+  const relativeDate = formatDate(commit.commit_date, { style: 'smart', fallback: 'Unknown date' });
+  const dateTooltip = getDateTooltip(commit.commit_date);
   const shortSha = truncateSha(commit.commit_sha);
 
   const handleCopySha = async () => {
@@ -239,7 +238,7 @@ export function ProvenanceCard({
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Calendar className="h-3 w-3" />
-                  <time dateTime={commit.commit_date} title={commitDate?.toLocaleString() ?? 'Unknown date'}>
+                  <time dateTime={commit.commit_date} title={dateTooltip}>
                     {relativeDate}
                   </time>
                 </div>

@@ -167,13 +167,7 @@ class TierLimits:
             return True
 
         if usage.analyses_remaining <= 0:
-            console.print(
-                f"[red]✗[/] Analysis limit reached "
-                f"({usage.analyses_this_month}/{usage.analyses_limit} this month)"
-            )
-            console.print(
-                "  Upgrade to Pro for unlimited analyses: [blue]repotoire auth upgrade[/]"
-            )
+            self._display_analysis_limit_error(usage)
             return False
 
         return True
@@ -195,13 +189,7 @@ class TierLimits:
             return True
 
         if usage.analyses_remaining <= 0:
-            console.print(
-                f"[red]✗[/] Analysis limit reached "
-                f"({usage.analyses_this_month}/{usage.analyses_limit} this month)"
-            )
-            console.print(
-                "  Upgrade to Pro for unlimited analyses: [blue]repotoire auth upgrade[/]"
-            )
+            self._display_analysis_limit_error(usage)
             return False
 
         return True
@@ -223,10 +211,7 @@ class TierLimits:
             return True
 
         if usage.repos_remaining <= 0:
-            console.print(
-                f"[red]✗[/] Repository limit reached ({usage.repos_used}/{usage.repos_limit})"
-            )
-            console.print("  Upgrade to Pro for more repositories: [blue]repotoire auth upgrade[/]")
+            self._display_repo_limit_error(usage)
             return False
 
         return True
@@ -248,13 +233,65 @@ class TierLimits:
             return True
 
         if usage.repos_remaining <= 0:
-            console.print(
-                f"[red]✗[/] Repository limit reached ({usage.repos_used}/{usage.repos_limit})"
-            )
-            console.print("  Upgrade to Pro for more repositories: [blue]repotoire auth upgrade[/]")
+            self._display_repo_limit_error(usage)
             return False
 
         return True
+
+    def _display_analysis_limit_error(self, usage: UsageInfo) -> None:
+        """Display a helpful error message when analysis limit is reached.
+
+        Args:
+            usage: Current usage information
+        """
+        from rich.panel import Panel
+
+        console.print()
+        console.print(
+            Panel(
+                f"[bold red]Analysis Limit Reached[/bold red]\n\n"
+                f"You've used [bold]{usage.analyses_this_month}[/bold] of "
+                f"[bold]{usage.analyses_limit}[/bold] analyses this month\n"
+                f"on the [cyan]{usage.tier.title()}[/cyan] plan.",
+                title="Limit Reached",
+                border_style="red",
+            )
+        )
+        console.print()
+        console.print("[bold]Options:[/bold]")
+        console.print("  [dim]1.[/dim] Wait until next month for your limit to reset")
+        console.print("  [dim]2.[/dim] Upgrade to Pro for unlimited analyses:")
+        console.print("     [link=https://repotoire.com/settings/billing][blue]https://repotoire.com/settings/billing[/blue][/link]")
+        console.print("  [dim]3.[/dim] Run locally with [cyan]--offline[/cyan] flag (skips cloud sync)")
+        console.print()
+
+    def _display_repo_limit_error(self, usage: UsageInfo) -> None:
+        """Display a helpful error message when repository limit is reached.
+
+        Args:
+            usage: Current usage information
+        """
+        from rich.panel import Panel
+
+        console.print()
+        console.print(
+            Panel(
+                f"[bold red]Repository Limit Reached[/bold red]\n\n"
+                f"You've connected [bold]{usage.repos_used}[/bold] of "
+                f"[bold]{usage.repos_limit}[/bold] repositories\n"
+                f"on the [cyan]{usage.tier.title()}[/cyan] plan.",
+                title="Limit Reached",
+                border_style="red",
+            )
+        )
+        console.print()
+        console.print("[bold]Options:[/bold]")
+        console.print("  [dim]1.[/dim] Remove an existing repository to free up a slot")
+        console.print("  [dim]2.[/dim] Upgrade to Pro for more repositories:")
+        console.print("     [link=https://repotoire.com/settings/billing][blue]https://repotoire.com/settings/billing[/blue][/link]")
+        console.print()
+        console.print("[dim]View connected repos:[/dim] [cyan]repotoire repos list[/cyan]")
+        console.print()
 
     def display_usage(self, usage: UsageInfo) -> None:
         """Display usage stats in a formatted table.

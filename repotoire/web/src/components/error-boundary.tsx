@@ -1,10 +1,13 @@
 'use client';
 
 import { Component, ErrorInfo, ReactNode } from 'react';
-import { AlertTriangle, RefreshCw, Home, Bug, ChevronDown, ChevronUp } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Home, Bug, ChevronDown, ChevronUp, Copy, CheckCircle } from 'lucide-react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { parseError, type ParsedError } from '@/lib/error-utils';
+import { ErrorCodes } from '@/lib/error-codes';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -97,10 +100,37 @@ function ErrorFallback({
   showStack,
   onToggleStack,
 }: ErrorFallbackProps) {
+  const [copied, setCopied] = useState(false);
+
+  // Parse error for user-friendly messaging
+  const parsedError: ParsedError = error
+    ? parseError(error)
+    : {
+        title: 'Unexpected Error',
+        message: 'An unknown error occurred.',
+        action: 'Please try again or contact support.',
+        code: ErrorCodes.UNKNOWN,
+        reportable: true,
+      };
+
+  const handleCopyErrorCode = async () => {
+    try {
+      await navigator.clipboard.writeText(parsedError.code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      // Clipboard API not available
+    }
+  };
+
   const handleReportBug = () => {
-    const subject = encodeURIComponent(`Bug Report: ${error?.message || 'Unknown error'}`);
+    const subject = encodeURIComponent(`Bug Report: ${parsedError.code} - ${parsedError.title}`);
     const body = encodeURIComponent(`
-**Error:** ${error?.message || 'Unknown error'}
+**Error Code:** ${parsedError.code}
+
+**Error Title:** ${parsedError.title}
+
+**Error Message:** ${parsedError.message}
 
 **Stack Trace:**
 \`\`\`
@@ -133,20 +163,35 @@ ${errorInfo?.componentStack || 'No component stack available'}
           <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-destructive/10 flex items-center justify-center">
             <AlertTriangle className="h-6 w-6 text-destructive" />
           </div>
-          <CardTitle>Something went wrong</CardTitle>
-          <CardDescription>
-            An unexpected error occurred. You can try again or return to the dashboard.
+          <CardTitle>{parsedError.title}</CardTitle>
+          <CardDescription className="mt-2">
+            {parsedError.message}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Error message */}
-          {error && (
-            <div className="p-3 rounded-lg bg-destructive/5 border border-destructive/20">
-              <p className="text-sm font-mono text-destructive">
-                {error.message || 'An unknown error occurred'}
-              </p>
-            </div>
-          )}
+          {/* Actionable suggestion */}
+          <div className="p-3 rounded-lg bg-muted/50 border">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium">What you can do:</span> {parsedError.action}
+            </p>
+          </div>
+
+          {/* Error code for support */}
+          <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+            <span>Reference code:</span>
+            <button
+              onClick={handleCopyErrorCode}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-muted hover:bg-muted/80 font-mono transition-colors"
+              title="Click to copy"
+            >
+              {parsedError.code}
+              {copied ? (
+                <CheckCircle className="h-3 w-3 text-green-500" />
+              ) : (
+                <Copy className="h-3 w-3" />
+              )}
+            </button>
+          </div>
 
           {/* Action buttons */}
           <div className="flex flex-col sm:flex-row gap-3">
@@ -164,16 +209,18 @@ ${errorInfo?.componentStack || 'No component stack available'}
             </Button>
           </div>
 
-          {/* Report bug button */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleReportBug}
-            className="w-full text-muted-foreground"
-          >
-            <Bug className="mr-2 h-4 w-4" />
-            Report this issue
-          </Button>
+          {/* Report bug button - only for reportable errors */}
+          {parsedError.reportable && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleReportBug}
+              className="w-full text-muted-foreground"
+            >
+              <Bug className="mr-2 h-4 w-4" />
+              Report this issue
+            </Button>
+          )}
 
           {/* Technical details (collapsible) */}
           {showDetails && (error?.stack || errorInfo?.componentStack) && (

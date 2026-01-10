@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { formatDistanceToNow } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -29,7 +28,7 @@ import {
   Flag,
   CheckCircle2,
 } from 'lucide-react';
-import { cn, safeParseDate } from '@/lib/utils';
+import { cn, formatDate } from '@/lib/utils';
 import {
   useIssueProvenance,
   useFetchProvenance,
@@ -207,8 +206,7 @@ export function IssueOriginBadge({
   }
 
   const commit = origin.introduced_in;
-  const commitDate = safeParseDate(commit.commit_date);
-  const relativeDate = commitDate ? formatDistanceToNow(commitDate, { addSuffix: true }) : 'Unknown date';
+  const relativeDate = formatDate(commit.commit_date, { style: 'smart', fallback: 'Unknown date' });
 
   // Privacy-aware author display
   const displayName = settings.show_author_names
@@ -388,8 +386,7 @@ export function IssueOriginInline({
   }
 
   const commit = origin.introduced_in;
-  const commitDate = safeParseDate(commit.commit_date);
-  const relativeDate = commitDate ? formatDistanceToNow(commitDate, { addSuffix: true }) : 'Unknown date';
+  const relativeDate = formatDate(commit.commit_date, { style: 'smart', fallback: 'Unknown date' });
   const displayName = settings.show_author_names ? commit.author_name : 'A contributor';
 
   const githubCommitUrl = repositoryFullName

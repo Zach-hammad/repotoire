@@ -220,7 +220,7 @@ function CliCallbackContent() {
         console.error('Failed to create CLI token:', err);
         setState({
           status: 'error',
-          error: 'An unexpected error occurred. Please try again.',
+          error: 'Unable to authenticate CLI session. Please close this window and try "repotoire login" again. (ERR_AUTH_002)',
         });
       }
     }
