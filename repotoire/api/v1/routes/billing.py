@@ -208,7 +208,83 @@ async def get_subscription(
     )
 
 
-# NOTE: Checkout, portal, calculate-price, and plans endpoints have been removed.
+# ============================================================================
+# Stub Endpoints (for frontend compatibility during Clerk migration)
+# ============================================================================
+# These endpoints return empty/placeholder data while frontend transitions
+# to using Clerk's <PricingTable /> and <AccountPortal /> components.
+
+
+class InvoiceResponse(BaseModel):
+    """Invoice information."""
+    id: str
+    amount_due: int
+    currency: str
+    status: str
+    created: datetime
+    invoice_pdf: str | None = None
+
+
+class InvoicesResponse(BaseModel):
+    """List of invoices."""
+    invoices: list[InvoiceResponse] = Field(default_factory=list)
+    hasMore: bool = False
+
+
+class PaymentMethodResponse(BaseModel):
+    """Payment method information."""
+    brand: str | None = None
+    last4: str | None = None
+    exp_month: int | None = None
+    exp_year: int | None = None
+
+
+class PortalUrlResponse(BaseModel):
+    """Billing portal URL."""
+    url: str | None = None
+
+
+@router.get(
+    "/invoices",
+    response_model=InvoicesResponse,
+    summary="Get invoices (stub)",
+    description="Returns empty list. Invoice management moved to Clerk.",
+)
+async def get_invoices(
+    limit: int = 10,
+    user: ClerkUser = Depends(get_current_user),
+) -> InvoicesResponse:
+    """Stub endpoint - invoices are now managed via Clerk."""
+    return InvoicesResponse(invoices=[], hasMore=False)
+
+
+@router.get(
+    "/payment-method",
+    response_model=PaymentMethodResponse,
+    summary="Get payment method (stub)",
+    description="Returns null. Payment methods managed via Clerk.",
+)
+async def get_payment_method(
+    user: ClerkUser = Depends(get_current_user),
+) -> PaymentMethodResponse:
+    """Stub endpoint - payment methods are now managed via Clerk."""
+    return PaymentMethodResponse()
+
+
+@router.get(
+    "/portal",
+    response_model=PortalUrlResponse,
+    summary="Get billing portal URL (stub)",
+    description="Returns null. Use Clerk's AccountPortal component instead.",
+)
+async def get_billing_portal_url(
+    user: ClerkUser = Depends(get_current_user),
+) -> PortalUrlResponse:
+    """Stub endpoint - billing portal is now via Clerk's AccountPortal component."""
+    return PortalUrlResponse(url=None)
+
+
+# NOTE: Full checkout, portal, calculate-price, and plans endpoints have been removed.
 # Use Clerk's <PricingTable /> and <AccountPortal /> components instead.
 # Subscription webhooks from Clerk are handled in /webhooks/clerk
 # Plan information is now managed in Clerk Dashboard.
