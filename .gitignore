@@ -91,3 +91,9 @@ lean/lake-manifest.json
 # Benchmark files
 benchmarks/
 **/bench_*.py
+
+# Claude Code
+.claude/
+
+# Playwright MCP
+.playwright-mcp/
