@@ -33,6 +33,7 @@ from .billing import (
     AddonType,
     BestOfNUsage,
     CustomerAddon,
+    ProcessedWebhookEvent,
     Subscription,
     SubscriptionStatus,
     UsageRecord,

@@ -339,3 +339,68 @@ export function useAssetTrends(
     marketplaceApi.getAssetTrends(publisherSlug!, assetSlug!, days) as Promise<AssetTrends>
   );
 }
+
+// ==========================================
+// Stripe Connect Hooks (Publisher Payouts)
+// ==========================================
+
+interface ConnectStatus {
+  stripe_account_id: string | null;
+  charges_enabled: boolean;
+  payouts_enabled: boolean;
+  onboarding_complete: boolean;
+  dashboard_url: string | null;
+}
+
+interface ConnectBalance {
+  available: Array<{ amount: number; currency: string }>;
+  pending: Array<{ amount: number; currency: string }>;
+}
+
+/**
+ * Hook to get Stripe Connect account status.
+ */
+export function useConnectStatus() {
+  const { isAuthReady } = useApiAuth();
+  return useSWR<ConnectStatus>(
+    isAuthReady ? 'marketplace-connect-status' : null,
+    () => marketplaceApi.getConnectStatus()
+  );
+}
+
+/**
+ * Hook to start Stripe Connect onboarding.
+ */
+export function useCreateConnectAccount() {
+  return useSWRMutation<
+    { stripe_account_id: string; onboarding_url: string },
+    Error,
+    string
+  >('marketplace-connect-create', () => marketplaceApi.createConnectAccount());
+}
+
+/**
+ * Hook to get a new onboarding link if previous one expired.
+ */
+export function useGetOnboardingLink() {
+  return useSWRMutation<{ onboarding_url: string }, Error, string>(
+    'marketplace-connect-onboarding',
+    () => marketplaceApi.getOnboardingLink()
+  );
+}
+
+/**
+ * Hook to get Connect account balance.
+ */
+export function useConnectBalance() {
+  const { isAuthReady } = useApiAuth();
+  const { data: status } = useConnectStatus();
+
+  // Only fetch balance if Connect is set up and onboarding is complete
+  const shouldFetch = isAuthReady && status?.onboarding_complete;
+
+  return useSWR<ConnectBalance>(
+    shouldFetch ? 'marketplace-connect-balance' : null,
+    () => marketplaceApi.getConnectBalance()
+  );
+}

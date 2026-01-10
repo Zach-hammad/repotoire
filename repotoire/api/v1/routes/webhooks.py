@@ -623,6 +623,62 @@ async def handle_invoice_paid(
         logger.info(f"Reactivated subscription {subscription_id}")
 
 
+async def handle_trial_will_end(
+    db: AsyncSession,
+    subscription_data: dict[str, Any],
+) -> None:
+    """Handle trial ending notification.
+
+    Fires 3 days before trial ends - useful for sending reminder emails.
+    """
+    subscription_id = subscription_data.get("id")
+    customer_id = subscription_data.get("customer")
+    trial_end = subscription_data.get("trial_end")
+
+    logger.info(
+        f"Trial ending soon for subscription {subscription_id}, "
+        f"customer {customer_id}, trial_end={trial_end}"
+    )
+
+    subscription = await get_subscription_by_stripe_id(db, subscription_id)
+    if not subscription:
+        logger.warning(f"Subscription {subscription_id} not found for trial_will_end")
+        return
+
+    # TODO: Send email notification to customer about trial ending
+    # This would integrate with the email service
+    logger.info(f"Would send trial ending email for org {subscription.organization_id}")
+
+
+async def handle_charge_refunded(
+    db: AsyncSession,
+    charge: dict[str, Any],
+) -> None:
+    """Handle charge refund events.
+
+    Logs refund for audit purposes. Full refunds may warrant subscription review.
+    """
+    charge_id = charge.get("id")
+    amount_refunded = charge.get("amount_refunded", 0)
+    amount = charge.get("amount", 0)
+    customer_id = charge.get("customer")
+    refunded = charge.get("refunded", False)
+
+    logger.info(
+        f"Charge refunded: {charge_id}, amount={amount_refunded}/{amount}, "
+        f"customer={customer_id}, full_refund={refunded}"
+    )
+
+    # Log for audit trail
+    # In a production system, you might want to:
+    # 1. Create an audit log entry
+    # 2. Notify admin if refund exceeds threshold
+    # 3. Suspend access if full refund on subscription charge
+
+    if refunded and amount_refunded == amount:
+        logger.warning(f"Full refund processed for charge {charge_id}")
+
+
 # ============================================================================
 # Webhook Endpoint
 # ============================================================================
@@ -685,6 +741,12 @@ async def stripe_webhook(
 
         elif event_type == "invoice.paid":
             await handle_invoice_paid(db, data)
+
+        elif event_type == "customer.subscription.trial_will_end":
+            await handle_trial_will_end(db, data)
+
+        elif event_type == "charge.refunded":
+            await handle_charge_refunded(db, data)
 
         else:
             logger.debug(f"Unhandled Stripe event type: {event_type}")
@@ -854,6 +916,33 @@ async def handle_payout_paid(
     # Could store payout records for analytics if needed
 
 
+async def handle_payout_failed(
+    db: AsyncSession,
+    payout: dict[str, Any],
+) -> None:
+    """Handle payout.failed event from Stripe Connect.
+
+    Logs failed payout and alerts admin - publisher needs to update bank details.
+    """
+    payout_id = payout.get("id")
+    amount = payout.get("amount", 0)
+    currency = payout.get("currency", "usd")
+    failure_code = payout.get("failure_code")
+    failure_message = payout.get("failure_message")
+    destination = payout.get("destination")
+
+    logger.error(
+        f"Payout FAILED: {payout_id}, amount: {amount} {currency}, "
+        f"failure_code={failure_code}, message={failure_message}, "
+        f"destination={destination}"
+    )
+
+    # In production:
+    # 1. Find the publisher associated with this Connect account
+    # 2. Send them an email to update their bank account details
+    # 3. Create an alert for admin dashboard
+
+
 @router.post("/stripe/connect")
 async def stripe_connect_webhook(
     request: Request,
@@ -865,7 +954,8 @@ async def stripe_connect_webhook(
     Processes Connect-specific events for marketplace transactions:
     - account.updated: Publisher connect status changes
     - payment_intent.succeeded: Purchase completed, auto-install asset
-    - payout.paid: (optional) Track payouts for analytics
+    - payout.paid: Track payouts for analytics
+    - payout.failed: Alert when publisher payouts fail
     """
     payload = await request.body()
 
@@ -903,6 +993,9 @@ async def stripe_connect_webhook(
 
         elif event_type == "payout.paid":
             await handle_payout_paid(db, data)
+
+        elif event_type == "payout.failed":
+            await handle_payout_failed(db, data)
 
         else:
             logger.debug(f"Unhandled Stripe Connect event type: {event_type}")
