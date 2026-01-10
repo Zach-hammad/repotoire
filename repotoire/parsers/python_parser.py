@@ -309,8 +309,28 @@ class PythonASTVisitor(ast.NodeVisitor):
         self,
         parent_node: ast.FunctionDef | ast.AsyncFunctionDef,
         parent_qualified: str,
+        depth: int = 0,
+        max_depth: int = 10,
     ) -> List[FunctionEntity]:
-        """Extract nested functions from within a function body."""
+        """Extract nested functions from within a function body.
+
+        Args:
+            parent_node: The parent function node
+            parent_qualified: Qualified name of the parent function
+            depth: Current recursion depth
+            max_depth: Maximum allowed recursion depth to prevent stack overflow
+
+        Returns:
+            List of nested FunctionEntity objects
+        """
+        # Prevent unbounded recursion that could cause stack overflow
+        if depth >= max_depth:
+            logger.warning(
+                f"Max recursion depth ({max_depth}) reached while extracting nested functions "
+                f"in {parent_qualified}. Deeper functions will be skipped."
+            )
+            return []
+
         nested_entities = []
 
         for node in parent_node.body:
@@ -357,8 +377,10 @@ class PythonASTVisitor(ast.NodeVisitor):
                 )
                 nested_entities.append(nested_func)
 
-                # Recursively extract deeper nested functions
-                deeper = self._extract_nested_functions(node, qualified_name)
+                # Recursively extract deeper nested functions with depth tracking
+                deeper = self._extract_nested_functions(
+                    node, qualified_name, depth=depth + 1, max_depth=max_depth
+                )
                 nested_entities.extend(deeper)
 
         return nested_entities
@@ -659,9 +681,10 @@ class PythonParser(CodeParser):
         """
         # Use cached content if available and matches this file
         if self._cached_content and self._cached_content[0] == file_path:
-            source = self._cached_content[1].decode("utf-8")
+            # Use errors="replace" to handle non-UTF-8 encoded files gracefully
+            source = self._cached_content[1].decode("utf-8", errors="replace")
         else:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
                 source = f.read()
         return ast.parse(source, filename=file_path)
 

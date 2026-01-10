@@ -447,14 +447,26 @@ async def github_webhook(
 
     logger.info(f"Received webhook: {event_type}")
 
-    if event_type == "installation":
-        await handle_installation_event(db, payload, github, encryption)
-    elif event_type == "installation_repositories":
-        await handle_installation_repos_event(db, payload)
-    elif event_type == "push":
-        await handle_push_event(db, payload)
-    elif event_type == "pull_request":
-        await handle_pull_request_event(db, payload)
+    # Wrap all handlers in try-except to prevent webhook failures from causing
+    # GitHub to retry indefinitely or disable the webhook
+    try:
+        if event_type == "installation":
+            await handle_installation_event(db, payload, github, encryption)
+        elif event_type == "installation_repositories":
+            await handle_installation_repos_event(db, payload)
+        elif event_type == "push":
+            await handle_push_event(db, payload)
+        elif event_type == "pull_request":
+            await handle_pull_request_event(db, payload)
+    except Exception as e:
+        # Log the error but return 200 to prevent GitHub from retrying
+        logger.exception(
+            f"Error handling {event_type} webhook",
+            extra={"event_type": event_type, "error": str(e)},
+        )
+        # Return 202 Accepted - we received it but processing failed
+        # This prevents GitHub from disabling webhooks due to repeated failures
+        return {"status": "error", "event": event_type, "message": "Processing failed"}
 
     return {"status": "ok", "event": event_type}
 

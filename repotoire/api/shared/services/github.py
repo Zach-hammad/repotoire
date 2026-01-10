@@ -19,6 +19,10 @@ logger = get_logger(__name__)
 # GitHub API base URL
 GITHUB_API_BASE = "https://api.github.com"
 
+# Default timeouts for GitHub API calls (in seconds)
+# Connect timeout: 10s, Read timeout: 30s
+DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+
 
 class GitHubAppClient:
     """Client for GitHub App API calls.
@@ -100,7 +104,7 @@ class GitHubAppClient:
         """
         jwt_token = self.generate_jwt()
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.post(
                 f"{GITHUB_API_BASE}/app/installations/{installation_id}/access_tokens",
                 headers={
@@ -135,7 +139,7 @@ class GitHubAppClient:
         """
         jwt_token = self.generate_jwt()
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{GITHUB_API_BASE}/app/installations/{installation_id}",
                 headers={
@@ -166,7 +170,7 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{GITHUB_API_BASE}/installation/repositories",
                 params={"per_page": per_page, "page": page},
@@ -232,7 +236,7 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
                 headers={
@@ -263,7 +267,7 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{GITHUB_API_BASE}/repos/{owner}/{repo}",
                 headers={
@@ -349,7 +353,7 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{GITHUB_API_BASE}/repos/{owner}/{repo}/git/ref/{ref}",
                 headers={
@@ -384,7 +388,7 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.post(
                 f"{GITHUB_API_BASE}/repos/{owner}/{repo}/git/refs",
                 headers={
@@ -421,7 +425,7 @@ class GitHubAppClient:
             File SHA if exists, None if file doesn't exist.
         """
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
                 params = {"ref": ref} if ref else {}
                 response = await client.get(
                     f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
@@ -464,7 +468,7 @@ class GitHubAppClient:
         import base64
 
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
                 params = {"ref": ref} if ref else {}
                 response = await client.get(
                     f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
@@ -527,7 +531,7 @@ class GitHubAppClient:
         if file_sha:
             payload["sha"] = file_sha
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.put(
                 f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
                 headers={
@@ -569,7 +573,7 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.post(
                 f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls",
                 headers={

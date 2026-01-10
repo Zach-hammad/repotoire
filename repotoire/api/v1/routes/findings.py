@@ -466,8 +466,16 @@ async def list_findings(
     total_result = await session.execute(count_query)
     total = total_result.scalar() or 0
 
-    # Apply sorting
-    sort_column = getattr(Finding, sort_by, Finding.created_at)
+    # Apply sorting - whitelist allowed fields to prevent arbitrary attribute access
+    ALLOWED_SORT_FIELDS = {
+        "created_at": Finding.created_at,
+        "updated_at": Finding.updated_at,
+        "severity": Finding.severity,
+        "detector": Finding.detector,
+        "status": Finding.status,
+        "title": Finding.title,
+    }
+    sort_column = ALLOWED_SORT_FIELDS.get(sort_by, Finding.created_at)
     if sort_direction == "desc":
         query = query.order_by(sort_column.desc())
     else:
@@ -755,9 +763,20 @@ async def get_finding(
             detail="Finding not found",
         )
 
-    # Get repository and check access
+    # Get repository and check access with null safety
     analysis = await session.get(AnalysisRun, finding.analysis_run_id)
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis run not found",
+        )
+
     repo = await session.get(Repository, analysis.repository_id)
+    if not repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Repository not found",
+        )
 
     if not await _user_has_repo_access(session, user, repo):
         raise HTTPException(
@@ -884,9 +903,20 @@ async def update_finding_status(
             detail="Finding not found",
         )
 
-    # Get repository and check access
+    # Get repository and check access with null safety
     analysis = await session.get(AnalysisRun, finding.analysis_run_id)
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis run not found",
+        )
+
     repo = await session.get(Repository, analysis.repository_id)
+    if not repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Repository not found",
+        )
 
     if not await _user_has_repo_access(session, user, repo):
         raise HTTPException(

@@ -351,13 +351,14 @@ async def list_fixes(
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
-    status: Optional[List[str]] = Query(None, description="Filter by status (pending, approved, rejected, applied, failed)"),
+    status: Optional[List[str]] = Query(None, description="Filter by status (pending, approved, rejected, applied, failed, stale)"),
     confidence: Optional[List[str]] = Query(None, description="Filter by confidence (high, medium, low)"),
     fix_type: Optional[List[str]] = Query(None, description="Filter by fix type"),
     repository_id: Optional[str] = Query(None, description="Filter by repository UUID"),
     search: Optional[str] = Query(None, description="Search in title and description"),
     sort_by: str = Query("created_at", description="Field to sort by"),
     sort_direction: str = Query("desc", description="Sort direction: 'asc' or 'desc'"),
+    include_stale: bool = Query(False, description="Include stale fixes (code has changed since fix was generated)"),
 ) -> PaginatedResponse:
     """List AI-generated fix proposals with filtering and pagination."""
     repo = FixRepository(db)
@@ -367,6 +368,11 @@ async def list_fixes(
     confidence_enums = [FixConfidence(c) for c in confidence] if confidence else None
     fix_type_enums = [FixType(t) for t in fix_type] if fix_type else None
     repo_uuid = UUID(repository_id) if repository_id else None
+
+    # Exclude stale fixes by default unless explicitly requested or filtering by status
+    exclude_status = None
+    if not include_stale and status is None:
+        exclude_status = [FixStatus.STALE]
 
     # Calculate offset
     offset = (page - 1) * page_size
@@ -382,6 +388,7 @@ async def list_fixes(
         sort_direction=sort_direction,
         limit=page_size,
         offset=offset,
+        exclude_status=exclude_status,
     )
 
     return PaginatedResponse(
@@ -975,6 +982,12 @@ async def apply_fix(
             github_client = GitHubAppClient()
 
             # Parse owner/repo from full_name (e.g., "owner/repo")
+            if not github_repo.full_name or "/" not in github_repo.full_name:
+                logger.error(f"Invalid repository full_name format: {github_repo.full_name}")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid repository configuration - missing owner/repo format"
+                )
             owner, repo_name = github_repo.full_name.split("/", 1)
 
             # Create unique branch name
@@ -1136,6 +1149,7 @@ Falls back to local syntax-only validation (import/type checks skipped).
 )
 async def preview_fix(
     fix_id: str,
+    force: bool = Query(False, description="Force fresh preview, bypassing cache"),
     user: ClerkUser = Depends(get_current_user),
     cache: "PreviewCache" = Depends(_get_preview_cache),
     db: AsyncSession = Depends(get_db),
@@ -1167,19 +1181,23 @@ async def preview_fix(
 
     fix_hash = _get_fix_hash(fix)
 
-    # Check Redis cache first (with hash validation)
-    cached_result = await cache.get_with_hash_check(fix_id, fix_hash)
-    if cached_result:
-        logger.info(f"Returning cached preview for fix {fix_id}")
-        return cached_result
-
-    # Fallback to in-memory cache
+    # Check in-memory cache first
     if fix_id in _preview_cache:
         cached_result, cached_hash = _preview_cache[fix_id]
         if cached_hash == fix_hash:
-            # Return cached result with timestamp
-            logger.info(f"Returning in-memory cached preview for fix {fix_id}")
+            logger.debug(f"Preview cache hit (in-memory) for fix {fix_id}")
             return cached_result
+
+    # Check Redis cache
+    cached_result = await cache.get_preview(fix_id)
+    if cached_result:
+        # Validate the hash from cached_at field
+        if cached_result.cached_at and ":" in cached_result.cached_at:
+            _, cached_hash = cached_result.cached_at.rsplit(":", 1)
+            if cached_hash == fix_hash:
+                logger.debug(f"Preview cache hit (Redis) for fix {fix_id}")
+                _preview_cache[fix_id] = (cached_result, fix_hash)
+                return cached_result
 
     start_time = time.time()
     checks: List[PreviewCheck] = []
@@ -1189,6 +1207,7 @@ async def preview_fix(
     # Try to get full file content for proper validation
     # (snippet-only validation fails when imports are defined elsewhere in file)
     full_file_contents: dict[str, str] = {}  # file_path -> full content with fix applied
+    stale_files: list[str] = []  # files where original code not found (fix is stale)
 
     try:
         # Get repository info for GitHub file fetching
@@ -1222,7 +1241,7 @@ async def preview_fix(
                             # Fetch full file content for each change
                             for change in fix.changes:
                                 try:
-                                    access_token = await github_client.get_installation_access_token(
+                                    access_token, _ = await github_client.get_installation_token(
                                         installation.installation_id
                                     )
                                     file_content = await github_client.get_file_content(
@@ -1236,14 +1255,78 @@ async def preview_fix(
                                     if file_content:
                                         # Apply the fix to get complete file
                                         lines = file_content.split('\n')
-                                        line_start = change.line_start or 1
-                                        line_end = change.line_end or len(lines)
 
-                                        # Replace the lines with fixed code
+                                        # First, verify the original code still exists at the expected location
+                                        # If the file has changed, the line numbers may be stale
+                                        original_lines = change.original_code.split('\n') if change.original_code else []
+                                        line_start = change.start_line or 1
+                                        line_end = change.end_line or len(lines)
+
+                                        # Check if original code matches at expected location
+                                        original_code_found = False
+                                        actual_start = line_start
+
+                                        if original_lines and line_start <= len(lines):
+                                            # Check if original code is at expected location
+                                            expected_lines = lines[line_start - 1:line_end]
+                                            # Compare first line (stripped) to detect match
+                                            if expected_lines and original_lines:
+                                                first_orig = original_lines[0].strip()
+                                                first_file = expected_lines[0].strip() if expected_lines else ""
+                                                if first_orig and first_orig in first_file or first_file in first_orig:
+                                                    original_code_found = True
+                                                    logger.info(f"Original code found at expected location (lines {line_start}-{line_end})")
+
+                                        if not original_code_found and original_lines:
+                                            # Search for original code elsewhere in the file
+                                            first_orig_stripped = original_lines[0].strip()
+                                            for i, line in enumerate(lines):
+                                                if first_orig_stripped and first_orig_stripped in line.strip():
+                                                    # Code found at different location - treat as stale
+                                                    # We can't safely adjust line numbers without knowing actual scope
+                                                    logger.warning(f"Original code found at line {i + 1} (expected {line_start}) - marking as stale")
+                                                    stale_files.append(change.file_path)
+                                                    break
+
+                                        if change.file_path in stale_files:
+                                            continue
+
+                                        if not original_code_found and original_lines and original_lines[0].strip():
+                                            # Original code not found - file has changed significantly
+                                            logger.warning(f"Original code not found in {change.file_path} - file may have changed since fix was generated")
+                                            logger.warning(f"  Looking for: {repr(original_lines[0][:60])}")
+                                            # Track this file as stale
+                                            stale_files.append(change.file_path)
+                                            # Skip this file - we can't safely apply the fix
+                                            continue
+
+                                        line_start = actual_start
+
+                                        # Now apply indentation from the target location
                                         fixed_lines = change.fixed_code.split('\n')
+
+                                        # Get indentation from the line we're replacing
+                                        if line_start <= len(lines):
+                                            target_line = lines[line_start - 1]
+                                            base_indent = target_line[:len(target_line) - len(target_line.lstrip())]
+
+                                            # Check if fixed code already has indentation
+                                            fixed_has_indent = fixed_lines and fixed_lines[0] and not fixed_lines[0][0].isalnum()
+
+                                            if base_indent and not fixed_has_indent:
+                                                # Add base indentation to all non-empty lines
+                                                fixed_lines = [
+                                                    base_indent + line if line.strip() else line
+                                                    for line in fixed_lines
+                                                ]
+                                                logger.info(f"Applied {len(base_indent)} chars of indentation to fixed code")
+
+                                        logger.info(f"Constructing full file: {change.file_path}")
+                                        logger.info(f"  Replacing lines {line_start}-{line_end}")
+
                                         new_lines = lines[:line_start - 1] + fixed_lines + lines[line_end:]
                                         full_file_contents[change.file_path] = '\n'.join(new_lines)
-                                        logger.debug(f"Fetched and constructed full file for {change.file_path}")
+                                        logger.info(f"  Constructed file: {len(new_lines)} lines")
                                 except Exception as e:
                                     logger.warning(f"Failed to fetch file {change.file_path} from GitHub: {e}")
     except Exception as e:
@@ -1330,6 +1413,36 @@ async def preview_fix(
             # Also store in in-memory cache as fallback
             _preview_cache[fix_id] = (cached_result, fix_hash)
 
+            return result
+
+        # Check for stale files first - return clear error if fix is outdated
+        if stale_files:
+            for stale_file in stale_files:
+                checks.append(PreviewCheck(
+                    name="stale",
+                    passed=False,
+                    message=f"Fix is outdated - original code not found in {stale_file}. The file may have been modified since this fix was generated.",
+                    duration_ms=0,
+                ))
+                stderr_parts.append(f"StaleFixError: Original code not found in {stale_file}")
+
+            # Mark the fix as stale in the database so it's filtered from the list
+            try:
+                await repo.update_status(fix.id, FixStatus.STALE, validate_transition=False)
+                logger.info(f"Marked fix {fix_id} as stale (code changed in: {', '.join(stale_files)})")
+            except Exception as e:
+                logger.warning(f"Failed to mark fix {fix_id} as stale: {e}")
+
+            duration_ms = int((time.time() - start_time) * 1000)
+            result = PreviewResult(
+                success=False,
+                stdout="\n".join(stdout_parts),
+                stderr="\n".join(stderr_parts),
+                duration_ms=duration_ms,
+                checks=checks,
+                error="Fix is outdated - the target code has been modified since this fix was generated. Consider regenerating the fix.",
+            )
+            await cache.set_preview(fix_id, result)
             return result
 
         # Full sandbox validation

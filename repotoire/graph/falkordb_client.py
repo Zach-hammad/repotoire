@@ -189,8 +189,11 @@ class FalkorDBClient(DatabaseClient):
         """
         assert isinstance(entity.node_type, NodeType), "node_type must be NodeType enum"
 
+        # Validate node type is a known enum value to prevent query injection
+        validated_node_type = validate_identifier(entity.node_type.value)
+
         query = f"""
-        CREATE (n:{entity.node_type.value} {{
+        CREATE (n:{validated_node_type} {{
             name: $name,
             qualifiedName: $qualified_name,
             filePath: $file_path,
@@ -232,13 +235,17 @@ class FalkorDBClient(DatabaseClient):
         # KG-1 Fix: Determine proper label for external nodes
         external_label = get_external_node_label(target_name, rel.target_id)
 
+        # Validate labels and relationship types to prevent query injection
+        validated_external_label = validate_identifier(external_label)
+        validated_rel_type = validate_identifier(rel.rel_type.value)
+
         # KG-1 Fix: Create external nodes with proper label
         # KG-2 Fix: Use MERGE for relationships
         query = f"""
         MATCH (source {{qualifiedName: $source_id}})
-        MERGE (target:{external_label} {{qualifiedName: $target_qualified_name}})
+        MERGE (target:{validated_external_label} {{qualifiedName: $target_qualified_name}})
         ON CREATE SET target.name = $target_name, target.external = true
-        MERGE (source)-[r:{rel.rel_type.value}]->(target)
+        MERGE (source)-[r:{validated_rel_type}]->(target)
         """
 
         self.execute_query(

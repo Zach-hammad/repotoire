@@ -17,6 +17,7 @@ from repotoire.api.shared.services.stripe_service import StripeService, price_id
 from repotoire.db.models import (
     Organization,
     PlanTier,
+    ProcessedWebhookEvent,
     Subscription,
     SubscriptionStatus,
     User,
@@ -32,6 +33,80 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 STRIPE_CONNECT_WEBHOOK_SECRET = os.environ.get("STRIPE_CONNECT_WEBHOOK_SECRET", "")
 CLERK_WEBHOOK_SECRET = os.environ.get("CLERK_WEBHOOK_SECRET", "")
+
+
+def _validate_webhook_secret(secret: str, service_name: str) -> None:
+    """Validate that a webhook secret is configured.
+
+    Args:
+        secret: The webhook secret value
+        service_name: Name of the service for error message
+
+    Raises:
+        HTTPException: If secret is empty or not configured
+    """
+    if not secret or secret.strip() == "":
+        logger.error(
+            f"{service_name} webhook secret not configured",
+            extra={"service": service_name},
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"{service_name} webhook configuration error",
+        )
+
+
+# ============================================================================
+# Webhook Deduplication
+# ============================================================================
+
+
+async def is_event_processed(
+    db: AsyncSession,
+    event_id: str,
+    source: str,
+) -> bool:
+    """Check if a webhook event has already been processed.
+
+    Args:
+        db: Database session
+        event_id: Unique event ID from external service
+        source: Source service (stripe, stripe_connect, clerk, github)
+
+    Returns:
+        True if event was already processed, False otherwise
+    """
+    result = await db.execute(
+        select(ProcessedWebhookEvent).where(
+            ProcessedWebhookEvent.event_id == event_id,
+            ProcessedWebhookEvent.source == source,
+        )
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def mark_event_processed(
+    db: AsyncSession,
+    event_id: str,
+    source: str,
+    event_type: str,
+) -> None:
+    """Mark a webhook event as processed for deduplication.
+
+    Args:
+        db: Database session
+        event_id: Unique event ID from external service
+        source: Source service (stripe, stripe_connect, clerk, github)
+        event_type: Type of event (e.g., customer.subscription.created)
+    """
+    event = ProcessedWebhookEvent(
+        event_id=event_id,
+        source=source,
+        event_type=event_type,
+        processed_at=datetime.now(timezone.utc),
+    )
+    db.add(event)
+    # Don't commit here - let the caller handle transaction
 
 
 # ============================================================================
@@ -579,10 +654,16 @@ async def stripe_webhook(
         webhook_secret=STRIPE_WEBHOOK_SECRET,
     )
 
+    event_id = event["id"]
     event_type = event["type"]
     data = event["data"]["object"]
 
-    logger.info(f"Received Stripe webhook: {event_type}")
+    logger.info(f"Received Stripe webhook: {event_type} (event_id={event_id})")
+
+    # Check for duplicate event (idempotency)
+    if await is_event_processed(db, event_id, "stripe"):
+        logger.info(f"Skipping duplicate Stripe event: {event_id}")
+        return {"status": "ok", "message": "duplicate event skipped"}
 
     # Route to appropriate handler with error handling
     # Wrap handlers to prevent permanent failures from causing endless retries
@@ -619,6 +700,9 @@ async def stripe_webhook(
             exc_info=True,
         )
         # Return success - the event is logged, manual intervention may be needed
+
+    # Mark event as processed (idempotency - prevents duplicate processing on retry)
+    await mark_event_processed(db, event_id, "stripe", event_type)
 
     return {"status": "ok"}
 
@@ -798,10 +882,16 @@ async def stripe_connect_webhook(
         webhook_secret=STRIPE_CONNECT_WEBHOOK_SECRET,
     )
 
+    event_id = event["id"]
     event_type = event["type"]
     data = event["data"]["object"]
 
-    logger.info(f"Received Stripe Connect webhook: {event_type}")
+    logger.info(f"Received Stripe Connect webhook: {event_type} (event_id={event_id})")
+
+    # Check for duplicate event (idempotency)
+    if await is_event_processed(db, event_id, "stripe_connect"):
+        logger.info(f"Skipping duplicate Stripe Connect event: {event_id}")
+        return {"status": "ok", "message": "duplicate event skipped"}
 
     # Route to appropriate handler with error handling
     try:
@@ -826,6 +916,9 @@ async def stripe_connect_webhook(
             f"Error processing Stripe Connect webhook {event_type}: {e}",
             exc_info=True,
         )
+
+    # Mark event as processed (idempotency - prevents duplicate processing on retry)
+    await mark_event_processed(db, event_id, "stripe_connect", event_type)
 
     return {"status": "ok"}
 
