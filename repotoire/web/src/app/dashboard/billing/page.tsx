@@ -1,43 +1,65 @@
 'use client';
 
 /**
- * Billing Page - Clerk Billing Integration
+ * Billing Page - Subscription & Usage Management
  *
- * This page uses Clerk's billing components for subscription management.
- * Checkout and portal are handled by Clerk's PricingTable and AccountPortal.
- * Usage tracking is still fetched from our API.
- *
- * Migration Note (2026-01):
- * - Replaced custom checkout/portal with Clerk components
- * - Subscription data synced from Clerk via webhooks
- * - Usage tracking (repos/analyses) still from our API
+ * Comprehensive billing dashboard with:
+ * - Subscription status banners
+ * - Usage tracking and limits
+ * - Payment method management
+ * - Invoice history
+ * - Seat management (for Pro/Enterprise)
  */
 
-import { Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
-import { useSubscription } from '@/lib/hooks';
-
-// Clerk Billing components
-// Note: PricingTable and AccountPortal are available in @clerk/nextjs
-// Import them when Clerk Billing is enabled in your Clerk Dashboard
-// import { PricingTable } from '@clerk/nextjs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Loader2 } from 'lucide-react';
+import {
+  useSubscription,
+  useInvoices,
+  usePaymentMethod,
+  useBillingPortalUrl,
+} from '@/lib/hooks';
+import {
+  UsageDashboard,
+  PaymentMethodCard,
+  InvoiceHistory,
+  SeatManagement,
+  SubscriptionBanner,
+  AutoSubscriptionBanner,
+  PricingTable,
+} from '@/components/billing';
 
 function BillingContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const success = searchParams.get('success');
   const canceled = searchParams.get('canceled');
 
-  const { subscription, usage, isLoading } = useSubscription();
+  const { subscription, usage, isLoading: subLoading } = useSubscription();
+  const { data: invoiceData, isLoading: invLoading } = useInvoices(10);
+  const { data: paymentMethod, isLoading: pmLoading } = usePaymentMethod();
+  const { data: portalData } = useBillingPortalUrl();
 
-  const formatLimit = (limit: number) => (limit === -1 ? 'Unlimited' : limit.toString());
+  const invoices = invoiceData?.invoices || [];
+  const hasMore = invoiceData?.hasMore || false;
+  const portalUrl = portalData?.url;
 
-  const getUsagePercentage = (current: number, limit: number) => {
-    if (limit === -1) return 0;
-    return Math.min((current / limit) * 100, 100);
+  const [showSuccessBanner, setShowSuccessBanner] = useState(!!success);
+  const [showCanceledBanner, setShowCanceledBanner] = useState(!!canceled);
+
+  const isLoading = subLoading;
+
+  const handleOpenPortal = () => {
+    if (portalUrl) {
+      window.location.href = portalUrl;
+    }
+  };
+
+  const handleUpgrade = () => {
+    router.push('/pricing');
   };
 
   if (isLoading) {
@@ -48,149 +70,186 @@ function BillingContent() {
     );
   }
 
+  // Calculate usage percentages
+  const repoUsagePercent = usage.limits.repos === -1
+    ? 0
+    : Math.round((usage.repos / usage.limits.repos) * 100);
+  const analysisUsagePercent = usage.limits.analyses === -1
+    ? 0
+    : Math.round((usage.analyses / usage.limits.analyses) * 100);
+  const maxUsagePercent = Math.max(repoUsagePercent, analysisUsagePercent);
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      {/* Header */}
       <div>
         <h1 className="text-3xl font-bold">Billing</h1>
-        <p className="text-muted-foreground">Manage your subscription and usage</p>
+        <p className="text-muted-foreground">Manage your subscription, usage, and payment methods</p>
       </div>
 
-      {/* Success/Cancel Alerts */}
-      {success && (
-        <Alert className="border-green-500 bg-green-50 dark:bg-green-950">
-          <CheckCircle2 className="h-4 w-4 text-green-600" />
-          <AlertTitle className="text-green-800 dark:text-green-200">Payment successful!</AlertTitle>
-          <AlertDescription className="text-green-700 dark:text-green-300">
-            Your subscription has been activated. Thank you for upgrading!
-          </AlertDescription>
-        </Alert>
+      {/* Success/Cancel Banners */}
+      {showSuccessBanner && (
+        <SubscriptionBanner
+          type="success"
+          message="Your subscription has been activated. Thank you for upgrading!"
+          onDismiss={() => setShowSuccessBanner(false)}
+        />
       )}
 
-      {canceled && (
-        <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
-          <AlertCircle className="h-4 w-4 text-yellow-600" />
-          <AlertTitle className="text-yellow-800 dark:text-yellow-200">Checkout canceled</AlertTitle>
-          <AlertDescription className="text-yellow-700 dark:text-yellow-300">
-            Your checkout was canceled. No charges were made.
-          </AlertDescription>
-        </Alert>
+      {showCanceledBanner && (
+        <SubscriptionBanner
+          type="canceling"
+          message="Your checkout was canceled. No charges were made."
+          onDismiss={() => setShowCanceledBanner(false)}
+        />
       )}
 
-      {/* Past Due Warning */}
-      {subscription.status === 'past_due' && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Payment past due</AlertTitle>
-          <AlertDescription>
-            Your payment is past due. Please update your payment method to avoid service interruption.
-          </AlertDescription>
-        </Alert>
-      )}
+      {/* Auto Status Banner (trial ending, past due, limits) */}
+      <AutoSubscriptionBanner
+        status={subscription.status as 'active' | 'trialing' | 'past_due' | 'canceled' | 'paused'}
+        cancelAtPeriodEnd={subscription.cancel_at_period_end}
+        currentPeriodEnd={subscription.current_period_end ?? undefined}
+        usagePercentage={maxUsagePercent}
+        onUpgrade={handleUpgrade}
+        onUpdatePayment={handleOpenPortal}
+        onReactivate={handleOpenPortal}
+      />
 
-      {/* Usage Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Usage</CardTitle>
-          <CardDescription>
-            Current plan: {subscription.tier.charAt(0).toUpperCase() + subscription.tier.slice(1)}
-            {subscription.current_period_end && (
-              <span className="ml-2 text-muted-foreground">
-                (renews {new Date(subscription.current_period_end).toLocaleDateString()})
-              </span>
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Repos Usage */}
-          <div>
-            <div className="flex justify-between text-sm mb-2">
-              <span className="font-medium">Repositories</span>
-              <span className="text-muted-foreground">
-                {usage.repos} / {formatLimit(usage.limits.repos)}
-              </span>
-            </div>
-            <Progress value={getUsagePercentage(usage.repos, usage.limits.repos)} className="h-2" />
+      {/* Main Content Tabs */}
+      <Tabs defaultValue="overview" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="invoices">Invoices</TabsTrigger>
+          {subscription.tier !== 'free' && (
+            <TabsTrigger value="manage">Manage Plan</TabsTrigger>
+          )}
+        </TabsList>
+
+        {/* Overview Tab */}
+        <TabsContent value="overview" className="space-y-6">
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Usage Dashboard */}
+            <UsageDashboard
+              repos={{
+                current: usage.repos,
+                limit: usage.limits.repos,
+              }}
+              analyses={{
+                current: usage.analyses,
+                limit: usage.limits.analyses,
+              }}
+              periodEnd={subscription.current_period_end ?? undefined}
+              showWarnings
+            />
+
+            {/* Payment Method */}
+            <PaymentMethodCard
+              paymentMethod={paymentMethod}
+              isLoading={pmLoading}
+              onUpdatePaymentMethod={handleOpenPortal}
+            />
           </div>
 
-          {/* Analyses Usage */}
-          <div>
-            <div className="flex justify-between text-sm mb-2">
-              <span className="font-medium">Analyses this month</span>
-              <span className="text-muted-foreground">
-                {usage.analyses} / {formatLimit(usage.limits.analyses)}
-              </span>
-            </div>
-            <Progress value={getUsagePercentage(usage.analyses, usage.limits.analyses)} className="h-2" />
-          </div>
-        </CardContent>
-      </Card>
+          {/* Seat Management (Pro/Enterprise only) */}
+          {(subscription.tier === 'pro' || subscription.tier === 'enterprise') && (
+            <SeatManagement
+              currentSeats={subscription.seats}
+              usedSeats={subscription.seats} // Assume all purchased seats are in use
+              minSeats={subscription.tier === 'pro' ? 1 : 3}
+              maxSeats={subscription.tier === 'pro' ? 50 : -1}
+              pricePerSeat={subscription.tier === 'pro' ? 10 : 20}
+              basePrice={subscription.tier === 'pro' ? 33 : 199}
+              planName={subscription.tier === 'pro' ? 'Pro' : 'Enterprise'}
+              onUpdateSeats={async (newCount) => {
+                // This would call the API to update seats
+                console.log('Update seats to:', newCount);
+              }}
+            />
+          )}
 
-      {/* Clerk Billing Portal */}
-      {/*
-        TODO: Enable when Clerk Billing is configured in Dashboard
+          {/* Recent Invoices Preview */}
+          {invoices.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Recent Invoices</CardTitle>
+                <CardDescription>Your last 3 invoices</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <InvoiceHistory
+                  invoices={invoices.slice(0, 3)}
+                  isLoading={invLoading}
+                  className="border-0 shadow-none"
+                />
+              </CardContent>
+            </Card>
+          )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Manage Subscription</CardTitle>
-            <CardDescription>
-              Update your plan, payment method, or billing information
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <PricingTable />
-          </CardContent>
-        </Card>
-      */}
+          {/* Upgrade CTA for Free Users */}
+          {subscription.tier === 'free' && (
+            <PricingTable
+              currentPlan="free"
+              onSelectPlan={(plan, seats, annual) => {
+                router.push(`/pricing?plan=${plan}&seats=${seats}&annual=${annual}`);
+              }}
+            />
+          )}
+        </TabsContent>
 
-      {/* Placeholder for Clerk Billing */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Subscription Management</CardTitle>
-          <CardDescription>
-            Manage your plan, payment method, and billing information
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-8 text-muted-foreground">
-            <p className="mb-4">
-              Subscription management is being migrated to a new system.
-            </p>
-            <p className="text-sm">
-              For immediate billing assistance, please contact{' '}
-              <a href="mailto:support@repotoire.com" className="text-primary hover:underline">
-                support@repotoire.com
-              </a>
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+        {/* Invoices Tab */}
+        <TabsContent value="invoices">
+          <InvoiceHistory
+            invoices={invoices}
+            isLoading={invLoading}
+            hasMore={hasMore}
+          />
+        </TabsContent>
 
-      {/* FAQ */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Frequently Asked Questions</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <h4 className="font-medium mb-1">What is a seat?</h4>
-            <p className="text-sm text-muted-foreground">
-              A seat represents a user who can access your organization's Repotoire workspace. Each seat increases your repository and analysis limits.
-            </p>
-          </div>
-          <div>
-            <h4 className="font-medium mb-1">Can I cancel anytime?</h4>
-            <p className="text-sm text-muted-foreground">
-              Yes, you can cancel your subscription at any time. Your access will continue until the end of your billing period.
-            </p>
-          </div>
-          <div>
-            <h4 className="font-medium mb-1">What payment methods do you accept?</h4>
-            <p className="text-sm text-muted-foreground">
-              We accept all major credit cards (Visa, Mastercard, American Express) through our secure payment provider.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+        {/* Manage Plan Tab */}
+        {subscription.tier !== 'free' && (
+          <TabsContent value="manage" className="space-y-6">
+            <PricingTable
+              currentPlan={subscription.tier as 'free' | 'pro' | 'enterprise'}
+              onSelectPlan={(plan, seats, annual) => {
+                // Navigate to pricing page or open checkout
+                router.push(`/pricing?plan=${plan}&seats=${seats}&annual=${annual}`);
+              }}
+            />
+
+            {/* FAQ */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Frequently Asked Questions</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <h4 className="font-medium mb-1">What is a seat?</h4>
+                  <p className="text-sm text-muted-foreground">
+                    A seat represents a user who can access your organization&apos;s Repotoire workspace. Each seat increases your repository and analysis limits.
+                  </p>
+                </div>
+                <div>
+                  <h4 className="font-medium mb-1">Can I cancel anytime?</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Yes, you can cancel your subscription at any time. Your access will continue until the end of your billing period.
+                  </p>
+                </div>
+                <div>
+                  <h4 className="font-medium mb-1">What payment methods do you accept?</h4>
+                  <p className="text-sm text-muted-foreground">
+                    We accept all major credit cards (Visa, Mastercard, American Express) through our secure payment provider.
+                  </p>
+                </div>
+                <div>
+                  <h4 className="font-medium mb-1">How do I update my payment method?</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Click the &quot;Update&quot; button on your payment method card above, or contact support@repotoire.com for assistance.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+      </Tabs>
     </div>
   );
 }
