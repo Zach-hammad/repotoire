@@ -388,6 +388,50 @@ export const billingApi = {
   getSubscription: async (): Promise<Subscription> => {
     return request<Subscription>('/billing/subscription');
   },
+
+  // Get invoice history
+  getInvoices: async (limit: number = 10): Promise<{
+    invoices: Array<{
+      id: string;
+      number: string;
+      date: string;
+      dueDate?: string;
+      amount: number;
+      currency: string;
+      status: 'paid' | 'open' | 'void' | 'uncollectible' | 'draft';
+      pdfUrl?: string;
+      hostedUrl?: string;
+      paymentMethod?: { brand: string; last4: string };
+      description?: string;
+    }>;
+    hasMore: boolean;
+  }> => {
+    return request(`/billing/invoices?limit=${limit}`);
+  },
+
+  // Get current payment method
+  getPaymentMethod: async (): Promise<{
+    brand: string;
+    last4: string;
+    expMonth: number;
+    expYear: number;
+    isDefault?: boolean;
+  } | null> => {
+    return request('/billing/payment-method');
+  },
+
+  // Update subscription seat count
+  updateSeats: async (seats: number): Promise<{ success: boolean; newSeats: number }> => {
+    return request('/billing/seats', {
+      method: 'PATCH',
+      body: JSON.stringify({ seats }),
+    });
+  },
+
+  // Get billing portal URL (Clerk or Stripe)
+  getPortalUrl: async (): Promise<{ url: string }> => {
+    return request('/billing/portal');
+  },
 };
 
 // Historical (Git Provenance) API

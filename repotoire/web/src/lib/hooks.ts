@@ -278,6 +278,82 @@ export function useSubscription() {
   };
 }
 
+// Extended billing hooks for UI components
+
+interface Invoice {
+  id: string;
+  number: string;
+  date: string;
+  dueDate?: string;
+  amount: number;
+  currency: string;
+  status: 'paid' | 'open' | 'void' | 'uncollectible' | 'draft';
+  pdfUrl?: string;
+  hostedUrl?: string;
+  paymentMethod?: {
+    brand: string;
+    last4: string;
+  };
+  description?: string;
+}
+
+interface PaymentMethod {
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+  isDefault?: boolean;
+}
+
+/**
+ * Hook to get invoice history.
+ */
+export function useInvoices(limit: number = 10) {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR<{ invoices: Invoice[]; hasMore: boolean }>(
+    isAuthReady ? ['billing-invoices', limit] : null,
+    () => billingApi.getInvoices(limit)
+  );
+}
+
+/**
+ * Hook to get the current payment method.
+ */
+export function usePaymentMethod() {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR<PaymentMethod | null>(
+    isAuthReady ? 'billing-payment-method' : null,
+    () => billingApi.getPaymentMethod()
+  );
+}
+
+/**
+ * Hook to update subscription seat count.
+ */
+export function useUpdateSeats() {
+  return useSWRMutation<
+    { success: boolean; newSeats: number },
+    Error,
+    string,
+    { seats: number }
+  >('billing-update-seats', (_key, { arg }) => billingApi.updateSeats(arg.seats));
+}
+
+/**
+ * Hook to get billing portal URL.
+ */
+export function useBillingPortalUrl() {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR<{ url: string }>(
+    isAuthReady ? 'billing-portal-url' : null,
+    () => billingApi.getPortalUrl(),
+    { revalidateOnFocus: false }
+  );
+}
+
 // NOTE: The following billing hooks have been removed as part of the Clerk Billing migration (2026-01):
 // - usePlans() - Plans are now managed in Clerk Dashboard
 // - useCreateCheckout() - Checkout is handled by Clerk's PricingTable component
