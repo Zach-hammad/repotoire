@@ -3,33 +3,64 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* =============================================================================
+   REPOTOIRE DESIGN SYSTEM: "Digital Pathologist"
+   Clinical precision meets data artistry - like a high-end diagnostic instrument
+   ============================================================================= */
+
 /* Light mode - clean, bright, professional */
 :root {
   --background: oklch(0.985 0 0);
   --foreground: oklch(0.145 0.005 250);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0.005 250);
+  --card-elevated: oklch(0.995 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0.005 250);
+
+  /* Primary: Purple - matches logo */
   --primary: oklch(0.55 0.25 295);
   --primary-foreground: oklch(0.98 0 0);
+
+  /* Secondary: Neutral */
   --secondary: oklch(0.96 0.005 250);
   --secondary-foreground: oklch(0.25 0.005 250);
+
+  /* Muted backgrounds */
   --muted: oklch(0.94 0.005 250);
   --muted-foreground: oklch(0.40 0.01 250);
+
+  /* Accent: Light purple tint */
   --accent: oklch(0.96 0.01 295);
   --accent-foreground: oklch(0.25 0.005 250);
+
+  /* Destructive */
   --destructive: oklch(0.55 0.2 25);
   --destructive-foreground: oklch(0.98 0 0);
+
+  /* Borders and inputs */
   --border: oklch(0.88 0.005 250);
   --input: oklch(0.88 0.005 250);
   --ring: oklch(0.55 0.25 295);
+
+  /* Severity spectrum */
+  --severity-critical: oklch(0.50 0.22 25);
+  --severity-high: oklch(0.58 0.18 45);
+  --severity-medium: oklch(0.72 0.14 85);
+  --severity-low: oklch(0.55 0.15 145);
+  --severity-info: oklch(0.50 0.08 260);
+
+  /* Chart colors */
   --chart-1: oklch(0.55 0.25 295);
   --chart-2: oklch(0.6 0.2 330);
   --chart-3: oklch(0.6 0.18 25);
   --chart-4: oklch(0.6 0.15 30);
   --chart-5: oklch(0.55 0.12 300);
+
+  /* Base radius */
   --radius: 0.75rem;
+
+  /* Sidebar */
   --sidebar: oklch(0.98 0.005 250);
   --sidebar-foreground: oklch(0.145 0.005 250);
   --sidebar-primary: oklch(0.55 0.25 295);
@@ -42,45 +73,69 @@
 
 /* Dark mode - deep, modern, easy on eyes */
 .dark {
-  --background: oklch(0.1 0.005 250);
+  --background: oklch(0.14 0.005 250);
   --foreground: oklch(0.95 0 0);
   --card: oklch(0.14 0.005 250);
   --card-foreground: oklch(0.95 0 0);
+  --card-elevated: oklch(0.18 0.005 250);
   --popover: oklch(0.14 0.005 250);
   --popover-foreground: oklch(0.95 0 0);
+
+  /* Brighter purple for dark mode visibility */
   --primary: oklch(0.65 0.25 295);
-  --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.2 0.005 250);
-  --secondary-foreground: oklch(0.9 0 0);
-  --muted: oklch(0.22 0.005 250);
-  --muted-foreground: oklch(0.70 0.01 250);
-  --accent: oklch(0.25 0.02 295);
-  --accent-foreground: oklch(0.9 0 0);
-  --destructive: oklch(0.55 0.18 25);
+  --primary-foreground: oklch(0.14 0.005 250);
+
+  --secondary: oklch(0.22 0.005 250);
+  --secondary-foreground: oklch(0.95 0 0);
+
+  --muted: oklch(0.20 0.005 250);
+  --muted-foreground: oklch(0.65 0.01 250);
+
+  --accent: oklch(0.22 0.02 295);
+  --accent-foreground: oklch(0.95 0 0);
+
+  --destructive: oklch(0.55 0.2 25);
   --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.28 0.005 250);
-  --input: oklch(0.2 0.005 250);
+
+  --border: oklch(0.26 0.005 250);
+  --input: oklch(0.20 0.005 250);
   --ring: oklch(0.65 0.25 295);
+
+  /* Severity - slightly brighter for dark */
+  --severity-critical: oklch(0.58 0.22 25);
+  --severity-high: oklch(0.65 0.18 45);
+  --severity-medium: oklch(0.75 0.14 85);
+  --severity-low: oklch(0.60 0.15 145);
+  --severity-info: oklch(0.55 0.08 260);
+
+  /* Chart colors - adjusted for dark */
   --chart-1: oklch(0.65 0.25 295);
-  --chart-2: oklch(0.7 0.2 330);
-  --chart-3: oklch(0.7 0.18 25);
-  --chart-4: oklch(0.7 0.15 30);
-  --chart-5: oklch(0.65 0.12 300);
-  --sidebar: oklch(0.12 0.005 250);
+  --chart-2: oklch(0.65 0.2 330);
+  --chart-3: oklch(0.65 0.18 25);
+  --chart-4: oklch(0.65 0.15 30);
+  --chart-5: oklch(0.60 0.12 300);
+
+  --sidebar: oklch(0.14 0.005 250);
   --sidebar-foreground: oklch(0.95 0 0);
   --sidebar-primary: oklch(0.65 0.25 295);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.2 0.005 250);
-  --sidebar-accent-foreground: oklch(0.9 0 0);
-  --sidebar-border: oklch(0.28 0.005 250);
+  --sidebar-primary-foreground: oklch(0.14 0.005 250);
+  --sidebar-accent: oklch(0.20 0.02 295);
+  --sidebar-accent-foreground: oklch(0.95 0 0);
+  --sidebar-border: oklch(0.26 0.005 250);
   --sidebar-ring: oklch(0.65 0.25 295);
 }
 
+/* =============================================================================
+   THEME CONFIG
+   ============================================================================= */
+
 @theme inline {
-  --font-sans: var(--font-inter), "Inter Fallback", system-ui, sans-serif;
-  --font-display: var(--font-space), "Space Grotesk", system-ui, sans-serif;
-  --font-serif: var(--font-crimson), "Crimson Pro", Georgia, serif;
-  --font-mono: "Geist Mono", "Geist Mono Fallback", monospace;
+  /* Typography - distinctive, characterful fonts */
+  --font-sans: var(--font-sans), "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-display: var(--font-display), "Instrument Serif", Georgia, serif;
+  --font-mono: var(--font-mono), "IBM Plex Mono", "Fira Code", monospace;
+
+  /* Color mappings */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -105,10 +160,21 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+
+  /* Severity color utilities */
+  --color-severity-critical: var(--severity-critical);
+  --color-severity-high: var(--severity-high);
+  --color-severity-medium: var(--severity-medium);
+  --color-severity-low: var(--severity-low);
+  --color-severity-info: var(--severity-info);
+
+  /* Radius scale */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* Sidebar */
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -119,34 +185,141 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* =============================================================================
+   BASE STYLES
+   ============================================================================= */
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01", "ss03";
   }
 }
 
+/* =============================================================================
+   TYPOGRAPHY UTILITIES
+   ============================================================================= */
+
 .font-display {
   font-family: var(--font-display);
+  font-feature-settings: "ss01";
 }
 
-/* Subtle dot grid background - Linear style */
+.font-mono {
+  font-family: var(--font-mono);
+  font-feature-settings: "ss01", "ss02";
+}
+
+/* Headline styles - editorial feel */
+.headline-xl {
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 5vw, 4rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.headline-lg {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+}
+
+/* =============================================================================
+   BACKGROUND PATTERNS
+   ============================================================================= */
+
+/* Animated code helix - DNA-like pattern for backgrounds */
+.code-helix {
+  background:
+    linear-gradient(90deg, transparent 49.5%, var(--primary) 49.5%, var(--primary) 50.5%, transparent 50.5%),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 20px,
+      var(--border) 20px,
+      var(--border) 21px
+    );
+  background-size: 60px 100%, 100% 100%;
+  opacity: 0.04;
+  animation: helix-scroll 30s linear infinite;
+}
+
+@keyframes helix-scroll {
+  from { background-position: 0 0, 0 0; }
+  to { background-position: 60px 0, 0 100px; }
+}
+
+/* Subtle dot grid - cleaner than before */
 .dot-grid {
-  background-image: radial-gradient(circle, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
-  background-size: 24px 24px;
+  position: relative;
 }
 
-.dark .dot-grid {
-  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+.dot-grid::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, var(--muted-foreground) 0.5px, transparent 0.5px);
+  background-size: 20px 20px;
+  opacity: 0.15;
+  pointer-events: none;
+  z-index: 0;
 }
 
-/* Animation keyframes */
+.dot-grid > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Scanline overlay - CRT/diagnostic feel */
+.scanline::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    var(--foreground) 2px,
+    var(--foreground) 3px
+  );
+  opacity: 0.015;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* Noise texture overlay */
+.noise::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  opacity: 0.025;
+  pointer-events: none;
+  border-radius: inherit;
+  mix-blend-mode: overlay;
+}
+
+/* Grid pattern - architectural */
+.grid-pattern {
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.5;
+}
+
+/* =============================================================================
+   ANIMATIONS
+   ============================================================================= */
+
 @keyframes fade-up {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(16px);
   }
   to {
     opacity: 1;
@@ -155,18 +328,14 @@
 }
 
 @keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes slide-in-right {
   from {
     opacity: 0;
-    transform: translateX(30px);
+    transform: translateX(24px);
   }
   to {
     opacity: 1;
@@ -177,7 +346,7 @@
 @keyframes scale-in {
   from {
     opacity: 0;
-    transform: scale(0.95);
+    transform: scale(0.96);
   }
   to {
     opacity: 1;
@@ -185,8 +354,31 @@
   }
 }
 
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 var(--primary);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 20px 4px var(--primary);
+    opacity: 0.8;
+  }
+}
+
+/* EKG heartbeat animation */
+@keyframes ekg-line {
+  0% { stroke-dashoffset: 100; opacity: 0; }
+  10% { opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
 .animate-fade-up {
-  animation: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fade-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .animate-fade-in {
@@ -194,85 +386,182 @@
 }
 
 .animate-slide-in-right {
-  animation: slide-in-right 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slide-in-right 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .animate-scale-in {
-  animation: scale-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: scale-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-/* Staggered delays */
-.delay-0 {
-  animation-delay: 0ms;
-}
-.delay-100 {
-  animation-delay: 100ms;
-}
-.delay-200 {
-  animation-delay: 200ms;
-}
-.delay-300 {
-  animation-delay: 300ms;
-}
-.delay-400 {
-  animation-delay: 400ms;
-}
-.delay-500 {
-  animation-delay: 500ms;
-}
-.delay-600 {
-  animation-delay: 600ms;
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
 }
 
-/* Clean card style - no glass blur */
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Staggered delays for orchestrated reveals */
+.delay-0 { animation-delay: 0ms; }
+.delay-75 { animation-delay: 75ms; }
+.delay-100 { animation-delay: 100ms; }
+.delay-150 { animation-delay: 150ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; }
+.delay-600 { animation-delay: 600ms; }
+.delay-700 { animation-delay: 700ms; }
+.delay-800 { animation-delay: 800ms; }
+
+/* =============================================================================
+   CARD STYLES
+   ============================================================================= */
+
+/* Elevated card with subtle glow */
 .card-elevated {
   background: var(--card);
   border: 1px solid var(--border);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
-  overflow: visible;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 2px 4px rgba(0, 0, 0, 0.04),
+    0 4px 8px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s ease;
+}
+
+.card-elevated:hover {
+  border-color: var(--primary);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 4px 8px rgba(0, 0, 0, 0.06),
+    0 8px 16px rgba(0, 0, 0, 0.06),
+    0 0 0 1px var(--primary);
 }
 
 .dark .card-elevated {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 2px 4px rgba(0, 0, 0, 0.2),
+    0 4px 8px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
-/* Dark mode polish for charts */
+.dark .card-elevated:hover {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 4px 8px rgba(0, 0, 0, 0.2),
+    0 8px 24px rgba(0, 0, 0, 0.2),
+    0 0 0 1px var(--primary),
+    0 0 30px -10px var(--primary);
+}
+
+/* Diagnostic card with corner accents */
+.card-diagnostic {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+
+.card-diagnostic::before,
+.card-diagnostic::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--primary);
+  opacity: 0.5;
+}
+
+.card-diagnostic::before {
+  top: 4px;
+  left: 4px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.card-diagnostic::after {
+  bottom: 4px;
+  right: 4px;
+  border-left: none;
+  border-top: none;
+}
+
+/* Critical state card */
+.card-critical {
+  background: color-mix(in oklch, var(--severity-critical) 8%, var(--card));
+  border-color: color-mix(in oklch, var(--severity-critical) 30%, var(--border));
+}
+
+/* =============================================================================
+   GRADIENTS
+   ============================================================================= */
+
+/* Brand gradient - purple to violet (matches logo) */
+.text-gradient {
+  background: linear-gradient(135deg,
+    oklch(0.55 0.25 295) 0%,
+    oklch(0.58 0.22 310) 50%,
+    oklch(0.62 0.20 320) 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.bg-brand-gradient {
+  background: linear-gradient(135deg,
+    oklch(0.55 0.25 295) 0%,
+    oklch(0.58 0.22 310) 50%,
+    oklch(0.62 0.20 320) 100%
+  );
+}
+
+.bg-brand-gradient:hover {
+  background: linear-gradient(135deg,
+    oklch(0.50 0.25 295) 0%,
+    oklch(0.53 0.22 310) 50%,
+    oklch(0.57 0.20 320) 100%
+  );
+}
+
+/* Severity gradients */
+.bg-severity-gradient-critical {
+  background: linear-gradient(135deg, var(--severity-critical), var(--severity-high));
+}
+
+.bg-severity-gradient-warning {
+  background: linear-gradient(135deg, var(--severity-high), var(--severity-medium));
+}
+
+/* Glow effects */
+.glow-primary {
+  box-shadow: 0 0 20px -5px var(--primary);
+}
+
+.glow-critical {
+  box-shadow: 0 0 20px -5px var(--severity-critical);
+}
+
+/* =============================================================================
+   CHART STYLES
+   ============================================================================= */
+
 .dark .recharts-cartesian-grid line {
-  stroke: hsl(var(--border));
+  stroke: var(--border);
 }
 
 .dark .recharts-tooltip-wrapper .recharts-default-tooltip {
-  background-color: hsl(var(--popover)) !important;
-  border-color: hsl(var(--border)) !important;
+  background-color: var(--popover) !important;
+  border-color: var(--border) !important;
 }
 
-/* Dark mode for notification badges */
-.dark .notification-unread {
-  background: linear-gradient(135deg, hsl(var(--primary) / 0.2), hsl(var(--accent) / 0.2));
-}
+/* =============================================================================
+   SCROLLBAR
+   ============================================================================= */
 
-/* Focus ring improvements for accessibility */
-*:focus-visible {
-  outline: 2px solid hsl(var(--ring));
-  outline-offset: 2px;
-}
-
-/* Enhanced focus for interactive elements */
-a:focus-visible,
-button:focus-visible,
-[role="button"]:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
-  outline: 2px solid hsl(var(--ring));
-  outline-offset: 2px;
-  border-radius: 2px;
-}
-
-/* Improved scrollbar styling */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -280,71 +569,64 @@ textarea:focus-visible {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.3);
-  border-radius: 4px;
+  background: var(--muted-foreground);
+  border-radius: 3px;
+  opacity: 0.3;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.5);
+  opacity: 0.5;
 }
 
 .dark ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.2);
+  opacity: 0.2;
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.4);
+  opacity: 0.4;
 }
 
-/* Skeleton shimmer animation */
+/* =============================================================================
+   SKELETON / LOADING
+   ============================================================================= */
+
 @keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
 .skeleton-shimmer {
   background: linear-gradient(
     90deg,
-    hsl(var(--muted)) 0%,
-    hsl(var(--muted-foreground) / 0.1) 50%,
-    hsl(var(--muted)) 100%
+    var(--muted) 0%,
+    color-mix(in oklch, var(--muted-foreground) 10%, var(--muted)) 50%,
+    var(--muted) 100%
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
-.dark .skeleton-shimmer {
-  background: linear-gradient(
-    90deg,
-    hsl(var(--muted)) 0%,
-    hsl(var(--muted-foreground) / 0.15) 50%,
-    hsl(var(--muted)) 100%
-  );
-  background-size: 200% 100%;
+/* =============================================================================
+   FOCUS & ACCESSIBILITY
+   ============================================================================= */
+
+*:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
-/* Updated gradient to match logo colors: purple to coral */
-.text-gradient {
-  background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 50%, #f97316 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
-/* Added brand gradient for buttons */
-.bg-brand-gradient {
-  background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 50%, #f97316 100%);
-}
-
-.bg-brand-gradient:hover {
-  background: linear-gradient(135deg, #7c3aed 0%, #db2777 50%, #ea580c 100%);
-}
-
-/* Respect user's motion preferences for accessibility (WCAG 2.3.3) */
+/* Respect motion preferences (WCAG 2.3.3) */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -358,9 +640,52 @@ textarea:focus-visible {
   .animate-fade-up,
   .animate-fade-in,
   .animate-slide-in-right,
-  .animate-scale-in {
+  .animate-scale-in,
+  .animate-pulse-subtle,
+  .animate-glow-pulse {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
+    filter: none !important;
   }
+
+  .code-helix {
+    animation: none !important;
+  }
+}
+
+/* =============================================================================
+   UTILITY CLASSES
+   ============================================================================= */
+
+/* Status indicators */
+.status-nominal { color: var(--chart-2); }
+.status-warning { color: var(--severity-medium); }
+.status-critical { color: var(--severity-critical); }
+
+/* Severity text colors */
+.text-severity-critical { color: var(--severity-critical); }
+.text-severity-high { color: var(--severity-high); }
+.text-severity-medium { color: var(--severity-medium); }
+.text-severity-low { color: var(--severity-low); }
+.text-severity-info { color: var(--severity-info); }
+
+/* Severity backgrounds */
+.bg-severity-critical { background-color: var(--severity-critical); }
+.bg-severity-high { background-color: var(--severity-high); }
+.bg-severity-medium { background-color: var(--severity-medium); }
+.bg-severity-low { background-color: var(--severity-low); }
+.bg-severity-info { background-color: var(--severity-info); }
+
+/* Tabular numbers for data */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Uppercase labels */
+.label-caps {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
