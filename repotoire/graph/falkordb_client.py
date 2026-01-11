@@ -42,6 +42,7 @@ class FalkorDBClient(DatabaseClient):
         max_retries: int = 3,
         retry_base_delay: float = 1.0,
         retry_backoff_factor: float = 2.0,
+        default_query_timeout: float = 30.0,  # Default timeout for queries in seconds
         **kwargs,  # Accept but ignore Neo4j-specific params
     ):
         """Initialize FalkorDB client.
@@ -58,6 +59,7 @@ class FalkorDBClient(DatabaseClient):
             max_retries: Maximum retry attempts
             retry_base_delay: Base delay between retries
             retry_backoff_factor: Backoff multiplier
+            default_query_timeout: Default timeout for queries (seconds)
         """
         self.host = host
         self.port = port
@@ -66,10 +68,11 @@ class FalkorDBClient(DatabaseClient):
         self.ssl = ssl
         self.socket_timeout = socket_timeout
         self.socket_connect_timeout = socket_connect_timeout
-        self.max_connections = max_connections or 50  # Default pool size
+        self.max_connections = max_connections or 100  # Default pool size (production-ready)
         self.max_retries = max_retries
         self.retry_base_delay = retry_base_delay
         self.retry_backoff_factor = retry_backoff_factor
+        self.default_query_timeout = default_query_timeout
 
         # Connect to FalkorDB
         self._connect()
@@ -122,12 +125,13 @@ class FalkorDBClient(DatabaseClient):
         Args:
             query: Cypher query string
             parameters: Query parameters
-            timeout: Query timeout (not directly supported by FalkorDB)
+            timeout: Query timeout in seconds (uses default_query_timeout if not specified)
 
         Returns:
             List of result records as dictionaries
         """
         params = parameters or {}
+        query_timeout = timeout if timeout is not None else self.default_query_timeout
 
         # FalkorDB uses $param syntax like Neo4j
         attempt = 0
@@ -135,7 +139,8 @@ class FalkorDBClient(DatabaseClient):
 
         while attempt <= self.max_retries:
             try:
-                result = self.graph.query(query, params)
+                # FalkorDB supports timeout parameter in query()
+                result = self.graph.query(query, params, timeout=int(query_timeout * 1000))
 
                 # Convert FalkorDB result to list of dicts
                 if not result.result_set:

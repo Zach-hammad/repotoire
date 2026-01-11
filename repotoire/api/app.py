@@ -35,6 +35,7 @@ from repotoire.api.shared.middleware import (
     DEFAULT_RATE_LIMIT,
     DeprecationMiddleware,
     RateLimitMiddleware,
+    SecurityHeadersMiddleware,
     VersionMiddleware,
     get_rate_limit_exceeded_headers,
 )
@@ -357,6 +358,9 @@ app.add_middleware(VersionMiddleware)
 
 # Add deprecation header middleware
 app.add_middleware(DeprecationMiddleware)
+
+# Add security headers middleware (X-Frame-Options, CSP, HSTS, etc.)
+app.add_middleware(SecurityHeadersMiddleware)
 
 # CORS middleware for web clients - use configured origins
 # Explicit methods/headers to reduce attack surface (wildcards with credentials

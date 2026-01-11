@@ -15,6 +15,7 @@ from .csrf import (
     get_allowed_origins,
     is_origin_allowed,
 )
+from .security_headers import SecurityHeadersMiddleware
 from .deprecation import (
     DeprecationInfo,
     DeprecationMiddleware,
@@ -92,4 +93,6 @@ __all__ = [
     "extract_origin",
     "get_allowed_origins",
     "is_origin_allowed",
+    # Security headers
+    "SecurityHeadersMiddleware",
 ]
