@@ -115,8 +115,8 @@ export function HealthScoreDeltaView({
   // Loading state
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-gray-500">
-        <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full" />
+      <div className="flex items-center gap-2 text-sm text-gray-500" role="status" aria-live="polite">
+        <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full" aria-hidden="true" />
         <span>Calculating impact...</span>
       </div>
     );
@@ -125,9 +125,9 @@ export function HealthScoreDeltaView({
   // Error state
   if (error) {
     return (
-      <div className="text-sm text-red-500">
+      <div className="text-sm text-red-500" role="alert">
         {error}{' '}
-        <button onClick={loadDelta} className="underline">
+        <button onClick={loadDelta} className="underline" aria-label="Retry estimating health impact">
           Retry
         </button>
       </div>
@@ -203,13 +203,14 @@ export function HealthScoreDeltaView({
         </div>
 
         {/* Arrow */}
-        <div className="flex items-center justify-center">
+        <div className="flex items-center justify-center" aria-hidden="true">
           <div className="flex flex-col items-center">
             <svg
               className="w-6 h-6 text-gray-400"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"

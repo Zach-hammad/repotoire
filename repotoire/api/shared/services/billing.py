@@ -393,12 +393,10 @@ async def check_usage_limit(
             limit=limit,
         )
 
-    # Unknown limit type, allow by default
-    return UsageLimitResult(
-        allowed=True,
-        message="Unknown limit type",
-        current=0,
-        limit=-1,
+    # Unknown limit type - fail-secure (deny access)
+    # This prevents bypassing limits via typos or unauthorized limit types
+    raise ValueError(
+        f"Unknown limit type: {limit_type}. Valid types are 'repos' or 'analyses'."
     )
 
 

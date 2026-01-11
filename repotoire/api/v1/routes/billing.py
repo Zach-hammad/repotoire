@@ -246,42 +246,51 @@ class PortalUrlResponse(BaseModel):
 
 @router.get(
     "/invoices",
-    response_model=InvoicesResponse,
-    summary="Get invoices (stub)",
-    description="Returns empty list. Invoice management moved to Clerk.",
+    summary="Get invoices (deprecated)",
+    description="This endpoint has been removed. Use Clerk's AccountPortal component.",
+    responses={410: {"description": "Resource no longer available"}},
 )
 async def get_invoices(
     limit: int = 10,
     user: ClerkUser = Depends(get_current_user),
-) -> InvoicesResponse:
-    """Stub endpoint - invoices are now managed via Clerk."""
-    return InvoicesResponse(invoices=[], hasMore=False)
+) -> None:
+    """Deprecated endpoint - invoices are now managed via Clerk."""
+    raise HTTPException(
+        status_code=410,
+        detail="Invoice management has moved to Clerk. Use the AccountPortal component.",
+    )
 
 
 @router.get(
     "/payment-method",
-    response_model=PaymentMethodResponse | None,
-    summary="Get payment method (stub)",
-    description="Returns null. Payment methods managed via Clerk.",
+    summary="Get payment method (deprecated)",
+    description="This endpoint has been removed. Use Clerk's AccountPortal component.",
+    responses={410: {"description": "Resource no longer available"}},
 )
 async def get_payment_method(
     user: ClerkUser = Depends(get_current_user),
-) -> PaymentMethodResponse | None:
-    """Stub endpoint - payment methods are now managed via Clerk."""
-    return None
+) -> None:
+    """Deprecated endpoint - payment methods are now managed via Clerk."""
+    raise HTTPException(
+        status_code=410,
+        detail="Payment method management has moved to Clerk. Use the AccountPortal component.",
+    )
 
 
 @router.get(
     "/portal",
-    response_model=PortalUrlResponse,
-    summary="Get billing portal URL (stub)",
-    description="Returns empty URL. Use Clerk's AccountPortal component instead.",
+    summary="Get billing portal URL (deprecated)",
+    description="This endpoint has been removed. Use Clerk's AccountPortal component.",
+    responses={410: {"description": "Resource no longer available"}},
 )
 async def get_billing_portal_url(
     user: ClerkUser = Depends(get_current_user),
-) -> PortalUrlResponse:
-    """Stub endpoint - billing portal is now via Clerk's AccountPortal component."""
-    return PortalUrlResponse()
+) -> None:
+    """Deprecated endpoint - billing portal is now via Clerk's AccountPortal component."""
+    raise HTTPException(
+        status_code=410,
+        detail="Billing portal has moved to Clerk. Use the AccountPortal component.",
+    )
 
 
 # NOTE: Full checkout, portal, calculate-price, and plans endpoints have been removed.

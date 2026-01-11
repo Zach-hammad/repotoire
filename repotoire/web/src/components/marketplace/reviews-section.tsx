@@ -47,7 +47,7 @@ function ReviewCard({ review }: ReviewCardProps) {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1" role="img" aria-label={`${review.rating} out of 5 stars`}>
           {Array.from({ length: 5 }).map((_, i) => (
             <Star
               key={i}
@@ -57,6 +57,7 @@ function ReviewCard({ review }: ReviewCardProps) {
                   ? "fill-amber-500 text-amber-500"
                   : "text-muted-foreground"
               )}
+              aria-hidden="true"
             />
           ))}
         </div>
@@ -67,8 +68,11 @@ function ReviewCard({ review }: ReviewCardProps) {
       )}
 
       <div className="flex items-center gap-2">
-        <button className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
-          <ThumbsUp className="w-3.5 h-3.5" />
+        <button
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          aria-label={`Mark as helpful (${review.helpful_count} people found this helpful)`}
+        >
+          <ThumbsUp className="w-3.5 h-3.5" aria-hidden="true" />
           <span>Helpful ({review.helpful_count})</span>
         </button>
       </div>
@@ -88,10 +92,10 @@ function RatingDistribution({ distribution, total }: RatingDistributionProps) {
         const count = distribution[rating] || 0;
         const percentage = total > 0 ? (count / total) * 100 : 0;
         return (
-          <div key={rating} className="flex items-center gap-2">
+          <div key={rating} className="flex items-center gap-2" role="group" aria-label={`${rating} star ratings: ${count} reviews`}>
             <span className="text-xs text-muted-foreground w-3">{rating}</span>
-            <Star className="w-3 h-3 text-amber-500" />
-            <Progress value={percentage} className="h-2 flex-1" />
+            <Star className="w-3 h-3 text-amber-500" aria-hidden="true" />
+            <Progress value={percentage} className="h-2 flex-1" aria-label={`${Math.round(percentage)}% of reviews`} />
             <span className="text-xs text-muted-foreground w-8 text-right">
               {count}
             </span>
@@ -254,9 +258,10 @@ export function ReviewsSection({
 
   if (isLoading) {
     return (
-      <div className={cn("space-y-4", className)}>
+      <div className={cn("space-y-4", className)} role="status" aria-live="polite">
         <h3 className="text-lg font-medium text-foreground">Reviews ({ratingCount})</h3>
-        <div className="animate-pulse space-y-4">
+        <span className="sr-only">Loading reviews...</span>
+        <div className="animate-pulse space-y-4" aria-hidden="true">
           {[1, 2, 3].map((i) => (
             <div key={i} className="card-elevated rounded-xl p-5 h-32" />
           ))}

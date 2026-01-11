@@ -2,6 +2,7 @@
 
 This module provides a client for GitHub App API calls, including
 JWT generation for app authentication and installation token management.
+Includes Redis-based token caching for performance.
 """
 
 import os
@@ -15,6 +16,37 @@ import jwt
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# Token cache using Redis (lazy initialized)
+_redis_client: Optional[Any] = None
+
+
+def _get_redis_client() -> Optional[Any]:
+    """Get Redis client for token caching (lazy initialization)."""
+    global _redis_client
+    if _redis_client is None:
+        redis_url = os.getenv("REDIS_URL")
+        if not redis_url:
+            return None
+        try:
+            import redis
+            _redis_client = redis.from_url(
+                redis_url,
+                socket_timeout=5.0,
+                socket_connect_timeout=5.0,
+                decode_responses=True,
+            )
+            # Test connection
+            _redis_client.ping()
+        except Exception as e:
+            logger.warning(f"Redis not available for token caching: {e}")
+            return None
+    return _redis_client
+
+
+def _cache_key(installation_id: int) -> str:
+    """Generate cache key for installation token."""
+    return f"github:token:{installation_id}"
 
 # GitHub API base URL
 GITHUB_API_BASE = "https://api.github.com"
@@ -86,15 +118,18 @@ class GitHubAppClient:
         return jwt.encode(payload, self.private_key, algorithm="RS256")
 
     async def get_installation_token(
-        self, installation_id: int
+        self, installation_id: int,
+        use_cache: bool = True,
     ) -> tuple[str, datetime]:
         """Get an access token for a GitHub App installation.
 
         Installation tokens provide access to repositories and are
-        valid for 1 hour.
+        valid for 1 hour. Tokens are cached in Redis to avoid unnecessary
+        API calls.
 
         Args:
             installation_id: The GitHub App installation ID.
+            use_cache: Whether to use Redis caching (default: True).
 
         Returns:
             Tuple of (access_token, expires_at datetime).
@@ -102,6 +137,23 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
+        # Try cache first
+        if use_cache:
+            redis = _get_redis_client()
+            if redis:
+                cache_key = _cache_key(installation_id)
+                try:
+                    cached = redis.hgetall(cache_key)
+                    if cached and cached.get("token") and cached.get("expires_at"):
+                        expires_at = datetime.fromisoformat(cached["expires_at"])
+                        # Return cached token if it's still valid (with 5 min buffer)
+                        if not self.is_token_expiring_soon(expires_at, threshold_minutes=5):
+                            logger.debug(f"Using cached token for installation {installation_id}")
+                            return cached["token"], expires_at
+                except Exception as e:
+                    logger.warning(f"Cache read failed: {e}")
+
+        # Fetch new token from GitHub
         jwt_token = self.generate_jwt()
 
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
@@ -121,6 +173,24 @@ class GitHubAppClient:
             expires_at = datetime.fromisoformat(
                 data["expires_at"].replace("Z", "+00:00")
             )
+
+            # Cache the token
+            if use_cache:
+                redis = _get_redis_client()
+                if redis:
+                    cache_key = _cache_key(installation_id)
+                    try:
+                        # Calculate TTL (token valid for ~1 hour, we cache for 55 min)
+                        ttl_seconds = int((expires_at - datetime.now(timezone.utc)).total_seconds()) - 300
+                        if ttl_seconds > 0:
+                            redis.hset(cache_key, mapping={
+                                "token": token,
+                                "expires_at": expires_at.isoformat(),
+                            })
+                            redis.expire(cache_key, ttl_seconds)
+                            logger.debug(f"Cached token for installation {installation_id} (TTL: {ttl_seconds}s)")
+                    except Exception as e:
+                        logger.warning(f"Cache write failed: {e}")
 
             logger.info(f"Obtained installation token for {installation_id}")
             return token, expires_at

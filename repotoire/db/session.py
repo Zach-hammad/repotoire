@@ -78,16 +78,19 @@ def _parse_database_url(url: str) -> tuple[str, dict]:
 _cleaned_url, _connect_args = _parse_database_url(DATABASE_URL)
 
 # Create async engine
-# Production-ready pool settings:
-# - pool_size=20: Base connections for handling concurrent requests
-# - max_overflow=30: Allow burst capacity for peak load
+# Production-ready pool settings (conservative defaults for multi-instance deployments):
+# - pool_size=5: Base connections per instance (Neon default pool is 20 total)
+# - max_overflow=5: Limited burst capacity (total max 10 per instance)
 # - pool_timeout=30: Wait up to 30s for a connection
 # - pool_recycle=1800: Recycle connections after 30 minutes to prevent stale connections
+#
+# For single-instance deployments, increase via env vars:
+#   DATABASE_POOL_SIZE=15 DATABASE_MAX_OVERFLOW=15
 engine = create_async_engine(
     _cleaned_url,
     echo=os.getenv("DATABASE_ECHO", "false").lower() == "true",
-    pool_size=int(os.getenv("DATABASE_POOL_SIZE", "20")),
-    max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "30")),
+    pool_size=int(os.getenv("DATABASE_POOL_SIZE", "5")),
+    max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "5")),
     pool_timeout=int(os.getenv("DATABASE_POOL_TIMEOUT", "30")),
     pool_recycle=int(os.getenv("DATABASE_POOL_RECYCLE", "1800")),
     pool_pre_ping=True,  # Enable connection health checks
@@ -128,12 +131,12 @@ def _parse_sync_database_url(url: str) -> tuple[str, dict]:
 _sync_url, _sync_connect_args = _parse_sync_database_url(SYNC_DATABASE_URL)
 
 # Create sync engine for Celery workers
-# Production-ready pool settings (same as async engine)
+# Production-ready pool settings (conservative defaults for multi-instance deployments)
 sync_engine = create_engine(
     _sync_url,
     echo=os.getenv("DATABASE_ECHO", "false").lower() == "true",
-    pool_size=int(os.getenv("DATABASE_POOL_SIZE", "20")),
-    max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "30")),
+    pool_size=int(os.getenv("DATABASE_POOL_SIZE", "5")),
+    max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "5")),
     pool_timeout=int(os.getenv("DATABASE_POOL_TIMEOUT", "30")),
     pool_recycle=int(os.getenv("DATABASE_POOL_RECYCLE", "1800")),
     pool_pre_ping=True,

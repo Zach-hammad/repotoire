@@ -5,7 +5,7 @@ granted by admins with full audit trail for compliance and tracking.
 """
 
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
@@ -184,6 +184,6 @@ class QuotaOverride(Base, UUIDPrimaryKeyMixin):
         """
         if self.revoked_at is not None:
             return False
-        if self.expires_at is not None and self.expires_at <= datetime.utcnow():
+        if self.expires_at is not None and self.expires_at <= datetime.now(timezone.utc):
             return False
         return True

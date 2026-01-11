@@ -44,11 +44,15 @@ function CheckItem({ check }: { check: PreviewCheck }) {
     )}>
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
         <CollapsibleTrigger asChild>
-          <button className="flex w-full items-center gap-2 p-3 text-left hover:bg-muted/50">
+          <button
+            className="flex w-full items-center gap-2 p-3 text-left hover:bg-muted/50"
+            aria-expanded={isOpen}
+            aria-label={`${check.name} check - ${check.passed ? 'passed' : 'failed'}. Click to ${isOpen ? 'collapse' : 'expand'} details`}
+          >
             {isOpen ? (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             ) : (
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             )}
             <CheckIcon passed={check.passed} />
             <span className="flex-1 font-medium capitalize">
@@ -85,12 +89,16 @@ export function PreviewResultPanel({
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
       <div className="rounded-lg border">
         <CollapsibleTrigger asChild>
-          <button className="flex w-full items-center justify-between p-4 text-left hover:bg-muted/50">
+          <button
+            className="flex w-full items-center justify-between p-4 text-left hover:bg-muted/50"
+            aria-expanded={isOpen}
+            aria-label={`Preview Results - ${result.success ? 'passed' : 'failed'}. ${passedCount} of ${totalCount} checks passed. Click to ${isOpen ? 'collapse' : 'expand'}`}
+          >
             <div className="flex items-center gap-3">
               {isOpen ? (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
               ) : (
-                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
               )}
               <h3 className="font-semibold">Preview Results</h3>
               <Badge
@@ -109,7 +117,8 @@ export function PreviewResultPanel({
             </div>
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-xs">
-                <Clock className="mr-1 h-3 w-3" />
+                <Clock className="mr-1 h-3 w-3" aria-hidden="true" />
+                <span className="sr-only">Duration:</span>
                 {(result.duration_ms / 1000).toFixed(1)}s
               </Badge>
               {result.cached_at && (
@@ -127,8 +136,9 @@ export function PreviewResultPanel({
                   }}
                   disabled={isRerunning}
                   className="h-8 w-8"
+                  aria-label={isRerunning ? 'Running preview...' : 'Re-run preview'}
                 >
-                  <RefreshCw className={cn('h-4 w-4', isRerunning && 'animate-spin')} />
+                  <RefreshCw className={cn('h-4 w-4', isRerunning && 'animate-spin')} aria-hidden="true" />
                 </Button>
               )}
             </div>

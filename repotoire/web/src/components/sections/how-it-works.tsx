@@ -73,7 +73,7 @@ export function HowItWorks() {
             </div>
             <div className="bg-muted rounded-lg p-4 font-mono text-sm">
               <div className="text-muted-foreground">Building knowledge graph...</div>
-              <div className="mt-3 h-1.5 bg-background rounded-full overflow-hidden">
+              <div className="mt-3 h-1.5 bg-background rounded-full overflow-hidden" role="progressbar" aria-valuenow={100} aria-valuemin={0} aria-valuemax={100} aria-label="Analysis complete">
                 <div className="h-full w-full bg-primary rounded-full" />
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
@@ -99,7 +99,10 @@ export function HowItWorks() {
                 Circular dependency
               </div>
               <div className="text-xs text-muted-foreground mb-4 font-mono">auth.ts → user.ts → auth.ts</div>
-              <button className="w-full bg-primary hover:bg-primary/90 text-primary-foreground text-sm py-2 rounded-lg font-display font-medium transition-colors">
+              <button
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground text-sm py-2 rounded-lg font-display font-medium transition-colors"
+                aria-label="Apply AI Fix for circular dependency"
+              >
                 Apply AI Fix
               </button>
             </div>

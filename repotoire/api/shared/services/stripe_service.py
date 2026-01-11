@@ -474,9 +474,10 @@ class StripeConnectService:
         creator_share_cents = amount_cents - platform_fee_cents
 
         # Generate idempotency key to prevent duplicate charges
-        # Based on asset, buyer, and amount to ensure uniqueness per purchase attempt
+        # Uses UUID for uniqueness per purchase attempt (Stripe handles retry deduplication)
+        import uuid
         idempotency_key = hashlib.sha256(
-            f"{asset_id}:{buyer_user_id}:{amount_cents}:{int(time.time() // 3600)}".encode()
+            f"{asset_id}:{buyer_user_id}:{amount_cents}:{uuid.uuid4()}".encode()
         ).hexdigest()[:32]
 
         try:

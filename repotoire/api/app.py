@@ -457,6 +457,72 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
     )
 
 
+@app.exception_handler(status.HTTP_422_UNPROCESSABLE_ENTITY)
+async def validation_exception_handler(request: Request, exc: Exception):
+    """Handle FastAPI validation errors with consistent ErrorResponse format."""
+    from fastapi.exceptions import RequestValidationError
+
+    if isinstance(exc, RequestValidationError):
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content=ErrorResponse(
+                error="validation_error",
+                detail=str(exc.errors()),
+                error_code="VALIDATION_ERROR",
+            ).model_dump(),
+        )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=ErrorResponse(
+            error="validation_error",
+            detail="Request validation failed",
+            error_code="VALIDATION_ERROR",
+        ).model_dump(),
+    )
+
+
+from fastapi import HTTPException as FastAPIHTTPException
+
+
+@app.exception_handler(FastAPIHTTPException)
+async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
+    """Handle HTTPException with consistent ErrorResponse format.
+
+    Converts all HTTPException responses to use the standard ErrorResponse
+    model for consistent API error formatting.
+    """
+    # Map status codes to error types and codes
+    error_mapping = {
+        400: ("bad_request", "BAD_REQUEST"),
+        401: ("unauthorized", "UNAUTHORIZED"),
+        403: ("forbidden", "FORBIDDEN"),
+        404: ("not_found", "NOT_FOUND"),
+        405: ("method_not_allowed", "METHOD_NOT_ALLOWED"),
+        409: ("conflict", "CONFLICT"),
+        410: ("gone", "GONE"),
+        422: ("validation_error", "VALIDATION_ERROR"),
+        429: ("rate_limit_exceeded", "RATE_LIMIT_EXCEEDED"),
+        500: ("internal_error", "INTERNAL_ERROR"),
+        502: ("bad_gateway", "BAD_GATEWAY"),
+        503: ("service_unavailable", "SERVICE_UNAVAILABLE"),
+        504: ("gateway_timeout", "GATEWAY_TIMEOUT"),
+    }
+
+    error_type, error_code = error_mapping.get(
+        exc.status_code, ("error", f"HTTP_{exc.status_code}")
+    )
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=ErrorResponse(
+            error=error_type,
+            detail=str(exc.detail) if exc.detail else "An error occurred",
+            error_code=error_code,
+        ).model_dump(),
+        headers=exc.headers,
+    )
+
+
 # Mount versioned sub-applications
 # Each sub-app has its own OpenAPI docs at /api/{version}/docs
 app.mount("/api/v1", v1_app)
@@ -575,6 +641,70 @@ async def readiness_check():
         all_healthy = False
         logger.warning(f"FalkorDB health check failed: {e}")
 
+    # Check Clerk (authentication) - optional, doesn't fail readiness
+    clerk_key = os.getenv("CLERK_SECRET_KEY")
+    if clerk_key:
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(
+                    "https://api.clerk.com/v1/users?limit=1",
+                    headers={"Authorization": f"Bearer {clerk_key}"},
+                )
+                checks["clerk"] = response.status_code in (200, 401, 403)
+                if not checks["clerk"]:
+                    checks["clerk_error"] = f"Status {response.status_code}"
+                    logger.warning(f"Clerk health check returned {response.status_code}")
+        except Exception as e:
+            checks["clerk"] = False
+            checks["clerk_error"] = str(e)
+            logger.warning(f"Clerk health check failed: {e}")
+    else:
+        checks["clerk"] = "skipped"
+
+    # Check Stripe (billing) - optional, doesn't fail readiness
+    stripe_key = os.getenv("STRIPE_SECRET_KEY")
+    if stripe_key:
+        try:
+            import stripe
+
+            stripe.api_key = stripe_key
+            # Use a lightweight API call that won't fail on valid keys
+            stripe.Balance.retrieve()
+            checks["stripe"] = True
+        except stripe.error.AuthenticationError:
+            checks["stripe"] = False
+            checks["stripe_error"] = "Invalid API key"
+            logger.warning("Stripe authentication failed")
+        except Exception as e:
+            checks["stripe"] = False
+            checks["stripe_error"] = str(e)
+            logger.warning(f"Stripe health check failed: {e}")
+    else:
+        checks["stripe"] = "skipped"
+
+    # Check E2B (sandbox) - optional, doesn't fail readiness
+    e2b_key = os.getenv("E2B_API_KEY")
+    if e2b_key:
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(
+                    "https://api.e2b.dev/health",
+                    headers={"Authorization": f"Bearer {e2b_key}"},
+                )
+                checks["e2b"] = response.status_code == 200
+                if not checks["e2b"]:
+                    checks["e2b_error"] = f"Status {response.status_code}"
+        except Exception as e:
+            checks["e2b"] = False
+            checks["e2b_error"] = str(e)
+            logger.warning(f"E2B health check failed: {e}")
+    else:
+        checks["e2b"] = "skipped"
+
     status_code = 200 if all_healthy else 503
     return JSONResponse(
         status_code=status_code,
@@ -585,12 +715,64 @@ async def readiness_check():
     )
 
 
-# Global exception handler
+# Database exception handlers
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Handle unexpected exceptions."""
+    """Handle unexpected exceptions with specific handling for database errors."""
+    from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
+
     # Capture exception in Sentry with request context
     sentry_sdk.capture_exception(exc)
+
+    # Handle database connection errors (return 503 Service Unavailable)
+    if isinstance(exc, OperationalError):
+        logger.error(f"Database connection error: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=ErrorResponse(
+                error="Database unavailable",
+                detail="Database connection error. Please try again in a moment.",
+                error_code="DATABASE_UNAVAILABLE",
+            ).model_dump(),
+            headers={"Retry-After": "5"},
+        )
+
+    # Handle integrity errors (duplicates, foreign key violations -> 409 Conflict)
+    if isinstance(exc, IntegrityError):
+        logger.warning(f"Database integrity error: {exc}", exc_info=True)
+        # Don't expose internal constraint names in production
+        is_production = os.getenv("ENVIRONMENT", "development") == "production"
+        detail = (
+            "A database constraint was violated. The resource may already exist."
+            if is_production
+            else str(exc.orig) if exc.orig else str(exc)
+        )
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content=ErrorResponse(
+                error="Conflict",
+                detail=detail,
+                error_code="DATABASE_CONFLICT",
+            ).model_dump(),
+        )
+
+    # Handle other SQLAlchemy errors (return 500 but with specific logging)
+    if isinstance(exc, SQLAlchemyError):
+        logger.error(f"Database error: {exc}", exc_info=True)
+        is_production = os.getenv("ENVIRONMENT", "development") == "production"
+        detail = (
+            "A database error occurred. Please try again."
+            if is_production
+            else str(exc)
+        )
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=ErrorResponse(
+                error="Database error",
+                detail=detail,
+                error_code="DATABASE_ERROR",
+            ).model_dump(),
+        )
 
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
 

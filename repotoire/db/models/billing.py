@@ -5,7 +5,7 @@ customer add-ons, and billing-related data for the multi-tenant SaaS platform.
 """
 
 import enum
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -265,7 +265,7 @@ class CustomerAddon(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     activated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
     cancelled_at: Mapped[datetime | None] = mapped_column(
@@ -382,7 +382,7 @@ class ProcessedWebhookEvent(Base, UUIDPrimaryKeyMixin):
     )
     processed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
     idempotency_key: Mapped[str | None] = mapped_column(
