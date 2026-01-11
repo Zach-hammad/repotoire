@@ -10,9 +10,8 @@
 const CACHE_NAME = 'repotoire-v1';
 const STATIC_CACHE_NAME = 'repotoire-static-v1';
 
-// Static assets to cache on install
+// Static assets to cache on install (only files that are guaranteed to exist)
 const STATIC_ASSETS = [
-  '/offline',
   '/favicon.ico',
   '/manifest.json',
 ];
@@ -24,7 +23,14 @@ const API_ROUTES = ['/api/'];
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(STATIC_CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
+      // Cache assets individually to avoid failing on missing files
+      return Promise.allSettled(
+        STATIC_ASSETS.map((asset) =>
+          cache.add(asset).catch((err) => {
+            console.warn(`Failed to cache ${asset}:`, err);
+          })
+        )
+      );
     })
   );
   // Activate immediately
@@ -136,7 +142,7 @@ async function networkFirst(request) {
   }
 }
 
-// Network-first with offline page fallback
+// Network-first with offline fallback
 async function networkFirstWithOfflineFallback(request) {
   try {
     const response = await fetch(request);
@@ -151,12 +157,21 @@ async function networkFirstWithOfflineFallback(request) {
     if (cached) {
       return cached;
     }
-    // Return offline page
-    const offlinePage = await caches.match('/offline');
-    if (offlinePage) {
-      return offlinePage;
-    }
-    throw error;
+    // Return a simple offline response
+    return new Response(
+      `<!DOCTYPE html>
+      <html>
+        <head><title>Offline</title></head>
+        <body style="font-family: system-ui; padding: 2rem; text-align: center;">
+          <h1>You're offline</h1>
+          <p>Please check your internet connection and try again.</p>
+        </body>
+      </html>`,
+      {
+        status: 503,
+        headers: { 'Content-Type': 'text/html' },
+      }
+    );
   }
 }
 
