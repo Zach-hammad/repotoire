@@ -447,7 +447,19 @@ async def github_webhook(
         )
 
     event_type = request.headers.get("X-GitHub-Event", "")
-    payload = await request.json()
+
+    # Parse JSON with error handling for malformed payloads
+    try:
+        payload = await request.json()
+    except Exception as e:
+        logger.warning(
+            "Failed to parse webhook JSON payload",
+            extra={"event_type": event_type, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid JSON payload",
+        )
 
     logger.info(f"Received webhook: {event_type}")
 
@@ -463,14 +475,19 @@ async def github_webhook(
         elif event_type == "pull_request":
             await handle_pull_request_event(db, payload)
     except Exception as e:
-        # Log the error but return 200 to prevent GitHub from retrying
+        # Log the error with full details for debugging
         logger.exception(
             f"Error handling {event_type} webhook",
             extra={"event_type": event_type, "error": str(e)},
         )
-        # Return 202 Accepted - we received it but processing failed
-        # This prevents GitHub from disabling webhooks due to repeated failures
-        return {"status": "error", "event": event_type, "message": "Processing failed"}
+        # Return 500 to indicate server-side failure
+        # GitHub will retry with exponential backoff (up to 3 days)
+        # This is preferable to silently swallowing errors
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"status": "error", "event": event_type, "message": "Webhook processing failed"},
+        )
 
     return {"status": "ok", "event": event_type}
 
@@ -532,17 +549,27 @@ async def handle_installation_repos_event(
     # Handle added repositories
     repos_added = payload.get("repositories_added", [])
     for repo_data in repos_added:
+        # Validate required fields
+        repo_id = repo_data.get("id")
+        full_name = repo_data.get("full_name")
+        if not repo_id or not full_name:
+            logger.warning(
+                "Skipping repository add: missing id or full_name",
+                extra={"repo_data": repo_data},
+            )
+            continue
+
         result = await db.execute(
             select(GitHubRepository).where(
                 GitHubRepository.installation_id == db_installation.id,
-                GitHubRepository.repo_id == repo_data["id"],
+                GitHubRepository.repo_id == repo_id,
             )
         )
         if not result.scalar_one_or_none():
             new_repo = GitHubRepository(
                 installation_id=db_installation.id,
-                repo_id=repo_data["id"],
-                full_name=repo_data["full_name"],
+                repo_id=repo_id,
+                full_name=full_name,
                 default_branch="main",  # Will be updated on sync
                 enabled=False,
             )
@@ -551,10 +578,19 @@ async def handle_installation_repos_event(
     # Handle removed repositories
     repos_removed = payload.get("repositories_removed", [])
     for repo_data in repos_removed:
+        # Validate required field
+        repo_id = repo_data.get("id")
+        if not repo_id:
+            logger.warning(
+                "Skipping repository remove: missing id",
+                extra={"repo_data": repo_data},
+            )
+            continue
+
         result = await db.execute(
             select(GitHubRepository).where(
                 GitHubRepository.installation_id == db_installation.id,
-                GitHubRepository.repo_id == repo_data["id"],
+                GitHubRepository.repo_id == repo_id,
             )
         )
         existing = result.scalar_one_or_none()
@@ -588,6 +624,14 @@ async def handle_push_event(db: AsyncSession, payload: dict) -> None:
     default_branch = repo_data.get("default_branch", "main")
     installation_data = payload.get("installation", {})
     installation_id = installation_data.get("id")
+
+    # Early validation: repo_id is required for database lookups
+    if not repo_id:
+        logger.warning(
+            "Skipping auto-analysis: no repository id in webhook payload",
+            extra={"repo": repo_full_name},
+        )
+        return
 
     # Extract branch name from ref (refs/heads/main -> main)
     branch = ref.replace("refs/heads/", "") if ref.startswith("refs/heads/") else ref

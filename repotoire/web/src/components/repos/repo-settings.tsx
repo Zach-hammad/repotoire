@@ -39,9 +39,10 @@ export function RepoSettings({ repository }: RepoSettingsProps) {
       toast.success(`Disconnected ${repository.full_name}`);
       mutate('repositories-full');
       router.push('/dashboard/repos');
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       toast.error('Failed to disconnect repository', {
-        description: error?.message || 'Unknown error',
+        description: errorMessage,
       });
     }
   };

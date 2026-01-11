@@ -77,9 +77,10 @@ export function GitHistoryPanel({ repositoryId, repositoryFullName }: GitHistory
       toast.success('Backfill started', {
         description: 'Importing git history in the background...',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       toast.error('Failed to start backfill', {
-        description: error?.message || 'Unknown error',
+        description: errorMessage,
       });
     }
   };
@@ -89,9 +90,10 @@ export function GitHistoryPanel({ repositoryId, repositoryFullName }: GitHistory
     if (!query.trim()) return;
     try {
       await runQuery({ question: query, repositoryId });
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to query code history';
       toast.error('Query failed', {
-        description: error?.message || 'Failed to query code history',
+        description: errorMessage,
       });
     }
   };

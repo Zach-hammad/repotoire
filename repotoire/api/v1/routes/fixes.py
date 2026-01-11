@@ -42,6 +42,7 @@ from repotoire.detectors.health_delta import (
     ImpactLevel,
 )
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 if TYPE_CHECKING:
     from repotoire.cache import PreviewCache
@@ -939,10 +940,15 @@ async def apply_fix(
     # Try to get repository info for GitHub PR creation
     github_repo = None
     if fix.analysis_run_id:
-        # Look up analysis run and repository
-        analysis_run = await db.get(AnalysisRun, fix.analysis_run_id)
-        if analysis_run and analysis_run.repository_id:
-            github_repo = await db.get(Repository, analysis_run.repository_id)
+        # Look up analysis run with repository eagerly loaded in a single query
+        analysis_run_result = await db.execute(
+            select(AnalysisRun)
+            .options(selectinload(AnalysisRun.repository))
+            .where(AnalysisRun.id == fix.analysis_run_id)
+        )
+        analysis_run = analysis_run_result.scalar_one_or_none()
+        if analysis_run and analysis_run.repository:
+            github_repo = analysis_run.repository
 
     # If we have a GitHub-connected repository, create a PR
     if github_repo and github_repo.github_repo_id:

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, memo, useMemo } from 'react';
+import { useState, useCallback, memo, useMemo, useRef, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -44,6 +44,7 @@ import {
   BarChart,
   Bar,
 } from 'recharts';
+import type { Payload } from 'recharts/types/component/DefaultTooltipContent';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -89,6 +90,15 @@ const severityColors: Record<Severity, string> = {
   low: '#84cc16',
   info: '#64748b',
 };
+
+// Chart data types
+interface DetectorChartEntry {
+  name: string;
+  fullName: string;
+  rawName: string;
+  value: number;
+  fill: string;
+}
 
 // Category to detector mapping for filtering
 const categoryDetectorMapping: Record<string, string[]> = {
@@ -166,7 +176,7 @@ function HealthScoreGauge({ loading }: { loading?: boolean }) {
               <button
                 key={key}
                 onClick={() => handleCategoryClick(key)}
-                className="w-full space-y-1 text-left hover:bg-muted/50 rounded-md p-1.5 -m-1 transition-colors cursor-pointer group"
+                className="w-full space-y-1 text-left hover:bg-muted/50 rounded-md p-1.5 -m-1 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 title={`View ${key} issues`}
               >
                 <div className="flex items-center justify-between text-xs">
@@ -444,7 +454,7 @@ const DetectorChart = memo(function DetectorChart({ data, loading }: { data?: Re
       .slice(0, 6);
   }, [data]);
 
-  const handleBarClick = useCallback((data: any) => {
+  const handleBarClick = useCallback((data: DetectorChartEntry) => {
     if (data?.rawName) {
       router.push(`/dashboard/findings?detector=${encodeURIComponent(data.rawName)}`);
     }
@@ -500,7 +510,7 @@ const DetectorChart = memo(function DetectorChart({ data, loading }: { data?: Re
             labelStyle={{ color: 'var(--foreground)', fontWeight: 500 }}
             itemStyle={{ color: 'var(--foreground)' }}
             cursor={{ fill: 'var(--accent)', opacity: 0.3 }}
-            formatter={(value: number, name: string, props: any) => [value, props.payload.fullName]}
+            formatter={(value: number, _name: string, props: Payload<number, string>) => [value, (props.payload as DetectorChartEntry)?.fullName ?? '']}
           />
           <Bar dataKey="value" radius={[0, 4, 4, 0]} name="Findings">
             {chartData.map((entry, index) => (
@@ -624,10 +634,21 @@ const RecentAnalyses = memo(function RecentAnalyses({ loading }: { loading?: boo
   const { trigger: generateFixes, isMutating: isGenerating } = useGenerateFixes();
   const [generatingId, setGeneratingId] = useState<string | null>(null);
 
+  // Track component mount state to prevent state updates after unmount
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const handleGenerateFixes = useCallback(async (analysisId: string) => {
     setGeneratingId(analysisId);
     try {
       const result = await generateFixes({ analysisRunId: analysisId });
+      // Check if component is still mounted before updating state/showing toasts
+      if (!isMountedRef.current) return;
       if (result.status === 'queued') {
         toast.success('Fix generation started', {
           description: result.message,
@@ -641,12 +662,18 @@ const RecentAnalyses = memo(function RecentAnalyses({ loading }: { loading?: boo
           description: result.message,
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      // Check if component is still mounted before showing error toast
+      if (!isMountedRef.current) return;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       toast.error('Failed to generate fixes', {
-        description: error?.message || 'Unknown error',
+        description: errorMessage,
       });
     } finally {
-      setGeneratingId(null);
+      // Check if component is still mounted before updating state
+      if (isMountedRef.current) {
+        setGeneratingId(null);
+      }
     }
   }, [generateFixes]);
 
@@ -739,7 +766,7 @@ const RecentAnalyses = memo(function RecentAnalyses({ loading }: { loading?: boo
             </div>
             {/* Progress bar for running analyses */}
             {analysis.status === 'running' && (
-              <div className="mb-2">
+              <div className="mb-2" aria-live="polite" aria-atomic="true">
                 <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
                   <span>{analysis.current_step || 'Analyzing...'}</span>
                   <span className="tabular-nums">{analysis.progress_percent || 0}%</span>
@@ -828,11 +855,11 @@ const FixStatsCard = memo(function FixStatsCard({ loading }: { loading?: boolean
   }
 
   const statusItems = [
-    { label: 'Pending', value: fixStats.pending, barColor: '#eab308', textColor: 'text-yellow-600 dark:text-yellow-400' },
-    { label: 'Approved', value: fixStats.approved, barColor: '#3b82f6', textColor: 'text-blue-600 dark:text-blue-400' },
-    { label: 'Applied', value: fixStats.applied, barColor: '#22c55e', textColor: 'text-green-600 dark:text-green-400' },
-    { label: 'Rejected', value: fixStats.rejected, barColor: '#ef4444', textColor: 'text-red-600 dark:text-red-400' },
-    { label: 'Failed', value: fixStats.failed, barColor: '#6b7280', textColor: 'text-gray-600 dark:text-gray-400' },
+    { label: 'Pending', value: fixStats.pending, barColor: '#eab308', textColor: 'text-yellow-700 dark:text-yellow-400' },
+    { label: 'Approved', value: fixStats.approved, barColor: '#3b82f6', textColor: 'text-blue-700 dark:text-blue-400' },
+    { label: 'Applied', value: fixStats.applied, barColor: '#22c55e', textColor: 'text-green-700 dark:text-green-400' },
+    { label: 'Rejected', value: fixStats.rejected, barColor: '#ef4444', textColor: 'text-red-700 dark:text-red-400' },
+    { label: 'Failed', value: fixStats.failed, barColor: '#6b7280', textColor: 'text-gray-700 dark:text-gray-400' },
   ];
 
   const totalFixes = fixStats.total;

@@ -200,8 +200,12 @@ export function GraphVisualization() {
   }, [])
 
   return (
-    <div className="relative w-full h-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      <canvas ref={canvasRef} className="w-full h-full" style={{ display: "block" }} />
+    <div className="relative w-full h-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900" role="img" aria-label="Interactive code dependency graph visualization showing 12 modules including services, components, and utilities. A circular dependency issue has been detected between AuthService, UserController, OrderService, DatabaseUtil, CacheManager, and back to AuthService.">
+      <canvas ref={canvasRef} className="w-full h-full" style={{ display: "block" }} aria-hidden="true" />
+      {/* Visually hidden description for screen readers */}
+      <div className="sr-only">
+        Graph showing code module dependencies. Nodes include: AuthService, UserController, PaymentGateway, OrderService, DatabaseUtil, CacheManager, NotificationHub, APIRouter, CircularDep (issue), LogService, ConfigLoader, and SessionManager. A circular dependency has been detected in the path: AuthService to UserController to OrderService to DatabaseUtil to CacheManager back to AuthService.
+      </div>
 
       {/* Legend */}
       <div className="absolute bottom-4 left-4 flex flex-wrap gap-4 text-xs">

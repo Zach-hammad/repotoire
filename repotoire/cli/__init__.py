@@ -333,8 +333,8 @@ def _login_with_api_key(api_key: str) -> None:
                 f"  Credentials saved to: {storage_location}"
             )
     except Exception as e:
-        console.print(f"\n[red]✗[/red] {e}")
-        raise SystemExit(1)
+        console.print(f"\n[red]Error:[/red] {e}")
+        raise click.Abort()
 
 
 def _login_browser_oauth() -> None:
@@ -375,11 +375,11 @@ def _login_browser_oauth() -> None:
         console.print("\n[dim]Run 'repotoire ingest .' to analyze your codebase.[/dim]")
 
     except AuthenticationError as e:
-        console.print(f"\n[red]✗[/red] Authentication failed: {e}")
-        raise SystemExit(1)
+        console.print(f"\n[red]Error:[/red] Authentication failed: {e}")
+        raise click.Abort()
     except Exception as e:
-        console.print(f"\n[red]✗[/red] {e}")
-        raise SystemExit(1)
+        console.print(f"\n[red]Error:[/red] {e}")
+        raise click.Abort()
 
 
 @cli.command()
@@ -687,9 +687,15 @@ def ingest(
             try:
                 # Clear database if force-full is requested
                 if force_full:
-                    console.print("[yellow]⚠️  Force-full mode: Clearing existing graph...[/yellow]")
+                    if not quiet:
+                        console.print("[yellow]Warning:[/yellow] Force-full mode will clear all existing graph data.")
+                        if not click.confirm("Are you sure you want to continue?", default=False):
+                            console.print("[dim]Aborted.[/dim]")
+                            raise click.Abort()
+                        console.print("[yellow]Clearing existing graph...[/yellow]")
                     db.clear_graph()
-                    console.print("[green]✓ Database cleared[/green]\n")
+                    if not quiet:
+                        console.print("[green]✓ Database cleared[/green]\n")
 
                 # Detect repo info for node tagging when authenticated (REPO-397)
                 repo_id = None
@@ -1789,8 +1795,9 @@ def scan_secrets(
     # Exit with error if critical or high risk secrets found
     critical_high = total_by_risk.get("critical", 0) + total_by_risk.get("high", 0)
     if critical_high > 0:
-        console.print(f"\n[red]⚠️  Found {critical_high} critical/high risk secrets![/red]")
-        raise SystemExit(1)
+        console.print(f"\n[red]Error:[/red] Found {critical_high} critical/high risk secrets!")
+        console.print("[dim]Review and remediate secrets before committing.[/dim]")
+        raise click.Abort()
 
 
 @cli.command()
@@ -2395,10 +2402,11 @@ def validate_migration() -> None:
 
 
 @cli.command()
-@click.argument("repo_path", type=click.Path(exists=True))
+@click.argument("repo_path", type=click.Path(exists=True), metavar="REPO_PATH")
 @click.option("--window", type=int, default=90, help="Time window in days (default: 90)")
 @click.option("--min-churn", type=int, default=5, help="Minimum modifications to qualify as hotspot (default: 5)")
-def hotspots(repo_path: str, window: int, min_churn: int) -> None:
+@click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress non-essential output")
+def hotspots(repo_path: str, window: int, min_churn: int, quiet: bool) -> None:
     """Find code hotspots with high churn and complexity.
 
     Analyzes Git history to find files with:
@@ -2406,27 +2414,47 @@ def hotspots(repo_path: str, window: int, min_churn: int) -> None:
     - Increasing complexity or coupling
     - High risk scores requiring attention
 
+    Arguments:
+        REPO_PATH: Path to the repository to analyze
+
     Example:
         repotoire hotspots /path/to/repo --window 90 --min-churn 5
     """
-    with console.status(f"[bold green]Finding code hotspots in last {window} days...", spinner="dots"):
-        try:
-            client = _get_db_client()
+    try:
+        client = _get_db_client(quiet=quiet)
 
-            # Create temporal metrics analyzer
-            from repotoire.detectors.temporal_metrics import TemporalMetrics
-            analyzer = TemporalMetrics(client)
+        # Create temporal metrics analyzer
+        from repotoire.detectors.temporal_metrics import TemporalMetrics
+        analyzer = TemporalMetrics(client)
 
-            # Find hotspots
+        # Find hotspots with progress indicator
+        if not quiet:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TimeRemainingColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task(
+                    f"[cyan]Finding code hotspots (last {window} days)...",
+                    total=None
+                )
+                hotspots_list = analyzer.find_code_hotspots(window_days=window, min_churn=min_churn)
+                progress.update(task, completed=True, description="[green]Analysis complete")
+        else:
             hotspots_list = analyzer.find_code_hotspots(window_days=window, min_churn=min_churn)
 
-            if not hotspots_list:
+        if not hotspots_list:
+            if not quiet:
                 console.print(f"\n[green]✓ No code hotspots found in the last {window} days![/green]")
                 console.print(f"[dim]This means no files have >{min_churn} modifications with increasing complexity[/dim]\n")
-                return
+            return
 
-            # Display hotspots table
-            console.print(f"\n[bold red]🔥 Code Hotspots[/bold red] (Last {window} days)\n")
+        # Display hotspots table
+        if not quiet:
+            console.print(f"\n[bold red]Code Hotspots[/bold red] (Last {window} days)\n")
 
             table = Table(
                 title=f"{len(hotspots_list)} files need attention",
@@ -2440,7 +2468,7 @@ def hotspots(repo_path: str, window: int, min_churn: int) -> None:
             table.add_column("Top Author", style="dim")
 
             for hotspot in hotspots_list[:20]:  # Top 20
-                risk_indicator = "🔥" * min(int(hotspot.risk_score / 10), 5)
+                risk_indicator = "*" * min(int(hotspot.risk_score / 10), 5)
                 table.add_row(
                     hotspot.file_path,
                     str(hotspot.churn_count),
@@ -2452,19 +2480,20 @@ def hotspots(repo_path: str, window: int, min_churn: int) -> None:
             console.print(f"\n[dim]These files have high modification frequency and increasing complexity[/dim]")
             console.print(f"[dim]Consider refactoring to reduce technical debt[/dim]\n")
 
-        except Exception as e:
-            logger.error(f"Failed to find code hotspots: {e}", exc_info=True)
-            console.print(f"\n[red]❌ Error:[/red] {e}")
-            raise click.Abort()
+    except Exception as e:
+        logger.error(f"Failed to find code hotspots: {e}", exc_info=True)
+        console.print(f"\n[red]Error:[/red] {e}")
+        raise click.Abort()
 
 
 @cli.command()
-@click.argument("repo_path", type=click.Path(exists=True))
+@click.argument("repo_path", type=click.Path(exists=True), metavar="REPO_PATH")
 @click.option("--strategy", type=click.Choice(["recent", "all", "milestones"]), default="recent", help="Commit selection strategy")
 @click.option("--max-commits", type=int, default=10, help="Maximum commits to analyze (default: 10)")
 @click.option("--branch", default="HEAD", help="Branch to analyze (default: HEAD)")
 @click.option("--generate-clues", is_flag=True, default=False, help="Generate semantic clues for each commit")
-def history(repo_path: str, strategy: str, max_commits: int, branch: str, generate_clues: bool) -> None:
+@click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress non-essential output")
+def history(repo_path: str, strategy: str, max_commits: int, branch: str, generate_clues: bool, quiet: bool) -> None:
     """Ingest Git history for temporal analysis.
 
     Analyzes code evolution across Git commits to track:
@@ -2480,13 +2509,14 @@ def history(repo_path: str, strategy: str, max_commits: int, branch: str, genera
     Example:
         repotoire history /path/to/repo --strategy recent --max-commits 10
     """
-    console.print(f"\n[bold cyan]📊 Temporal Code Analysis[/bold cyan]\n")
-    console.print(f"Repository: [yellow]{repo_path}[/yellow]")
-    console.print(f"Strategy: [cyan]{strategy}[/cyan]")
-    console.print(f"Max commits: [cyan]{max_commits}[/cyan]\n")
+    if not quiet:
+        console.print(f"\n[bold cyan]📊 Temporal Code Analysis[/bold cyan]\n")
+        console.print(f"Repository: [yellow]{repo_path}[/yellow]")
+        console.print(f"Strategy: [cyan]{strategy}[/cyan]")
+        console.print(f"Max commits: [cyan]{max_commits}[/cyan]\n")
 
     try:
-        client = _get_db_client()
+        client = _get_db_client(quiet=quiet)
 
         # Create temporal ingestion pipeline
         from repotoire.pipeline.temporal_ingestion import TemporalIngestionPipeline
@@ -2497,49 +2527,58 @@ def history(repo_path: str, strategy: str, max_commits: int, branch: str, genera
         )
 
         # Ingest with history
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TimeRemainingColumn(),
-            console=console,
-        ) as progress:
-            task = progress.add_task(f"[cyan]Ingesting {strategy} commits...", total=None)
+        if not quiet:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TimeRemainingColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task(f"[cyan]Ingesting {strategy} commits...", total=None)
 
+                result = pipeline.ingest_with_history(
+                    strategy=strategy,
+                    max_commits=max_commits,
+                    branch=branch
+                )
+
+                progress.update(task, completed=True)
+        else:
             result = pipeline.ingest_with_history(
                 strategy=strategy,
                 max_commits=max_commits,
                 branch=branch
             )
 
-            progress.update(task, completed=True)
-
         # Display results
-        console.print(f"\n[green]✓ Temporal ingestion complete![/green]\n")
+        if not quiet:
+            console.print(f"\n[green]✓ Temporal ingestion complete![/green]\n")
 
-        results_table = Table(box=box.SIMPLE, show_header=False)
-        results_table.add_column("Metric", style="bold")
-        results_table.add_column("Value", style="cyan")
+            results_table = Table(box=box.SIMPLE, show_header=False)
+            results_table.add_column("Metric", style="bold")
+            results_table.add_column("Value", style="cyan")
 
-        results_table.add_row("Sessions created", str(result["sessions_created"]))
-        results_table.add_row("Entities created", str(result["entities_created"]))
-        results_table.add_row("Relationships created", str(result["relationships_created"]))
-        results_table.add_row("Commits processed", str(result["commits_processed"]))
+            results_table.add_row("Sessions created", str(result["sessions_created"]))
+            results_table.add_row("Entities created", str(result["entities_created"]))
+            results_table.add_row("Relationships created", str(result["relationships_created"]))
+            results_table.add_row("Commits processed", str(result["commits_processed"]))
 
-        console.print(results_table)
-        console.print()
+            console.print(results_table)
+            console.print()
 
     except Exception as e:
         logger.error(f"Failed to ingest history: {e}", exc_info=True)
-        console.print(f"\n[red]❌ Error:[/red] {e}")
+        console.print(f"\n[red]Error:[/red] {e}")
         raise click.Abort()
 
 
 @cli.command()
-@click.argument("before_commit")
-@click.argument("after_commit")
-def compare(before_commit: str, after_commit: str) -> None:
+@click.argument("before_commit", metavar="BEFORE_COMMIT")
+@click.argument("after_commit", metavar="AFTER_COMMIT")
+@click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress non-essential output")
+def compare(before_commit: str, after_commit: str, quiet: bool) -> None:
     """Compare code metrics between two commits.
 
     Shows how code quality metrics changed between commits:
@@ -2547,58 +2586,67 @@ def compare(before_commit: str, after_commit: str) -> None:
     - Regressions (metrics got worse)
     - Percentage changes
 
+    Arguments:
+        BEFORE_COMMIT: The earlier commit hash or ref to compare from
+        AFTER_COMMIT: The later commit hash or ref to compare to
+
     Example:
         repotoire compare abc123 def456
     """
     try:
-        client = _get_db_client()
+        client = _get_db_client(quiet=quiet)
 
         # Create temporal metrics analyzer
         from repotoire.detectors.temporal_metrics import TemporalMetrics
         analyzer = TemporalMetrics(client)
 
-        with console.status(f"[bold green]Comparing commits {before_commit[:7]} → {after_commit[:7]}...", spinner="dots"):
+        if not quiet:
+            with console.status(f"[bold green]Comparing commits {before_commit[:7]} -> {after_commit[:7]}...", spinner="dots"):
+                comparison = analyzer.compare_commits(before_commit, after_commit)
+        else:
             comparison = analyzer.compare_commits(before_commit, after_commit)
 
         if not comparison:
-            console.print(f"\n[yellow]⚠️  Could not find sessions for commits {before_commit[:7]} and {after_commit[:7]}[/yellow]")
-            console.print("[dim]Make sure you've run 'falkor history' first to ingest commit data[/dim]\n")
+            if not quiet:
+                console.print(f"\n[yellow]Warning:[/yellow] Could not find sessions for commits {before_commit[:7]} and {after_commit[:7]}")
+                console.print("[dim]Make sure you've run 'repotoire history' first to ingest commit data[/dim]\n")
             return
 
         # Display comparison
-        console.print(f"\n[bold cyan]📊 Commit Comparison[/bold cyan]\n")
-        console.print(f"Before: [yellow]{comparison['before_commit']}[/yellow]  ({comparison['before_date']})")
-        console.print(f"After:  [yellow]{comparison['after_commit']}[/yellow]  ({comparison['after_date']})\n")
+        if not quiet:
+            console.print(f"\n[bold cyan]Commit Comparison[/bold cyan]\n")
+            console.print(f"Before: [yellow]{comparison['before_commit']}[/yellow]  ({comparison['before_date']})")
+            console.print(f"After:  [yellow]{comparison['after_commit']}[/yellow]  ({comparison['after_date']})\n")
 
-        # Show improvements
-        if comparison["improvements"]:
-            console.print("[bold green]✓ Improvements:[/bold green]")
-            for metric in comparison["improvements"]:
-                change = comparison["changes"][metric]
-                console.print(f"  • {metric}: {change['before']:.2f} → {change['after']:.2f} ({change['change_percentage']:+.1f}%)")
+            # Show improvements
+            if comparison["improvements"]:
+                console.print("[bold green]Improvements:[/bold green]")
+                for metric in comparison["improvements"]:
+                    change = comparison["changes"][metric]
+                    console.print(f"  - {metric}: {change['before']:.2f} -> {change['after']:.2f} ({change['change_percentage']:+.1f}%)")
+                console.print()
+
+            # Show regressions
+            if comparison["regressions"]:
+                console.print("[bold red]Regressions:[/bold red]")
+                for metric in comparison["regressions"]:
+                    change = comparison["changes"][metric]
+                    console.print(f"  - {metric}: {change['before']:.2f} -> {change['after']:.2f} ({change['change_percentage']:+.1f}%)")
+                console.print()
+
+            # Overall assessment
+            if len(comparison["improvements"]) > len(comparison["regressions"]):
+                console.print("[green]Overall: Code quality improved[/green]")
+            elif len(comparison["regressions"]) > len(comparison["improvements"]):
+                console.print("[red]Overall: Code quality degraded[/red]")
+            else:
+                console.print("[yellow]Overall: Mixed changes[/yellow]")
+
             console.print()
-
-        # Show regressions
-        if comparison["regressions"]:
-            console.print("[bold red]⚠️  Regressions:[/bold red]")
-            for metric in comparison["regressions"]:
-                change = comparison["changes"][metric]
-                console.print(f"  • {metric}: {change['before']:.2f} → {change['after']:.2f} ({change['change_percentage']:+.1f}%)")
-            console.print()
-
-        # Overall assessment
-        if len(comparison["improvements"]) > len(comparison["regressions"]):
-            console.print("[green]Overall: Code quality improved ✓[/green]")
-        elif len(comparison["regressions"]) > len(comparison["improvements"]):
-            console.print("[red]Overall: Code quality degraded ⚠️[/red]")
-        else:
-            console.print("[yellow]Overall: Mixed changes[/yellow]")
-
-        console.print()
 
     except Exception as e:
         logger.error(f"Failed to compare commits: {e}", exc_info=True)
-        console.print(f"\n[red]❌ Error:[/red] {e}")
+        console.print(f"\n[red]Error:[/red] {e}")
         raise click.Abort()
 
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Dialog,
@@ -17,75 +17,40 @@ interface Shortcut {
   category: 'navigation' | 'actions' | 'general';
 }
 
+// Static shortcut definitions (without actions)
+const SHORTCUT_DEFINITIONS = [
+  // Navigation
+  { keys: ['g', 'h'], description: 'Go to Overview', route: '/dashboard', category: 'navigation' as const },
+  { keys: ['g', 'r'], description: 'Go to Repositories', route: '/dashboard/repos', category: 'navigation' as const },
+  { keys: ['g', 'f'], description: 'Go to Findings', route: '/dashboard/findings', category: 'navigation' as const },
+  { keys: ['g', 'x'], description: 'Go to AI Fixes', route: '/dashboard/fixes', category: 'navigation' as const },
+  { keys: ['g', 's'], description: 'Go to Settings', route: '/dashboard/settings', category: 'navigation' as const },
+  { keys: ['g', 'b'], description: 'Go to Billing', route: '/dashboard/billing', category: 'navigation' as const },
+  // Actions
+  { keys: ['c'], description: 'Connect new repository', route: '/dashboard/repos/connect', category: 'actions' as const },
+  { keys: ['n'], description: 'New analysis', route: '/dashboard/repos', category: 'actions' as const },
+  // General (special handling, no route)
+  { keys: ['?'], description: 'Show keyboard shortcuts', route: null, category: 'general' as const },
+  { keys: ['Escape'], description: 'Close dialog / Cancel', route: null, category: 'general' as const },
+] as const;
+
 export function KeyboardShortcuts() {
   const [open, setOpen] = useState(false);
   const router = useRouter();
 
-  const shortcuts: Shortcut[] = [
-    // Navigation
-    {
-      keys: ['g', 'h'],
-      description: 'Go to Overview',
-      action: () => router.push('/dashboard'),
-      category: 'navigation',
-    },
-    {
-      keys: ['g', 'r'],
-      description: 'Go to Repositories',
-      action: () => router.push('/dashboard/repos'),
-      category: 'navigation',
-    },
-    {
-      keys: ['g', 'f'],
-      description: 'Go to Findings',
-      action: () => router.push('/dashboard/findings'),
-      category: 'navigation',
-    },
-    {
-      keys: ['g', 'x'],
-      description: 'Go to AI Fixes',
-      action: () => router.push('/dashboard/fixes'),
-      category: 'navigation',
-    },
-    {
-      keys: ['g', 's'],
-      description: 'Go to Settings',
-      action: () => router.push('/dashboard/settings'),
-      category: 'navigation',
-    },
-    {
-      keys: ['g', 'b'],
-      description: 'Go to Billing',
-      action: () => router.push('/dashboard/billing'),
-      category: 'navigation',
-    },
-    // Actions
-    {
-      keys: ['c'],
-      description: 'Connect new repository',
-      action: () => router.push('/dashboard/repos/connect'),
-      category: 'actions',
-    },
-    {
-      keys: ['n'],
-      description: 'New analysis',
-      action: () => router.push('/dashboard/repos'),
-      category: 'actions',
-    },
-    // General
-    {
-      keys: ['?'],
-      description: 'Show keyboard shortcuts',
-      action: () => setOpen(true),
-      category: 'general',
-    },
-    {
-      keys: ['Escape'],
-      description: 'Close dialog / Cancel',
-      action: () => setOpen(false),
-      category: 'general',
-    },
-  ];
+  // Memoize shortcuts with actions bound to current router/setOpen
+  const shortcuts: Shortcut[] = useMemo(() => {
+    return SHORTCUT_DEFINITIONS.map((def) => ({
+      keys: [...def.keys],
+      description: def.description,
+      category: def.category,
+      action: def.route
+        ? () => router.push(def.route)
+        : def.keys[0] === '?'
+        ? () => setOpen(true)
+        : () => setOpen(false),
+    }));
+  }, [router]);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {

@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import List, Optional, Sequence
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -727,25 +727,25 @@ class FixRepository:
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
 
-        # Find orphaned fixes older than cutoff
-        query = (
-            select(Fix)
+        # Find IDs of orphaned fixes older than cutoff
+        id_query = (
+            select(Fix.id)
             .where(Fix.finding_id.is_(None))
             .where(Fix.created_at < cutoff)
             .limit(limit)
         )
-        result = await self.db.execute(query)
-        orphans = result.scalars().all()
+        result = await self.db.execute(id_query)
+        orphan_ids = [row[0] for row in result.fetchall()]
 
-        deleted_count = 0
-        for fix in orphans:
-            await self.db.delete(fix)
-            deleted_count += 1
+        if not orphan_ids:
+            return 0
 
-        if deleted_count > 0:
-            await self.db.commit()
+        # Batch delete using DELETE ... WHERE id IN (...)
+        delete_query = delete(Fix).where(Fix.id.in_(orphan_ids))
+        await self.db.execute(delete_query)
+        await self.db.commit()
 
-        return deleted_count
+        return len(orphan_ids)
 
     async def get_consistency_stats(self) -> dict:
         """Get statistics about data consistency issues.

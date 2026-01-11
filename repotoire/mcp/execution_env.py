@@ -1312,9 +1312,23 @@ def connect_neo4j(
     uri: str = "bolt://localhost:7688",
     password: str = None
 ) -> FalkorDBClient:
-    \"\"\"Quick Neo4j connection helper.\"\"\"
+    \"\"\"Quick Neo4j connection helper.
+
+    Args:
+        uri: FalkorDB/Neo4j bolt URI
+        password: Database password (falls back to FALKORDB_PASSWORD env var)
+
+    Raises:
+        ValueError: If password is not provided and FALKORDB_PASSWORD is not set
+    \"\"\"
     if password is None:
-        password = os.getenv("FALKORDB_PASSWORD", "falkor-password")
+        password = os.getenv("FALKORDB_PASSWORD")
+        if not password:
+            raise ValueError(
+                "FALKORDB_PASSWORD environment variable is required.\n"
+                "Set it with: export FALKORDB_PASSWORD='your-password'\n"
+                "Or pass password directly: connect_neo4j(password='...')"
+            )
     return FalkorDBClient(uri=uri, password=password)
 
 # Pre-connect client for convenience

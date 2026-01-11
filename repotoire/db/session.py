@@ -20,11 +20,14 @@ from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# Database URL from environment
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://repotoire:repotoire-dev-password@localhost:5432/repotoire",
-)
+# Database URL from environment (required)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL environment variable is required.\n"
+        "Example: postgresql://user:password@localhost:5432/repotoire\n"
+        "See .env.example for configuration details."
+    )
 
 # Convert postgresql:// to postgresql+asyncpg:// if needed
 if DATABASE_URL.startswith("postgresql://"):

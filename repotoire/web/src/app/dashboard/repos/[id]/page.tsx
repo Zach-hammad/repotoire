@@ -185,9 +185,10 @@ function GitHistory({ repositoryId, repositoryFullName }: GitHistoryProps) {
     if (!query.trim()) return;
     try {
       await runQuery({ question: query, repositoryId });
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to query code history';
       toast.error('Query failed', {
-        description: error?.message || 'Failed to query code history',
+        description: errorMessage,
       });
     }
   };

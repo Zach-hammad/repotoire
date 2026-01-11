@@ -12,6 +12,8 @@ import {
   Area,
   AreaChart,
 } from 'recharts';
+import type { TooltipProps } from 'recharts';
+import type { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
@@ -52,14 +54,20 @@ const formatDate = (dateStr: string) => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+interface TooltipPayloadEntry {
+  color?: string;
+  dataKey?: string | number;
+  value?: ValueType;
+}
+
+const CustomTooltip = ({ active, payload, label }: TooltipProps<ValueType, NameType>) => {
   if (!active || !payload?.length) return null;
 
   return (
     <div className="bg-popover border rounded-lg shadow-lg p-3 text-sm">
-      <p className="font-medium mb-2">{formatDate(label)}</p>
+      <p className="font-medium mb-2">{formatDate(String(label ?? ''))}</p>
       <div className="space-y-1">
-        {payload.map((entry: any, index: number) => (
+        {payload.map((entry: TooltipPayloadEntry, index: number) => (
           <div key={index} className="flex items-center justify-between gap-4">
             <span className="flex items-center gap-2">
               <span
@@ -67,10 +75,10 @@ const CustomTooltip = ({ active, payload, label }: any) => {
                 style={{ backgroundColor: entry.color }}
               />
               <span className="text-muted-foreground capitalize">
-                {entry.dataKey}
+                {String(entry.dataKey ?? '')}
               </span>
             </span>
-            <span className="font-medium">{entry.value}</span>
+            <span className="font-medium">{String(entry.value ?? '')}</span>
           </div>
         ))}
       </div>

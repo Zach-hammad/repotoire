@@ -35,6 +35,32 @@ from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+
+def _handle_background_task_error(task: asyncio.Task) -> None:
+    """Handle exceptions from background tasks.
+
+    This callback logs any exceptions that occur in fire-and-forget
+    background tasks, preventing them from being silently swallowed.
+
+    Args:
+        task: The completed asyncio Task to check for exceptions.
+    """
+    try:
+        # This raises the exception if the task failed
+        exc = task.exception()
+        if exc is not None:
+            task_name = task.get_name()
+            logger.error(
+                f"Background task '{task_name}' failed with exception: {exc}",
+                exc_info=exc,
+            )
+    except asyncio.CancelledError:
+        # Task was cancelled, which is fine
+        pass
+    except asyncio.InvalidStateError:
+        # Task is not done yet (shouldn't happen in done callback)
+        pass
+
 router = APIRouter(prefix="/code", tags=["code"])
 
 
@@ -364,7 +390,20 @@ async def get_embeddings_status(
             count(CASE WHEN n:Class THEN 1 END) as classes,
             count(CASE WHEN n:File THEN 1 END) as files
         """
-        total_result = client.execute_query(total_query)[0]
+        total_results = client.execute_query(total_query)
+        if not total_results:
+            # No results - return empty status
+            return EmbeddingsStatusResponse(
+                total_entities=0,
+                embedded_entities=0,
+                embedding_coverage=0.0,
+                functions_embedded=0,
+                classes_embedded=0,
+                files_embedded=0,
+                last_generated=None,
+                model_used="text-embedding-3-small"
+            )
+        total_result = total_results[0]
 
         # Count entities with embeddings
         embedded_query = """
@@ -376,10 +415,14 @@ async def get_embeddings_status(
             count(CASE WHEN n:Class THEN 1 END) as classes_embedded,
             count(CASE WHEN n:File THEN 1 END) as files_embedded
         """
-        embedded_result = client.execute_query(embedded_query)[0]
+        embedded_results = client.execute_query(embedded_query)
+        if not embedded_results:
+            embedded_result = {"embedded": 0, "functions_embedded": 0, "classes_embedded": 0, "files_embedded": 0}
+        else:
+            embedded_result = embedded_results[0]
 
-        total_entities = total_result["total"]
-        embedded_entities = embedded_result["embedded"]
+        total_entities = total_result.get("total", 0)
+        embedded_entities = embedded_result.get("embedded", 0)
 
         coverage = (embedded_entities / total_entities * 100) if total_entities > 0 else 0.0
 
@@ -387,9 +430,9 @@ async def get_embeddings_status(
             total_entities=total_entities,
             embedded_entities=embedded_entities,
             embedding_coverage=round(coverage, 2),
-            functions_embedded=embedded_result["functions_embedded"],
-            classes_embedded=embedded_result["classes_embedded"],
-            files_embedded=embedded_result["files_embedded"],
+            functions_embedded=embedded_result.get("functions_embedded", 0),
+            classes_embedded=embedded_result.get("classes_embedded", 0),
+            files_embedded=embedded_result.get("files_embedded", 0),
             last_generated=None,  # TODO: Track in metadata
             model_used="text-embedding-3-small"
         )
@@ -507,8 +550,12 @@ async def regenerate_embeddings(
             detail="DEEPINFRA_API_KEY not configured"
         )
 
-    # Start background task
-    asyncio.create_task(_regenerate_embeddings_task(org.id, org.slug, batch_size))
+    # Start background task with error handling callback
+    task = asyncio.create_task(
+        _regenerate_embeddings_task(org.id, org.slug, batch_size),
+        name=f"regenerate_embeddings_{org.slug}",
+    )
+    task.add_done_callback(_handle_background_task_error)
 
     return {
         "status": "started",
@@ -656,10 +703,12 @@ async def compress_embeddings(
     The compression runs in the background. Check /embeddings/compression/status
     to monitor progress.
     """
-    # Start background task
-    asyncio.create_task(_compress_embeddings_task(
-        org.id, org.slug, target_dims, sample_size
-    ))
+    # Start background task with error handling callback
+    task = asyncio.create_task(
+        _compress_embeddings_task(org.id, org.slug, target_dims, sample_size),
+        name=f"compress_embeddings_{org.slug}",
+    )
+    task.add_done_callback(_handle_background_task_error)
 
     # Calculate expected savings
     client = get_graph_client_for_org(org)

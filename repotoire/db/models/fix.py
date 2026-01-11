@@ -221,6 +221,10 @@ class Fix(Base, UUIDPrimaryKeyMixin):
         Index("ix_fixes_status", "status"),
         Index("ix_fixes_file_path", "file_path"),
         Index("ix_fixes_created_at", "created_at"),
+        # Composite indexes for common query patterns
+        Index("ix_fixes_analysis_run_status", "analysis_run_id", "status"),
+        Index("ix_fixes_analysis_run_created", "analysis_run_id", "created_at desc"),
+        Index("ix_fixes_finding_created", "finding_id", "created_at desc"),
     )
 
     def __repr__(self) -> str:
@@ -274,6 +278,8 @@ class FixComment(Base, UUIDPrimaryKeyMixin):
         Index("ix_fix_comments_fix_id", "fix_id"),
         Index("ix_fix_comments_user_id", "user_id"),
         Index("ix_fix_comments_created_at", "created_at"),
+        # Composite index for fetching comments by fix ordered by time
+        Index("ix_fix_comments_fix_created", "fix_id", "created_at desc"),
     )
 
     def __repr__(self) -> str:

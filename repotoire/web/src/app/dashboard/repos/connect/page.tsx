@@ -35,9 +35,10 @@ export default function ConnectRepoPage() {
       });
       toast.success(`Connected ${selectedRepos.size} repository(s)`);
       router.push('/dashboard/repos');
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       toast.error('Failed to connect repositories', {
-        description: error?.message || 'Unknown error',
+        description: errorMessage,
       });
     }
   };

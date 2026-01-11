@@ -127,6 +127,25 @@ async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
     logger.info("Starting Repotoire RAG API")
+
+    # Validate environment configuration
+    from repotoire.validation import EnvironmentConfigError, validate_environment
+
+    try:
+        env_result = validate_environment(
+            require_database=True,
+            require_clerk=True,
+            require_stripe=False,  # Stripe is optional, validated separately
+            require_falkordb=False,  # Graph DB not required for API startup
+        )
+        logger.info(
+            f"Environment validated: {env_result['environment']}",
+            extra={"warnings": env_result.get("warnings", [])},
+        )
+    except EnvironmentConfigError as e:
+        logger.critical(f"Environment configuration failed: {e}")
+        raise RuntimeError(str(e)) from e
+
     yield
     # Shutdown
     logger.info("Shutting down Repotoire RAG API")
@@ -420,14 +439,16 @@ async def readiness_check():
         all_healthy = False
         logger.warning(f"PostgreSQL health check failed: {e}")
 
-    # Check Redis (using sync client with timeout for simplicity)
+    # Check Redis (using async client for non-blocking health check)
     try:
-        import redis
+        import redis.asyncio as aioredis
 
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        redis_client = redis.from_url(redis_url, socket_timeout=5.0, socket_connect_timeout=5.0)
-        redis_client.ping()
-        redis_client.close()
+        redis_client = aioredis.from_url(
+            redis_url, socket_timeout=5.0, socket_connect_timeout=5.0
+        )
+        await redis_client.ping()
+        await redis_client.close()
         checks["redis"] = True
     except ImportError:
         checks["redis"] = "skipped"

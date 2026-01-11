@@ -14,8 +14,10 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +37,13 @@ from repotoire.services.email import get_email_service
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/team", tags=["team"])
+
+# Rate limiter for team invite endpoint to prevent spam
+# 10 invites per hour per IP is generous for legitimate use
+team_limiter = Limiter(
+    key_func=get_remote_address,
+    storage_uri=os.getenv("REDIS_URL", "memory://"),
+)
 
 # Invite expires after 7 days
 INVITE_EXPIRY_DAYS = 7
@@ -128,7 +137,9 @@ async def check_user_is_admin(
 
 
 @router.post("/invite", response_model=InviteResponse)
+@team_limiter.limit("10/hour")
 async def send_invite(
+    http_request: Request,  # Required by slowapi for rate limiting
     request: SendInviteRequest,
     user: ClerkUser = Depends(require_org),
     session: AsyncSession = Depends(get_db),
@@ -137,6 +148,8 @@ async def send_invite(
 
     Only admins and owners can send invitations.
     Sends an email to the invited user with a link to accept.
+
+    Rate limited to 10 invites per hour to prevent spam.
     """
     # Get organization
     org = await get_user_org(session, user)

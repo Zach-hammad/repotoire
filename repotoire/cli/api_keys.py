@@ -94,15 +94,27 @@ def create_key(name: str, user_id: str, org_id: str, scopes: tuple, expires: int
             else:
                 raise sdk_err
 
+        # Mask the secret for display - show first 8 and last 4 characters only
+        secret = key_data['secret']
+        if len(secret) > 12:
+            masked_secret = f"{secret[:8]}...{secret[-4:]}"
+        else:
+            masked_secret = "*" * len(secret)
+
         console.print("\n[green bold]API Key Created Successfully![/]\n")
         console.print(f"[bold]Name:[/] {key_data['name']}")
         console.print(f"[bold]ID:[/] {key_data['id']}")
         console.print(f"[bold]Subject:[/] {key_data['subject']}")
         console.print(f"[bold]Scopes:[/] {', '.join(key_data.get('scopes') or [])}")
         console.print()
-        console.print("[yellow bold]Secret (save this - shown only once!):[/]")
-        console.print(f"[cyan]{key_data['secret']}[/]")
+        console.print("[yellow bold]Secret (shown masked - copy from below):[/]")
+        console.print(f"[dim]Preview: {masked_secret}[/]")
         console.print()
+        console.print("[bold]Full secret (copy this now - will not be shown again):[/]")
+        # Use a separate print that doesn't log to prevent secret appearing in logs
+        import sys
+        sys.stdout.write(f"\n  {secret}\n\n")
+        sys.stdout.flush()
         console.print("[dim]Set it with: export REPOTOIRE_API_KEY=<secret>[/]")
 
     except Exception as e:

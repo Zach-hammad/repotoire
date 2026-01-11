@@ -139,11 +139,12 @@ export function RepositoryList({
 
       // Start polling for status
       pollAnalysisStatus(response.analysis_run_id, repo);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to start analysis:", error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       toast.error(
         "Failed to start analysis",
-        { description: error?.message || 'Unknown error' }
+        { description: errorMessage }
       );
       setAnalyzingRepos((prev) => {
         const next = new Set(prev);
@@ -169,10 +170,11 @@ export function RepositoryList({
       // Use new PATCH endpoint for single repo
       await api.patch<GitHubRepo>(`/github/repos/${repo.id}`, { enabled });
       toast.success(`${repo.full_name} ${enabled ? "enabled" : "disabled"}`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to update repo:", error);
+      const errorMessage = error instanceof Error ? error.message : "Check your connection and try again. (ERR_REPO_003)";
       toast.error("Unable to Update Repository", {
-        description: error?.message || "Check your connection and try again. (ERR_REPO_003)",
+        description: errorMessage,
       });
 
       // Rollback optimistic update on error

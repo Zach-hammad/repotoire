@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Suspense, useEffect, useDeferredValue } from 'react';
+import { useState, Suspense, useEffect, useDeferredValue, useReducer, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -275,12 +275,39 @@ function FindingCard({ finding, repositoryFullName, relatedFix, isSelected, onSe
 type ViewMode = 'list' | 'grouped';
 type DetailLevel = 'simple' | 'detailed';
 
-// Confirmation dialog state
+// Confirmation dialog state and reducer
 interface ConfirmDialogState {
   open: boolean;
   status: FindingStatus | null;
   title: string;
   description: string;
+}
+
+type ConfirmDialogAction =
+  | { type: 'OPEN'; payload: { status: FindingStatus; title: string; description: string } }
+  | { type: 'CLOSE' };
+
+const initialConfirmDialogState: ConfirmDialogState = {
+  open: false,
+  status: null,
+  title: '',
+  description: '',
+};
+
+function confirmDialogReducer(state: ConfirmDialogState, action: ConfirmDialogAction): ConfirmDialogState {
+  switch (action.type) {
+    case 'OPEN':
+      return {
+        open: true,
+        status: action.payload.status,
+        title: action.payload.title,
+        description: action.payload.description,
+      };
+    case 'CLOSE':
+      return initialConfirmDialogState;
+    default:
+      return state;
+  }
 }
 
 function FindingsContent() {
@@ -321,12 +348,7 @@ function FindingsContent() {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [detailLevel, setDetailLevel] = useState<DetailLevel>('simple');
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>({
-    open: false,
-    status: null,
-    title: '',
-    description: '',
-  });
+  const [confirmDialog, dispatchConfirmDialog] = useReducer(confirmDialogReducer, initialConfirmDialogState);
   const [statusReason, setStatusReason] = useState('');
   const pageSize = 20;
 
@@ -418,7 +440,7 @@ function FindingsContent() {
   };
 
   // Show confirmation dialog for destructive actions
-  const showConfirmation = (status: FindingStatus) => {
+  const showConfirmation = useCallback((status: FindingStatus) => {
     const config = statusConfig[status];
     let description = '';
 
@@ -430,13 +452,15 @@ function FindingsContent() {
       description = `You're marking ${selectedFindings.size} issue(s) as "${config.label}".`;
     }
 
-    setConfirmDialog({
-      open: true,
-      status,
-      title: `${config.emoji} Mark as "${config.label}"?`,
-      description,
+    dispatchConfirmDialog({
+      type: 'OPEN',
+      payload: {
+        status,
+        title: `${config.emoji} Mark as "${config.label}"?`,
+        description,
+      },
     });
-  };
+  }, [selectedFindings.size]);
 
   // Handler for bulk status updates
   const handleBulkStatusUpdate = async (status: FindingStatus, reason?: string) => {
@@ -468,7 +492,7 @@ function FindingsContent() {
       });
     }
 
-    setConfirmDialog({ open: false, status: null, title: '', description: '' });
+    dispatchConfirmDialog({ type: 'CLOSE' });
     setStatusReason('');
   };
 
@@ -1059,7 +1083,11 @@ function FindingsContent() {
         </Card>
 
         {/* Confirmation Dialog */}
-        <Dialog open={confirmDialog.open} onOpenChange={(open) => setConfirmDialog({ ...confirmDialog, open })}>
+        <Dialog open={confirmDialog.open} onOpenChange={(open) => {
+          if (!open) {
+            dispatchConfirmDialog({ type: 'CLOSE' });
+          }
+        }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{confirmDialog.title}</DialogTitle>
@@ -1080,7 +1108,7 @@ function FindingsContent() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  setConfirmDialog({ open: false, status: null, title: '', description: '' });
+                  dispatchConfirmDialog({ type: 'CLOSE' });
                   setStatusReason('');
                 }}
               >

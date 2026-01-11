@@ -56,9 +56,10 @@ function RepoCardComponent({ repo, installationId, onUpdate }: RepoCardProps) {
       });
       toast.success(`Analysis started for ${repo.full_name}`);
       onUpdate?.();
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       toast.error('Failed to start analysis', {
-        description: error?.message || 'Unknown error',
+        description: errorMessage,
       });
     } finally {
       setIsAnalyzing(false);
@@ -71,9 +72,10 @@ function RepoCardComponent({ repo, installationId, onUpdate }: RepoCardProps) {
       await api.patch(`/github/repos/${repo.id}`, { enabled: false });
       toast.success(`Disabled ${repo.full_name}`);
       onUpdate?.();
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       toast.error('Failed to disable repository', {
-        description: error?.message || 'Unknown error',
+        description: errorMessage,
       });
     } finally {
       setIsDisconnecting(false);

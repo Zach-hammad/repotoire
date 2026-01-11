@@ -3,11 +3,208 @@
 import os
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import urlparse
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Environment Variable Validation
+# =============================================================================
+
+
+class EnvironmentConfigError(Exception):
+    """Raised when environment configuration is invalid or missing.
+
+    This exception includes details about what's missing and how to fix it.
+    """
+
+    def __init__(self, errors: list[str], warnings: list[str] | None = None):
+        self.errors = errors
+        self.warnings = warnings or []
+        message = "Environment configuration errors:\n"
+        message += "\n".join(f"  - {e}" for e in errors)
+        if self.warnings:
+            message += "\n\nWarnings:\n"
+            message += "\n".join(f"  - {w}" for w in self.warnings)
+        super().__init__(message)
+
+
+def validate_environment(
+    require_database: bool = True,
+    require_clerk: bool = True,
+    require_stripe: bool = False,
+    require_falkordb: bool = False,
+) -> dict[str, Any]:
+    """Validate required environment variables at startup.
+
+    This should be called during application startup to fail fast on
+    misconfiguration. Different components can be enabled/disabled based
+    on what the application needs.
+
+    Args:
+        require_database: Check DATABASE_URL is set
+        require_clerk: Check CLERK_SECRET_KEY is set
+        require_stripe: Check Stripe keys are set
+        require_falkordb: Check FalkorDB credentials are set
+
+    Returns:
+        Dict with:
+            - valid: True if all required vars are set
+            - warnings: List of non-critical issues
+            - environment: Current environment (development/staging/production)
+
+    Raises:
+        EnvironmentConfigError: If any required variables are missing or invalid
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    environment = os.getenv("ENVIRONMENT", "development")
+
+    # Database configuration
+    if require_database:
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            errors.append(
+                "DATABASE_URL is required. "
+                "Set it to your PostgreSQL connection string: "
+                "postgresql://user:password@host:5432/dbname"
+            )
+        elif "password" in database_url and database_url.count(":") >= 2:
+            # Basic check - if there's a password segment, ensure it's not a placeholder
+            if any(
+                placeholder in database_url.lower()
+                for placeholder in ["your-password", "changeme", "password123", "xxx"]
+            ):
+                errors.append(
+                    "DATABASE_URL contains a placeholder password. "
+                    "Replace it with your actual database password."
+                )
+
+    # Clerk authentication
+    if require_clerk:
+        clerk_secret = os.getenv("CLERK_SECRET_KEY")
+        if not clerk_secret:
+            errors.append(
+                "CLERK_SECRET_KEY is required for authentication. "
+                "Get it from: https://dashboard.clerk.com -> Your App -> API Keys"
+            )
+        else:
+            # Check for test vs live key mismatch
+            if clerk_secret.startswith("sk_live_") and environment == "development":
+                warnings.append(
+                    "Using Clerk LIVE key in development environment. "
+                    "Consider using a test key (sk_test_*) for development."
+                )
+            elif clerk_secret.startswith("sk_test_") and environment == "production":
+                errors.append(
+                    "Using Clerk TEST key in production environment. "
+                    "Production requires a live key (sk_live_*)."
+                )
+
+    # Stripe billing
+    if require_stripe:
+        stripe_key = os.getenv("STRIPE_SECRET_KEY")
+        if not stripe_key:
+            errors.append(
+                "STRIPE_SECRET_KEY is required for billing. "
+                "Get it from: https://dashboard.stripe.com/apikeys"
+            )
+        else:
+            # Check for test vs live key mismatch
+            if stripe_key.startswith("sk_live_") and environment == "development":
+                errors.append(
+                    "SECURITY ERROR: Using Stripe LIVE key in development environment. "
+                    "This could result in real charges. Use a test key (sk_test_*)."
+                )
+            elif stripe_key.startswith("sk_test_") and environment == "production":
+                errors.append(
+                    "Using Stripe TEST key in production environment. "
+                    "Production requires a live key (sk_live_*)."
+                )
+
+        # Check webhook secret
+        webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+        if not webhook_secret:
+            warnings.append(
+                "STRIPE_WEBHOOK_SECRET is not set. "
+                "Webhook signature verification will fail."
+            )
+
+    # FalkorDB graph database
+    if require_falkordb:
+        falkordb_password = os.getenv("FALKORDB_PASSWORD")
+        if not falkordb_password:
+            warnings.append(
+                "FALKORDB_PASSWORD is not set. "
+                "FalkorDB connections may fail if authentication is required."
+            )
+
+    # Optional but recommended settings
+    if not os.getenv("SECRET_KEY"):
+        warnings.append(
+            "SECRET_KEY is not set. "
+            "Generate one with: openssl rand -hex 32"
+        )
+
+    if not os.getenv("SENTRY_DSN") and environment == "production":
+        warnings.append(
+            "SENTRY_DSN is not set for production. "
+            "Error tracking is disabled."
+        )
+
+    # Check for encryption keys that may be needed
+    if os.getenv("GITHUB_APP_PRIVATE_KEY") and not os.getenv("GITHUB_TOKEN_ENCRYPTION_KEY"):
+        warnings.append(
+            "GITHUB_APP_PRIVATE_KEY is set but GITHUB_TOKEN_ENCRYPTION_KEY is not. "
+            "GitHub tokens may not be properly encrypted at rest."
+        )
+
+    if errors:
+        raise EnvironmentConfigError(errors, warnings)
+
+    # Log warnings
+    for warning in warnings:
+        logger.warning(f"Environment config: {warning}")
+
+    return {
+        "valid": True,
+        "warnings": warnings,
+        "environment": environment,
+    }
+
+
+def mask_secret(secret: str, prefix_len: int = 8, suffix_len: int = 4) -> str:
+    """Mask a secret value, showing only prefix and suffix.
+
+    Args:
+        secret: The secret string to mask
+        prefix_len: Number of characters to show at start
+        suffix_len: Number of characters to show at end
+
+    Returns:
+        Masked string like "sk_test_abc...xyz"
+
+    Examples:
+        >>> mask_secret("sk_test_abcdefghijklmnop")
+        'sk_test_...mnop'
+        >>> mask_secret("short")
+        '****'
+    """
+    if not secret:
+        return ""
+
+    total_visible = prefix_len + suffix_len
+
+    # If secret is too short, just mask it entirely
+    if len(secret) <= total_visible:
+        return "*" * len(secret)
+
+    prefix = secret[:prefix_len]
+    suffix = secret[-suffix_len:]
+    return f"{prefix}...{suffix}"
 
 
 class ValidationError(Exception):

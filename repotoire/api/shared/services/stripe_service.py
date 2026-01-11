@@ -56,7 +56,13 @@ def validate_stripe_config(require_connect: bool = False) -> dict[str, Any]:
     if not api_key:
         errors.append("STRIPE_SECRET_KEY is not set")
     elif api_key.startswith("sk_live_") and os.environ.get("ENVIRONMENT") == "development":
-        warnings.append("Using live Stripe key in development environment")
+        # SECURITY: Live keys in development can result in real charges
+        # This must be a hard error to prevent accidental financial transactions
+        errors.append(
+            "SECURITY ERROR: Using Stripe LIVE key in development environment. "
+            "This could result in real charges. Use a test key (sk_test_*) for development. "
+            "Set ENVIRONMENT=production if this is intentional."
+        )
     elif api_key.startswith("sk_test_") and os.environ.get("ENVIRONMENT") == "production":
         errors.append("Using test Stripe key in production environment")
 

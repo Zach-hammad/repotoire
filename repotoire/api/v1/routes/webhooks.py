@@ -1783,7 +1783,17 @@ async def github_webhook_alias(
 
     # Parse JSON from body (can't use request.json() since body was already read)
     import json
-    payload = json.loads(body)
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError as e:
+        logger.warning(
+            "Failed to parse GitHub webhook JSON payload",
+            extra={"event_type": event_type, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid JSON payload",
+        )
 
     logger.info(f"Received GitHub webhook (alias): {event_type}")
 

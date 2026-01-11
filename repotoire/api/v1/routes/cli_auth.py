@@ -453,6 +453,19 @@ async def cli_auth_callback(
             detail="Missing callback parameters",
         )
 
+    # Validate CLI redirect URI is localhost to prevent auth code leakage
+    from urllib.parse import urlparse
+    parsed_uri = urlparse(cli_redirect_uri)
+    allowed_hosts = {"localhost", "127.0.0.1", "[::1]"}
+    if parsed_uri.hostname not in allowed_hosts:
+        logger.warning(
+            f"CLI auth callback rejected invalid redirect URI: {cli_redirect_uri}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid redirect URI. CLI callbacks must use localhost.",
+        )
+
     # Build redirect URL to CLI
     params = {
         "code": session_id,

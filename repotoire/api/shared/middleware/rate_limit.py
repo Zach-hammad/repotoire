@@ -29,11 +29,12 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -247,32 +248,63 @@ class RateLimitStateStore:
     This class provides a centralized way to access rate limit state
     that was set by slowapi or other rate limiting mechanisms.
 
-    In production, this integrates with Redis. For development, it uses
+    In production, this integrates with async Redis. For development, it uses
     in-memory storage.
+
+    Thread Safety:
+        Uses asyncio.Lock() to protect singleton initialization,
+        preventing race conditions when multiple coroutines call
+        get_instance() concurrently.
     """
 
-    _instance: RateLimitStateStore | None = None
+    _instance: Optional[RateLimitStateStore] = None
     _redis_client: Any = None
+    _lock: asyncio.Lock = asyncio.Lock()
+    _initialized: bool = False
 
-    def __new__(cls) -> RateLimitStateStore:
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialize()
+    def __init__(self) -> None:
+        """Initialize instance (actual setup done in async _initialize)."""
+        pass
+
+    @classmethod
+    async def get_instance(cls) -> RateLimitStateStore:
+        """Get or create singleton instance with async initialization.
+
+        Uses asyncio.Lock to prevent race conditions during initialization.
+
+        Returns:
+            The singleton RateLimitStateStore instance.
+        """
+        if cls._instance is not None and cls._initialized:
+            return cls._instance
+
+        async with cls._lock:
+            # Double-check after acquiring lock
+            if cls._instance is None:
+                cls._instance = cls()
+                await cls._instance._initialize()
+                cls._initialized = True
+            elif not cls._initialized:
+                await cls._instance._initialize()
+                cls._initialized = True
+
         return cls._instance
 
-    def _initialize(self) -> None:
-        """Initialize Redis connection if available."""
+    async def _initialize(self) -> None:
+        """Initialize async Redis connection if available."""
         redis_url = os.getenv("REDIS_URL")
         if redis_url and redis_url != "memory://":
             try:
-                import redis
+                import redis.asyncio as aioredis
 
-                self._redis_client = redis.from_url(
+                self._redis_client = aioredis.from_url(
                     redis_url,
                     socket_timeout=1.0,
                     socket_connect_timeout=1.0,
                 )
-                logger.info("Rate limit state store connected to Redis")
+                # Test connection
+                await self._redis_client.ping()
+                logger.info("Rate limit state store connected to Redis (async)")
             except Exception as e:
                 logger.warning(f"Failed to connect to Redis for rate limits: {e}")
                 self._redis_client = None
@@ -280,7 +312,7 @@ class RateLimitStateStore:
             self._redis_client = None
             logger.info("Rate limit state store using in-memory fallback")
 
-    def get_state(
+    async def get_state(
         self,
         key: str,
         limit: int,
@@ -300,14 +332,14 @@ class RateLimitStateStore:
 
         if self._redis_client:
             try:
-                # Try to get current count from Redis
+                # Try to get current count from Redis (async)
                 # slowapi uses keys like "LIMITER/{identifier}/{endpoint}"
-                count = self._redis_client.get(key)
+                count = await self._redis_client.get(key)
                 if count is not None:
                     current = int(count)
                     remaining = max(0, limit - current)
-                    # Get TTL for reset time
-                    ttl = self._redis_client.ttl(key)
+                    # Get TTL for reset time (async)
+                    ttl = await self._redis_client.ttl(key)
                     if ttl and ttl > 0:
                         reset_timestamp = int(time.time()) + ttl
                     return (limit, remaining, reset_timestamp)
@@ -316,6 +348,14 @@ class RateLimitStateStore:
 
         # Fallback: assume full quota
         return (limit, limit, reset_timestamp)
+
+    async def close(self) -> None:
+        """Close the Redis connection."""
+        if self._redis_client:
+            try:
+                await self._redis_client.close()
+            except Exception as e:
+                logger.debug(f"Error closing Redis connection: {e}")
 
 
 # =============================================================================

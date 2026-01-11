@@ -312,12 +312,70 @@ async def get_optional_user_or_api_key(
         return None
 
 
+def _get_scopes_for_role(org_role: Optional[str]) -> list[str]:
+    """Derive scopes from organization role for JWT users.
+
+    Maps Clerk organization roles to API scopes to ensure JWT users
+    also have role-based access control (not full bypass).
+
+    Args:
+        org_role: The user's organization role (e.g., "admin", "org:admin", "member")
+
+    Returns:
+        List of scopes the role grants
+    """
+    # Normalize role (case-insensitive, handle various Clerk formats)
+    role = (org_role or "").lower().strip()
+
+    # Admin/owner roles get full access
+    admin_roles = {"admin", "org:admin", "owner", "org:owner"}
+    if role in admin_roles:
+        return [
+            "read:analysis",
+            "write:analysis",
+            "read:repositories",
+            "write:repositories",
+            "read:api_keys",
+            "write:api_keys",
+            "read:settings",
+            "write:settings",
+            "read:team",
+            "write:team",
+            "admin:organization",
+        ]
+
+    # Member roles get standard access (no admin operations)
+    member_roles = {"member", "org:member"}
+    if role in member_roles:
+        return [
+            "read:analysis",
+            "write:analysis",
+            "read:repositories",
+            "write:repositories",
+            "read:settings",
+            "read:team",
+        ]
+
+    # Viewer/guest roles get read-only access
+    viewer_roles = {"viewer", "org:viewer", "guest", "org:guest"}
+    if role in viewer_roles:
+        return [
+            "read:analysis",
+            "read:repositories",
+            "read:settings",
+        ]
+
+    # Unknown role - minimal access (read-only on own data)
+    return ["read:analysis", "read:repositories"]
+
+
 def require_scope(required_scope: str) -> Callable:
     """
-    Dependency factory that requires a specific scope for API key authentication.
+    Dependency factory that requires a specific scope for authentication.
 
-    JWT users (non-API-key) bypass scope check - they have full access.
-    API key users must have the required scope in their scopes list.
+    Both JWT users and API key users are subject to scope checks.
+    - API key users: scopes come from the API key configuration
+    - JWT users: scopes are derived from their organization role
 
     Usage:
         @router.post("/analysis")
@@ -329,11 +387,13 @@ def require_scope(required_scope: str) -> Callable:
     """
 
     def check_scope(user: ClerkUser = Depends(get_current_user_or_api_key)) -> None:
-        scopes = user.claims.get("scopes", []) if user.claims else []
-
-        # JWT users (non-API-key) bypass scope check - they have full access
-        if user.claims and user.claims.get("auth_method") != "api_key":
-            return
+        # Determine scopes based on authentication method
+        if user.claims and user.claims.get("auth_method") == "api_key":
+            # API key users: use scopes from the key
+            scopes = user.claims.get("scopes", [])
+        else:
+            # JWT users: derive scopes from their organization role
+            scopes = _get_scopes_for_role(user.org_role)
 
         if required_scope not in scopes:
             raise HTTPException(

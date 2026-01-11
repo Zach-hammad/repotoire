@@ -40,41 +40,57 @@ export function QuickAnalysisButton() {
   const [analyzing, setAnalyzing] = useState<string | null>(null);
 
   useEffect(() => {
-    loadRepos();
-  }, []);
+    let isMounted = true;
 
-  const loadRepos = async () => {
-    try {
-      // Get all installations
-      const installations = await api.get<Array<{
-        id: string;
-        account_login: string;
-      }>>('/github/installations');
-
-      // Get repos for each installation
-      const allRepos: Repository[] = [];
-      for (const inst of installations) {
-        const instRepos = await api.get<Array<{
+    const loadRepos = async () => {
+      try {
+        // Get all installations
+        const installations = await api.get<Array<{
           id: string;
-          repo_id: number;
-          full_name: string;
-          default_branch: string;
-          enabled: boolean;
-        }>>(`/github/installations/${inst.id}/repos`);
+          account_login: string;
+        }>>('/github/installations');
 
-        allRepos.push(...instRepos.filter(r => r.enabled).map(r => ({
-          ...r,
-          installation_id: inst.id,
-        })));
+        // Check if component is still mounted
+        if (!isMounted) return;
+
+        // Get repos for each installation
+        const allRepos: Repository[] = [];
+        for (const inst of installations) {
+          const instRepos = await api.get<Array<{
+            id: string;
+            repo_id: number;
+            full_name: string;
+            default_branch: string;
+            enabled: boolean;
+          }>>(`/github/installations/${inst.id}/repos`);
+
+          // Check if component is still mounted before continuing
+          if (!isMounted) return;
+
+          allRepos.push(...instRepos.filter(r => r.enabled).map(r => ({
+            ...r,
+            installation_id: inst.id,
+          })));
+        }
+
+        if (isMounted) {
+          setRepos(allRepos);
+        }
+      } catch (error) {
+        console.error('Failed to load repos:', error);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
       }
+    };
 
-      setRepos(allRepos);
-    } catch (error) {
-      console.error('Failed to load repos:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    loadRepos();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [api]);
 
   // Cleanup ref to cancel polling on unmount or new analysis
   const pollCleanupRef = useRef<(() => void) | null>(null);
@@ -179,11 +195,12 @@ export function QuickAnalysisButton() {
       toast.success(`Analysis started for ${repo.full_name}`);
       // Store cleanup function for cancellation
       pollCleanupRef.current = pollAnalysisStatus(response.analysis_run_id, repo.full_name);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to start analysis:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       toast.error(
         'Failed to start analysis',
-        { description: error?.message || 'Unknown error' }
+        { description: errorMessage }
       );
       setAnalyzing(null);
     }

@@ -239,7 +239,7 @@ async def create_organization(
         plan_tier=PlanTier.FREE,
     )
     session.add(org)
-    await session.flush()  # Get org.id
+    await session.flush()  # Get org.id for membership and audit log
 
     # Add creator as owner
     membership = OrganizationMembership(
@@ -250,10 +250,7 @@ async def create_organization(
     )
     session.add(membership)
 
-    await session.commit()
-    await session.refresh(org)
-
-    # Audit log
+    # Audit log (flush to get IDs, but don't commit yet)
     audit_service = get_audit_service()
     await audit_service.log(
         db=session,
@@ -265,7 +262,10 @@ async def create_organization(
         action="create",
         metadata={"name": org.name, "slug": org.slug},
     )
+
+    # Single commit for all operations
     await session.commit()
+    await session.refresh(org)
 
     logger.info(f"Organization created: {org.slug} by user {user.user_id}")
 

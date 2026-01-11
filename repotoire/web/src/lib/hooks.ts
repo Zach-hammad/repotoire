@@ -79,7 +79,7 @@ export function useFinding(id: string | null) {
   const { isAuthReady } = useApiAuth();
   return useSWR<Finding>(
     isAuthReady && id ? ['finding', id] : null,
-    () => findingsApi.get(id!)
+    ([, findingId]: [string, string]) => findingsApi.get(findingId)
   );
 }
 
@@ -158,7 +158,7 @@ export function useFix(id: string | null) {
   const { isAuthReady } = useApiAuth();
   return useSWR<FixProposal>(
     isAuthReady && id ? ['fix', id] : null,
-    () => fixesApi.get(id!)
+    ([, fixId]: [string, string]) => fixesApi.get(fixId)
   );
 }
 
@@ -166,7 +166,7 @@ export function useFixComments(fixId: string | null) {
   const { isAuthReady } = useApiAuth();
   return useSWR<FixComment[]>(
     isAuthReady && fixId ? ['fix-comments', fixId] : null,
-    () => fixesApi.getComments(fixId!)
+    ([, id]: [string, string]) => fixesApi.getComments(id)
   );
 }
 
@@ -403,6 +403,22 @@ interface TriggerAnalysisResponse {
  *   const { trigger, isMutating } = useTriggerAnalysis();
  *   await trigger({ installation_uuid: '...', repo_id: 12345 });
  */
+/**
+ * Type guard to validate TriggerAnalysisResponse shape.
+ */
+function isTriggerAnalysisResponse(data: unknown): data is TriggerAnalysisResponse {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    'analysis_run_id' in data &&
+    'repository_id' in data &&
+    'status' in data &&
+    typeof (data as TriggerAnalysisResponse).analysis_run_id === 'string' &&
+    typeof (data as TriggerAnalysisResponse).repository_id === 'string' &&
+    typeof (data as TriggerAnalysisResponse).status === 'string'
+  );
+}
+
 export function useTriggerAnalysis() {
   return useSWRMutation<TriggerAnalysisResponse, Error, string, TriggerAnalysisRequest>(
     'trigger-analysis',
@@ -414,9 +430,16 @@ export function useTriggerAnalysis() {
       });
       if (!response.ok) {
         const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-        throw new Error(error.detail || 'Failed to trigger analysis');
+        const errorDetail = typeof error === 'object' && error !== null && 'detail' in error
+          ? String(error.detail)
+          : 'Failed to trigger analysis';
+        throw new Error(errorDetail);
       }
-      return response.json();
+      const data: unknown = await response.json();
+      if (!isTriggerAnalysisResponse(data)) {
+        throw new Error('Invalid response format from analysis API');
+      }
+      return data;
     }
   );
 }
@@ -776,7 +799,7 @@ export function useIssueProvenance(findingId: string | null, autoFetch: boolean 
 
   return useSWR<IssueOrigin>(
     isAuthReady && findingId && shouldFetch ? ['issue-provenance', findingId] : null,
-    () => historicalApi.getIssueOrigin(findingId!),
+    ([, id]: [string, string]) => historicalApi.getIssueOrigin(id),
     {
       // Provenance queries can be slow (10-20s), cache aggressively
       revalidateOnFocus: false,
@@ -807,7 +830,7 @@ export function useGitHistoryStatus(repositoryId: string | null) {
 
   return useSWR<GitHistoryStatus>(
     isAuthReady && repositoryId ? ['git-history-status', repositoryId] : null,
-    () => historicalApi.getGitHistoryStatus(repositoryId!),
+    ([, repoId]: [string, string]) => historicalApi.getGitHistoryStatus(repoId),
     {
       revalidateOnFocus: false,
     }
@@ -831,7 +854,7 @@ export function useCommitHistory(
 
   return useSWR<CommitHistoryResponse>(
     isAuthReady && repositoryId ? ['commit-history', repositoryId, limit, offset] : null,
-    () => historicalApi.getCommitHistory(repositoryId!, limit, offset),
+    ([, repoId, lim, off]: [string, string, number, number]) => historicalApi.getCommitHistory(repoId, lim, off),
     {
       revalidateOnFocus: false,
     }
@@ -867,7 +890,7 @@ export function useCommit(repositoryId: string | null, commitSha: string | null)
 
   return useSWR(
     isAuthReady && repositoryId && commitSha ? ['commit', repositoryId, commitSha] : null,
-    () => historicalApi.getCommit(repositoryId!, commitSha!),
+    ([, repoId, sha]: [string, string, string]) => historicalApi.getCommit(repoId, sha),
     {
       revalidateOnFocus: false,
       dedupingInterval: 300000, // 5 minutes - commit data is immutable
@@ -902,7 +925,7 @@ export function useBackfillStatus(jobId: string | null) {
 
   return useSWR<BackfillJobStatus>(
     isAuthReady && jobId ? ['backfill-status', jobId] : null,
-    () => historicalApi.getBackfillStatus(jobId!),
+    ([, id]: [string, string]) => historicalApi.getBackfillStatus(id),
     {
       refreshInterval: (data) => {
         if (!data) return 3000;

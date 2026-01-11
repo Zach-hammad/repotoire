@@ -60,6 +60,49 @@ export interface ParsedError {
 }
 
 /**
+ * Type guard to check if an object has an error_code property.
+ */
+function hasErrorCode(obj: unknown): obj is { error_code: string; action?: string } {
+  return (
+    typeof obj === 'object' &&
+    obj !== null &&
+    'error_code' in obj &&
+    typeof (obj as { error_code: unknown }).error_code === 'string'
+  );
+}
+
+/**
+ * Type guard to check if an object matches ApiErrorResponse shape.
+ */
+function isApiErrorResponse(obj: unknown): obj is ApiErrorResponse {
+  if (typeof obj !== 'object' || obj === null) {
+    return false;
+  }
+  const candidate = obj as Record<string, unknown>;
+  // ApiErrorResponse can have any of these optional fields
+  return (
+    candidate.detail !== undefined ||
+    candidate.message !== undefined ||
+    candidate.error !== undefined ||
+    candidate.error_code !== undefined
+  );
+}
+
+/**
+ * Type guard to check if detail is a nested error object with error_code.
+ */
+function isNestedDetailObject(
+  detail: unknown
+): detail is { error_code: string; detail?: string; action?: string } {
+  return (
+    typeof detail === 'object' &&
+    detail !== null &&
+    'error_code' in detail &&
+    typeof (detail as { error_code: unknown }).error_code === 'string'
+  );
+}
+
+/**
  * Parse any error into a structured error with user-friendly messaging.
  *
  * @example
@@ -82,18 +125,18 @@ export function parseError(error: unknown): ParsedError {
   // Extract error code from API response if available
   if (error instanceof ApiClientError) {
     status = error.status;
-    const details = error.details as ApiErrorResponse | undefined;
+    const details = error.details;
 
     // Check if API returned a structured error with error_code
-    if (details) {
+    if (isApiErrorResponse(details)) {
       // Handle nested detail object
-      const detailObj = typeof details.detail === 'object' ? details.detail : null;
+      const detailObj = isNestedDetailObject(details.detail) ? details.detail : null;
 
-      if (detailObj?.error_code) {
+      if (detailObj) {
         errorCode = detailObj.error_code as ErrorCode;
         customMessage = detailObj.detail;
         customAction = detailObj.action;
-      } else if (details.error_code) {
+      } else if (hasErrorCode(details)) {
         errorCode = details.error_code as ErrorCode;
         customAction = details.action;
       } else {
@@ -101,11 +144,12 @@ export function parseError(error: unknown): ParsedError {
         errorCode = getErrorCodeFromStatus(status);
       }
 
-      // Extract message from various formats
+      // Extract message from various formats (cast to ApiErrorResponse since we're inside that branch)
       if (!customMessage) {
-        customMessage = typeof details.detail === 'string'
-          ? details.detail
-          : details.message || details.error;
+        const apiDetails = details as ApiErrorResponse;
+        customMessage = typeof apiDetails.detail === 'string'
+          ? apiDetails.detail
+          : apiDetails.message || apiDetails.error;
       }
     } else {
       errorCode = getErrorCodeFromStatus(status);
@@ -117,13 +161,14 @@ export function parseError(error: unknown): ParsedError {
   } else if (typeof error === 'string') {
     errorCode = getErrorCodeFromMessage(error);
     customMessage = error;
-  } else if (error && typeof error === 'object') {
-    const errorObj = error as ApiErrorResponse;
-    if (errorObj.error_code) {
-      errorCode = errorObj.error_code as ErrorCode;
+  } else if (isApiErrorResponse(error)) {
+    if (hasErrorCode(error)) {
+      errorCode = error.error_code as ErrorCode;
     }
-    customMessage = errorObj.detail as string || errorObj.message || errorObj.error;
-    customAction = errorObj.action;
+    // Use apiError since hasErrorCode may have narrowed the type
+    const apiError = error as ApiErrorResponse;
+    customMessage = typeof apiError.detail === 'string' ? apiError.detail : apiError.message || apiError.error;
+    customAction = apiError.action;
   }
 
   const errorInfo = getErrorInfo(errorCode);

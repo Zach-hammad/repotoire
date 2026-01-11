@@ -1106,9 +1106,12 @@ class ToolExecutor:
         tool_name: str,
         timeout: int,
     ) -> ToolExecutorResult:
-        """Execute tool locally (fallback when sandbox unavailable).
+        """Execute tool locally using async subprocess (fallback when sandbox unavailable).
 
         WARNING: This exposes the full repository including secrets to the tool.
+
+        Uses asyncio.create_subprocess_shell to avoid blocking the event loop
+        during subprocess execution.
 
         Args:
             repo_path: Path to repository
@@ -1119,28 +1122,51 @@ class ToolExecutor:
         Returns:
             ToolExecutorResult with execution details
         """
-        import subprocess
         import time
 
         start_time = time.time()
 
         try:
-            result = subprocess.run(
+            # Use async subprocess to avoid blocking the event loop
+            process = await asyncio.create_subprocess_shell(
                 command,
-                shell=True,
-                capture_output=True,
-                text=True,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
                 cwd=repo_path,
-                timeout=timeout,
             )
+
+            try:
+                # Wait for process with timeout
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=timeout,
+                )
+                stdout = stdout_bytes.decode("utf-8", errors="replace")
+                stderr = stderr_bytes.decode("utf-8", errors="replace")
+                returncode = process.returncode or 0
+
+            except asyncio.TimeoutError:
+                # Kill the process on timeout
+                process.kill()
+                await process.wait()  # Clean up zombie process
+                duration_ms = int((time.time() - start_time) * 1000)
+                return ToolExecutorResult(
+                    success=False,
+                    stdout="",
+                    stderr=f"Local tool execution timed out after {timeout} seconds",
+                    exit_code=-1,
+                    duration_ms=duration_ms,
+                    tool_name=tool_name,
+                    timed_out=True,
+                )
 
             duration_ms = int((time.time() - start_time) * 1000)
 
             return ToolExecutorResult(
-                success=result.returncode == 0,
-                stdout=result.stdout,
-                stderr=result.stderr,
-                exit_code=result.returncode,
+                success=returncode == 0,
+                stdout=stdout,
+                stderr=stderr,
+                exit_code=returncode,
                 duration_ms=duration_ms,
                 tool_name=tool_name,
                 files_uploaded=0,
@@ -1150,16 +1176,17 @@ class ToolExecutor:
                 timed_out=False,
             )
 
-        except subprocess.TimeoutExpired:
+        except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
+            logger.error(f"Local tool execution failed: {e}", exc_info=True)
             return ToolExecutorResult(
                 success=False,
                 stdout="",
-                stderr=f"Local tool execution timed out after {timeout} seconds",
+                stderr=f"Local tool execution failed: {e}",
                 exit_code=-1,
                 duration_ms=duration_ms,
                 tool_name=tool_name,
-                timed_out=True,
+                timed_out=False,
             )
 
     async def _upload_repository(

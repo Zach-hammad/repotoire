@@ -80,6 +80,29 @@ async def _get_redis_client() -> aioredis.Redis | None:
         return None
 
 
+def _require_admin_org_id(admin: ClerkUser) -> str:
+    """Verify admin has an org_id and return it.
+
+    Security: Admins without an org_id should not be able to perform
+    any organization-scoped operations.
+
+    Args:
+        admin: The authenticated admin user
+
+    Returns:
+        The admin's org_id
+
+    Raises:
+        HTTPException: If admin.org_id is None
+    """
+    if not admin.org_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required for this operation",
+        )
+    return admin.org_id
+
+
 def _get_original_limit(tier: PlanTier, override_type: QuotaOverrideType) -> int:
     """Get the original tier limit for an override type."""
     quota = get_quota_for_tier(tier)
@@ -144,9 +167,10 @@ async def create_override(
             detail=f"Organization not found: {body.organization_id}",
         )
 
-    # Security: Verify admin belongs to the target organization
+    # Security: Verify admin has org context and belongs to the target organization
     # Admin can only create overrides for their own organization
-    if admin.org_id and org.clerk_org_id != admin.org_id:
+    admin_org_id = _require_admin_org_id(admin)
+    if org.clerk_org_id != admin_org_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot create quota override for another organization",
@@ -206,24 +230,26 @@ async def list_overrides(
 
     Note: Admin can only view overrides for their own organization.
     """
+    # Security: Require admin has org context
+    admin_org_id = _require_admin_org_id(admin)
+
     # Security: If organization_id provided, verify admin belongs to that org
     # If not provided, default to admin's own organization
     if organization_id:
         org = await _get_organization(db, organization_id)
-        if org and admin.org_id and org.clerk_org_id != admin.org_id:
+        if org and org.clerk_org_id != admin_org_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Cannot view quota overrides for another organization",
             )
     else:
         # Default to admin's organization - find org by clerk_org_id
-        if admin.org_id:
-            result = await db.execute(
-                select(Organization).where(Organization.clerk_org_id == admin.org_id)
-            )
-            admin_org = result.scalar_one_or_none()
-            if admin_org:
-                organization_id = admin_org.id
+        result = await db.execute(
+            select(Organization).where(Organization.clerk_org_id == admin_org_id)
+        )
+        admin_org = result.scalar_one_or_none()
+        if admin_org:
+            organization_id = admin_org.id
 
     repo = QuotaOverrideRepository(db)
 
@@ -261,6 +287,9 @@ async def get_override(
 
     Note: Admin can only view overrides for their own organization.
     """
+    # Security: Require admin has org context
+    admin_org_id = _require_admin_org_id(admin)
+
     repo = QuotaOverrideRepository(db)
 
     try:
@@ -269,7 +298,7 @@ async def get_override(
         )
 
         # Security: Verify admin belongs to the override's organization
-        if admin.org_id and override.organization.clerk_org_id != admin.org_id:
+        if override.organization.clerk_org_id != admin_org_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Cannot view quota override for another organization",
@@ -301,6 +330,9 @@ async def revoke_override(
 
     Note: Admin can only revoke overrides for their own organization.
     """
+    # Security: Require admin has org context
+    admin_org_id = _require_admin_org_id(admin)
+
     # Get the admin's database user
     db_user = await _get_db_user(db, admin.user_id)
     if not db_user:
@@ -315,7 +347,7 @@ async def revoke_override(
         override_check = await repo_check.get_by_id_or_raise(
             override_id, include_relationships=True
         )
-        if admin.org_id and override_check.organization.clerk_org_id != admin.org_id:
+        if override_check.organization.clerk_org_id != admin_org_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Cannot revoke quota override for another organization",
@@ -371,6 +403,9 @@ async def get_active_overrides(
 
     Note: Admin can only view overrides for their own organization.
     """
+    # Security: Require admin has org context
+    admin_org_id = _require_admin_org_id(admin)
+
     # Verify organization exists
     org = await _get_organization(db, organization_id)
     if not org:
@@ -380,7 +415,7 @@ async def get_active_overrides(
         )
 
     # Security: Verify admin belongs to the target organization
-    if admin.org_id and org.clerk_org_id != admin.org_id:
+    if org.clerk_org_id != admin_org_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot view quota overrides for another organization",
@@ -414,6 +449,9 @@ async def get_override_history(
 
     Note: Admin can only view history for their own organization.
     """
+    # Security: Require admin has org context
+    admin_org_id = _require_admin_org_id(admin)
+
     # Verify organization exists
     org = await _get_organization(db, organization_id)
     if not org:
@@ -423,7 +461,7 @@ async def get_override_history(
         )
 
     # Security: Verify admin belongs to the target organization
-    if admin.org_id and org.clerk_org_id != admin.org_id:
+    if org.clerk_org_id != admin_org_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot view quota override history for another organization",

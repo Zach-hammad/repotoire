@@ -75,6 +75,8 @@ export function Pricing() {
 
           <div
             className={`inline-flex items-center gap-1 bg-muted rounded-full p-1 opacity-0 ${isVisible ? "animate-fade-up delay-200" : ""}`}
+            role="radiogroup"
+            aria-label="Billing frequency"
           >
             <button
               onClick={() => setAnnual(false)}
@@ -82,6 +84,9 @@ export function Pricing() {
                 "px-4 py-2 rounded-full text-sm font-medium transition-colors",
                 !annual ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
               )}
+              role="radio"
+              aria-checked={!annual}
+              aria-label="Monthly billing"
             >
               Monthly
             </button>
@@ -91,8 +96,11 @@ export function Pricing() {
                 "px-4 py-2 rounded-full text-sm font-medium transition-colors",
                 annual ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
               )}
+              role="radio"
+              aria-checked={annual}
+              aria-label="Annual billing, 20% discount"
             >
-              Annual <span className="text-primary ml-1">-20%</span>
+              Annual <span className="text-primary ml-1" aria-hidden="true">-20%</span>
             </button>
           </div>
         </div>
