@@ -30,6 +30,7 @@ def upgrade() -> None:
         "findings",
         ["analysis_run_id", "severity"],
         unique=False,
+        if_not_exists=True,
     )
 
     op.create_index(
@@ -37,6 +38,7 @@ def upgrade() -> None:
         "findings",
         ["analysis_run_id", "detector"],
         unique=False,
+        if_not_exists=True,
     )
 
     op.create_index(
@@ -44,6 +46,7 @@ def upgrade() -> None:
         "findings",
         ["analysis_run_id", "status"],
         unique=False,
+        if_not_exists=True,
     )
 
     # Analysis runs table indexes for _get_latest_analysis_run_ids
@@ -52,52 +55,72 @@ def upgrade() -> None:
         "analysis_runs",
         ["repository_id", "status"],
         unique=False,
+        if_not_exists=True,
     )
 
     # Composite index with DESC ordering for finding latest completed run
     op.execute("""
-        CREATE INDEX ix_analysis_runs_repo_completed
+        CREATE INDEX IF NOT EXISTS ix_analysis_runs_repo_completed
         ON analysis_runs (repository_id, completed_at DESC)
         WHERE status = 'completed'
     """)
 
     # Repositories table index for listing by org
     op.execute("""
-        CREATE INDEX ix_repositories_org_created
+        CREATE INDEX IF NOT EXISTS ix_repositories_org_created
         ON repositories (organization_id, created_at DESC)
     """)
 
-    # Webhook events table index for idempotency checks
-    op.create_index(
-        "ix_webhook_events_event_id_source",
-        "webhook_events",
-        ["event_id", "source"],
-        unique=False,
-    )
-
-    # Audit logs table index for querying by org and time
+    # Webhook events table index for idempotency checks (only if table exists)
     op.execute("""
-        CREATE INDEX ix_audit_logs_org_created
-        ON audit_logs (organization_id, created_at DESC)
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'webhook_events') THEN
+                CREATE INDEX IF NOT EXISTS ix_webhook_events_event_id_source
+                ON webhook_events (event_id, source);
+            END IF;
+        END $$;
+    """)
+
+    # Audit logs table index for querying by org and time (only if columns exist)
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'audit_logs'
+                AND column_name = 'created_at'
+            ) THEN
+                CREATE INDEX IF NOT EXISTS ix_audit_logs_org_created
+                ON audit_logs (organization_id, created_at DESC);
+            END IF;
+        END $$;
     """)
 
 
 def downgrade() -> None:
     """Remove performance indexes."""
     # Drop audit logs index
-    op.drop_index("ix_audit_logs_org_created", table_name="audit_logs")
+    op.execute("DROP INDEX IF EXISTS ix_audit_logs_org_created")
 
-    # Drop webhook events index
-    op.drop_index("ix_webhook_events_event_id_source", table_name="webhook_events")
+    # Drop webhook events index (only if table exists)
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'webhook_events') THEN
+                DROP INDEX IF EXISTS ix_webhook_events_event_id_source;
+            END IF;
+        END $$;
+    """)
 
     # Drop repositories index
-    op.drop_index("ix_repositories_org_created", table_name="repositories")
+    op.execute("DROP INDEX IF EXISTS ix_repositories_org_created")
 
     # Drop analysis runs indexes
-    op.drop_index("ix_analysis_runs_repo_completed", table_name="analysis_runs")
-    op.drop_index("ix_analysis_runs_repo_status", table_name="analysis_runs")
+    op.execute("DROP INDEX IF EXISTS ix_analysis_runs_repo_completed")
+    op.execute("DROP INDEX IF EXISTS ix_analysis_runs_repo_status")
 
     # Drop findings indexes
-    op.drop_index("ix_findings_run_status", table_name="findings")
-    op.drop_index("ix_findings_run_detector", table_name="findings")
-    op.drop_index("ix_findings_run_severity", table_name="findings")
+    op.execute("DROP INDEX IF EXISTS ix_findings_run_status")
+    op.execute("DROP INDEX IF EXISTS ix_findings_run_detector")
+    op.execute("DROP INDEX IF EXISTS ix_findings_run_severity")
