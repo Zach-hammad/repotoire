@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from starlette.requests import Request
 
 from repotoire.api.shared.auth import ClerkUser
 from repotoire.db.models import (
@@ -108,6 +109,38 @@ def mock_db():
     """Create a mock async database session."""
     db = AsyncMock()
     return db
+
+
+@pytest.fixture
+def mock_http_request():
+    """Create a real Request object for rate limiting tests."""
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/team/invite",
+        "query_string": b"",
+        "headers": [],
+        "server": ("localhost", 8000),
+        "client": ("127.0.0.1", 12345),
+        "app": MagicMock(),  # Required by slowapi
+    }
+    req = Request(scope)
+    # Add state for slowapi rate limiting
+    req.state.view_rate_limit = None
+    return req
+
+
+@pytest.fixture
+def disable_rate_limit():
+    """Disable rate limiting for tests by patching the limiter."""
+    # Create a passthrough decorator that just calls the function
+    def passthrough_limit(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
+    with patch("repotoire.api.v1.routes.team.team_limiter.limit", passthrough_limit):
+        yield
 
 
 # =============================================================================
@@ -358,7 +391,7 @@ class TestDuplicateInvitePrevention:
 
     @pytest.mark.asyncio
     async def test_duplicate_pending_invite_rejected(
-        self, mock_db, mock_clerk_user, mock_db_user, mock_organization, mock_pending_invite
+        self, mock_db, mock_http_request, mock_clerk_user, mock_db_user, mock_organization, mock_pending_invite
     ):
         """Test that duplicate pending invite raises 400 error."""
         from fastapi import HTTPException
@@ -396,7 +429,7 @@ class TestDuplicateInvitePrevention:
             ]
         )
 
-        request = SendInviteRequest(email="invitee@example.com")
+        invite_request = SendInviteRequest(email="invitee@example.com")
 
         with patch(
             "repotoire.api.v1.routes.team.get_user_org",
@@ -423,8 +456,10 @@ class TestDuplicateInvitePrevention:
             )
 
             with pytest.raises(HTTPException) as exc_info:
+                # Use keyword args matching the renamed parameters
                 await send_invite(
-                    request=request,
+                    request=mock_http_request,
+                    invite_data=invite_request,
                     user=mock_clerk_user,
                     session=mock_db,
                 )
@@ -443,7 +478,7 @@ class TestSendInvite:
 
     @pytest.mark.asyncio
     async def test_send_invite_success(
-        self, mock_db, mock_clerk_user, mock_db_user, mock_organization
+        self, mock_db, mock_http_request, mock_clerk_user, mock_db_user, mock_organization
     ):
         """Test successful invite creation."""
         from repotoire.api.v1.routes.team import send_invite, SendInviteRequest
@@ -462,7 +497,7 @@ class TestSendInvite:
         mock_db.commit = AsyncMock()
         mock_db.refresh = AsyncMock()
 
-        request = SendInviteRequest(email="newuser@example.com", role=MemberRole.MEMBER)
+        invite_request = SendInviteRequest(email="newuser@example.com", role=MemberRole.MEMBER)
 
         with patch(
             "repotoire.api.v1.routes.team.get_user_org",
@@ -490,8 +525,10 @@ class TestSendInvite:
 
             mock_db.refresh.side_effect = mock_refresh_impl
 
+            # Use keyword args matching the renamed parameters
             response = await send_invite(
-                request=request,
+                request=mock_http_request,
+                invite_data=invite_request,
                 user=mock_clerk_user,
                 session=mock_db,
             )
@@ -504,13 +541,13 @@ class TestSendInvite:
 
     @pytest.mark.asyncio
     async def test_send_invite_non_admin_rejected(
-        self, mock_db, mock_clerk_user, mock_organization
+        self, mock_db, mock_http_request, mock_clerk_user, mock_organization
     ):
         """Test that non-admin users cannot send invites."""
         from fastapi import HTTPException
         from repotoire.api.v1.routes.team import send_invite, SendInviteRequest
 
-        request = SendInviteRequest(email="newuser@example.com")
+        invite_request = SendInviteRequest(email="newuser@example.com")
 
         with patch(
             "repotoire.api.v1.routes.team.get_user_org",
@@ -522,8 +559,10 @@ class TestSendInvite:
             return_value=False,  # Not an admin
         ):
             with pytest.raises(HTTPException) as exc_info:
+                # Use keyword args matching the renamed parameters
                 await send_invite(
-                    request=request,
+                    request=mock_http_request,
+                    invite_data=invite_request,
                     user=mock_clerk_user,
                     session=mock_db,
                 )
@@ -533,7 +572,7 @@ class TestSendInvite:
 
     @pytest.mark.asyncio
     async def test_send_invite_existing_member_rejected(
-        self, mock_db, mock_clerk_user, mock_db_user, mock_organization
+        self, mock_db, mock_http_request, mock_clerk_user, mock_db_user, mock_organization
     ):
         """Test that inviting existing member raises 400 error."""
         from fastapi import HTTPException
@@ -551,7 +590,7 @@ class TestSendInvite:
 
         mock_db.execute = AsyncMock(return_value=mock_member_result)
 
-        request = SendInviteRequest(email="existing@example.com")
+        invite_request = SendInviteRequest(email="existing@example.com")
 
         with patch(
             "repotoire.api.v1.routes.team.get_user_org",
@@ -563,8 +602,10 @@ class TestSendInvite:
             return_value=True,
         ):
             with pytest.raises(HTTPException) as exc_info:
+                # Use keyword args matching the renamed parameters
                 await send_invite(
-                    request=request,
+                    request=mock_http_request,
+                    invite_data=invite_request,
                     user=mock_clerk_user,
                     session=mock_db,
                 )

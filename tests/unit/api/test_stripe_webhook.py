@@ -285,8 +285,8 @@ class TestSendWelcomeEmail:
                 await _send_welcome_email(mock_db, "user_123")
 
                 mock_email_service.send_welcome.assert_called_once_with(
-                    to="owner@example.com",
-                    name="Test Owner",
+                    user_email="owner@example.com",
+                    user_name="Test Owner",
                 )
 
     @pytest.mark.asyncio

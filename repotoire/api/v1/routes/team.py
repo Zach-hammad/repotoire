@@ -139,8 +139,8 @@ async def check_user_is_admin(
 @router.post("/invite", response_model=InviteResponse)
 @team_limiter.limit("10/hour")
 async def send_invite(
-    http_request: Request,  # Required by slowapi for rate limiting
-    request: SendInviteRequest,
+    request: Request,  # Required by slowapi for rate limiting (must be named 'request')
+    invite_data: SendInviteRequest,
     user: ClerkUser = Depends(require_org),
     session: AsyncSession = Depends(get_db),
 ) -> InviteResponse:
@@ -171,7 +171,7 @@ async def send_invite(
         select(OrganizationMembership)
         .join(User)
         .where(
-            User.email == request.email,
+            User.email == invite_data.email,
             OrganizationMembership.organization_id == org.id,
         )
     )
@@ -184,7 +184,7 @@ async def send_invite(
     # Check for existing pending invite
     existing_invite = await session.execute(
         select(OrganizationInvite).where(
-            OrganizationInvite.email == request.email,
+            OrganizationInvite.email == invite_data.email,
             OrganizationInvite.organization_id == org.id,
             OrganizationInvite.status == InviteStatus.PENDING,
         )
@@ -203,10 +203,10 @@ async def send_invite(
     expires_at = datetime.now(timezone.utc) + timedelta(days=INVITE_EXPIRY_DAYS)
 
     invite = OrganizationInvite(
-        email=request.email,
+        email=invite_data.email,
         organization_id=org.id,
         invited_by_id=db_user.id if db_user else None,
-        role=request.role,
+        role=invite_data.role,
         token=token,
         status=InviteStatus.PENDING,
         expires_at=expires_at,
@@ -222,12 +222,12 @@ async def send_invite(
 
         email_service = get_email_service()
         await email_service.send_team_invite(
-            to=request.email,
+            to=invite_data.email,
             org_name=org.name,
             inviter_name=db_user.name if db_user else "A team member",
             invite_url=invite_url,
         )
-        logger.info(f"Sent team invite to {request.email} for org {org.slug}")
+        logger.info(f"Sent team invite to {invite_data.email} for org {org.slug}")
     except Exception as e:
         logger.error(f"Failed to send invite email: {e}")
         # Don't fail the request, invite is still created
