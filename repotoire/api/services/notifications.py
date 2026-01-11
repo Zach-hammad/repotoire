@@ -15,6 +15,7 @@ import os
 from typing import Any, Optional
 from uuid import UUID
 
+from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +25,7 @@ from repotoire.db.models import (
     NotificationType,
     User,
 )
+from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
 from repotoire.services.email import EmailService
 
@@ -567,13 +569,13 @@ async def notify_health_regression(
 _notification_service: Optional[NotificationService] = None
 
 
-def get_notification_service(session: AsyncSession) -> NotificationService:
-    """Create a notification service with the given session.
+def get_notification_service(db: AsyncSession = Depends(get_db)) -> NotificationService:
+    """FastAPI dependency that creates a notification service.
 
     Args:
-        session: Database session
+        db: Database session (injected by FastAPI)
 
     Returns:
         NotificationService instance
     """
-    return NotificationService(session)
+    return NotificationService(db)
