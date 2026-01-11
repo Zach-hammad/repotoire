@@ -13,7 +13,6 @@ const STATIC_CACHE_NAME = 'repotoire-static-v1';
 // Static assets to cache on install (only files that are guaranteed to exist)
 const STATIC_ASSETS = [
   '/favicon.ico',
-  '/manifest.json',
 ];
 
 // API routes that should use network-first

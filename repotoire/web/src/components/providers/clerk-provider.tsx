@@ -19,6 +19,8 @@ export function ClerkProvider({ children }: ClerkProviderProps) {
 
   return (
     <BaseClerkProvider
+      signInFallbackRedirectUrl="/dashboard"
+      signUpFallbackRedirectUrl="/dashboard"
       appearance={{
         baseTheme: isDark ? dark : undefined,
         variables: {
