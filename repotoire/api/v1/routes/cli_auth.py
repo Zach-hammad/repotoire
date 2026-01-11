@@ -56,6 +56,13 @@ api_key_limiter = Limiter(
     storage_uri=os.getenv("REDIS_URL", "memory://"),
 )
 
+# Rate limiter for CLI auth flow (prevents abuse of OAuth flow)
+# 30 auth attempts per minute, 200 per hour per IP
+cli_auth_limiter = Limiter(
+    key_func=get_remote_address,
+    storage_uri=os.getenv("REDIS_URL", "memory://"),
+)
+
 router = APIRouter(prefix="/cli", tags=["cli-auth"])
 
 
@@ -228,6 +235,7 @@ def get_features_for_plan(plan: str) -> List[str]:
 
 
 @router.post("/auth/init", response_model=CLIAuthInitResponse)
+@cli_auth_limiter.limit("30/minute;200/hour")
 async def init_cli_auth(
     request: CLIAuthInitRequest,
     state_store: StateTokenStore = Depends(get_state_store),
@@ -279,6 +287,7 @@ async def init_cli_auth(
 
 
 @router.post("/auth/token", response_model=CLITokenResponse)
+@cli_auth_limiter.limit("30/minute;200/hour")
 async def exchange_cli_token(
     request: CLITokenExchangeRequest,
     db: AsyncSession = Depends(get_db),
@@ -480,6 +489,7 @@ async def cli_auth_callback(
 
 
 @router.post("/auth/refresh", response_model=CLITokenResponse)
+@cli_auth_limiter.limit("60/minute;300/hour")
 async def refresh_cli_token(
     request: CLIRefreshRequest,
     db: AsyncSession = Depends(get_db),
@@ -572,6 +582,7 @@ async def refresh_cli_token(
 
 
 @router.post("/auth/switch-org", response_model=CLITokenResponse)
+@cli_auth_limiter.limit("30/minute;200/hour")
 async def switch_cli_org(
     request: CLISwitchOrgRequest,
     user: ClerkUser = Depends(get_current_user),

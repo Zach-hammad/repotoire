@@ -45,6 +45,18 @@ from .stripe_service import (
     StripeService,
     price_id_to_tier,
 )
+from .circuit_breaker import (
+    CircuitBreaker,
+    CircuitOpenError,
+    CircuitState,
+    circuit_breaker,
+    get_circuit_breaker,
+    get_all_circuit_breakers,
+    get_openai_circuit_breaker,
+    get_stripe_circuit_breaker,
+    get_github_circuit_breaker,
+    get_clerk_circuit_breaker,
+)
 
 __all__ = [
     "TokenEncryption",
@@ -87,4 +99,15 @@ __all__ = [
     "record_consent",
     "schedule_deletion",
     "update_export_status",
+    # Circuit Breaker
+    "CircuitBreaker",
+    "CircuitOpenError",
+    "CircuitState",
+    "circuit_breaker",
+    "get_circuit_breaker",
+    "get_all_circuit_breakers",
+    "get_openai_circuit_breaker",
+    "get_stripe_circuit_breaker",
+    "get_github_circuit_breaker",
+    "get_clerk_circuit_breaker",
 ]

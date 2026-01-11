@@ -4,6 +4,8 @@ import { Plus_Jakarta_Sans, Instrument_Serif, IBM_Plex_Mono } from "next/font/go
 import { ThemeProvider } from "next-themes"
 import { ClerkProvider } from "@/components/providers/clerk-provider"
 import { CookieConsent } from "@/components/cookie-consent"
+import { OfflineIndicator } from "@/components/offline-indicator"
+import { ServiceWorkerRegistration } from "@/components/service-worker-registration"
 import { Toaster } from "sonner"
 import "./globals.css"
 
@@ -77,6 +79,8 @@ export default function RootLayout({
           <ClerkProvider>
             {children}
             <CookieConsent />
+            <OfflineIndicator />
+            <ServiceWorkerRegistration />
             <Toaster richColors position="top-right" />
           </ClerkProvider>
         </ThemeProvider>

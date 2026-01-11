@@ -82,7 +82,9 @@ async def get_current_user(
         authorized_parties = [p.strip() for p in authorized_parties if p.strip()]
 
         # Authenticate the request
-        request_state = clerk.authenticate_request(
+        # Run in thread to avoid blocking event loop (sync SDK)
+        request_state = await asyncio.to_thread(
+            clerk.authenticate_request,
             httpx_request,
             AuthenticateRequestOptions(
                 authorized_parties=authorized_parties if authorized_parties else None,

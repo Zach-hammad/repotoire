@@ -1684,12 +1684,19 @@ async def clerk_webhook(
 
     event_type = event.get("type")
     data = event.get("data", {})
-    svix_id = headers.get("svix-id")
+    svix_id = headers.get("svix-id", "")
 
     logger.info(f"Received Clerk webhook: {event_type}")
     logger.info(f"Clerk webhook data keys: {list(data.keys())}")
     if "email_addresses" in data:
         logger.info(f"Email addresses: {data.get('email_addresses')}")
+
+    # Use svix-id as the unique event identifier for idempotency
+    # svix-id is guaranteed unique per webhook delivery by Svix
+    if svix_id:
+        if not await try_claim_event(db, svix_id, "clerk", event_type):
+            logger.info(f"Skipping duplicate Clerk event: {svix_id}")
+            return {"status": "ok", "message": "duplicate event skipped"}
 
     # Create audit log entry for the Clerk event
     audit_service = get_audit_service()
@@ -1700,40 +1707,55 @@ async def clerk_webhook(
         svix_id=svix_id,
     )
 
-    # Route to appropriate handler
-    if event_type == "user.created":
-        await handle_user_created(db, data)
+    # Route to appropriate handler with error handling
+    try:
+        if event_type == "user.created":
+            await handle_user_created(db, data)
 
-    elif event_type == "user.updated":
-        await handle_user_updated(db, data)
+        elif event_type == "user.updated":
+            await handle_user_updated(db, data)
 
-    elif event_type == "user.deleted":
-        await handle_user_deleted(db, data)
+        elif event_type == "user.deleted":
+            await handle_user_deleted(db, data)
 
-    elif event_type == "session.created":
-        await handle_session_created(db, data)
+        elif event_type == "session.created":
+            await handle_session_created(db, data)
 
-    elif event_type == "organization.created":
-        await handle_organization_created(db, data)
+        elif event_type == "organization.created":
+            await handle_organization_created(db, data)
 
-    elif event_type == "organization.updated":
-        await handle_organization_updated(db, data)
+        elif event_type == "organization.updated":
+            await handle_organization_updated(db, data)
 
-    elif event_type == "organization.deleted":
-        await handle_organization_deleted(db, data)
+        elif event_type == "organization.deleted":
+            await handle_organization_deleted(db, data)
 
-    # Clerk Billing events
-    elif event_type == "subscription.created":
-        await handle_clerk_subscription_created(db, data)
+        # Clerk Billing events
+        elif event_type == "subscription.created":
+            await handle_clerk_subscription_created(db, data)
 
-    elif event_type == "subscription.updated":
-        await handle_clerk_subscription_updated(db, data)
+        elif event_type == "subscription.updated":
+            await handle_clerk_subscription_updated(db, data)
 
-    elif event_type == "subscription.deleted":
-        await handle_clerk_subscription_deleted(db, data)
+        elif event_type == "subscription.deleted":
+            await handle_clerk_subscription_deleted(db, data)
 
-    else:
-        logger.debug(f"Unhandled Clerk event type: {event_type}")
+        else:
+            logger.debug(f"Unhandled Clerk event type: {event_type}")
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Log error and return 500 to allow Clerk to retry
+        logger.error(
+            f"Error processing Clerk webhook {event_type}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error processing webhook: {event_type}",
+        )
 
     await db.commit()
 

@@ -305,6 +305,12 @@ async def _user_has_repo_access(
     return repo.organization_id == org.id
 
 
+# Simple in-memory cache for latest analysis run IDs
+# Key: (org_id, repo_id or None) -> (timestamp, list[UUID])
+_latest_runs_cache: dict[tuple[UUID, Optional[UUID]], tuple[float, list[UUID]]] = {}
+_CACHE_TTL_SECONDS = 30.0  # Cache for 30 seconds
+
+
 async def _get_latest_analysis_run_ids(
     session: AsyncSession, org: Organization, repository_id: Optional[UUID] = None
 ) -> list[UUID]:
@@ -312,33 +318,77 @@ async def _get_latest_analysis_run_ids(
 
     This ensures we only count findings from the most recent analysis, not duplicates
     from multiple analysis runs on the same repo.
+
+    Results are cached for 30 seconds to avoid redundant queries.
     """
-    # Subquery to get the latest completed analysis run per repository
-    subq = (
-        select(
-            AnalysisRun.repository_id,
-            func.max(AnalysisRun.completed_at).label("max_completed")
-        )
-        .join(Repository, AnalysisRun.repository_id == Repository.id)
-        .where(Repository.organization_id == org.id)
-        .where(AnalysisRun.status == "completed")
-    )
+    import time as time_module
 
+    cache_key = (org.id, repository_id)
+    now = time_module.monotonic()
+
+    # Check cache
+    if cache_key in _latest_runs_cache:
+        cached_time, cached_result = _latest_runs_cache[cache_key]
+        if now - cached_time < _CACHE_TTL_SECONDS:
+            return cached_result
+
+    # Optimized query using window functions instead of subquery join
+    # This is more efficient as it avoids a self-join
+    from sqlalchemy import literal_column
+    from sqlalchemy.sql import text
+
+    # Use raw SQL for window function which is more efficient
+    # This gets the latest completed run per repository in a single pass
     if repository_id:
-        subq = subq.where(AnalysisRun.repository_id == repository_id)
+        query = text("""
+            SELECT ar.id
+            FROM analysis_runs ar
+            JOIN repositories r ON ar.repository_id = r.id
+            WHERE r.organization_id = :org_id
+              AND ar.repository_id = :repo_id
+              AND ar.status = 'completed'
+              AND ar.completed_at = (
+                  SELECT MAX(ar2.completed_at)
+                  FROM analysis_runs ar2
+                  WHERE ar2.repository_id = ar.repository_id
+                    AND ar2.status = 'completed'
+              )
+        """)
+        result = await session.execute(query, {"org_id": org.id, "repo_id": repository_id})
+    else:
+        query = text("""
+            WITH ranked_runs AS (
+                SELECT ar.id,
+                       ar.repository_id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY ar.repository_id
+                           ORDER BY ar.completed_at DESC
+                       ) as rn
+                FROM analysis_runs ar
+                JOIN repositories r ON ar.repository_id = r.id
+                WHERE r.organization_id = :org_id
+                  AND ar.status = 'completed'
+            )
+            SELECT id FROM ranked_runs WHERE rn = 1
+        """)
+        result = await session.execute(query, {"org_id": org.id})
 
-    subq = subq.group_by(AnalysisRun.repository_id).subquery()
+    run_ids = [row[0] for row in result.all()]
 
-    # Get the analysis run IDs that match the latest completed_at per repo
-    query = (
-        select(AnalysisRun.id)
-        .join(subq,
-              (AnalysisRun.repository_id == subq.c.repository_id) &
-              (AnalysisRun.completed_at == subq.c.max_completed))
-    )
+    # Update cache
+    _latest_runs_cache[cache_key] = (now, run_ids)
 
-    result = await session.execute(query)
-    return [row[0] for row in result.all()]
+    return run_ids
+
+
+def _clear_latest_runs_cache(org_id: Optional[UUID] = None) -> None:
+    """Clear the latest runs cache, optionally for a specific org."""
+    if org_id:
+        keys_to_delete = [k for k in _latest_runs_cache if k[0] == org_id]
+        for key in keys_to_delete:
+            del _latest_runs_cache[key]
+    else:
+        _latest_runs_cache.clear()
 
 
 # =============================================================================

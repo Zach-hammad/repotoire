@@ -10,7 +10,9 @@ Each version has its own OpenAPI documentation:
 - /api/v2/docs - v2 Swagger UI
 """
 
+import asyncio
 import os
+import signal
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any
@@ -99,6 +101,25 @@ limiter = Limiter(
 )
 
 
+class ActiveRequestsMiddleware(BaseHTTPMiddleware):
+    """Middleware to track active requests for graceful shutdown."""
+
+    async def dispatch(self, request: Request, call_next):
+        global _active_requests
+
+        # Increment active request count
+        async with _get_requests_lock():
+            _active_requests += 1
+
+        try:
+            response = await call_next(request)
+            return response
+        finally:
+            # Decrement active request count
+            async with _get_requests_lock():
+                _active_requests -= 1
+
+
 class CorrelationIdMiddleware(BaseHTTPMiddleware):
     """Middleware to add correlation IDs to all requests for distributed tracing."""
 
@@ -122,11 +143,71 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
             clear_context()
 
 
+# Global shutdown event for graceful shutdown
+_shutdown_event: asyncio.Event | None = None
+_active_requests: int = 0
+_active_requests_lock: asyncio.Lock | None = None
+
+
+def _get_shutdown_event() -> asyncio.Event:
+    """Get or create the shutdown event."""
+    global _shutdown_event
+    if _shutdown_event is None:
+        _shutdown_event = asyncio.Event()
+    return _shutdown_event
+
+
+def _get_requests_lock() -> asyncio.Lock:
+    """Get or create the active requests lock."""
+    global _active_requests_lock
+    if _active_requests_lock is None:
+        _active_requests_lock = asyncio.Lock()
+    return _active_requests_lock
+
+
+async def _wait_for_requests_to_complete(timeout: float = 30.0) -> None:
+    """Wait for all active requests to complete with timeout."""
+    global _active_requests
+    start_time = asyncio.get_event_loop().time()
+
+    while _active_requests > 0:
+        elapsed = asyncio.get_event_loop().time() - start_time
+        if elapsed >= timeout:
+            logger.warning(
+                f"Graceful shutdown timeout reached with {_active_requests} active requests"
+            )
+            break
+        logger.info(f"Waiting for {_active_requests} active requests to complete...")
+        await asyncio.sleep(0.5)
+
+    logger.info("All requests completed or timeout reached")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan events."""
+    """Application lifespan events with graceful shutdown."""
+    global _active_requests
+    _active_requests = 0
+
     # Startup
     logger.info("Starting Repotoire RAG API")
+
+    # Setup signal handlers for graceful shutdown
+    shutdown_event = _get_shutdown_event()
+    loop = asyncio.get_running_loop()
+
+    def handle_shutdown_signal(sig: signal.Signals) -> None:
+        logger.info(f"Received signal {sig.name}, initiating graceful shutdown...")
+        shutdown_event.set()
+
+    # Register signal handlers (only on Unix-like systems)
+    try:
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, handle_shutdown_signal, sig)
+        logger.info("Registered graceful shutdown signal handlers")
+    except NotImplementedError:
+        # Windows doesn't support add_signal_handler
+        logger.warning("Signal handlers not supported on this platform")
 
     # Validate environment configuration
     from repotoire.validation import EnvironmentConfigError, validate_environment
@@ -147,8 +228,21 @@ async def lifespan(app: FastAPI):
         raise RuntimeError(str(e)) from e
 
     yield
-    # Shutdown
-    logger.info("Shutting down Repotoire RAG API")
+
+    # Graceful Shutdown
+    logger.info("Initiating graceful shutdown...")
+
+    # Wait for active requests to complete
+    await _wait_for_requests_to_complete(timeout=30.0)
+
+    # Close database connections
+    try:
+        from repotoire.db.session import close_db
+        await close_db()
+    except Exception as e:
+        logger.warning(f"Error closing database connections: {e}")
+
+    logger.info("Repotoire RAG API shutdown complete")
 
 
 # OpenAPI tag metadata for root app endpoints (health checks, versioning info)
@@ -245,8 +339,15 @@ For full API documentation, visit `/api/v1/docs` or `/api/v2/docs`.
     lifespan=lifespan,
 )
 
-# Add correlation ID middleware first (before CORS)
+# Add active requests tracking middleware first (for graceful shutdown)
+app.add_middleware(ActiveRequestsMiddleware)
+
+# Add correlation ID middleware (before CORS)
 app.add_middleware(CorrelationIdMiddleware)
+
+# Add CSRF protection middleware (validates Origin on state-changing requests)
+from repotoire.api.shared.middleware import CSRFProtectionMiddleware
+app.add_middleware(CSRFProtectionMiddleware)
 
 # Add rate limit header middleware (adds X-RateLimit-* headers to all responses)
 app.add_middleware(RateLimitMiddleware)

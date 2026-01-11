@@ -1,11 +1,14 @@
 """API routes for code Q&A and search."""
 
 import asyncio
+import os
 import time
 from typing import Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from openai import AsyncOpenAI
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from repotoire.api.models import (
     ArchitectureResponse,
@@ -34,6 +37,13 @@ from repotoire.graph.tenant_factory import get_factory
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# Rate limiter for code AI endpoints (expensive operations)
+# Pro tier: 60/minute, Free tier: 10/minute
+code_ai_limiter = Limiter(
+    key_func=get_remote_address,
+    storage_uri=os.getenv("REDIS_URL", "memory://"),
+)
 
 
 def _handle_background_task_error(task: asyncio.Task) -> None:
@@ -128,6 +138,7 @@ def _retrieval_result_to_code_entity(result: RetrievalResult) -> CodeEntity:
         500: {"model": ErrorResponse, "description": "Internal server error"}
     }
 )
+@code_ai_limiter.limit("60/minute;500/hour")
 async def search_code(
     request: CodeSearchRequest,
     org: Organization = Depends(enforce_feature_for_api("api_access")),
@@ -195,6 +206,7 @@ async def search_code(
         500: {"model": ErrorResponse, "description": "Internal server error"}
     }
 )
+@code_ai_limiter.limit("30/minute;200/hour")
 async def ask_code_question(
     request: CodeAskRequest,
     org: Organization = Depends(enforce_feature_for_api("api_access")),

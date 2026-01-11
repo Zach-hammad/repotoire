@@ -6,8 +6,15 @@ request processing, including:
 - API versioning (version detection, headers)
 - Deprecation tracking (sunset headers)
 - Rate limiting with standard headers
+- CSRF protection
 """
 
+from .csrf import (
+    CSRFProtectionMiddleware,
+    extract_origin,
+    get_allowed_origins,
+    is_origin_allowed,
+)
 from .deprecation import (
     DeprecationInfo,
     DeprecationMiddleware,
@@ -80,4 +87,9 @@ __all__ = [
     "set_rate_limit_info",
     "RateLimitMiddleware",
     "RateLimitStateStore",
+    # CSRF protection
+    "CSRFProtectionMiddleware",
+    "extract_origin",
+    "get_allowed_origins",
+    "is_origin_allowed",
 ]
