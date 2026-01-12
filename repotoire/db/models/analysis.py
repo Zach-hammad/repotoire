@@ -28,6 +28,7 @@ class AnalysisStatus(str, enum.Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class AnalysisRun(Base, UUIDPrimaryKeyMixin):
