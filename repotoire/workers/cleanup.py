@@ -3,10 +3,13 @@
 This module handles:
 - Marking stuck analyses as failed (interrupted by deployment/crash)
 - Worker startup cleanup to catch analyses stuck from previous runs
+- Resetting Redis concurrency counters for stuck analyses
 """
 
+import os
 from datetime import datetime, timedelta, timezone
 
+import redis
 from celery import signals
 from sqlalchemy import text, update
 
@@ -17,8 +20,32 @@ from repotoire.workers.celery_app import celery_app
 
 logger = get_logger(__name__)
 
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+
 # How long an analysis can be "running" before we consider it stuck
 STUCK_ANALYSIS_THRESHOLD_MINUTES = 60
+
+
+def reset_concurrency_counters() -> int:
+    """Reset Redis concurrency counters for all organizations.
+
+    This clears any stale concurrency locks that weren't properly released
+    when analyses were interrupted.
+
+    Returns:
+        Number of counters reset.
+    """
+    try:
+        r = redis.from_url(REDIS_URL)
+        # Find and delete all concurrency counter keys
+        keys = list(r.scan_iter(match="analysis:concurrent:*"))
+        if keys:
+            r.delete(*keys)
+            logger.info(f"Reset {len(keys)} concurrency counter(s)")
+        return len(keys)
+    except redis.RedisError as e:
+        logger.warning(f"Failed to reset concurrency counters: {e}")
+        return 0
 
 
 def cleanup_stuck_analyses() -> int:
@@ -50,6 +77,8 @@ def cleanup_stuck_analyses() -> int:
                 f"Marked {len(stuck_ids)} stuck analyses as failed",
                 extra={"analysis_ids": [str(row[0]) for row in stuck_ids]},
             )
+            # Reset Redis concurrency counters since analyses were stuck
+            reset_concurrency_counters()
 
         return len(stuck_ids)
 
@@ -78,6 +107,9 @@ def on_worker_ready(sender, **kwargs):
     """
     logger.info("Worker starting - checking for stuck analyses...")
     try:
+        # Always reset concurrency counters on startup to clear stale locks
+        reset_concurrency_counters()
+
         count = cleanup_stuck_analyses()
         if count > 0:
             logger.info(f"Cleaned up {count} stuck analyses on worker startup")
