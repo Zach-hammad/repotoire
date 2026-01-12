@@ -86,9 +86,9 @@ celery_app.conf.update(
     # Each analysis can use 500MB+ memory, so limit concurrent tasks
     worker_concurrency=int(os.environ.get("CELERY_WORKER_CONCURRENCY", "2")),
     worker_prefetch_multiplier=1,  # Only prefetch 1 task per worker
-    # Task time limits
-    task_soft_time_limit=1800,  # 30 minutes soft limit (raises SoftTimeLimitExceeded)
-    task_time_limit=2100,  # 35 minutes hard limit (SIGKILL)
+    # Task time limits - increased for large repos with embedding generation
+    task_soft_time_limit=2700,  # 45 minutes soft limit (raises SoftTimeLimitExceeded)
+    task_time_limit=3000,  # 50 minutes hard limit (SIGKILL)
     # Result expiration - keep results for 24 hours
     result_expires=86400,
     # Task routing - different queues for different workloads
