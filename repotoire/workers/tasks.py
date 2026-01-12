@@ -809,27 +809,6 @@ def _get_graph_client_for_org(org_id: UUID | None, org_slug: str | None = None):
     return create_client()
 
 
-def _get_graph_client_for_org(org: Organization | None):
-    """Get FalkorDB client for organization.
-
-    DEPRECATED: Use _get_graph_client_for_org instead.
-
-    In a multi-tenant setup, each organization could have its own
-    FalkorDB database or namespace.
-
-    Args:
-        org: Organization model instance.
-
-    Returns:
-        FalkorDBClient instance.
-    """
-    # Extract org_id and slug if org is provided
-    if org:
-        return _get_graph_client_for_org(org.id, org.slug)
-
-    return _get_graph_client_for_org(None)
-
-
 def _get_changed_files(
     repo_path: Path,
     base_sha: str,
