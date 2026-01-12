@@ -227,6 +227,9 @@ class TimescaleClient:
             raise RuntimeError("Not connected to TimescaleDB")
 
         with self._conn.cursor() as cur:
+            # Calculate cutoff date in Python to avoid SQL injection
+            # with INTERVAL string interpolation
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
             cur.execute(
                 """
                 SELECT
@@ -242,10 +245,10 @@ class TimescaleClient:
                 FROM code_health_metrics
                 WHERE repository = %s
                   AND branch = %s
-                  AND time > NOW() - INTERVAL '%s days'
+                  AND time > %s
                 ORDER BY time ASC
                 """,
-                (repository, branch, days)
+                (repository, branch, cutoff_date)
             )
 
             columns = [desc[0] for desc in cur.description]
