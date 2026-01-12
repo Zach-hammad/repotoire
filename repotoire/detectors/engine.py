@@ -98,7 +98,8 @@ class AnalysisEngine:
     }
 
     # Category weights
-    WEIGHTS = {"structure": 0.40, "quality": 0.30, "architecture": 0.30}
+    # Issues category penalizes based on finding severity counts
+    WEIGHTS = {"structure": 0.30, "quality": 0.25, "architecture": 0.25, "issues": 0.20}
 
     def __init__(
         self,
@@ -355,20 +356,23 @@ class AnalysisEngine:
                 # Calculate metrics (incorporating detector findings)
                 metrics = self._calculate_metrics(findings)
 
+                # Summarize findings by severity (needed for issues score)
+                findings_summary = self._summarize_findings(findings)
+
                 # Calculate scores
                 structure_score = self._score_structure(metrics)
                 quality_score = self._score_quality(metrics)
                 architecture_score = self._score_architecture(metrics)
+                issues_score = self._score_issues(findings_summary)
 
                 overall_score = (
                     structure_score * self.WEIGHTS["structure"]
                     + quality_score * self.WEIGHTS["quality"]
                     + architecture_score * self.WEIGHTS["architecture"]
+                    + issues_score * self.WEIGHTS["issues"]
                 )
 
                 grade = self._score_to_grade(overall_score)
-
-                findings_summary = self._summarize_findings(findings)
 
                 duration = time.time() - start_time
                 logger.info("Analysis complete", extra={
@@ -384,6 +388,7 @@ class AnalysisEngine:
                     structure_score=structure_score,
                     quality_score=quality_score,
                     architecture_score=architecture_score,
+                    issues_score=issues_score,
                     metrics=metrics,
                     findings_summary=findings_summary,
                     findings=findings,
@@ -884,6 +889,44 @@ class AnalysisEngine:
             abstraction_score = max(50, 100 - (distance * 100))
 
         return (layer_score + boundary_score + abstraction_score) / 3
+
+    def _score_issues(self, summary: FindingsSummary) -> float:
+        """Score based on finding severity counts.
+
+        Penalizes based on the number and severity of findings detected.
+        This ensures findings directly impact the health score.
+
+        Penalties per finding:
+        - Critical: 1.5 points each (max 25 point penalty)
+        - High: 0.15 points each (max 25 point penalty)
+        - Medium: 0.05 points each (max 15 point penalty)
+        - Low: 0.01 points each (max 10 point penalty)
+
+        Args:
+            summary: FindingsSummary with severity counts
+
+        Returns:
+            Score from 0-100 (100 = no issues, 0 = many severe issues)
+        """
+        score = 100.0
+
+        # Critical findings: heavy penalty, max 25 points
+        critical_penalty = min(25, summary.critical * 1.5)
+        score -= critical_penalty
+
+        # High findings: moderate penalty, max 25 points
+        high_penalty = min(25, summary.high * 0.15)
+        score -= high_penalty
+
+        # Medium findings: small penalty, max 15 points
+        medium_penalty = min(15, summary.medium * 0.05)
+        score -= medium_penalty
+
+        # Low findings: minimal penalty, max 10 points
+        low_penalty = min(10, summary.low * 0.01)
+        score -= low_penalty
+
+        return max(0, score)  # Ensure score doesn't go negative
 
     def _score_to_grade(self, score: float) -> str:
         """Convert numeric score to letter grade.

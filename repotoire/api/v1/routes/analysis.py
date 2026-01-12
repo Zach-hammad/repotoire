@@ -156,6 +156,12 @@ class AnalysisStatusResponse(BaseModel):
         ge=0,
         le=100,
     )
+    issues_score: int | None = Field(
+        None,
+        description="Issues score (0-100). Penalizes based on finding severity.",
+        ge=0,
+        le=100,
+    )
     findings_count: int = Field(
         ...,
         description="Total number of issues detected",
@@ -197,6 +203,7 @@ class AnalysisStatusResponse(BaseModel):
                 "structure_score": 82,
                 "quality_score": 75,
                 "architecture_score": 77,
+                "issues_score": 65,
                 "findings_count": 42,
                 "files_analyzed": 156,
                 "error_message": None,
@@ -469,6 +476,7 @@ async def get_analysis_status(
         structure_score=analysis.structure_score,
         quality_score=analysis.quality_score,
         architecture_score=analysis.architecture_score,
+        issues_score=analysis.issues_score,
         findings_count=analysis.findings_count,
         files_analyzed=analysis.files_analyzed,
         error_message=analysis.error_message,
@@ -760,6 +768,7 @@ async def get_analysis_history(
             structure_score=run.structure_score,
             quality_score=run.quality_score,
             architecture_score=run.architecture_score,
+            issues_score=run.issues_score,
             findings_count=run.findings_count,
             files_analyzed=run.files_analyzed,
             error_message=run.error_message,

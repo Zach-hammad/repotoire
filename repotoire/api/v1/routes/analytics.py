@@ -497,6 +497,7 @@ async def get_health_score(
         "structure": int(latest_run.structure_score or 100),
         "quality": int(latest_run.quality_score or 100),
         "architecture": int(latest_run.architecture_score or 100),
+        "issues": int(latest_run.issues_score or 100),
     }
 
     # Determine trend by comparing with previous analysis

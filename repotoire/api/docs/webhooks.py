@@ -88,6 +88,7 @@ class AnalysisCompletedData(BaseModel):
     structure_score: int = Field(..., description="Code structure score (0-100)", ge=0, le=100)
     quality_score: int = Field(..., description="Code quality score (0-100)", ge=0, le=100)
     architecture_score: int = Field(..., description="Architecture score (0-100)", ge=0, le=100)
+    issues_score: int = Field(..., description="Issues score based on finding severity (0-100)", ge=0, le=100)
     findings_count: int = Field(..., description="Total findings detected", ge=0)
     critical_count: int = Field(..., description="Critical severity findings", ge=0)
     high_count: int = Field(..., description="High severity findings", ge=0)
@@ -122,6 +123,7 @@ class AnalysisCompletedPayload(WebhookPayloadBase):
                     "structure_score": 82,
                     "quality_score": 75,
                     "architecture_score": 77,
+                    "issues_score": 65,
                     "findings_count": 42,
                     "critical_count": 2,
                     "high_count": 8,

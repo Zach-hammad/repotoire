@@ -1237,9 +1237,10 @@ class CodebaseHealth:
     health grade, category scores, detailed metrics, and all findings.
 
     Health scores are calculated as:
-    - Structure (40% weight): Modularity, coupling, cycles
-    - Quality (30% weight): Dead code, duplication, god classes
-    - Architecture (30% weight): Layer violations, abstraction ratio
+    - Structure (30% weight): Modularity, coupling, cycles
+    - Quality (25% weight): Dead code, duplication, god classes
+    - Architecture (25% weight): Layer violations, abstraction ratio
+    - Issues (20% weight): Finding severity (critical, high, medium, low)
 
     Letter grades: A (90-100), B (80-89), C (70-79), D (60-69), F (0-59)
 
@@ -1273,6 +1274,7 @@ class CodebaseHealth:
     structure_score: float
     quality_score: float
     architecture_score: float
+    issues_score: float = 100.0  # Score based on finding severity (0-100)
 
     # Detailed metrics
     metrics: MetricsBreakdown
@@ -1305,6 +1307,7 @@ class CodebaseHealth:
             "structure_score": self.structure_score,
             "quality_score": self.quality_score,
             "architecture_score": self.architecture_score,
+            "issues_score": self.issues_score,
             "findings_summary": {
                 "critical": self.findings_summary.critical,
                 "high": self.findings_summary.high,

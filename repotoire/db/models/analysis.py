@@ -43,6 +43,7 @@ class AnalysisRun(Base, UUIDPrimaryKeyMixin):
         structure_score: Structure category score (0-100)
         quality_score: Quality category score (0-100)
         architecture_score: Architecture category score (0-100)
+        issues_score: Issues category score based on finding severity (0-100)
         score_delta: Change in score from previous analysis (for PR analyses)
         findings_count: Number of issues found
         files_analyzed: Number of files analyzed
@@ -95,6 +96,10 @@ class AnalysisRun(Base, UUIDPrimaryKeyMixin):
         nullable=True,
     )
     architecture_score: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    issues_score: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
     )

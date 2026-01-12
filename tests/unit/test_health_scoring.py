@@ -259,6 +259,103 @@ class TestArchitectureScoring:
         assert score == 70.0
 
 
+class TestIssuesScoring:
+    """Test issues score calculation based on finding severity."""
+
+    def test_perfect_issues_score(self, engine):
+        """Test issues score with no findings."""
+        from repotoire.models import FindingsSummary
+
+        summary = FindingsSummary(critical=0, high=0, medium=0, low=0, info=0)
+        score = engine._score_issues(summary)
+        assert score == 100.0
+
+    def test_critical_findings_penalty(self, engine):
+        """Test critical findings penalty (1.5 points each, max 25)."""
+        from repotoire.models import FindingsSummary
+
+        # 10 critical = 15 points penalty
+        summary = FindingsSummary(critical=10, high=0, medium=0, low=0, info=0)
+        score = engine._score_issues(summary)
+        assert score == 85.0
+
+        # 20 critical = 25 points (capped)
+        summary = FindingsSummary(critical=20, high=0, medium=0, low=0, info=0)
+        score = engine._score_issues(summary)
+        assert score == 75.0
+
+    def test_high_findings_penalty(self, engine):
+        """Test high findings penalty (0.15 points each, max 25)."""
+        from repotoire.models import FindingsSummary
+
+        # 100 high = 15 points penalty
+        summary = FindingsSummary(critical=0, high=100, medium=0, low=0, info=0)
+        score = engine._score_issues(summary)
+        assert score == 85.0
+
+        # 200 high = 25 points (capped)
+        summary = FindingsSummary(critical=0, high=200, medium=0, low=0, info=0)
+        score = engine._score_issues(summary)
+        assert score == 75.0
+
+    def test_medium_findings_penalty(self, engine):
+        """Test medium findings penalty (0.05 points each, max 15)."""
+        from repotoire.models import FindingsSummary
+
+        # 200 medium = 10 points penalty
+        summary = FindingsSummary(critical=0, high=0, medium=200, low=0, info=0)
+        score = engine._score_issues(summary)
+        assert score == 90.0
+
+        # 400 medium = 15 points (capped)
+        summary = FindingsSummary(critical=0, high=0, medium=400, low=0, info=0)
+        score = engine._score_issues(summary)
+        assert score == 85.0
+
+    def test_low_findings_penalty(self, engine):
+        """Test low findings penalty (0.01 points each, max 10)."""
+        from repotoire.models import FindingsSummary
+
+        # 500 low = 5 points penalty
+        summary = FindingsSummary(critical=0, high=0, medium=0, low=500, info=0)
+        score = engine._score_issues(summary)
+        assert score == 95.0
+
+        # 1500 low = 10 points (capped)
+        summary = FindingsSummary(critical=0, high=0, medium=0, low=1500, info=0)
+        score = engine._score_issues(summary)
+        assert score == 90.0
+
+    def test_info_findings_no_penalty(self, engine):
+        """Test info findings have no penalty."""
+        from repotoire.models import FindingsSummary
+
+        summary = FindingsSummary(critical=0, high=0, medium=0, low=0, info=100)
+        score = engine._score_issues(summary)
+        assert score == 100.0
+
+    def test_combined_findings_penalty(self, engine):
+        """Test combined findings from dashboard example."""
+        from repotoire.models import FindingsSummary
+
+        # Dashboard example: 28 critical, 355 high, 228 medium, 297 low
+        summary = FindingsSummary(critical=28, high=355, medium=228, low=297, info=1)
+        score = engine._score_issues(summary)
+
+        # Penalties: 25 (capped) + 25 (capped) + 11.4 + 2.97 = 64.37
+        # Score: 100 - 64.37 = 35.63
+        assert 35.0 < score < 36.0
+
+    def test_issues_score_floor_at_zero(self, engine):
+        """Test issues score doesn't go below zero."""
+        from repotoire.models import FindingsSummary
+
+        # Massive findings that would exceed 100 in penalties
+        summary = FindingsSummary(critical=100, high=1000, medium=1000, low=10000, info=0)
+        score = engine._score_issues(summary)
+        assert score >= 0.0
+
+
 class TestWeightedScoring:
     """Test overall weighted scoring."""
 
@@ -268,6 +365,7 @@ class TestWeightedScoring:
         structure_score = 80.0
         quality_score = 70.0
         architecture_score = 90.0
+        issues_score = 60.0
 
         engine._score_structure = lambda m: structure_score
         engine._score_quality = lambda m: quality_score
@@ -275,28 +373,35 @@ class TestWeightedScoring:
 
         metrics = MetricsBreakdown()
 
-        # Calculate expected weighted score
+        # Calculate expected weighted score (new weights: 0.30, 0.25, 0.25, 0.20)
         expected = (
-            structure_score * 0.40 +
-            quality_score * 0.30 +
-            architecture_score * 0.30
+            structure_score * 0.30 +
+            quality_score * 0.25 +
+            architecture_score * 0.25 +
+            issues_score * 0.20
         )
 
         # Simulate the calculation
         calculated = (
             engine._score_structure(metrics) * engine.WEIGHTS["structure"] +
             engine._score_quality(metrics) * engine.WEIGHTS["quality"] +
-            engine._score_architecture(metrics) * engine.WEIGHTS["architecture"]
+            engine._score_architecture(metrics) * engine.WEIGHTS["architecture"] +
+            issues_score * engine.WEIGHTS["issues"]
         )
 
         assert abs(calculated - expected) < 0.01
-        # 80*0.4 + 70*0.3 + 90*0.3 = 32 + 21 + 27 = 80
-        assert abs(calculated - 80.0) < 0.01
+        # 80*0.30 + 70*0.25 + 90*0.25 + 60*0.20 = 24 + 17.5 + 22.5 + 12 = 76
+        assert abs(calculated - 76.0) < 0.01
 
     def test_weights_sum_to_one(self, engine):
         """Test that category weights sum to 1.0."""
         total_weight = sum(engine.WEIGHTS.values())
         assert abs(total_weight - 1.0) < 0.001
+
+    def test_issues_weight_included(self, engine):
+        """Test that issues weight is included in WEIGHTS."""
+        assert "issues" in engine.WEIGHTS
+        assert engine.WEIGHTS["issues"] == 0.20
 
 
 class TestFindingsSummarization:
