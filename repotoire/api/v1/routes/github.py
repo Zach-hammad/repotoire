@@ -1079,9 +1079,13 @@ async def analyze_repo_by_id(
     from repotoire.db.models import Repository
 
     if not repo.repository_id:
-        # Create or find existing Repository record
+        # Create or find existing Repository record for THIS organization
+        # Important: Must filter by org.id to avoid cross-org data leakage
         existing_repo_result = await db.execute(
-            select(Repository).where(Repository.github_repo_id == repo.repo_id)
+            select(Repository).where(
+                Repository.organization_id == org.id,
+                Repository.github_repo_id == repo.repo_id,
+            )
         )
         existing_repo = existing_repo_result.scalar_one_or_none()
 
