@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { SWRConfig } from 'swr';
 import { ThemeToggle } from '@/components/dashboard/theme-toggle';
 import { UserNav } from '@/components/auth/user-nav';
@@ -200,7 +200,11 @@ export default function DashboardLayout({
                   <span className="sr-only">Toggle menu</span>
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-64 p-0">
+              <SheetContent side="left" className="w-64 p-0" aria-describedby="mobile-nav-description">
+                <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
+                <SheetDescription id="mobile-nav-description" className="sr-only">
+                  Main navigation menu for the Repotoire dashboard
+                </SheetDescription>
                 <Sidebar onNavigate={() => setOpen(false)} />
               </SheetContent>
             </Sheet>
