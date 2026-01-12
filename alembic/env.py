@@ -22,9 +22,29 @@ config = context.config
 # Support both REPOTOIRE_DATABASE_URL and DATABASE_URL (for Neon/Vercel)
 database_url = os.environ.get("REPOTOIRE_DATABASE_URL") or os.environ.get("DATABASE_URL")
 if database_url:
-    # Convert postgresql:// to postgresql+psycopg2:// for sync driver
-    if database_url.startswith("postgresql://"):
+    # Convert to postgresql+psycopg2:// for sync driver
+    # Handle both plain postgresql:// and postgresql+asyncpg:// URLs
+    if database_url.startswith("postgresql+asyncpg://"):
+        database_url = database_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
+    elif database_url.startswith("postgresql://"):
         database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+    # Remove sslmode from URL for psycopg2 (it handles SSL differently)
+    # Parse and rebuild URL without sslmode query param
+    from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+    parsed = urlparse(database_url)
+    query_params = parse_qs(parsed.query)
+    query_params.pop("sslmode", None)  # Remove sslmode if present
+    new_query = urlencode({k: v[0] for k, v in query_params.items()}, doseq=False)
+    database_url = urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path,
+        parsed.params,
+        new_query,
+        parsed.fragment,
+    ))
+
     config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging.
