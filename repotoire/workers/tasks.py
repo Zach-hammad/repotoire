@@ -201,12 +201,35 @@ def analyze_repository(
         health = engine.analyze()
 
         progress.update(
-            progress_percent=90,
+            progress_percent=85,
+            current_step="Ingesting git history",
+        )
+
+        # ============================================================
+        # PHASE 5: Ingest git history (optional, non-blocking)
+        # ============================================================
+        git_history_stats = None
+        try:
+            git_history_stats = _ingest_git_history(
+                clone_dir=clone_dir,
+                repo_id=repo_id,
+                repo_full_name=repo_full_name,
+            )
+            if git_history_stats:
+                logger.info(
+                    f"Git history ingested: {git_history_stats.get('commits_processed', 0)} commits"
+                )
+        except Exception as e:
+            # Git history is optional - don't fail the analysis if it fails
+            logger.warning(f"Git history ingestion failed (non-fatal): {e}")
+
+        progress.update(
+            progress_percent=95,
             current_step="Saving results",
         )
 
         # ============================================================
-        # PHASE 5: Save results (short DB session)
+        # PHASE 6: Save results (short DB session)
         # ============================================================
         with get_sync_session() as session:
             _save_analysis_results(
@@ -878,6 +901,206 @@ def _get_score_at_commit(
     )
     row = result.scalar_one_or_none()
     return row
+
+
+def _ingest_git_history(
+    clone_dir: Path,
+    repo_id: str,
+    repo_full_name: str,
+    max_commits: int = 500,
+) -> dict[str, Any] | None:
+    """Ingest git history into Graphiti temporal knowledge graph.
+
+    This runs synchronously within the worker task after cloning the repo.
+    Uses asyncio.run() to execute the async Graphiti calls.
+
+    Args:
+        clone_dir: Path to the cloned repository.
+        repo_id: UUID of the Repository for tagging.
+        repo_full_name: Full name (owner/repo) for episode source.
+        max_commits: Maximum commits to process (default 500).
+
+    Returns:
+        Stats dict with commits_processed, or None if Graphiti unavailable.
+    """
+    import os
+    import asyncio
+
+    # Check for required dependencies
+    try:
+        from graphiti_core import Graphiti
+        from graphiti_core.nodes import EpisodeType
+        from graphiti_core.driver.falkordb_driver import FalkorDriver
+    except ImportError:
+        logger.debug("Graphiti not available, skipping git history ingestion")
+        return None
+
+    # Check for OpenAI API key (required for LLM processing)
+    if not os.getenv("OPENAI_API_KEY"):
+        logger.debug("OPENAI_API_KEY not set, skipping git history ingestion")
+        return None
+
+    try:
+        import git
+
+        # Get FalkorDB connection parameters
+        falkor_host = os.getenv("FALKORDB_HOST", "repotoire-falkor.internal")
+        falkor_port = int(os.getenv("FALKORDB_PORT", "6379"))
+        falkor_password = os.getenv("FALKORDB_PASSWORD")
+
+        # Create FalkorDriver with connection parameters
+        driver = FalkorDriver(
+            host=falkor_host,
+            port=falkor_port,
+            password=falkor_password,
+            database="graphiti_commits",  # Separate database for git history
+        )
+
+        # Initialize Graphiti with FalkorDB driver
+        graphiti = Graphiti(graph_driver=driver)
+
+        # Get git repo
+        repo = git.Repo(clone_dir)
+
+        # Get commits (most recent first)
+        commits = list(repo.iter_commits("HEAD", max_count=max_commits))
+
+        stats = {
+            "commits_processed": 0,
+            "commits_skipped": 0,
+            "errors": 0,
+            "oldest_commit": None,
+            "newest_commit": None,
+        }
+
+        async def ingest_commits():
+            for commit in commits:
+                try:
+                    # Format commit data
+                    episode_body = _format_git_commit(commit, repo_full_name)
+
+                    await graphiti.add_episode(
+                        name=commit.summary[:80],
+                        episode_body=episode_body,
+                        source_description=f"Git commit {commit.hexsha[:8]} from {repo_full_name}",
+                        reference_time=commit.committed_datetime,
+                        source=EpisodeType.text,
+                    )
+
+                    stats["commits_processed"] += 1
+
+                    # Track date range
+                    commit_dt = commit.committed_datetime
+                    if stats["oldest_commit"] is None or commit_dt < stats["oldest_commit"]:
+                        stats["oldest_commit"] = commit_dt
+                    if stats["newest_commit"] is None or commit_dt > stats["newest_commit"]:
+                        stats["newest_commit"] = commit_dt
+
+                except Exception as e:
+                    logger.debug(f"Error processing commit {commit.hexsha[:8]}: {e}")
+                    stats["errors"] += 1
+
+            return stats
+
+        # Run async ingestion
+        return asyncio.run(ingest_commits())
+
+    except Exception as e:
+        logger.warning(f"Git history ingestion failed: {e}")
+        return None
+
+
+def _format_git_commit(commit, repo_full_name: str) -> str:
+    """Format a git commit for Graphiti episode ingestion.
+
+    Args:
+        commit: GitPython commit object.
+        repo_full_name: Full name (owner/repo) for context.
+
+    Returns:
+        Formatted episode text.
+    """
+    import re
+
+    # Get changed files and diff stats
+    if commit.parents:
+        parent = commit.parents[0]
+        diffs = parent.diff(commit)
+        changed_files = [d.a_path or d.b_path for d in diffs]
+
+        # Extract code changes from diffs
+        code_changes = []
+        for diff in diffs:
+            file_path = diff.a_path or diff.b_path
+            if not file_path.endswith(".py"):
+                continue
+            if not diff.diff:
+                continue
+            try:
+                diff_text = diff.diff.decode("utf-8", errors="ignore")
+
+                # Extract added/modified functions
+                func_pattern = r"^\+\s*(?:async\s+)?def\s+(\w+)"
+                funcs = re.findall(func_pattern, diff_text, re.MULTILINE)
+
+                # Extract added/modified classes
+                class_pattern = r"^\+\s*class\s+(\w+)"
+                classes = re.findall(class_pattern, diff_text, re.MULTILINE)
+
+                for func in funcs:
+                    code_changes.append(f"Modified function: {func} in {file_path}")
+                for cls in classes:
+                    code_changes.append(f"Modified class: {cls} in {file_path}")
+            except Exception:
+                pass
+    else:
+        # Initial commit (no parent)
+        changed_files = list(commit.stats.files.keys())
+        code_changes = []
+
+    # Format commit message
+    message_lines = commit.message.strip().split("\n")
+    summary = message_lines[0]
+    body = "\n".join(message_lines[1:]).strip() if len(message_lines) > 1 else ""
+
+    # Build episode text
+    episode_parts = [
+        f"Repository: {repo_full_name}",
+        f"Commit: {commit.hexsha}",
+        f"Author: {commit.author.name} <{commit.author.email}>",
+        f"Date: {commit.committed_datetime.isoformat()}",
+        "",
+        f"Summary: {summary}",
+    ]
+
+    if body:
+        episode_parts.append(f"\nDescription:\n{body}")
+
+    episode_parts.extend([
+        "",
+        f"Files Changed ({len(changed_files)}):",
+        *[f"  - {f}" for f in changed_files[:20]],
+    ])
+
+    if len(changed_files) > 20:
+        episode_parts.append(f"  ... and {len(changed_files) - 20} more files")
+
+    if code_changes:
+        episode_parts.extend([
+            "",
+            "Code Changes:",
+            *[f"  - {change}" for change in code_changes[:10]],
+        ])
+
+    episode_parts.extend([
+        "",
+        "Statistics:",
+        f"  +{commit.stats.total.get('insertions', 0)} insertions",
+        f"  -{commit.stats.total.get('deletions', 0)} deletions",
+        f"  {len(commit.stats.files)} files changed",
+    ])
+
+    return "\n".join(episode_parts)
 
 
 def _save_analysis_results(
