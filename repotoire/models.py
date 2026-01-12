@@ -1274,7 +1274,7 @@ class CodebaseHealth:
     structure_score: float
     quality_score: float
     architecture_score: float
-    issues_score: float = 100.0  # Score based on finding severity (0-100)
+    issues_score: float  # Score based on finding severity (0-100)
 
     # Detailed metrics
     metrics: MetricsBreakdown
