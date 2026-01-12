@@ -68,6 +68,7 @@ celery_app = Celery(
         "repotoire.workers.health_checks",
         "repotoire.workers.changelog",
         "repotoire.workers.analytics_tasks",
+        "repotoire.workers.cleanup",
     ],
 )
 
@@ -110,6 +111,12 @@ celery_app.conf.update(
     },
     # Beat schedule - for periodic tasks
     beat_schedule={
+        # Stuck analysis cleanup - runs every 5 minutes
+        "cleanup-stuck-analyses": {
+            "task": "repotoire.workers.cleanup.cleanup_stuck_analyses_task",
+            "schedule": 300,  # Every 5 minutes
+            "options": {"queue": "default"},
+        },
         # Audit log cleanup - runs daily at 3 AM UTC
         "cleanup-audit-logs-daily": {
             "task": "repotoire.workers.audit_tasks.cleanup_old_audit_logs",
