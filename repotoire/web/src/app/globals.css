@@ -130,10 +130,10 @@
    ============================================================================= */
 
 @theme inline {
-  /* Typography - distinctive, characterful fonts */
-  --font-sans: var(--font-sans), "Plus Jakarta Sans", system-ui, sans-serif;
-  --font-display: var(--font-display), "Instrument Serif", Georgia, serif;
-  --font-mono: var(--font-mono), "IBM Plex Mono", "Fira Code", monospace;
+  /* Typography - clean, professional fonts */
+  --font-sans: var(--font-inter), "Inter Fallback", system-ui, sans-serif;
+  --font-display: var(--font-space), "Space Grotesk", system-ui, sans-serif;
+  --font-mono: var(--font-mono), "Geist Mono", monospace;
 
   /* Color mappings */
   --color-background: var(--background);
@@ -195,7 +195,6 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-feature-settings: "cv11", "ss01", "ss03";
   }
 }
 
@@ -205,12 +204,10 @@
 
 .font-display {
   font-family: var(--font-display);
-  font-feature-settings: "ss01";
 }
 
 .font-mono {
   font-family: var(--font-mono);
-  font-feature-settings: "ss01", "ss02";
 }
 
 /* Headline styles - editorial feel */

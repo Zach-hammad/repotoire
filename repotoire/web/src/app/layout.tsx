@@ -1,6 +1,6 @@
 import type React from "react"
 import type { Metadata, Viewport } from "next"
-import { Plus_Jakarta_Sans, Instrument_Serif, IBM_Plex_Mono } from "next/font/google"
+import { Inter, Space_Grotesk, Geist_Mono } from "next/font/google"
 import { ThemeProvider } from "next-themes"
 import { ClerkProvider } from "@/components/providers/clerk-provider"
 import { CookieConsent } from "@/components/cookie-consent"
@@ -9,23 +9,22 @@ import { ServiceWorkerRegistration } from "@/components/service-worker-registrat
 import { Toaster } from "sonner"
 import "./globals.css"
 
-// Primary sans-serif: Geometric but warm, more character than Inter
-const plusJakarta = Plus_Jakarta_Sans({
+// Primary sans-serif: Clean, readable, professional
+const inter = Inter({
   subsets: ["latin"],
-  variable: "--font-sans",
-  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-inter",
+  weight: ["400", "500", "600", "700"],
 })
 
-// Display/headlines: Editorial serif for authority and sophistication
-const instrumentSerif = Instrument_Serif({
+// Display/headlines: Modern geometric sans
+const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
-  variable: "--font-display",
-  weight: "400",
-  style: ["normal", "italic"],
+  variable: "--font-space",
+  weight: ["400", "500", "600", "700"],
 })
 
-// Monospace: Technical, precise, more character than system mono
-const ibmPlexMono = IBM_Plex_Mono({
+// Monospace: Technical, precise
+const geistMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
   weight: ["400", "500", "600"],
@@ -62,7 +61,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${plusJakarta.variable} ${instrumentSerif.variable} ${ibmPlexMono.variable} font-sans antialiased`}>
+      <body className={`${inter.variable} ${spaceGrotesk.variable} ${geistMono.variable} font-sans antialiased`}>
         {/* Skip link for keyboard navigation */}
         <a
           href="#main-content"
