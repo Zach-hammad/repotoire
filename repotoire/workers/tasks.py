@@ -906,6 +906,7 @@ def _save_analysis_results(
             structure_score=health.structure_score,
             quality_score=health.quality_score,
             architecture_score=health.architecture_score,
+            issues_score=int(health.issues_score),
             findings_count=len(health.findings),
             files_analyzed=files_analyzed,
             completed_at=datetime.now(timezone.utc),
@@ -947,5 +948,24 @@ def _save_analysis_results(
                 graph_context=finding.graph_context,
             )
             session.add(db_finding)
+
+    # Also update the Repository's health_score and last_analyzed_at
+    # First, get the repository_id from the analysis run
+    analysis_run = session.execute(
+        select(AnalysisRun.repository_id).where(AnalysisRun.id == run_id)
+    ).scalar_one_or_none()
+
+    if analysis_run:
+        session.execute(
+            update(Repository)
+            .where(Repository.id == analysis_run)
+            .values(
+                health_score=health.overall_score,
+                last_analyzed_at=datetime.now(timezone.utc),
+            )
+        )
+        logger.info(
+            f"Updated repository {analysis_run} health_score to {health.overall_score}"
+        )
 
     session.commit()
