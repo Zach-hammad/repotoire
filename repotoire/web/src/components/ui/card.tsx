@@ -4,7 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const cardVariants = cva(
-  "bg-card text-card-foreground flex flex-col rounded-xl border shadow-sm",
+  "flex flex-col rounded-xl border shadow-sm",
   {
     variants: {
       size: {
@@ -12,9 +12,26 @@ const cardVariants = cva(
         default: "gap-6 py-6",
         spacious: "gap-8 py-8",
       },
+      variant: {
+        default: "bg-card text-card-foreground",
+        elevated: "card-elevated bg-card text-card-foreground",
+        holographic: "card-holographic text-card-foreground",
+        critical: "card-critical text-card-foreground",
+        diagnostic: "card-diagnostic bg-card text-card-foreground",
+      },
+      glow: {
+        none: "",
+        primary: "box-glow-primary",
+        cyan: "box-glow-cyan",
+        good: "box-glow-good",
+        warning: "box-glow-warning",
+        critical: "box-glow-critical",
+      },
     },
     defaultVariants: {
       size: "default",
+      variant: "default",
+      glow: "none",
     },
   }
 )
@@ -29,13 +46,20 @@ const sizePadding = {
 function Card({
   className,
   size = "default",
+  variant = "default",
+  glow = "none",
+  glowAnimate = false,
   ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof cardVariants>) {
+}: React.ComponentProps<"div"> & VariantProps<typeof cardVariants> & { glowAnimate?: boolean }) {
   return (
     <div
       data-slot="card"
       data-size={size}
-      className={cn(cardVariants({ size, className }))}
+      data-variant={variant}
+      className={cn(
+        cardVariants({ size, variant, glow, className }),
+        glowAnimate && "box-glow-animate"
+      )}
       {...props}
     />
   )

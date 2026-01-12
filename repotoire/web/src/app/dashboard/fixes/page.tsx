@@ -56,6 +56,8 @@ import {
   ArrowUpDown,
   Trash2,
   Loader2,
+  Sparkles,
+  Bot,
 } from 'lucide-react';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { cn } from '@/lib/utils';
@@ -77,6 +79,8 @@ import {
   FixesTableSkeleton,
   Shimmer,
 } from '@/components/dashboard/skeletons';
+import { HolographicCard } from '@/components/ui/holographic-card';
+import { GlowWrapper } from '@/components/ui/glow-wrapper';
 
 // Badge color mappings
 const confidenceBadgeColors: Record<FixConfidence, string> = {
@@ -241,6 +245,17 @@ function FixesListContent() {
   const hasActiveFilters = filters.status?.length || filters.confidence?.length ||
     filters.fix_type?.length || search || repositoryFilter !== 'all';
 
+  // Calculate summary stats from data
+  const summaryStats = useMemo(() => {
+    if (!data?.items) return { pending: 0, approved: 0, applied: 0, highConfidence: 0 };
+    return {
+      pending: data.items.filter(f => f.status === 'pending').length,
+      approved: data.items.filter(f => f.status === 'approved').length,
+      applied: data.items.filter(f => f.status === 'applied').length,
+      highConfidence: data.items.filter(f => f.confidence === 'high').length,
+    };
+  }, [data?.items]);
+
   return (
     <div className="space-y-6">
       {/* Breadcrumb */}
@@ -250,14 +265,56 @@ function FixesListContent() {
         ]}
       />
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Fixes</h1>
-          <p className="text-muted-foreground">
-            Review and manage AI-generated code fixes
-          </p>
+      {/* AI Hero Header */}
+      <HolographicCard variant="glass" className="overflow-hidden">
+        <div className="relative p-6">
+          {/* Background gradient */}
+          <div className="absolute inset-0 bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-cyan-500/10 opacity-50" />
+          <div className="absolute top-0 right-0 w-64 h-64 bg-violet-500/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+
+          <div className="relative flex items-start justify-between">
+            <div className="flex items-center gap-4">
+              <div className="p-3 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-lg shadow-violet-500/25">
+                <Bot className="h-8 w-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+                  AI Fixes
+                  <Sparkles className="h-5 w-5 text-violet-400" />
+                </h1>
+                <p className="text-muted-foreground">
+                  Review and manage AI-generated code fixes with evidence-based suggestions
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Stats */}
+            <div className="hidden lg:flex items-center gap-6">
+              <GlowWrapper color="amber" intensity="medium" className="rounded-lg">
+                <div className="bg-card/80 backdrop-blur-sm rounded-lg px-4 py-2 border border-border/50">
+                  <div className="text-2xl font-bold text-amber-400">{summaryStats.pending}</div>
+                  <div className="text-xs text-muted-foreground">Pending</div>
+                </div>
+              </GlowWrapper>
+              <GlowWrapper color="cyan" intensity="low" className="rounded-lg">
+                <div className="bg-card/80 backdrop-blur-sm rounded-lg px-4 py-2 border border-border/50">
+                  <div className="text-2xl font-bold text-cyan-400">{summaryStats.approved}</div>
+                  <div className="text-xs text-muted-foreground">Approved</div>
+                </div>
+              </GlowWrapper>
+              <GlowWrapper color="green" intensity="low" className="rounded-lg">
+                <div className="bg-card/80 backdrop-blur-sm rounded-lg px-4 py-2 border border-border/50">
+                  <div className="text-2xl font-bold text-green-400">{summaryStats.applied}</div>
+                  <div className="text-xs text-muted-foreground">Applied</div>
+                </div>
+              </GlowWrapper>
+            </div>
+          </div>
         </div>
+      </HolographicCard>
+
+      {/* Batch Action Bar */}
+      <div className="flex items-center justify-end min-h-[40px]">
         {selectedIds.size > 0 && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
@@ -322,7 +379,7 @@ function FixesListContent() {
       </div>
 
       {/* Filters */}
-      <Card>
+      <HolographicCard variant="subtle">
         <CardContent className="pt-6">
           <div className="flex flex-wrap gap-4">
             {/* Search */}
@@ -332,7 +389,7 @@ function FixesListContent() {
                 placeholder="Search fixes..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
+                className="pl-9 bg-background/50 backdrop-blur-sm"
               />
             </div>
 
@@ -427,10 +484,10 @@ function FixesListContent() {
             )}
           </div>
         </CardContent>
-      </Card>
+      </HolographicCard>
 
       {/* Table */}
-      <Card>
+      <HolographicCard variant="subtle">
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -556,9 +613,17 @@ function FixesListContent() {
                     <TableCell>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Badge variant="outline" className={cn(confidenceBadgeColors[fix.confidence], 'cursor-help')}>
-                            {confidenceConfig[fix.confidence].emoji} {fix.confidence}
-                          </Badge>
+                          {fix.confidence === 'high' ? (
+                            <GlowWrapper color="green" intensity="low" className="inline-block rounded-full">
+                              <Badge variant="outline" className={cn(confidenceBadgeColors[fix.confidence], 'cursor-help')}>
+                                {confidenceConfig[fix.confidence].emoji} {fix.confidence}
+                              </Badge>
+                            </GlowWrapper>
+                          ) : (
+                            <Badge variant="outline" className={cn(confidenceBadgeColors[fix.confidence], 'cursor-help')}>
+                              {confidenceConfig[fix.confidence].emoji} {fix.confidence}
+                            </Badge>
+                          )}
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs">
                           <p className="font-medium">{confidenceConfig[fix.confidence].plainEnglish}</p>
@@ -569,9 +634,23 @@ function FixesListContent() {
                     <TableCell>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Badge variant="outline" className={cn(statusBadgeColors[fix.status], 'cursor-help')}>
-                            {statusConfig[fix.status].emoji} {statusConfig[fix.status].label}
-                          </Badge>
+                          {fix.status === 'pending' ? (
+                            <GlowWrapper color="amber" intensity="low" className="inline-block rounded-full">
+                              <Badge variant="outline" className={cn(statusBadgeColors[fix.status], 'cursor-help')}>
+                                {statusConfig[fix.status].emoji} {statusConfig[fix.status].label}
+                              </Badge>
+                            </GlowWrapper>
+                          ) : fix.status === 'applied' ? (
+                            <GlowWrapper color="green" intensity="low" className="inline-block rounded-full">
+                              <Badge variant="outline" className={cn(statusBadgeColors[fix.status], 'cursor-help')}>
+                                {statusConfig[fix.status].emoji} {statusConfig[fix.status].label}
+                              </Badge>
+                            </GlowWrapper>
+                          ) : (
+                            <Badge variant="outline" className={cn(statusBadgeColors[fix.status], 'cursor-help')}>
+                              {statusConfig[fix.status].emoji} {statusConfig[fix.status].label}
+                            </Badge>
+                          )}
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs">
                           <p className="font-medium">{statusConfig[fix.status].plainEnglish}</p>
@@ -662,7 +741,7 @@ function FixesListContent() {
             </div>
           </div>
         )}
-      </Card>
+      </HolographicCard>
 
       {/* Batch Approve Dialog */}
       <Dialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>

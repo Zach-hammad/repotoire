@@ -1,3 +1,4 @@
+import { useState, useRef, useCallback, useEffect } from 'react';
 import useSWR from 'swr';
 import useSWRMutation from 'swr/mutation';
 import {
@@ -38,8 +39,13 @@ import {
   DeleteNotificationsResponse,
   findingsApi,
   fixesApi,
+  GenerateHoverInsightRequest,
+  GenerateInsightRequest,
   historicalApi,
+  HotspotTerrainData,
   MarkReadResponse,
+  NarrativeResponse,
+  narrativesApi,
   NotificationItem,
   NotificationPreferences,
   notificationsApi,
@@ -47,7 +53,10 @@ import {
   provenanceSettingsApi,
   repositoriesApi,
   request,
+  TopologyData,
+  topologyApi,
   userPreferencesApi,
+  WeeklyNarrativeResponse,
   type UserPreferences,
 } from './api';
 import { useApiAuth } from '@/components/providers/api-auth-provider';
@@ -1182,5 +1191,213 @@ export function useResetNotificationPreferences() {
   );
 }
 
+// ==========================================
+// AI Narratives Hooks
+// ==========================================
+
+/**
+ * Hook to generate an executive summary of repository health.
+ *
+ * Usage:
+ *   const { trigger, data, isMutating } = useGenerateSummary();
+ *   await trigger(repositoryId);
+ */
+export function useGenerateSummary() {
+  return useSWRMutation<NarrativeResponse, Error, string, string>(
+    'narrative-summary',
+    async (_key, { arg: repositoryId }) => {
+      return narrativesApi.generateSummary(repositoryId);
+    }
+  );
+}
+
+/**
+ * Hook to fetch a cached summary (if one exists).
+ *
+ * @param repositoryId - The repository to get summary for
+ */
+export function useSummary(repositoryId: string | null) {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR<NarrativeResponse>(
+    isAuthReady && repositoryId ? ['narrative-summary', repositoryId] : null,
+    () => narrativesApi.generateSummary(repositoryId!),
+    {
+      // Summaries are expensive to generate, cache aggressively
+      revalidateOnFocus: false,
+      dedupingInterval: 300000, // 5 minutes
+    }
+  );
+}
+
+/**
+ * Hook to generate a metric insight.
+ *
+ * Usage:
+ *   const { trigger, data, isMutating } = useGenerateInsight();
+ *   await trigger({ metric_name: 'structure_score', metric_value: 75 });
+ */
+export function useGenerateInsight() {
+  return useSWRMutation<NarrativeResponse, Error, string, GenerateInsightRequest>(
+    'narrative-insight',
+    async (_key, { arg }) => {
+      return narrativesApi.generateInsight(arg);
+    }
+  );
+}
+
+/**
+ * Hook to generate a hover tooltip insight.
+ *
+ * Usage:
+ *   const { trigger, data, isMutating } = useGenerateHoverInsight();
+ *   await trigger({ element_type: 'severity_badge', element_data: { severity: 'critical' } });
+ */
+export function useGenerateHoverInsight() {
+  return useSWRMutation<NarrativeResponse, Error, string, GenerateHoverInsightRequest>(
+    'narrative-hover',
+    async (_key, { arg }) => {
+      return narrativesApi.generateHoverInsight(arg);
+    }
+  );
+}
+
+/**
+ * Hook to fetch a weekly health changelog narrative.
+ *
+ * @param repositoryId - The repository to get weekly narrative for
+ */
+export function useWeeklyNarrative(repositoryId: string | null) {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR<WeeklyNarrativeResponse>(
+    isAuthReady && repositoryId ? ['narrative-weekly', repositoryId] : null,
+    () => narrativesApi.getWeeklyNarrative(repositoryId!),
+    {
+      // Weekly narratives change weekly, cache aggressively
+      revalidateOnFocus: false,
+      dedupingInterval: 3600000, // 1 hour
+    }
+  );
+}
+
+/**
+ * Hook for streaming summary generation with SSE.
+ * Returns a function to start streaming and state for the accumulated text.
+ *
+ * Usage:
+ *   const { startStreaming, text, isStreaming, error } = useStreamingSummary();
+ *   startStreaming(repositoryId);
+ */
+export function useStreamingSummary() {
+  const [text, setText] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  const startStreaming = useCallback((repositoryId: string) => {
+    // Clean up any existing stream
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+    }
+
+    setText('');
+    setError(null);
+    setIsStreaming(true);
+
+    eventSourceRef.current = narrativesApi.streamSummary(
+      repositoryId,
+      (chunk) => {
+        setText((prev) => prev + chunk);
+      },
+      (err) => {
+        setError(err);
+        setIsStreaming(false);
+      }
+    );
+
+    // Handle completion
+    eventSourceRef.current.addEventListener('done', () => {
+      setIsStreaming(false);
+    });
+  }, []);
+
+  const stopStreaming = useCallback(() => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    setIsStreaming(false);
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
+  }, []);
+
+  return {
+    startStreaming,
+    stopStreaming,
+    text,
+    isStreaming,
+    error,
+  };
+}
+
+// ==========================================
+// 3D Topology Hooks
+// ==========================================
+
+/**
+ * Hook to fetch code topology data for 3D visualization.
+ *
+ * @param repositoryId - Optional repository filter
+ * @param depth - Depth of the topology tree (1-4)
+ * @param limit - Max number of nodes (10-500)
+ */
+export function useTopology(repositoryId?: string, depth: number = 2, limit: number = 100) {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR<TopologyData>(
+    isAuthReady ? ['topology', repositoryId, depth, limit] : null,
+    () => topologyApi.getTopology(repositoryId, depth, limit),
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60000, // 1 minute
+    }
+  );
+}
+
+/**
+ * Hook to fetch hotspot terrain data for 3D visualization.
+ *
+ * @param repositoryId - Optional repository filter
+ * @param limit - Max number of hotspots (10-200)
+ */
+export function useHotspotsTerrain(repositoryId?: string, limit: number = 50) {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR<HotspotTerrainData>(
+    isAuthReady ? ['hotspots-terrain', repositoryId, limit] : null,
+    () => topologyApi.getHotspotsTerrain(repositoryId, limit),
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60000, // 1 minute
+    }
+  );
+}
+
 // Re-export types for convenience
-export type { NotificationItem, NotificationPreferences, NotificationsListResponse };
+export type {
+  NotificationItem,
+  NotificationPreferences,
+  NotificationsListResponse,
+  NarrativeResponse,
+  WeeklyNarrativeResponse,
+  TopologyData,
+  HotspotTerrainData,
+};

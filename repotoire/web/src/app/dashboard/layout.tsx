@@ -29,6 +29,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { LazyNotificationCenter, LazyKeyboardShortcuts, LazyCommandPalette } from '@/components/lazy-components';
 import { RepositoryProvider } from '@/contexts/repository-context';
 import { RepositorySelector } from '@/components/dashboard/repository-selector';
+import { BackgroundProvider, WireframeBackground } from '@/components/backgrounds';
 
 // Grouped navigation for better information architecture
 const sidebarSections = [
@@ -182,47 +183,52 @@ export default function DashboardLayout({
         }}
       >
         <RepositoryProvider>
-          <div className="flex min-h-screen">
-            {/* Desktop Sidebar */}
-            <aside className="hidden w-64 shrink-0 border-r border-border/50 bg-card/50 backdrop-blur-sm md:block">
-              <Sidebar />
-            </aside>
+          <BackgroundProvider>
+            <div className="flex min-h-screen relative">
+              {/* Animated 3D Background */}
+              <WireframeBackground className="fixed inset-0 -z-10" />
 
-            {/* Mobile Sidebar */}
-            <Sheet open={open} onOpenChange={setOpen}>
-              <SheetTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="fixed left-4 top-4 z-40 md:hidden"
-                >
-                  <Menu className="h-5 w-5" />
-                  <span className="sr-only">Toggle menu</span>
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="left" className="w-64 p-0" aria-describedby="mobile-nav-description">
-                <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
-                <SheetDescription id="mobile-nav-description" className="sr-only">
-                  Main navigation menu for the Repotoire dashboard
-                </SheetDescription>
-                <Sidebar onNavigate={() => setOpen(false)} />
-              </SheetContent>
-            </Sheet>
+              {/* Desktop Sidebar */}
+              <aside className="hidden w-64 shrink-0 border-r border-border/50 bg-card/80 backdrop-blur-md md:block relative z-10">
+                <Sidebar />
+              </aside>
 
-            {/* Main Content */}
-            <main id="main-content" className="flex-1 overflow-auto dot-grid">
-              <div className="container max-w-7xl p-6 md:p-8">
-                <ErrorBoundary>
-                  <PageTransition>{children}</PageTransition>
-                </ErrorBoundary>
-              </div>
-            </main>
+              {/* Mobile Sidebar */}
+              <Sheet open={open} onOpenChange={setOpen}>
+                <SheetTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="fixed left-4 top-4 z-40 md:hidden"
+                  >
+                    <Menu className="h-5 w-5" />
+                    <span className="sr-only">Toggle menu</span>
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" className="w-64 p-0" aria-describedby="mobile-nav-description">
+                  <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
+                  <SheetDescription id="mobile-nav-description" className="sr-only">
+                    Main navigation menu for the Repotoire dashboard
+                  </SheetDescription>
+                  <Sidebar onNavigate={() => setOpen(false)} />
+                </SheetContent>
+              </Sheet>
 
-            {/* Global keyboard shortcuts */}
-            <LazyKeyboardShortcuts />
-            {/* Command palette (Cmd+K) */}
-            <LazyCommandPalette />
-          </div>
+              {/* Main Content */}
+              <main id="main-content" className="flex-1 overflow-auto relative z-10">
+                <div className="container max-w-7xl p-6 md:p-8">
+                  <ErrorBoundary>
+                    <PageTransition>{children}</PageTransition>
+                  </ErrorBoundary>
+                </div>
+              </main>
+
+              {/* Global keyboard shortcuts */}
+              <LazyKeyboardShortcuts />
+              {/* Command palette (Cmd+K) */}
+              <LazyCommandPalette />
+            </div>
+          </BackgroundProvider>
         </RepositoryProvider>
       </SWRConfig>
     </ApiAuthProvider>

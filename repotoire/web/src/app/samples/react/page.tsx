@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
+import type { LucideIcon } from 'lucide-react';
 import {
   ArrowRight,
   Github,
@@ -105,7 +106,7 @@ const gradeColors: Record<string, string> = {
   F: 'bg-red-500',
 };
 
-const severityColors: Record<string, { bg: string; text: string; icon: React.ElementType }> = {
+const severityColors: Record<string, { bg: string; text: string; icon: LucideIcon }> = {
   critical: { bg: 'bg-red-500/10', text: 'text-red-600', icon: AlertTriangle },
   high: { bg: 'bg-orange-500/10', text: 'text-orange-600', icon: XCircle },
   medium: { bg: 'bg-yellow-500/10', text: 'text-yellow-600', icon: Clock },

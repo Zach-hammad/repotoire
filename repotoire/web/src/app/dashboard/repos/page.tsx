@@ -13,12 +13,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Plus, Github, FolderOpen, AlertTriangle, TrendingDown, Clock } from 'lucide-react';
+import { Plus, Github, FolderOpen, AlertTriangle, TrendingDown, Clock, GitBranch, Activity } from 'lucide-react';
 import { EmptyState } from '@/components/ui/empty-state';
 import Link from 'next/link';
 import { useApiClient } from '@/lib/api-client';
 import { GitHubInstallButton } from '@/components/github/install-button';
 import { SummaryCardsSkeleton, Shimmer } from '@/components/dashboard/skeletons';
+import { HolographicCard } from '@/components/ui/holographic-card';
+import { GlowWrapper } from '@/components/ui/glow-wrapper';
 import type { Repository } from '@/types';
 
 type SortOption = 'health-asc' | 'health-desc' | 'name' | 'last-analyzed';
@@ -104,49 +106,82 @@ function ReposSummary({ repos }: { repos: Repository[] }) {
     return { avgHealth, needsAttention, staleRepos, neverAnalyzed, total: repos.length };
   }, [repos]);
 
+  // Get health color for glow effect
+  const healthColor = stats.avgHealth === null ? 'gray' :
+    stats.avgHealth >= 80 ? 'green' :
+    stats.avgHealth >= 60 ? 'amber' : 'magenta';
+
   if (repos.length < 2) return null; // Don't show for single repo
 
   return (
     <div className="grid gap-4 md:grid-cols-4">
-      <Card>
+      <HolographicCard variant="subtle">
         <CardContent className="pt-4 pb-4">
-          <div className="text-2xl font-bold">{stats.total}</div>
-          <p className="text-xs text-muted-foreground">Total repositories</p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardContent className="pt-4 pb-4">
-          <div className="text-2xl font-bold">
-            {stats.avgHealth !== null ? stats.avgHealth : '—'}
-          </div>
-          <p className="text-xs text-muted-foreground">Average health score</p>
-        </CardContent>
-      </Card>
-      {stats.needsAttention > 0 && (
-        <Card className="border-yellow-500/50 bg-yellow-500/5">
-          <CardContent className="pt-4 pb-4 flex items-center gap-3">
-            <AlertTriangle className="h-5 w-5 text-yellow-500" aria-hidden="true" />
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-cyan-500/10">
+              <GitBranch className="h-5 w-5 text-cyan-500" />
+            </div>
             <div>
-              <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
-                {stats.needsAttention}
+              <div className="text-2xl font-bold">{stats.total}</div>
+              <p className="text-xs text-muted-foreground">Total repositories</p>
+            </div>
+          </div>
+        </CardContent>
+      </HolographicCard>
+      <GlowWrapper color={healthColor} intensity={stats.avgHealth !== null && stats.avgHealth >= 80 ? 'medium' : 'low'} className="rounded-xl">
+        <HolographicCard variant="subtle" className="h-full">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-green-500/10">
+                <Activity className="h-5 w-5 text-green-500" />
               </div>
-              <p className="text-xs text-muted-foreground">Need attention (&lt;70)</p>
+              <div>
+                <div className={`text-2xl font-bold ${
+                  stats.avgHealth === null ? 'text-muted-foreground' :
+                  stats.avgHealth >= 80 ? 'text-green-500' :
+                  stats.avgHealth >= 60 ? 'text-amber-500' : 'text-red-500'
+                }`}>
+                  {stats.avgHealth !== null ? stats.avgHealth : '—'}
+                </div>
+                <p className="text-xs text-muted-foreground">Average health score</p>
+              </div>
             </div>
           </CardContent>
-        </Card>
+        </HolographicCard>
+      </GlowWrapper>
+      {stats.needsAttention > 0 && (
+        <GlowWrapper color="amber" intensity="medium" className="rounded-xl">
+          <HolographicCard variant="subtle" className="h-full border-yellow-500/30">
+            <CardContent className="pt-4 pb-4 flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-yellow-500/10">
+                <AlertTriangle className="h-5 w-5 text-yellow-500" aria-hidden="true" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+                  {stats.needsAttention}
+                </div>
+                <p className="text-xs text-muted-foreground">Need attention (&lt;70)</p>
+              </div>
+            </CardContent>
+          </HolographicCard>
+        </GlowWrapper>
       )}
       {stats.staleRepos > 0 && (
-        <Card className="border-orange-500/50 bg-orange-500/5">
-          <CardContent className="pt-4 pb-4 flex items-center gap-3">
-            <Clock className="h-5 w-5 text-orange-500" aria-hidden="true" />
-            <div>
-              <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                {stats.staleRepos}
+        <GlowWrapper color="magenta" intensity="low" className="rounded-xl">
+          <HolographicCard variant="subtle" className="h-full border-orange-500/30">
+            <CardContent className="pt-4 pb-4 flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-orange-500/10">
+                <Clock className="h-5 w-5 text-orange-500" aria-hidden="true" />
               </div>
-              <p className="text-xs text-muted-foreground">Stale (&gt;7 days)</p>
-            </div>
-          </CardContent>
-        </Card>
+              <div>
+                <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                  {stats.staleRepos}
+                </div>
+                <p className="text-xs text-muted-foreground">Stale (&gt;7 days)</p>
+              </div>
+            </CardContent>
+          </HolographicCard>
+        </GlowWrapper>
       )}
     </div>
   );
@@ -155,31 +190,46 @@ function ReposSummary({ repos }: { repos: Repository[] }) {
 function ReposEmptyState({ hasInstallations }: { hasInstallations: boolean }) {
   if (!hasInstallations) {
     return (
-      <div className="rounded-lg border bg-card p-8">
-        <EmptyState
-          icon={Github}
-          title="Connect GitHub"
-          description="Install the Repotoire GitHub App to connect your repositories. We'll analyze your code for health issues and provide actionable insights."
-          size="lg"
-        />
-        <div className="flex justify-center mt-4">
-          <GitHubInstallButton size="lg" />
+      <HolographicCard variant="glass" className="overflow-hidden">
+        <div className="relative p-8">
+          {/* Background gradient */}
+          <div className="absolute inset-0 bg-gradient-to-r from-gray-500/5 via-cyan-500/5 to-violet-500/5" />
+          <div className="absolute top-0 right-0 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+
+          <div className="relative">
+            <EmptyState
+              icon={Github}
+              title="Connect GitHub"
+              description="Install the Repotoire GitHub App to connect your repositories. We'll analyze your code for health issues and provide actionable insights."
+              size="lg"
+            />
+            <div className="flex justify-center mt-4">
+              <GitHubInstallButton size="lg" />
+            </div>
+          </div>
         </div>
-      </div>
+      </HolographicCard>
     );
   }
 
   return (
-    <EmptyState
-      icon={FolderOpen}
-      title="No repositories enabled"
-      description="Enable repositories from your GitHub installations to start analyzing code health."
-      action={{
-        label: "Manage Repositories",
-        href: "/dashboard/settings/github",
-      }}
-      size="lg"
-    />
+    <HolographicCard variant="glass" className="overflow-hidden">
+      <div className="relative p-8">
+        <div className="absolute inset-0 bg-gradient-to-r from-violet-500/5 via-fuchsia-500/5 to-cyan-500/5" />
+        <div className="relative">
+          <EmptyState
+            icon={FolderOpen}
+            title="No repositories enabled"
+            description="Enable repositories from your GitHub installations to start analyzing code health."
+            action={{
+              label: "Manage Repositories",
+              href: "/dashboard/settings/github",
+            }}
+            size="lg"
+          />
+        </div>
+      </div>
+    </HolographicCard>
   );
 }
 

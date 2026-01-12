@@ -686,3 +686,421 @@ textarea:focus-visible {
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
+
+/* =============================================================================
+   GLOW SYSTEM - Neon Diagnostic Effects
+   ============================================================================= */
+
+:root {
+  /* Glow colors - more saturated for glow effect */
+  --glow-good: oklch(0.75 0.18 185);
+  --glow-warning: oklch(0.68 0.22 35);
+  --glow-critical: oklch(0.58 0.25 25);
+  --glow-primary: oklch(0.60 0.28 295);
+  --glow-cyan: oklch(0.78 0.15 200);
+  --glow-magenta: oklch(0.68 0.25 340);
+
+  /* Glow intensities */
+  --glow-intensity-subtle: 8px;
+  --glow-intensity-medium: 16px;
+  --glow-intensity-strong: 24px;
+}
+
+.dark {
+  /* Brighter glows in dark mode */
+  --glow-good: oklch(0.80 0.20 185);
+  --glow-warning: oklch(0.72 0.24 35);
+  --glow-critical: oklch(0.65 0.28 25);
+  --glow-primary: oklch(0.70 0.30 295);
+  --glow-cyan: oklch(0.82 0.18 200);
+  --glow-magenta: oklch(0.72 0.28 340);
+}
+
+/* Drop shadow glow utilities */
+.glow-subtle {
+  filter: drop-shadow(0 0 var(--glow-intensity-subtle) currentColor);
+}
+
+.glow-medium {
+  filter: drop-shadow(0 0 var(--glow-intensity-medium) currentColor);
+}
+
+.glow-strong {
+  filter: drop-shadow(0 0 var(--glow-intensity-strong) currentColor);
+}
+
+/* Specific glow colors */
+.glow-cyan {
+  filter: drop-shadow(0 0 12px var(--glow-cyan));
+}
+
+.glow-magenta {
+  filter: drop-shadow(0 0 12px var(--glow-magenta));
+}
+
+.glow-good {
+  filter: drop-shadow(0 0 12px var(--glow-good));
+}
+
+.glow-warning-glow {
+  filter: drop-shadow(0 0 12px var(--glow-warning));
+}
+
+.glow-critical-glow {
+  filter: drop-shadow(0 0 12px var(--glow-critical));
+}
+
+/* Box glow for cards/panels */
+.box-glow-good {
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 0 20px -5px var(--glow-good),
+    0 0 40px -10px var(--glow-good);
+}
+
+.box-glow-warning {
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 0 20px -5px var(--glow-warning),
+    0 0 40px -10px var(--glow-warning);
+}
+
+.box-glow-critical {
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 0 20px -5px var(--glow-critical),
+    0 0 40px -10px var(--glow-critical);
+}
+
+.box-glow-primary {
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 0 20px -5px var(--glow-primary),
+    0 0 40px -10px var(--glow-primary);
+}
+
+.box-glow-cyan {
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 0 20px -5px var(--glow-cyan),
+    0 0 40px -10px var(--glow-cyan);
+}
+
+/* Animated glow breathing */
+@keyframes glow-breathe {
+  0%, 100% {
+    filter: drop-shadow(0 0 8px currentColor);
+    opacity: 0.8;
+  }
+  50% {
+    filter: drop-shadow(0 0 20px currentColor);
+    opacity: 1;
+  }
+}
+
+@keyframes box-glow-breathe {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px var(--border),
+      0 0 15px -5px var(--glow-primary),
+      0 0 30px -10px var(--glow-primary);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px var(--border),
+      0 0 25px -5px var(--glow-primary),
+      0 0 50px -10px var(--glow-primary);
+  }
+}
+
+.glow-animate {
+  animation: glow-breathe 3s ease-in-out infinite;
+}
+
+.box-glow-animate {
+  animation: box-glow-breathe 3s ease-in-out infinite;
+}
+
+/* =============================================================================
+   HOLOGRAPHIC CARDS - Glass Morphism + Light Refraction
+   ============================================================================= */
+
+/* Base holographic card */
+.card-holographic {
+  position: relative;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--card) 85%, transparent),
+    color-mix(in oklch, var(--card) 70%, transparent)
+  );
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid color-mix(in oklch, var(--border) 50%, transparent);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+/* Light refraction effect - rainbow top edge */
+.card-holographic::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(0.85 0.12 200) 20%,
+    oklch(0.85 0.12 295) 50%,
+    oklch(0.85 0.12 340) 80%,
+    transparent 100%
+  );
+  opacity: 0.6;
+}
+
+/* Iridescent shimmer overlay */
+.card-holographic::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    125deg,
+    transparent 0%,
+    oklch(0.9 0.05 200 / 0.05) 25%,
+    oklch(0.9 0.05 295 / 0.08) 50%,
+    oklch(0.9 0.05 340 / 0.05) 75%,
+    transparent 100%
+  );
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.card-holographic:hover::after {
+  opacity: 1;
+}
+
+/* Dark mode adjustments */
+.dark .card-holographic {
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--card) 75%, transparent),
+    color-mix(in oklch, var(--card) 60%, transparent)
+  );
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+}
+
+.dark .card-holographic::before {
+  opacity: 0.8;
+}
+
+.dark .card-holographic::after {
+  background: linear-gradient(
+    125deg,
+    transparent 0%,
+    oklch(0.7 0.08 200 / 0.08) 25%,
+    oklch(0.7 0.08 295 / 0.12) 50%,
+    oklch(0.7 0.08 340 / 0.08) 75%,
+    transparent 100%
+  );
+}
+
+/* Interactive holographic with mouse tracking */
+.card-holographic-interactive {
+  --mouse-x: 50%;
+  --mouse-y: 50%;
+}
+
+.card-holographic-interactive::after {
+  background: radial-gradient(
+    600px circle at var(--mouse-x) var(--mouse-y),
+    oklch(0.9 0.08 295 / 0.15),
+    transparent 40%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.card-holographic-interactive:hover::after {
+  opacity: 1;
+}
+
+/* =============================================================================
+   DATA FLOW LINES - Animated Connections
+   ============================================================================= */
+
+@keyframes data-flow {
+  0% {
+    stroke-dashoffset: 100;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+
+.data-flow-line {
+  stroke-dasharray: 8 4;
+  animation: data-flow 2s linear infinite;
+}
+
+.data-flow-line-slow {
+  animation-duration: 4s;
+}
+
+.data-flow-line-fast {
+  animation-duration: 1s;
+}
+
+/* =============================================================================
+   3D BACKGROUND LAYER
+   ============================================================================= */
+
+/* Container for 3D wireframe background */
+.wireframe-container {
+  position: fixed;
+  inset: 0;
+  z-index: -20;
+  pointer-events: none;
+  opacity: 0.12;
+}
+
+.dark .wireframe-container {
+  opacity: 0.20;
+}
+
+/* Fallback gradient for non-WebGL browsers */
+.wireframe-fallback {
+  background:
+    radial-gradient(ellipse at 20% 30%, oklch(0.6 0.15 200 / 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 70%, oklch(0.6 0.15 295 / 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, oklch(0.6 0.15 340 / 0.05) 0%, transparent 60%);
+}
+
+/* Respect reduced motion for 3D backgrounds */
+@media (prefers-reduced-motion: reduce) {
+  .wireframe-container {
+    display: none;
+  }
+
+  .wireframe-container + .wireframe-fallback {
+    display: block;
+  }
+}
+
+/* =============================================================================
+   AI NARRATOR STYLES
+   ============================================================================= */
+
+/* Typing cursor animation */
+@keyframes blink-cursor {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.ai-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--primary);
+  margin-left: 2px;
+  animation: blink-cursor 1s step-end infinite;
+}
+
+/* AI insight sparkle */
+@keyframes sparkle {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.2) rotate(180deg);
+    opacity: 1;
+  }
+}
+
+.ai-sparkle {
+  animation: sparkle 2s ease-in-out infinite;
+}
+
+/* Streaming text reveal */
+@keyframes text-reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.ai-text-stream {
+  animation: text-reveal 0.5s ease-out forwards;
+}
+
+/* =============================================================================
+   ACCESSIBILITY ENHANCEMENTS FOR NEW EFFECTS
+   ============================================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  .glow-animate,
+  .box-glow-animate {
+    animation: none !important;
+  }
+
+  .card-holographic::after {
+    transition: none !important;
+  }
+
+  .data-flow-line {
+    animation: none !important;
+    opacity: 0.5 !important;
+    stroke-dashoffset: 0 !important;
+  }
+
+  .ai-cursor {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+
+  .ai-sparkle {
+    animation: none !important;
+  }
+}
+
+/* High contrast mode adjustments */
+@media (prefers-contrast: high) {
+  .card-holographic {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--card);
+    border: 2px solid var(--border);
+  }
+
+  .card-holographic::before,
+  .card-holographic::after {
+    display: none;
+  }
+
+  .glow-subtle,
+  .glow-medium,
+  .glow-strong {
+    filter: none;
+  }
+
+  .box-glow-good,
+  .box-glow-warning,
+  .box-glow-critical,
+  .box-glow-primary,
+  .box-glow-cyan {
+    box-shadow: 0 0 0 2px currentColor;
+  }
+}

@@ -22,6 +22,7 @@ from repotoire.api.v1.routes import (
     graph,
     historical,
     marketplace,
+    narratives,
     notifications,
     organizations,
     preferences,
@@ -156,6 +157,11 @@ V1_OPENAPI_TAGS = [
         "Browse, install, publish, and manage marketplace assets.",
     },
     {
+        "name": "narratives",
+        "description": "AI-powered narrative generation. Executive summaries, metric insights, "
+        "weekly changelogs, and contextual tooltips using natural language.",
+    },
+    {
         "name": "settings",
         "description": "User settings and preferences. Configure display options, privacy "
         "settings, and provenance display preferences.",
@@ -234,6 +240,7 @@ v1_app.include_router(github.router)
 v1_app.include_router(graph.router)
 v1_app.include_router(historical.router)
 v1_app.include_router(marketplace.router)
+v1_app.include_router(narratives.router)
 v1_app.include_router(notifications.router)
 v1_app.include_router(organizations.router)
 v1_app.include_router(preferences.router)

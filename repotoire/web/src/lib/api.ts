@@ -809,5 +809,180 @@ export const notificationsApi = {
   },
 };
 
+// ==========================================
+// Narratives API
+// ==========================================
+
+export interface NarrativeResponse {
+  text: string;
+  model: string;
+  generated_at: string;
+}
+
+export interface WeeklyNarrativeResponse extends NarrativeResponse {
+  week_start: string | null;
+  week_end: string | null;
+  score_change: number | null;
+  new_findings_count: number;
+  resolved_findings_count: number;
+}
+
+export interface GenerateInsightRequest {
+  metric_name: string;
+  metric_value: unknown;
+  context?: Record<string, unknown>;
+}
+
+export interface GenerateHoverInsightRequest {
+  element_type: string;
+  element_data: Record<string, unknown>;
+}
+
+export const narrativesApi = {
+  /**
+   * Generate an executive summary of repository health
+   */
+  generateSummary: async (repositoryId: string): Promise<NarrativeResponse> => {
+    return request<NarrativeResponse>('/narratives/summary', {
+      method: 'POST',
+      body: JSON.stringify({ repository_id: repositoryId }),
+    });
+  },
+
+  /**
+   * Generate a quick insight for a specific metric
+   */
+  generateInsight: async (data: GenerateInsightRequest): Promise<NarrativeResponse> => {
+    return request<NarrativeResponse>('/narratives/insight', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Generate a hover tooltip insight
+   */
+  generateHoverInsight: async (data: GenerateHoverInsightRequest): Promise<NarrativeResponse> => {
+    return request<NarrativeResponse>('/narratives/hover', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Generate a weekly health changelog narrative
+   */
+  getWeeklyNarrative: async (repositoryId: string): Promise<WeeklyNarrativeResponse> => {
+    const params = new URLSearchParams({ repository_id: repositoryId });
+    return request<WeeklyNarrativeResponse>(`/narratives/weekly?${params}`);
+  },
+
+  /**
+   * Stream the summary generation for real-time UX
+   * Returns an EventSource for SSE streaming
+   */
+  streamSummary: (repositoryId: string, onChunk: (text: string) => void, onError?: (error: Error) => void): EventSource => {
+    const url = `${API_BASE_URL}/narratives/summary/stream?repository_id=${repositoryId}`;
+    const eventSource = new EventSource(url);
+
+    eventSource.addEventListener('chunk', (event) => {
+      onChunk(event.data);
+    });
+
+    eventSource.addEventListener('done', () => {
+      eventSource.close();
+    });
+
+    eventSource.addEventListener('error', (event) => {
+      eventSource.close();
+      if (onError) {
+        onError(new Error('Stream error'));
+      }
+    });
+
+    return eventSource;
+  },
+};
+
+// ==========================================
+// 3D Topology API
+// ==========================================
+
+export interface TopologyNode {
+  id: string;
+  name: string;
+  path: string;
+  type: string;
+  size: number;
+  color: 'healthy' | 'warning' | 'critical' | 'neutral';
+  findings_count: number;
+  health_score: number | null;
+  x: number | null;
+  y: number | null;
+  z: number | null;
+}
+
+export interface TopologyEdge {
+  source: string;
+  target: string;
+  type: string;
+  weight: number;
+}
+
+export interface TopologyData {
+  nodes: TopologyNode[];
+  edges: TopologyEdge[];
+  summary: {
+    total_nodes: number;
+    total_edges: number;
+    critical_files: number;
+    warning_files: number;
+    healthy_files: number;
+  };
+}
+
+export interface HotspotTerrainPoint {
+  file_path: string;
+  name: string;
+  x: number;
+  z: number;
+  height: number;
+  color: 'healthy' | 'warning' | 'critical';
+  count: number;
+  weighted_score: number;
+}
+
+export interface HotspotTerrainData {
+  points: HotspotTerrainPoint[];
+  summary: {
+    total: number;
+    max_count: number;
+    max_weighted: number;
+  };
+}
+
+export const topologyApi = {
+  /**
+   * Get code topology data for 3D visualization
+   */
+  getTopology: async (repositoryId?: string, depth: number = 2, limit: number = 100): Promise<TopologyData> => {
+    const params = new URLSearchParams();
+    if (repositoryId) params.set('repository_id', repositoryId);
+    params.set('depth', String(depth));
+    params.set('limit', String(limit));
+    return request<TopologyData>(`/analytics/topology?${params}`);
+  },
+
+  /**
+   * Get hotspot terrain data for 3D visualization
+   */
+  getHotspotsTerrain: async (repositoryId?: string, limit: number = 50): Promise<HotspotTerrainData> => {
+    const params = new URLSearchParams();
+    if (repositoryId) params.set('repository_id', repositoryId);
+    params.set('limit', String(limit));
+    return request<HotspotTerrainData>(`/analytics/hotspots-terrain?${params}`);
+  },
+};
+
 // Export error class for use in components
 export { ApiError };

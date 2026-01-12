@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import type { LucideIcon } from 'lucide-react';
 import {
   AlertTriangle,
   AlertCircle,
@@ -30,7 +31,7 @@ const severityConfig: Record<Severity, {
   color: string;
   bgColor: string;
   label: string;
-  icon: React.ElementType;
+  icon: LucideIcon;
 }> = {
   critical: {
     color: 'var(--severity-critical)',

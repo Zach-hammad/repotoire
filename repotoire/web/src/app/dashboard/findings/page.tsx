@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useFindings, useFindingsSummary, useFindingsByDetector, useRepositories, useFixes, useBulkUpdateFindingStatus } from '@/lib/hooks';
+import type { LucideIcon } from 'lucide-react';
 import {
   AlertTriangle,
   AlertCircle,
@@ -70,12 +71,14 @@ import {
   filterPresets,
   getFriendlyErrorMessage,
 } from '@/lib/findings-utils';
+import { GlowWrapper, useGlowColor } from '@/components/ui/glow-wrapper';
+import { AIInsightTooltip } from '@/components/dashboard/ai-insight-tooltip';
 
 function Skeleton({ className }: { className?: string }) {
   return <div className={cn('animate-pulse rounded-md bg-muted', className)} />;
 }
 
-const severityIcons: Record<Severity, React.ElementType> = {
+const severityIcons: Record<Severity, LucideIcon> = {
   critical: AlertTriangle,
   high: AlertCircle,
   medium: AlertCircle,
@@ -83,7 +86,7 @@ const severityIcons: Record<Severity, React.ElementType> = {
   info: Info,
 };
 
-const statusIcons: Record<FindingStatus, React.ElementType> = {
+const statusIcons: Record<FindingStatus, LucideIcon> = {
   open: AlertCircle,
   acknowledged: Eye,
   in_progress: Loader2,
@@ -103,8 +106,8 @@ interface FindingCardProps {
 }
 
 function FindingCard({ finding, repositoryFullName, relatedFix, isSelected, onSelectChange, detailLevel }: FindingCardProps) {
-  const Icon = severityIcons[finding.severity];
-  const config = severityConfig[finding.severity];
+  const Icon = severityIcons[finding.severity as Severity] ?? Info;
+  const config = severityConfig[finding.severity as Severity];
   const detectorName = getDetectorFriendlyName(finding.detector);
   const detectorDesc = getDetectorDescription(finding.detector);
 
@@ -677,42 +680,57 @@ function FindingsContent() {
             const config = severityConfig[severity];
             const count = summary?.[severity] ?? 0;
             const isSelected = severityFilter === severity;
+            // Determine glow based on severity and count
+            const shouldGlow = count > 0 && (severity === 'critical' || (severity === 'high' && count > 5));
+            const glowColor = severity === 'critical' ? 'critical' : severity === 'high' ? 'warning' : undefined;
             return (
               <Tooltip key={severity}>
                 <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={`${config.plainEnglish}: ${count} issues${isSelected ? ' (currently selected)' : ''}`}
-                    aria-pressed={isSelected}
-                    className="text-left focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded-lg"
-                    onClick={() => setSeverityFilter(isSelected ? 'all' : severity)}
-                  >
-                    <Card
-                      className={cn(
-                        'cursor-pointer transition-all h-full hover:shadow-md',
-                        isSelected && 'ring-2 ring-primary'
-                      )}
+                  <AIInsightTooltip metricType={`${severity}_findings` as any} metricValue={count}>
+                    <button
+                      type="button"
+                      aria-label={`${config.plainEnglish}: ${count} issues${isSelected ? ' (currently selected)' : ''}`}
+                      aria-pressed={isSelected}
+                      className="text-left focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded-lg w-full"
+                      onClick={() => setSeverityFilter(isSelected ? 'all' : severity)}
                     >
-                      <CardContent className="flex items-center gap-3 p-4">
-                        <div
-                          className={cn(
-                            'flex h-10 w-10 items-center justify-center rounded-lg',
-                            config.bgColor, config.color
-                          )}
-                          aria-hidden="true"
-                        >
-                          <Icon className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <p className="text-2xl font-bold">{count}</p>
-                          <div className="space-y-0.5">
-                            <p className="text-xs font-medium">{config.emoji} {config.label}</p>
-                            <p className="text-xs text-muted-foreground">{config.plainEnglish}</p>
+                      <Card
+                        className={cn(
+                          'cursor-pointer transition-all h-full hover:shadow-md',
+                          isSelected && 'ring-2 ring-primary',
+                          shouldGlow && glowColor === 'critical' && 'box-glow-critical',
+                          shouldGlow && glowColor === 'warning' && 'box-glow-warning'
+                        )}
+                        glow={shouldGlow ? (glowColor as any) : 'none'}
+                        glowAnimate={severity === 'critical' && count > 0}
+                      >
+                        <CardContent className="flex items-center gap-3 p-4">
+                          <GlowWrapper
+                            color={shouldGlow ? (severity === 'critical' ? 'critical' : 'warning') : undefined}
+                            intensity={count > 0 ? 'medium' : 'low'}
+                            animate={severity === 'critical' && count > 0}
+                          >
+                            <div
+                              className={cn(
+                                'flex h-10 w-10 items-center justify-center rounded-lg',
+                                config.bgColor, config.color
+                              )}
+                              aria-hidden="true"
+                            >
+                              <Icon className="h-5 w-5" />
+                            </div>
+                          </GlowWrapper>
+                          <div>
+                            <p className="text-2xl font-bold">{count}</p>
+                            <div className="space-y-0.5">
+                              <p className="text-xs font-medium">{config.emoji} {config.label}</p>
+                              <p className="text-xs text-muted-foreground">{config.plainEnglish}</p>
+                            </div>
                           </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </button>
+                        </CardContent>
+                      </Card>
+                    </button>
+                  </AIInsightTooltip>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
                   <p className="font-semibold">{config.plainEnglish}</p>

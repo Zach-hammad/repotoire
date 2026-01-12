@@ -3,6 +3,7 @@
 import { use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import type { LucideIcon } from 'lucide-react';
 import {
   AlertTriangle,
   AlertCircle,
@@ -60,7 +61,7 @@ import {
   formatGraphContext,
 } from '@/lib/findings-utils';
 
-const severityIcons: Record<Severity, React.ElementType> = {
+const severityIcons: Record<Severity, LucideIcon> = {
   critical: AlertTriangle,
   high: AlertCircle,
   medium: AlertCircle,
@@ -179,8 +180,8 @@ export default function FindingDetailPage({ params }: FindingDetailPageProps) {
     );
   }
 
-  const SeverityIcon = severityIcons[finding.severity];
-  const sevConfig = severityConfig[finding.severity];
+  const SeverityIcon = severityIcons[finding.severity as Severity];
+  const sevConfig = severityConfig[finding.severity as Severity];
   const currentStatusConfig = statusConfig[finding.status || 'open'];
   const detectorFriendlyName = getDetectorFriendlyName(finding.detector);
   const detectorDescription = getDetectorDescription(finding.detector);

@@ -8,12 +8,46 @@ import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useTheme } from 'next-themes';
-import { Moon, Sun, Monitor, Shield, ChevronRight, Key, Bot, Loader2, Bell } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { Moon, Sun, Monitor, Shield, ChevronRight, Key, Bot, Loader2, Bell, Sparkles, Box, Waves, Palette } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { useUserPreferences, useUpdateUserPreferences } from '@/lib/hooks';
+import { HolographicCard } from '@/components/ui/holographic-card';
+
+// Visual effects settings stored in localStorage
+const VISUAL_SETTINGS_KEY = 'repotoire-visual-settings';
+
+interface VisualSettings {
+  enable3D: boolean;
+  enableGlow: boolean;
+  enableAnimatedBackground: boolean;
+}
+
+const defaultVisualSettings: VisualSettings = {
+  enable3D: true,
+  enableGlow: true,
+  enableAnimatedBackground: true,
+};
+
+function getVisualSettings(): VisualSettings {
+  if (typeof window === 'undefined') return defaultVisualSettings;
+  try {
+    const stored = localStorage.getItem(VISUAL_SETTINGS_KEY);
+    return stored ? { ...defaultVisualSettings, ...JSON.parse(stored) } : defaultVisualSettings;
+  } catch {
+    return defaultVisualSettings;
+  }
+}
+
+function setVisualSettings(settings: VisualSettings): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(VISUAL_SETTINGS_KEY, JSON.stringify(settings));
+  // Dispatch custom event for components to listen to
+  window.dispatchEvent(new CustomEvent('visual-settings-changed', { detail: settings }));
+}
 
 function ThemeCard({
   theme,
@@ -26,7 +60,7 @@ function ThemeCard({
   theme: string;
   currentTheme?: string;
   onSelect: (theme: string) => void;
-  icon: React.ElementType;
+  icon: LucideIcon;
   label: string;
   disabled?: boolean;
 }) {
@@ -60,6 +94,21 @@ export default function SettingsPage() {
   // Local state for form values
   const [localPreferences, setLocalPreferences] = useState(preferences);
   const [hasChanges, setHasChanges] = useState(false);
+
+  // Visual settings state (localStorage-based)
+  const [visualSettings, setVisualSettingsState] = useState<VisualSettings>(defaultVisualSettings);
+
+  // Load visual settings on mount
+  useEffect(() => {
+    setVisualSettingsState(getVisualSettings());
+  }, []);
+
+  const handleVisualSettingChange = (key: keyof VisualSettings, value: boolean) => {
+    const newSettings = { ...visualSettings, [key]: value };
+    setVisualSettingsState(newSettings);
+    setVisualSettings(newSettings);
+    toast.success('Visual settings updated');
+  };
 
   // Sync local state when preferences load
   useEffect(() => {
@@ -200,6 +249,86 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Visual Effects */}
+        <HolographicCard variant="glass" className="overflow-hidden">
+          <div className="relative">
+            {/* Subtle background gradient */}
+            <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/5 via-violet-500/5 to-fuchsia-500/5" />
+
+            <CardHeader className="relative">
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-violet-500" />
+                Visual Effects
+              </CardTitle>
+              <CardDescription>
+                Customize 3D visualizations, animations, and glow effects
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="relative space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-cyan-500/10">
+                    <Box className="h-4 w-4 text-cyan-500" />
+                  </div>
+                  <div>
+                    <Label>3D Visualizations</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Enable orbital health scores, topology maps, and hotspot terrain
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={visualSettings.enable3D}
+                  onCheckedChange={(checked) => handleVisualSettingChange('enable3D', checked)}
+                />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-fuchsia-500/10">
+                    <Palette className="h-4 w-4 text-fuchsia-500" />
+                  </div>
+                  <div>
+                    <Label>Glow Effects</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Enable ambient glow on cards, badges, and status indicators
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={visualSettings.enableGlow}
+                  onCheckedChange={(checked) => handleVisualSettingChange('enableGlow', checked)}
+                />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-violet-500/10">
+                    <Waves className="h-4 w-4 text-violet-500" />
+                  </div>
+                  <div>
+                    <Label>Animated Background</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Enable the wireframe 3D background animation
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={visualSettings.enableAnimatedBackground}
+                  onCheckedChange={(checked) => handleVisualSettingChange('enableAnimatedBackground', checked)}
+                />
+              </div>
+
+              <div className="mt-4 p-3 rounded-lg bg-muted/50 text-xs text-muted-foreground">
+                <p className="flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 rounded-full bg-cyan-500"></span>
+                  Visual settings are saved locally and take effect immediately
+                </p>
+              </div>
+            </CardContent>
+          </div>
+        </HolographicCard>
 
         {/* Notifications */}
         <Card>

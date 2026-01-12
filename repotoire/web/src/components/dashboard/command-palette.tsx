@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Command } from 'cmdk';
+import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard,
   ListChecks,
@@ -29,7 +30,7 @@ interface CommandItem {
   id: string;
   title: string;
   subtitle?: string;
-  icon: React.ElementType;
+  icon: LucideIcon;
   action: () => void;
   keywords?: string[];
   group: string;

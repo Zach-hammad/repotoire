@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import {
   Bell,
   CheckCircle2,
@@ -33,7 +34,7 @@ import {
 
 export type NotificationType = NotificationItem['type'];
 
-const notificationIcons: Record<NotificationType, React.ElementType> = {
+const notificationIcons: Record<NotificationType, LucideIcon> = {
   analysis_complete: CheckCircle2,
   analysis_failed: X,
   new_finding: AlertCircle,

@@ -38,11 +38,24 @@ from .gdpr import (
     update_export_status,
 )
 from .github import GitHubAppClient
+from .narrative import (
+    HealthContext,
+    NarrativeGenerator,
+    NarrativeResult,
+    WeeklyContext,
+    create_narrative_generator,
+)
 from .stripe_service import PRICE_IDS, SEAT_PRICE_IDS, StripeService, price_id_to_tier
 
 __all__ = [
     "TokenEncryption",
     "GitHubAppClient",
+    # Narratives
+    "HealthContext",
+    "NarrativeGenerator",
+    "NarrativeResult",
+    "WeeklyContext",
+    "create_narrative_generator",
     # Billing
     "PLAN_LIMITS",
     "PlanLimits",

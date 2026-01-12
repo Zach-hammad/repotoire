@@ -4,6 +4,7 @@ import { useState, useCallback, memo, useMemo, useRef, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import type { LucideIcon } from 'lucide-react';
 import {
   CheckCircle2,
   XCircle,
@@ -21,6 +22,8 @@ import {
   Play,
   Loader2,
   Wand2,
+  Sparkles,
+  Box,
 } from 'lucide-react';
 import { StaggerReveal, StaggerItem, FadeIn } from '@/components/transitions/stagger-reveal';
 import { HealthGauge } from '@/components/dashboard/health-gauge';
@@ -29,6 +32,13 @@ import { useAnalyticsSummary, useTrends, useFileHotspots, useHealthScore, useAna
 import { OnboardingWizard } from '@/components/onboarding/onboarding-wizard';
 import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
+import { useBackground } from '@/components/backgrounds';
+import { AINarratorPanel } from '@/components/dashboard/ai-narrator-panel';
+import { WeeklyNarrative, useWeeklyNarrativeNav } from '@/components/dashboard/weekly-narrative';
+import { AIInsightTooltip } from '@/components/dashboard/ai-insight-tooltip';
+import { OrbitalHealthScore } from '@/components/3d';
+import { HolographicCard } from '@/components/ui/holographic-card';
+import { GlowWrapper } from '@/components/ui/glow-wrapper';
 import {
   LineChart,
   Line,
@@ -107,9 +117,17 @@ const categoryDetectorMapping: Record<string, string[]> = {
   architecture: ['feature_envy', 'inappropriate_intimacy', 'shotgun_surgery', 'middle_man', 'module_cohesion'],
 };
 
-function HealthScoreGauge({ loading }: { loading?: boolean }) {
+function HealthScoreGauge({ loading, use3D = false }: { loading?: boolean; use3D?: boolean }) {
   const { data: healthScore } = useHealthScore();
   const router = useRouter();
+  const { setFromHealthScore } = useBackground();
+
+  // Update background based on health score
+  useEffect(() => {
+    if (healthScore?.score != null) {
+      setFromHealthScore(healthScore.score);
+    }
+  }, [healthScore?.score, setFromHealthScore]);
 
   if (loading || !healthScore) {
     return (
@@ -131,11 +149,14 @@ function HealthScoreGauge({ loading }: { loading?: boolean }) {
     );
   }
 
-  const { score, trend, categories } = healthScore;
+  const { score, trend, categories, grade } = healthScore;
   const scoreValue = score ?? 0;
 
   const TrendIcon = trend === 'improving' ? TrendingUp : trend === 'declining' ? TrendingDown : Minus;
   const trendColor = trend === 'improving' ? 'status-nominal' : trend === 'declining' ? 'status-critical' : 'text-muted-foreground';
+
+  // Determine glow based on score
+  const glowType = scoreValue >= 80 ? 'good' : scoreValue >= 60 ? 'warning' : 'critical';
 
   // Category colors - updated to clinical teal palette
   const categoryColors: Record<string, string> = {
@@ -153,10 +174,12 @@ function HealthScoreGauge({ loading }: { loading?: boolean }) {
   };
 
   return (
-    <Card className="card-elevated card-diagnostic">
+    <Card className="card-elevated card-diagnostic" glow={glowType} glowAnimate={scoreValue < 70}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="font-display text-sm">Health Score</CardTitle>
+          <AIInsightTooltip metricType="health_score" metricValue={scoreValue}>
+            <CardTitle className="font-display text-sm cursor-help">Health Score</CardTitle>
+          </AIInsightTooltip>
           <div className={`flex items-center gap-1 text-xs ${trendColor}`}>
             <TrendIcon className="h-3 w-3" />
             <span className="capitalize">{trend}</span>
@@ -164,42 +187,57 @@ function HealthScoreGauge({ loading }: { loading?: boolean }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Animated Health Gauge */}
+        {/* 3D Orbital or 2D Gauge */}
         <div className="flex justify-center py-2">
-          <HealthGauge score={scoreValue} size="md" showPulse={scoreValue < 70} />
+          {use3D ? (
+            <OrbitalHealthScore
+              score={scoreValue}
+              grade={grade ?? undefined}
+              categories={categories ? {
+                structure: categories.structure ?? 0,
+                quality: categories.quality ?? 0,
+                architecture: categories.architecture ?? 0,
+              } : undefined}
+              size="md"
+              interactive
+            />
+          ) : (
+            <HealthGauge score={scoreValue} size="md" showPulse={scoreValue < 70} />
+          )}
         </div>
 
-        {/* Category Breakdown - Clickable Bars */}
+        {/* Category Breakdown - Clickable Bars with AI Insights */}
         {categories && (
           <div className="space-y-2.5 pt-2">
             {Object.entries(categories).map(([key, value]) => (
-              <button
-                key={key}
-                onClick={() => handleCategoryClick(key)}
-                className="w-full space-y-1 text-left hover:bg-muted/50 rounded-md p-1.5 -m-1 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                title={`View ${key} issues`}
-              >
-                <div className="flex items-center justify-between text-xs">
-                  <span className="capitalize font-medium group-hover:text-primary transition-colors">{key}</span>
-                  <span className="text-muted-foreground tabular-nums font-mono">{value}%</span>
-                </div>
-                <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${value}%`,
-                      backgroundColor: categoryColors[key] || 'var(--primary)',
-                    }}
-                  />
-                </div>
-              </button>
+              <AIInsightTooltip key={key} metricType={key as any} metricValue={value ?? 0}>
+                <button
+                  onClick={() => handleCategoryClick(key)}
+                  className="w-full space-y-1 text-left hover:bg-muted/50 rounded-md p-1.5 -m-1 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  title={`View ${key} issues`}
+                >
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="capitalize font-medium group-hover:text-primary transition-colors">{key}</span>
+                    <span className="text-muted-foreground tabular-nums font-mono">{value}%</span>
+                  </div>
+                  <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${value}%`,
+                        backgroundColor: categoryColors[key] || 'var(--primary)',
+                      }}
+                    />
+                  </div>
+                </button>
+              </AIInsightTooltip>
             ))}
           </div>
         )}
 
         {/* Actionable hint */}
         <p className="text-[10px] text-muted-foreground/60 text-center font-mono uppercase tracking-wide">
-          Click category to drill down
+          {use3D ? 'Drag to rotate • ' : ''}Click category to drill down
         </p>
       </CardContent>
     </Card>
@@ -217,7 +255,7 @@ function StatCard({
   title: string;
   value: string | number;
   description: string;
-  icon: React.ElementType;
+  icon: LucideIcon;
   trend?: { value: number; isPositive: boolean };
   loading?: boolean;
 }) {
@@ -1205,9 +1243,12 @@ export default function DashboardPage() {
   const { data: installations } = useGitHubInstallations();
   const { data: analysisHistory } = useAnalysisHistory(undefined, 1);
   const { data: trendData } = useTrends('day', 14, null); // Get 14 days for trend calculation
+  const { data: healthScore } = useHealthScore();
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | null>(null);
   const [severityFilter, setSeverityFilter] = useState<Severity[]>([]);
   const [isExporting, setIsExporting] = useState(false);
+  const [use3DVisuals, setUse3DVisuals] = useState(false);
+  const { weekOffset, setWeekOffset } = useWeeklyNarrativeNav();
 
   // Calculate week-over-week trends
   const calculateTrend = (currentWeek: number, previousWeek: number): { value: number; isPositive: boolean } | undefined => {
@@ -1277,6 +1318,80 @@ export default function DashboardPage() {
         />
       )}
 
+      {/* AI Storytelling Section - Only show when not onboarding */}
+      {!showOnboarding && (
+        <FadeIn className="grid gap-4 lg:grid-cols-3">
+          {/* AI Narrator Panel - Full Width Narrative */}
+          <div className="lg:col-span-2">
+            <AINarratorPanel
+              repositoryId={repositories?.[0]?.id}
+              narrative={{
+                narrative: healthScore?.score
+                  ? `Your codebase health is at ${healthScore.score}%. ${
+                      healthScore.score >= 80
+                        ? 'Great job maintaining code quality!'
+                        : healthScore.score >= 60
+                        ? 'There are some areas that could use attention.'
+                        : 'Several critical issues need to be addressed.'
+                    } ${
+                      summary?.critical
+                        ? `You have ${summary.critical} critical and ${summary.high || 0} high severity findings.`
+                        : ''
+                    }`
+                  : 'Analyzing your codebase...',
+                generated_at: new Date().toISOString(),
+                cache_hit: false,
+                metrics_snapshot: {
+                  health_score: healthScore?.score ?? 0,
+                  grade: healthScore?.grade ?? 'N/A',
+                  total_findings: summary?.total_findings ?? 0,
+                  critical: summary?.critical ?? 0,
+                  high: summary?.high ?? 0,
+                  medium: summary?.medium ?? 0,
+                  low: summary?.low ?? 0,
+                  structure_score: healthScore?.categories?.structure ?? 0,
+                  quality_score: healthScore?.categories?.quality ?? 0,
+                  architecture_score: healthScore?.categories?.architecture ?? 0,
+                },
+              }}
+              isLoading={isLoading}
+            />
+          </div>
+
+          {/* Weekly Health Report */}
+          <WeeklyNarrative
+            narrative={{
+              narrative: `This week shows ${healthScore?.trend === 'improving' ? 'positive momentum' : healthScore?.trend === 'declining' ? 'some regression' : 'stability'} in code quality.`,
+              period_start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+              period_end: new Date().toISOString(),
+              highlights: [
+                ...(summary?.critical && summary.critical > 0 ? [{
+                  type: 'new_issue' as const,
+                  title: `${summary.critical} critical issues`,
+                  description: 'Require immediate attention',
+                  impact: 'high' as const,
+                }] : []),
+                ...(healthScore?.trend === 'improving' ? [{
+                  type: 'improvement' as const,
+                  title: 'Health improving',
+                  description: 'Keep up the good work',
+                  impact: 'medium' as const,
+                }] : []),
+              ],
+              metrics_comparison: {
+                health_score_change: healthScore?.trend === 'improving' ? 5 : healthScore?.trend === 'declining' ? -3 : 0,
+                findings_change: 0,
+                critical_change: 0,
+                high_change: 0,
+              },
+            }}
+            weekOffset={weekOffset}
+            onWeekChange={setWeekOffset}
+            isLoading={isLoading}
+          />
+        </FadeIn>
+      )}
+
       {/* Header */}
       <FadeIn className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -1289,6 +1404,16 @@ export default function DashboardPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <QuickAnalysisButton />
+          <Button
+            variant={use3DVisuals ? "default" : "outline"}
+            size="sm"
+            className="h-8"
+            onClick={() => setUse3DVisuals(!use3DVisuals)}
+            title={use3DVisuals ? "Switch to 2D view" : "Switch to 3D view"}
+          >
+            <Box className="h-4 w-4 mr-2" />
+            {use3DVisuals ? '3D On' : '3D Off'}
+          </Button>
           <DateRangeSelector
             dateRange={dateRange}
             onDateRangeChange={setDateRange}
@@ -1371,7 +1496,12 @@ export default function DashboardPage() {
             className="block"
             aria-label={`View ${summary?.critical || 0} critical findings`}
           >
-            <Card className="card-elevated border-l-4 border-l-red-600 hover:bg-muted/30 transition-colors cursor-pointer h-full">
+            <Card
+              className="border-l-4 border-l-red-600 hover:bg-muted/30 transition-colors cursor-pointer h-full"
+              variant={(summary?.critical || 0) > 0 ? "critical" : "elevated"}
+              glow={(summary?.critical || 0) > 0 ? "critical" : "none"}
+              glowAnimate={(summary?.critical || 0) > 0}
+            >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Critical</span>
@@ -1389,7 +1519,11 @@ export default function DashboardPage() {
             className="block"
             aria-label={`View ${summary?.high || 0} high severity findings`}
           >
-            <Card className="card-elevated border-l-4 border-l-orange-500 hover:bg-muted/30 transition-colors cursor-pointer h-full">
+            <Card
+              className="border-l-4 border-l-orange-500 hover:bg-muted/30 transition-colors cursor-pointer h-full"
+              variant="elevated"
+              glow={(summary?.high || 0) > 5 ? "warning" : "none"}
+            >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">High</span>
@@ -1425,7 +1559,11 @@ export default function DashboardPage() {
             className="block"
             aria-label={`View ${summary?.low || 0} low severity findings`}
           >
-            <Card className="card-elevated border-l-4 border-l-green-500 hover:bg-muted/30 transition-colors cursor-pointer h-full">
+            <Card
+              className="border-l-4 border-l-green-500 hover:bg-muted/30 transition-colors cursor-pointer h-full"
+              variant="elevated"
+              glow={((summary?.critical || 0) === 0 && (summary?.high || 0) === 0) ? "good" : "none"}
+            >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Low</span>
@@ -1476,7 +1614,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <HealthScoreGauge loading={isLoading} />
+        <HealthScoreGauge loading={isLoading} use3D={use3DVisuals} />
 
         {/* Pending AI Fixes - Replaces duplicate severity chart */}
         <Card className="card-elevated">

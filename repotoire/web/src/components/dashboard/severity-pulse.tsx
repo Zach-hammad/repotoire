@@ -19,6 +19,8 @@ interface SeverityConfig {
   pulse: boolean;
   icon: LucideIcon;
   label: string;
+  glowClass: string;
+  boxGlowClass: string;
 }
 
 const severityConfig: Record<Severity, SeverityConfig> = {
@@ -28,6 +30,8 @@ const severityConfig: Record<Severity, SeverityConfig> = {
     pulse: true,
     icon: AlertOctagon,
     label: 'Critical',
+    glowClass: 'glow-critical-glow',
+    boxGlowClass: 'box-glow-critical',
   },
   high: {
     color: 'var(--severity-high)',
@@ -35,6 +39,8 @@ const severityConfig: Record<Severity, SeverityConfig> = {
     pulse: true,
     icon: AlertTriangle,
     label: 'High',
+    glowClass: 'glow-warning-glow',
+    boxGlowClass: 'box-glow-warning',
   },
   medium: {
     color: 'var(--severity-medium)',
@@ -42,6 +48,8 @@ const severityConfig: Record<Severity, SeverityConfig> = {
     pulse: false,
     icon: AlertCircle,
     label: 'Medium',
+    glowClass: 'glow-warning-glow',
+    boxGlowClass: 'box-glow-warning',
   },
   low: {
     color: 'var(--severity-low)',
@@ -49,6 +57,8 @@ const severityConfig: Record<Severity, SeverityConfig> = {
     pulse: false,
     icon: CheckCircle2,
     label: 'Low',
+    glowClass: 'glow-good',
+    boxGlowClass: 'box-glow-good',
   },
   info: {
     color: 'var(--severity-info)',
@@ -56,6 +66,8 @@ const severityConfig: Record<Severity, SeverityConfig> = {
     pulse: false,
     icon: Info,
     label: 'Info',
+    glowClass: 'glow-cyan',
+    boxGlowClass: 'box-glow-cyan',
   },
 };
 
@@ -67,6 +79,10 @@ interface SeverityPulseProps {
   showEkg?: boolean;
   className?: string;
   compact?: boolean;
+  /** Enable glow effect on the indicator */
+  showGlow?: boolean;
+  /** Enable box glow effect on the container */
+  showBoxGlow?: boolean;
 }
 
 /**
@@ -81,6 +97,8 @@ export function SeverityPulse({
   showEkg = true,
   className,
   compact = false,
+  showGlow = false,
+  showBoxGlow = false,
 }: SeverityPulseProps) {
   const config = severityConfig[severity];
   const Icon = config.icon;
@@ -93,6 +111,8 @@ export function SeverityPulse({
       className={cn(
         'relative flex items-center gap-3 rounded-lg transition-colors',
         compact ? 'px-3 py-2' : 'px-4 py-3',
+        showBoxGlow && config.boxGlowClass,
+        showBoxGlow && config.pulse && 'box-glow-animate',
         className
       )}
       style={{
@@ -142,10 +162,15 @@ export function SeverityPulse({
         />
       </span>
 
-      {/* Icon */}
+      {/* Icon with optional glow */}
       {showIcon && (
         <Icon
-          className={cn('shrink-0', compact ? 'h-4 w-4' : 'h-5 w-5')}
+          className={cn(
+            'shrink-0',
+            compact ? 'h-4 w-4' : 'h-5 w-5',
+            showGlow && config.glowClass,
+            showGlow && config.pulse && 'glow-animate'
+          )}
           style={{ color: config.color }}
           aria-hidden="true"
         />

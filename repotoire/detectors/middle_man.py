@@ -138,7 +138,7 @@ class MiddleManDetector(CodeSmellDetector):
                 line_end=result.get("line_end"),
                 suggested_fix=suggestion,
                 estimated_effort=estimated_effort,
-                metadata={k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v for k, v in {
+                graph_context={k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v for k, v in {
                     "delegation_count": result["delegation_count"],
                     "total_methods": result["total_methods"],
                     "delegation_percentage": delegation_pct,
