@@ -240,7 +240,7 @@ class DeadCodeDetector(CodeSmellDetector):
             OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
             WITH f, file, COALESCE(f.decorators, []) AS decorators, COALESCE(file.exports, []) AS exports
             WHERE size(decorators) = 0
-              AND NOT f.name IN exports
+              AND size([x IN exports WHERE x = f.name]) = 0
               AND NOT (file.filePath STARTS WITH 'tests/fixtures/' OR file.filePath CONTAINS '/tests/fixtures/')
               AND NOT (file.filePath STARTS WITH 'examples/' OR file.filePath CONTAINS '/examples/')
               AND NOT (file.filePath STARTS WITH 'test_fixtures/' OR file.filePath CONTAINS '/test_fixtures/')
@@ -479,7 +479,7 @@ class DeadCodeDetector(CodeSmellDetector):
             WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
             WITH c, file, count(m) AS method_count, COALESCE(c.decorators, []) AS decorators, COALESCE(file.exports, []) AS exports
             WHERE size(decorators) = 0
-              AND NOT c.name IN exports
+              AND size([x IN exports WHERE x = c.name]) = 0
               AND NOT (file.filePath STARTS WITH 'tests/fixtures/' OR file.filePath CONTAINS '/tests/fixtures/')
               AND NOT (file.filePath STARTS WITH 'examples/' OR file.filePath CONTAINS '/examples/')
               AND NOT (file.filePath STARTS WITH 'test_fixtures/' OR file.filePath CONTAINS '/test_fixtures/')
