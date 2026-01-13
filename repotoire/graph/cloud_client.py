@@ -246,6 +246,40 @@ class CloudProxyClient(DatabaseClient):
         response = self._request("DELETE", f"/files/{file_path}")
         return response.get("deleted", 0)
 
+    def batch_delete_file_entities(self, file_paths: List[str]) -> int:
+        """Delete multiple files and their related entities in a single query.
+
+        Performance: Uses UNWIND to delete all files in O(1) query instead of O(N).
+
+        Args:
+            file_paths: List of file paths to delete
+
+        Returns:
+            Total count of deleted nodes
+        """
+        if not file_paths:
+            return 0
+
+        query = """
+        UNWIND $paths AS path
+        MATCH (f:File {filePath: path})
+        OPTIONAL MATCH (f)-[:CONTAINS*]->(entity)
+        WITH f, collect(entity) as entities
+        DETACH DELETE f
+        WITH entities
+        UNWIND entities as entity
+        DETACH DELETE entity
+        RETURN count(*) as deletedCount
+        """
+        try:
+            result = self.execute_query(query, {"paths": file_paths})
+            deleted_count = result[0]["deletedCount"] if result else 0
+            logger.info(f"Batch deleted {deleted_count} nodes for {len(file_paths)} files")
+            return deleted_count
+        except Exception as e:
+            logger.error(f"Failed batch delete: {e}")
+            return 0
+
     def get_node_label_counts(self) -> Dict[str, int]:
         """Get counts for each node label."""
         query = """
