@@ -8,17 +8,17 @@ import * as THREE from 'three';
 import { useBackgroundState, type BackgroundState } from './background-provider';
 import { useVisualSettings } from '@/lib/use-visual-settings';
 
-// Color mapping for different states
+// Color mapping for different states (using hex - Three.js doesn't support oklch)
 const stateColors: Record<BackgroundState, THREE.Color> = {
-  healthy: new THREE.Color('oklch(0.75 0.15 185)').convertLinearToSRGB(),
-  warning: new THREE.Color('oklch(0.68 0.20 45)').convertLinearToSRGB(),
-  critical: new THREE.Color('oklch(0.58 0.22 25)').convertLinearToSRGB(),
-  neutral: new THREE.Color('oklch(0.60 0.25 295)').convertLinearToSRGB(),
-  analyzing: new THREE.Color('oklch(0.70 0.20 295)').convertLinearToSRGB(),
+  healthy: new THREE.Color('#22d3ee'),    // Cyan
+  warning: new THREE.Color('#f59e0b'),    // Orange
+  critical: new THREE.Color('#ef4444'),   // Red
+  neutral: new THREE.Color('#a855f7'),    // Purple
+  analyzing: new THREE.Color('#c084fc'),  // Light purple
 };
 
-// Fallback colors using hex (oklch might not be supported in Three.js Color)
-const fallbackColors: Record<BackgroundState, string> = {
+// Hex color strings for PointMaterial (which expects string colors)
+const stateColorHex: Record<BackgroundState, string> = {
   healthy: '#22d3ee',    // Cyan
   warning: '#f59e0b',    // Orange
   critical: '#ef4444',   // Red
@@ -101,7 +101,7 @@ function WireframeMesh({ count = 2000, radius = 10 }: WireframeMeshProps) {
   });
 
   // Get color based on state
-  const color = useMemo(() => fallbackColors[state], [state]);
+  const color = useMemo(() => stateColorHex[state], [state]);
 
   return (
     <Points ref={pointsRef} positions={positions} stride={3} frustumCulled={false}>
@@ -169,7 +169,7 @@ function GridMesh({ size = 20, divisions = 40 }: GridMeshProps) {
     gridRef.current.geometry.attributes.position.needsUpdate = true;
   });
 
-  const color = useMemo(() => fallbackColors[state], [state]);
+  const color = useMemo(() => stateColorHex[state], [state]);
 
   return (
     <lineSegments ref={gridRef} geometry={geometry} position={[0, -3, 0]}>

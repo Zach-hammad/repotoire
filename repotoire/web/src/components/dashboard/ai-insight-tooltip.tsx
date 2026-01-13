@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/tooltip';
 import { Sparkles, Loader2, Lightbulb } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { narrativesApi } from '@/lib/api';
 import type { ContextualInsightRequest, ContextualInsight } from '@/types/narratives';
 
 interface AIInsightTooltipProps {
@@ -197,16 +198,26 @@ export function useContextualInsight() {
     setError(null);
 
     try {
-      // This would be replaced with actual API call
-      // const response = await narrativeApi.getInsight(request);
-      // setInsight(response);
+      // Call the real API - map ContextualInsightRequest to GenerateHoverInsightRequest
+      const response = await narrativesApi.generateHoverInsight({
+        element_type: request.metric_type,
+        element_data: {
+          value: request.metric_value,
+          ...request.context,
+        },
+      });
 
-      // For now, generate a mock insight based on metric type
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      const mockInsight = generateMockInsight(request);
-      setInsight(mockInsight);
+      // Map API response to ContextualInsight format
+      setInsight({
+        insight: response.text,
+        suggestions: [], // API doesn't return suggestions currently
+        related_findings_count: undefined,
+      });
     } catch (err) {
+      // Fallback to generated insight on API error
+      console.warn('Failed to fetch AI insight, using fallback:', err);
+      const fallbackInsight = generateMockInsight(request);
+      setInsight(fallbackInsight);
       setError(err instanceof Error ? err : new Error('Failed to fetch insight'));
     } finally {
       setIsLoading(false);

@@ -426,14 +426,15 @@ async def _handle_codebase_stats() -> list[types.TextContent]:
     try:
         client = _get_graph_client()
 
+        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
         stats_query = """
         MATCH (n)
-        WHERE n:Function OR n:Class OR n:File OR n:Module
+        WHERE 'Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n) OR 'Module' IN labels(n)
         RETURN
-            count(CASE WHEN n:Function THEN 1 END) as functions,
-            count(CASE WHEN n:Class THEN 1 END) as classes,
-            count(CASE WHEN n:File THEN 1 END) as files,
-            count(CASE WHEN n:Module THEN 1 END) as modules
+            count(CASE WHEN 'Function' IN labels(n) THEN 1 END) as functions,
+            count(CASE WHEN 'Class' IN labels(n) THEN 1 END) as classes,
+            count(CASE WHEN 'File' IN labels(n) THEN 1 END) as files,
+            count(CASE WHEN 'Module' IN labels(n) THEN 1 END) as modules
         """
         result = client.execute_query(stats_query)[0]
         client.close()

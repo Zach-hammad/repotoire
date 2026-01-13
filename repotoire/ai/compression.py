@@ -437,9 +437,10 @@ class TenantCompressor:
             self for method chaining
         """
         # Query embeddings from graph
+        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
         query = """
         MATCH (n)
-        WHERE (n:Function OR n:Class OR n:File) AND n.embedding IS NOT NULL
+        WHERE ('Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)) AND n.embedding IS NOT NULL
         RETURN n.embedding as embedding
         LIMIT $limit
         """

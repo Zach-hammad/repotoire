@@ -144,7 +144,7 @@ class CircularDependencyDetector(CodeSmellDetector):
         WHERE {self.id_func}(f1) < {self.id_func}(f2) AND f1 <> f2
         MATCH path = shortestPath((f1)-[:IMPORTS*1..15]->(f2))
         MATCH cyclePath = shortestPath((f2)-[:IMPORTS*1..15]->(f1))
-        WITH DISTINCT [node IN nodes(path) + nodes(cyclePath) WHERE node:File | node.filePath] AS cycle
+        WITH DISTINCT [node IN nodes(path) + nodes(cyclePath) WHERE 'File' IN labels(node) | node.filePath] AS cycle
         WHERE size(cycle) > 1
         RETURN cycle, size(cycle) AS cycle_length
         ORDER BY cycle_length DESC

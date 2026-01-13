@@ -82,9 +82,10 @@ class FeatureEnvyDetector(CodeSmellDetector):
         WITH m, c, count(DISTINCT r_internal) as internal_uses
 
         // Count external uses (other classes)
+        // Note: FalkorDB uses labels() function for label checks instead of inline syntax
         OPTIONAL MATCH (m)-[r_external:USES|CALLS]->(target)
         WHERE NOT (target)-[:CONTAINS*0..1]-(c)
-          AND NOT target:File
+          AND NOT 'File' IN labels(target)
         WITH m, c, internal_uses, count(DISTINCT r_external) as external_uses
 
         // Filter based on thresholds

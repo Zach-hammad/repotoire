@@ -39,9 +39,10 @@ class TrulyUnusedImportsDetector(CodeSmellDetector):
             List of Finding objects for imports never used in execution paths.
         """
         # Step 1: Get all imports from non-test files
+        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
         imports_query = """
         MATCH (f:File)-[imp:IMPORTS]->(m)
-        WHERE (m:Module OR m:Class OR m:Function)
+        WHERE ('Module' IN labels(m) OR 'Class' IN labels(m) OR 'Function' IN labels(m))
           AND NOT (f.filePath STARTS WITH 'tests/fixtures/' OR f.filePath CONTAINS '/tests/fixtures/')
           AND NOT (f.filePath STARTS WITH 'examples/' OR f.filePath CONTAINS '/examples/')
           AND NOT (f.filePath STARTS WITH 'test_fixtures/' OR f.filePath CONTAINS '/test_fixtures/')

@@ -1643,9 +1643,10 @@ class IngestionPipeline:
 
                     # Get entities: (dst_file, entity_name)
                     # Note: Don't filter by '::' - Python uses '.' separators
+                    # Note: FalkorDB uses labels() function for label checks instead of inline syntax
                     entities_query = """
                     MATCH (f:File)-[:CONTAINS]->(e)
-                    WHERE (e:Function OR e:Class)
+                    WHERE ('Function' IN labels(e) OR 'Class' IN labels(e))
                       AND e.qualifiedName IS NOT NULL
                       AND e.name IS NOT NULL
                     RETURN f.filePath as dst, e.name as name

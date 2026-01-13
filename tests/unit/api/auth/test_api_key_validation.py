@@ -652,6 +652,177 @@ class TestAPIKeyValidationEndpoint:
         assert len(audit_log.event_metadata["user_agent"]) <= 500
 
     # =========================================================================
+    # Clerk Org Sync Tests (_sync_user_org_from_clerk)
+    # =========================================================================
+
+    @pytest.mark.asyncio
+    async def test_sync_user_org_from_clerk_creates_new_org(self):
+        """Test that org from Clerk is created in our DB if not exists."""
+        from repotoire.api.v1.routes.cli_auth import _sync_user_org_from_clerk
+
+        # Mock DB session that returns None (org not found)
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = mock_result
+
+        # Mock user
+        mock_user = MagicMock()
+        mock_user.id = uuid4()
+        mock_user.email = "test@example.com"
+
+        # Mock Clerk client with org membership
+        mock_clerk = MagicMock()
+        mock_membership = MagicMock()
+        mock_membership.organization = MagicMock()
+        mock_membership.organization.id = "org_clerk123"
+        mock_membership.organization.name = "Test Org"
+        mock_membership.organization.slug = "test-org"
+        mock_membership.role = "admin"
+
+        mock_memberships = MagicMock()
+        mock_memberships.data = [mock_membership]
+        mock_clerk.users.get_organization_memberships.return_value = mock_memberships
+
+        with patch(
+            "repotoire.api.v1.routes.cli_auth.asyncio.to_thread",
+            return_value=mock_memberships,
+        ):
+            result = await _sync_user_org_from_clerk(
+                mock_db, "user_abc123", mock_user, mock_clerk
+            )
+
+        # Should have created org and membership
+        assert mock_db.add.called
+        assert mock_db.commit.called
+
+    @pytest.mark.asyncio
+    async def test_sync_user_org_from_clerk_links_existing_by_slug(self):
+        """Test that existing org by slug is linked to Clerk org."""
+        from repotoire.api.v1.routes.cli_auth import _sync_user_org_from_clerk
+
+        # Mock existing org without clerk_org_id
+        existing_org = MagicMock()
+        existing_org.id = uuid4()
+        existing_org.slug = "test-org"
+        existing_org.clerk_org_id = None  # Not linked yet
+
+        # Mock DB session - first query returns None (by clerk_org_id), second returns org (by slug)
+        mock_db = AsyncMock()
+        call_count = 0
+
+        async def mock_execute(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = None  # Not found by clerk_org_id
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = existing_org  # Found by slug
+            else:
+                result.scalar_one_or_none.return_value = None  # No existing membership
+            return result
+
+        mock_db.execute = mock_execute
+
+        # Mock user
+        mock_user = MagicMock()
+        mock_user.id = uuid4()
+
+        # Mock Clerk client
+        mock_clerk = MagicMock()
+        mock_membership = MagicMock()
+        mock_membership.organization = MagicMock()
+        mock_membership.organization.id = "org_clerk456"
+        mock_membership.organization.name = "Test Org"
+        mock_membership.organization.slug = "test-org"
+        mock_membership.role = "member"
+
+        mock_memberships = MagicMock()
+        mock_memberships.data = [mock_membership]
+        mock_clerk.users.get_organization_memberships.return_value = mock_memberships
+
+        with patch(
+            "repotoire.api.v1.routes.cli_auth.asyncio.to_thread",
+            return_value=mock_memberships,
+        ):
+            result = await _sync_user_org_from_clerk(
+                mock_db, "user_xyz", mock_user, mock_clerk
+            )
+
+        # Should have linked existing org to Clerk
+        assert existing_org.clerk_org_id == "org_clerk456"
+
+    @pytest.mark.asyncio
+    async def test_sync_user_org_from_clerk_returns_none_if_no_clerk_org(self):
+        """Test that None is returned if user has no org in Clerk."""
+        from repotoire.api.v1.routes.cli_auth import _sync_user_org_from_clerk
+
+        mock_db = AsyncMock()
+        mock_user = MagicMock()
+
+        # Mock Clerk client with no memberships
+        mock_clerk = MagicMock()
+        mock_memberships = MagicMock()
+        mock_memberships.data = []
+        mock_clerk.users.get_organization_memberships.return_value = mock_memberships
+
+        with patch(
+            "repotoire.api.v1.routes.cli_auth.asyncio.to_thread",
+            return_value=mock_memberships,
+        ):
+            result = await _sync_user_org_from_clerk(
+                mock_db, "user_no_org", mock_user, mock_clerk
+            )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_sync_user_org_from_clerk_handles_clerk_api_failure(self):
+        """Test graceful fallback when Clerk API fails."""
+        from repotoire.api.v1.routes.cli_auth import _sync_user_org_from_clerk
+
+        mock_db = AsyncMock()
+        mock_user = MagicMock()
+        mock_clerk = MagicMock()
+
+        with patch(
+            "repotoire.api.v1.routes.cli_auth.asyncio.to_thread",
+            side_effect=Exception("Clerk API error"),
+        ):
+            result = await _sync_user_org_from_clerk(
+                mock_db, "user_error", mock_user, mock_clerk
+            )
+
+        # Should return None (fallback to personal org creation)
+        assert result is None
+        # Should not have raised exception
+        assert not mock_db.commit.called
+
+    # =========================================================================
+    # Personal Org Creation Tests
+    # =========================================================================
+
+    @pytest.mark.asyncio
+    async def test_personal_org_has_null_clerk_org_id(self):
+        """Test that personal orgs are created with clerk_org_id=None."""
+        from repotoire.api.v1.routes.cli_auth import _create_personal_org
+
+        mock_db = AsyncMock()
+        mock_user = MagicMock()
+        mock_user.email = "test@example.com"
+        mock_user.name = "Test User"
+
+        org = await _create_personal_org(mock_db, mock_user)
+
+        # Verify the org was added
+        assert mock_db.add.called
+
+        # Get the org that was added (first call to add)
+        added_org = mock_db.add.call_args_list[0][0][0]
+        assert added_org.clerk_org_id is None  # Should be None, not personal_xxx
+
+    # =========================================================================
     # Custom Graph Database Name Tests
     # =========================================================================
 

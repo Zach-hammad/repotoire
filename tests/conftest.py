@@ -14,6 +14,15 @@ from uuid import uuid4
 
 import pytest
 
+# =============================================================================
+# Early Environment Setup (MUST be before any imports that need DATABASE_URL)
+# =============================================================================
+
+# Set DATABASE_URL early so that importing API modules doesn't fail
+# This is a dummy URL for unit tests - integration tests should use TEST_DATABASE_URL
+if "DATABASE_URL" not in os.environ:
+    os.environ["DATABASE_URL"] = "postgresql+asyncpg://test:test@localhost:5433/repotoire_test"
+
 # Try to import async test support
 try:
     import pytest_asyncio

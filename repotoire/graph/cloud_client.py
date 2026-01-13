@@ -309,10 +309,11 @@ class CloudProxyClient(DatabaseClient):
         issues = {}
 
         # Check for orphaned nodes (no relationships)
+        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
         query = """
         MATCH (n)
         WHERE NOT (n)--()
-        AND NOT n:File AND NOT n:Module
+        AND NOT 'File' IN labels(n) AND NOT 'Module' IN labels(n)
         RETURN count(n) as count
         """
         result = self.execute_query(query)

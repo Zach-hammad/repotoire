@@ -68,6 +68,7 @@ dependencies = [
     "sentence-transformers>=2.2.0",  # Local embedding models + contrastive learning
     "accelerate>=0.26.0",  # Required for PyTorch Trainer
     # Hybrid detector dependencies (core feature)
+    "ruff>=0.1.0",  # Fast linting detector (RuffLintDetector)
     "mypy>=1.7.0",  # Type checking detector
     "pylint>=3.0.0",  # Advanced linting detector
     "bandit>=1.7.0",  # Security vulnerability detector

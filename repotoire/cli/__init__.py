@@ -448,6 +448,11 @@ def whoami() -> None:
         console.print(f"  API Key: {masked_key}")
         console.print(f"  Credentials stored in: {source}")
 
+    # Show org switching hint
+    console.print()
+    console.print("[dim]Tip: Use 'repotoire org list' to see all your organizations[/dim]")
+    console.print("[dim]     Use 'repotoire org switch <slug>' to switch organizations[/dim]")
+
 
 # =============================================================================
 # Ingest Command
@@ -5024,6 +5029,10 @@ cli.add_command(graph)
 # Register auth commands (REPO-267)
 from .auth_commands import auth_group
 cli.add_command(auth_group)
+
+# Register organization commands (CLI/Web sync)
+from .org_commands import org_group
+cli.add_command(org_group)
 
 # Register API key management commands (REPO-324)
 from .api_keys import api_keys

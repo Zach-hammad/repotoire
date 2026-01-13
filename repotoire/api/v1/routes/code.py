@@ -393,14 +393,15 @@ async def get_embeddings_status(
         logger.info("Fetching embeddings status", extra={"org_id": str(org.id)})
 
         # Count total entities
+        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
         total_query = """
         MATCH (n)
-        WHERE n:Function OR n:Class OR n:File
+        WHERE 'Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)
         RETURN
             count(n) as total,
-            count(CASE WHEN n:Function THEN 1 END) as functions,
-            count(CASE WHEN n:Class THEN 1 END) as classes,
-            count(CASE WHEN n:File THEN 1 END) as files
+            count(CASE WHEN 'Function' IN labels(n) THEN 1 END) as functions,
+            count(CASE WHEN 'Class' IN labels(n) THEN 1 END) as classes,
+            count(CASE WHEN 'File' IN labels(n) THEN 1 END) as files
         """
         total_results = client.execute_query(total_query)
         if not total_results:
@@ -418,14 +419,15 @@ async def get_embeddings_status(
         total_result = total_results[0]
 
         # Count entities with embeddings
+        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
         embedded_query = """
         MATCH (n)
-        WHERE (n:Function OR n:Class OR n:File) AND n.embedding IS NOT NULL
+        WHERE ('Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)) AND n.embedding IS NOT NULL
         RETURN
             count(n) as embedded,
-            count(CASE WHEN n:Function THEN 1 END) as functions_embedded,
-            count(CASE WHEN n:Class THEN 1 END) as classes_embedded,
-            count(CASE WHEN n:File THEN 1 END) as files_embedded
+            count(CASE WHEN 'Function' IN labels(n) THEN 1 END) as functions_embedded,
+            count(CASE WHEN 'Class' IN labels(n) THEN 1 END) as classes_embedded,
+            count(CASE WHEN 'File' IN labels(n) THEN 1 END) as files_embedded
         """
         embedded_results = client.execute_query(embedded_query)
         if not embedded_results:
@@ -477,10 +479,11 @@ async def _regenerate_embeddings_task(org_id: UUID, org_slug: str, batch_size: i
         print(f"[EMBED] Embedder initialized: {embedder.resolved_backend}, {embedder.dimensions} dims", flush=True)
 
         # Get all entities that need embeddings
+        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
         print("[EMBED] Querying entities...", flush=True)
         entities = client.execute_query("""
             MATCH (n)
-            WHERE n:Function OR n:Class OR n:File
+            WHERE 'Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)
             RETURN n.qualified_name as qname, n.name as name,
                    n.code as code, n.docstring as docstring
         """)
@@ -622,9 +625,10 @@ async def _compress_embeddings_task(
         # Step 1: Sample embeddings for PCA fitting
         print(f"[COMPRESS] Sampling up to {sample_size} embeddings for PCA fitting...", flush=True)
 
+        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
         sample_query = """
         MATCH (n)
-        WHERE (n:Function OR n:Class OR n:File) AND n.embedding IS NOT NULL
+        WHERE ('Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)) AND n.embedding IS NOT NULL
         RETURN n.qualified_name as qname, n.embedding as embedding
         LIMIT $limit
         """
@@ -654,9 +658,10 @@ async def _compress_embeddings_task(
         print("[COMPRESS] Compressing and updating all embeddings...", flush=True)
 
         # Get all embeddings (not just sample)
+        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
         all_query = """
         MATCH (n)
-        WHERE (n:Function OR n:Class OR n:File) AND n.embedding IS NOT NULL
+        WHERE ('Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)) AND n.embedding IS NOT NULL
         RETURN n.qualified_name as qname, n.embedding as embedding
         """
         all_entities = client.execute_query(all_query)
@@ -769,9 +774,10 @@ async def compress_embeddings(
     # Calculate expected savings
     client = get_graph_client_for_org(org)
     try:
+        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
         count_result = client.execute_query("""
             MATCH (n)
-            WHERE (n:Function OR n:Class OR n:File) AND n.embedding IS NOT NULL
+            WHERE ('Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)) AND n.embedding IS NOT NULL
             RETURN count(n) as count,
                    CASE WHEN n.embedding IS NOT NULL THEN size(n.embedding) ELSE 4096 END as dims
             LIMIT 1
@@ -821,9 +827,10 @@ async def get_compression_status(
 
     try:
         # Count compressed vs uncompressed
+        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
         status_query = """
         MATCH (n)
-        WHERE (n:Function OR n:Class OR n:File) AND n.embedding IS NOT NULL
+        WHERE ('Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)) AND n.embedding IS NOT NULL
         RETURN
             count(n) as total,
             count(CASE WHEN n.embedding_compressed = true THEN 1 END) as compressed,

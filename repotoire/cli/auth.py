@@ -314,7 +314,7 @@ class CLIAuth:
         return api_key
 
     def whoami(self) -> None:
-        """Display current authentication status."""
+        """Display current authentication status including organization."""
         api_key = self.get_api_key()
 
         if not api_key:
@@ -325,10 +325,42 @@ class CLIAuth:
         source = self.get_credential_source()
         masked = mask_api_key(api_key)
 
+        # Try to get org info from API
+        org_info = self._fetch_org_info(api_key)
+
         console.print("[green]●[/] Authenticated")
+
+        if org_info:
+            if org_info.get("user"):
+                user = org_info["user"]
+                console.print(f"[bold]User:[/] {user.get('email', 'unknown')}")
+
+            console.print(f"[bold]Organization:[/] {org_info.get('org_slug', 'unknown')}")
+            console.print(f"[bold]Plan:[/] {org_info.get('plan', 'free')}")
+
         console.print(f"[bold]API Key:[/] {masked}")
         if source:
             console.print(f"[bold]Stored in:[/] {source}")
+
+        if org_info:
+            console.print()
+            console.print("[dim]Switch orgs: repotoire org list / repotoire org switch <slug>[/]")
+
+    def _fetch_org_info(self, api_key: str) -> Optional[dict]:
+        """Fetch organization info by validating API key."""
+        import httpx
+
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.post(
+                    f"{self.api_url}/api/v1/cli/auth/validate-key",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                if resp.status_code == 200:
+                    return resp.json()
+        except Exception:
+            pass  # Fail silently, just show basic info
+        return None
 
     def get_current_user(self) -> Optional[CLICredentials]:
         """Get current user credentials if authenticated.

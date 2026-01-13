@@ -698,6 +698,111 @@ def _get_falkordb_port() -> int:
     return int(os.getenv("FALKORDB_PORT", os.getenv("REPOTOIRE_FALKORDB_PORT", "6379")))
 
 
+async def _sync_user_org_from_clerk(
+    db: AsyncSession,
+    clerk_user_id: str,
+    db_user: User,
+    clerk,
+) -> Organization | None:
+    """Check Clerk for user's org memberships and sync to our DB.
+
+    This prevents creating duplicate "personal orgs" when user already
+    has an org in Clerk that just hasn't been synced to our DB yet.
+
+    Args:
+        db: Database session
+        clerk_user_id: Clerk user ID (user_xxx)
+        db_user: User record from our database
+        clerk: Clerk SDK client
+
+    Returns:
+        Organization if user has one in Clerk (synced to our DB), None otherwise
+    """
+    try:
+        # Get user's organization memberships from Clerk
+        memberships = await asyncio.to_thread(
+            clerk.users.get_organization_memberships,
+            user_id=clerk_user_id,
+        )
+
+        if not memberships or not memberships.data:
+            logger.debug(f"User {clerk_user_id} has no orgs in Clerk")
+            return None
+
+        # Use the first org membership (user's primary org)
+        clerk_membership = memberships.data[0]
+        clerk_org = clerk_membership.organization
+
+        if not clerk_org:
+            logger.warning(f"Clerk membership missing organization data for {clerk_user_id}")
+            return None
+
+        clerk_org_id = clerk_org.id
+        org_name = clerk_org.name or "Organization"
+        org_slug = clerk_org.slug or clerk_org_id.replace("org_", "")
+
+        logger.info(f"Found Clerk org '{org_slug}' for user {clerk_user_id}")
+
+        # Check if org already exists in our DB
+        result = await db.execute(
+            select(Organization).where(Organization.clerk_org_id == clerk_org_id)
+        )
+        org = result.scalar_one_or_none()
+
+        if not org:
+            # Also check by slug (might exist without clerk_org_id link)
+            result = await db.execute(
+                select(Organization).where(Organization.slug == org_slug)
+            )
+            org = result.scalar_one_or_none()
+
+            if org:
+                # Link existing org to Clerk
+                org.clerk_org_id = clerk_org_id
+                org.name = org_name
+                logger.info(f"Linked existing org '{org_slug}' to Clerk org {clerk_org_id}")
+            else:
+                # Create new org from Clerk data
+                org = Organization(
+                    name=org_name,
+                    slug=org_slug,
+                    clerk_org_id=clerk_org_id,
+                    plan_tier=PlanTier.FREE,
+                    graph_database_name=_get_graph_name(org_slug),
+                )
+                db.add(org)
+                await db.flush()
+                logger.info(f"Created org '{org_slug}' from Clerk org {clerk_org_id}")
+
+        # Ensure user has membership in our DB
+        result = await db.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == db_user.id,
+                OrganizationMembership.organization_id == org.id,
+            )
+        )
+        existing_membership = result.scalar_one_or_none()
+
+        if not existing_membership:
+            # Create membership
+            role = clerk_membership.role or "member"
+            membership = OrganizationMembership(
+                user_id=db_user.id,
+                organization_id=org.id,
+                role=role if role in ("owner", "admin", "member") else "member",
+            )
+            db.add(membership)
+            logger.info(f"Created membership for user {db_user.email} in org '{org_slug}'")
+
+        await db.commit()
+        return org
+
+    except Exception as e:
+        logger.warning(f"Failed to sync org from Clerk for {clerk_user_id}: {e}")
+        # Don't fail the auth flow - fall back to personal org creation
+        return None
+
+
 async def _create_personal_org(db: AsyncSession, user: User) -> Organization:
     """Auto-create a personal organization for a user.
 
@@ -731,10 +836,13 @@ async def _create_personal_org(db: AsyncSession, user: User) -> Organization:
     unique_slug = f"{slug}-{uuid.uuid4().hex[:8]}"
 
     # Create organization
+    # Note: clerk_org_id is None because this is a personal org not managed by Clerk.
+    # Personal orgs are auto-created as a fallback when user has no Clerk org.
+    # To identify personal orgs, query: WHERE clerk_org_id IS NULL
     org = Organization(
         slug=unique_slug,
         name=f"{user.name or user.email}'s Workspace",
-        clerk_org_id=f"personal_{unique_slug}",  # Pseudo clerk ID for personal orgs
+        clerk_org_id=None,  # No Clerk org - this is a personal org
         plan_tier=PlanTier.FREE,
         graph_database_name=_get_graph_name(unique_slug),
     )
@@ -1006,7 +1114,7 @@ async def validate_api_key(
                     ).model_dump(),
                 )
 
-            # Get user's organization membership
+            # Get user's organization membership from our DB
             result = await db.execute(
                 select(OrganizationMembership).where(
                     OrganizationMembership.user_id == db_user.id
@@ -1015,10 +1123,16 @@ async def validate_api_key(
             membership = result.scalar_one_or_none()
 
             if not membership:
-                # Auto-create a personal organization for new users (free tier)
-                org = await _create_personal_org(db, db_user)
-                clerk_org_id = org.clerk_org_id
-                logger.info(f"Auto-created personal org '{org.slug}' for user {db_user.email}")
+                # No membership in our DB - check Clerk for user's orgs before creating personal org
+                org = await _sync_user_org_from_clerk(db, clerk_user_id, db_user, clerk)
+                if org:
+                    clerk_org_id = org.clerk_org_id
+                    logger.info(f"Synced org '{org.slug}' from Clerk for user {db_user.email}")
+                else:
+                    # User truly has no org in Clerk - create personal org
+                    org = await _create_personal_org(db, db_user)
+                    clerk_org_id = org.clerk_org_id
+                    logger.info(f"Auto-created personal org '{org.slug}' for user {db_user.email}")
             else:
                 # Get the organization from membership
                 result = await db.execute(
