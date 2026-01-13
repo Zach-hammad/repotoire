@@ -1,9 +1,9 @@
 # MCP Server Configuration
 # Server: repotoire_mcp_server
-# Repository: /home/zach/code/repotoire
+import os
 
 SERVER_NAME = "repotoire_mcp_server"
-REPOSITORY_PATH = "/home/zach/code/repotoire"
+REPOSITORY_PATH = os.getenv("REPOSITORY_PATH", os.getcwd())
 
 # Transport options
 TRANSPORT = "stdio"  # or "http"

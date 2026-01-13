@@ -157,14 +157,8 @@ class JscpdDetector(CodeSmellDetector):
                     logger.info(f"Running jscpd on {len(filtered_files)} changed files (incremental)")
                     cmd.extend(filtered_files)
                 else:
-                    # Only scan source code directory (repotoire/), not tests or other dirs
-                    # This avoids scanning test fixtures which have intentional duplication
-                    source_dir = self.repository_path / "repotoire"
-                    if source_dir.exists():
-                        cmd.append(str(source_dir))
-                    else:
-                        # Fallback to repository root if repotoire/ doesn't exist
-                        cmd.append(str(self.repository_path))
+                    # Scan the full repository (ignore patterns handle exclusions)
+                    cmd.append(str(self.repository_path))
 
                 # Run jscpd (suppress terminal output)
                 try:

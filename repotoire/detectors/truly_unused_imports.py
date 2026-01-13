@@ -43,9 +43,6 @@ class TrulyUnusedImportsDetector(CodeSmellDetector):
         imports_query = """
         MATCH (f:File)-[imp:IMPORTS]->(m)
         WHERE ('Module' IN labels(m) OR 'Class' IN labels(m) OR 'Function' IN labels(m))
-          AND NOT (f.filePath STARTS WITH 'tests/fixtures/' OR f.filePath CONTAINS '/tests/fixtures/')
-          AND NOT (f.filePath STARTS WITH 'examples/' OR f.filePath CONTAINS '/examples/')
-          AND NOT (f.filePath STARTS WITH 'test_fixtures/' OR f.filePath CONTAINS '/test_fixtures/')
         RETURN DISTINCT f.filePath as file_path,
                elementId(f) as file_id,
                m.qualifiedName as import_qname,

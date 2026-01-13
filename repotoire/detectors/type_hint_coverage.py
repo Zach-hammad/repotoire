@@ -435,8 +435,6 @@ class TypeHintCoverageDetector(CodeSmellDetector):
         MATCH (file:File)-[:CONTAINS]->(f:Function)
         WHERE file.language = 'python'
           AND NOT file.is_test = true
-          AND NOT file.filePath CONTAINS '/tests/'
-          AND NOT file.filePath CONTAINS 'test_'
         WITH file, f,
              CASE
                WHEN f.return_type IS NOT NULL THEN 1
