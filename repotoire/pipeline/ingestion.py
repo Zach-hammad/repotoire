@@ -261,6 +261,19 @@ class IngestionPipeline:
         # Register default parsers with secrets policy
         self.register_parser("python", PythonParser(secrets_policy=secrets_policy))
 
+        # Initialize Rust parallel parser if available (Phase 2 performance)
+        self.rust_parser = None
+        try:
+            from repotoire.parsers.rust_parser import RustParallelParser, is_rust_parser_available
+            if is_rust_parser_available():
+                self.rust_parser = RustParallelParser(str(self.repo_path))
+                logger.info(
+                    f"Rust parallel parser enabled "
+                    f"(supported languages: {', '.join(self.rust_parser._supported_languages)})"
+                )
+        except Exception as e:
+            logger.debug(f"Rust parallel parser not available: {e}")
+
     def _validate_repo_path(self) -> None:
         """Validate repository path for security.
 
@@ -1100,13 +1113,69 @@ class IngestionPipeline:
         files_processed = 0
         files_failed = 0
 
-        for i, file_path in enumerate(files_to_process, 1):
-            with LogContext(operation="parse_file", file=str(file_path), progress=f"{i}/{len(files_to_process)}"):
-                logger.debug(f"Processing file {i}/{len(files_to_process)}: {file_path}")
+        # PHASE 2 OPTIMIZATION: Use Rust parallel parser when available
+        rust_parsed_files = set()
+        if self.rust_parser:
+            rust_files, fallback_files = self._separate_rust_parseable_files(files_to_process)
+
+            if rust_files:
+                parse_start = time.time()
+                logger.info(f"Batch parsing {len(rust_files)} files with Rust parallel parser...")
+
+                # Read and parse all Rust-supported files in parallel
+                parsed_results = self._batch_parse_with_rust(rust_files)
+                parse_duration = time.time() - parse_start
+
+                logger.info(
+                    f"Rust parallel parsing complete: {len(parsed_results)} files in {parse_duration:.2f}s "
+                    f"({len(parsed_results)/parse_duration:.0f} files/sec)"
+                )
+
+                # Process results
+                for file_path, (entities, relationships) in parsed_results.items():
+                    rust_parsed_files.add(Path(file_path))
+                    if entities:
+                        files_processed += 1
+                        all_entities.extend(entities)
+                        all_relationships.extend(relationships)
+
+                        # Generate semantic clues if enabled
+                        if self.generate_clues:
+                            clue_entities, clue_relationships = self._generate_clues_for_entities(entities)
+                            all_entities.extend(clue_entities)
+                            all_relationships.extend(clue_relationships)
+
+                        # Batch load entities for better performance
+                        if len(all_entities) >= self.batch_size:
+                            batch_start = time.time()
+                            self.load_to_graph(all_entities, all_relationships)
+                            batch_duration = time.time() - batch_start
+
+                            logger.debug("Loaded batch", extra={
+                                "entities": len(all_entities),
+                                "relationships": len(all_relationships),
+                                "duration_seconds": round(batch_duration, 3)
+                            })
+
+                            all_entities = []
+                            all_relationships = []
+                    else:
+                        files_failed += 1
+
+        # Process remaining files with Python parser (sequential fallback)
+        remaining_files = [f for f in files_to_process if f not in rust_parsed_files]
+        if remaining_files:
+            logger.debug(f"Processing {len(remaining_files)} files with Python parser")
+
+        for i, file_path in enumerate(remaining_files, 1):
+            with LogContext(operation="parse_file", file=str(file_path), progress=f"{i}/{len(remaining_files)}"):
+                logger.debug(f"Processing file {i}/{len(remaining_files)}: {file_path}")
 
                 # Call progress callback if provided
                 if progress_callback:
-                    progress_callback(i, len(files_to_process), str(file_path))
+                    total = len(files_to_process)
+                    current = len(rust_parsed_files) + i
+                    progress_callback(current, total, str(file_path))
 
                 entities, relationships = self.parse_and_extract(file_path)
 
@@ -2050,3 +2119,62 @@ class IngestionPipeline:
         }
 
         return extension_map.get(file_path.suffix, "unknown")
+
+    def _separate_rust_parseable_files(
+        self, files: List[Path]
+    ) -> Tuple[List[Path], List[Path]]:
+        """Separate files into those parseable by Rust and fallback files.
+
+        Args:
+            files: List of file paths to process
+
+        Returns:
+            Tuple of (rust_parseable_files, fallback_files)
+        """
+        if not self.rust_parser:
+            return [], files
+
+        rust_files = []
+        fallback_files = []
+
+        for file_path in files:
+            ext = file_path.suffix.lower()
+            if self.rust_parser.supports_language(ext):
+                rust_files.append(file_path)
+            else:
+                fallback_files.append(file_path)
+
+        return rust_files, fallback_files
+
+    def _batch_parse_with_rust(
+        self, files: List[Path]
+    ) -> Dict[str, Tuple[List[Entity], List[Relationship]]]:
+        """Parse multiple files in parallel using Rust tree-sitter.
+
+        Args:
+            files: List of file paths to parse
+
+        Returns:
+            Dict mapping file_path -> (entities, relationships)
+        """
+        if not self.rust_parser:
+            return {}
+
+        # Read file contents (using cache if available)
+        files_with_content = []
+        for file_path in files:
+            try:
+                # Use cached content if available
+                content, _ = self._get_file_content_and_hash(file_path)
+                # Decode bytes to string for parser
+                text = content.decode("utf-8", errors="replace")
+                files_with_content.append((str(file_path), text))
+            except (IOError, OSError) as e:
+                logger.debug(f"Failed to read {file_path}: {e}")
+                continue
+
+        if not files_with_content:
+            return {}
+
+        # Parse all files in parallel
+        return self.rust_parser.parse_batch(files_with_content)

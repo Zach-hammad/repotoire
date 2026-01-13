@@ -94,6 +94,15 @@ from .repotoire_fast import (
     analyze_interprocedural,          # Function summaries and call graph
     # Cross-file interprocedural analysis (REPO-414 Phase 2)
     analyze_cross_file,               # Cross-file infinite loop detection
+    # Tree-sitter multi-language parallel parsing (Phase 2 performance)
+    PyParsedFile,                     # Parsed file result class
+    PyExtractedFunction,              # Extracted function class
+    PyExtractedClass,                 # Extracted class class
+    PyExtractedImport,                # Extracted import class
+    parse_files_parallel,             # Parse multiple files in parallel
+    parse_files_parallel_auto,        # Parse files with auto language detection
+    parse_file_tree_sitter,           # Parse single file with tree-sitter
+    get_supported_languages,          # Get list of supported languages
 )
 
 __all__ = [
@@ -191,4 +200,13 @@ __all__ = [
     "analyze_interprocedural",          # Function summaries and call graph
     # Cross-file interprocedural analysis (REPO-414 Phase 2)
     "analyze_cross_file",               # Cross-file infinite loop detection
+    # Tree-sitter multi-language parallel parsing (Phase 2 performance)
+    "PyParsedFile",                     # Parsed file result class
+    "PyExtractedFunction",              # Extracted function class
+    "PyExtractedClass",                 # Extracted class class
+    "PyExtractedImport",                # Extracted import class
+    "parse_files_parallel",             # Parse multiple files in parallel
+    "parse_files_parallel_auto",        # Parse files with auto language detection
+    "parse_file_tree_sitter",           # Parse single file with tree-sitter
+    "get_supported_languages",          # Get list of supported languages
 ]

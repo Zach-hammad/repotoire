@@ -22,6 +22,7 @@ pub mod dataflow;
 pub mod taint;
 pub mod incremental_scc;
 pub mod cfg;
+pub mod tree_sitter_parser;
 
 // Convert GraphError to Python ValueError (REPO-227)
 impl From<errors::GraphError> for PyErr {
@@ -3639,6 +3640,235 @@ fn analyze_cross_file<'py>(
     Ok(result)
 }
 
+// ============================================================================
+// Tree-sitter multi-language parallel parsing (Phase 2 performance)
+// ============================================================================
+
+/// PyO3 wrapper for parsed file result
+#[pyclass]
+#[derive(Clone)]
+pub struct PyParsedFile {
+    #[pyo3(get)]
+    pub path: String,
+    #[pyo3(get)]
+    pub language: String,
+    #[pyo3(get)]
+    pub functions: Vec<PyExtractedFunction>,
+    #[pyo3(get)]
+    pub classes: Vec<PyExtractedClass>,
+    #[pyo3(get)]
+    pub imports: Vec<PyExtractedImport>,
+    #[pyo3(get)]
+    pub parse_error: Option<String>,
+}
+
+/// PyO3 wrapper for extracted function
+#[pyclass]
+#[derive(Clone)]
+pub struct PyExtractedFunction {
+    #[pyo3(get)]
+    pub name: String,
+    #[pyo3(get)]
+    pub qualified_name: String,
+    #[pyo3(get)]
+    pub start_line: usize,
+    #[pyo3(get)]
+    pub end_line: usize,
+    #[pyo3(get)]
+    pub start_byte: usize,
+    #[pyo3(get)]
+    pub end_byte: usize,
+    #[pyo3(get)]
+    pub parameters: Vec<String>,
+    #[pyo3(get)]
+    pub return_type: Option<String>,
+    #[pyo3(get)]
+    pub docstring: Option<String>,
+    #[pyo3(get)]
+    pub is_async: bool,
+    #[pyo3(get)]
+    pub is_method: bool,
+    #[pyo3(get)]
+    pub parent_class: Option<String>,
+    #[pyo3(get)]
+    pub decorators: Vec<String>,
+}
+
+/// PyO3 wrapper for extracted class
+#[pyclass]
+#[derive(Clone)]
+pub struct PyExtractedClass {
+    #[pyo3(get)]
+    pub name: String,
+    #[pyo3(get)]
+    pub qualified_name: String,
+    #[pyo3(get)]
+    pub start_line: usize,
+    #[pyo3(get)]
+    pub end_line: usize,
+    #[pyo3(get)]
+    pub start_byte: usize,
+    #[pyo3(get)]
+    pub end_byte: usize,
+    #[pyo3(get)]
+    pub base_classes: Vec<String>,
+    #[pyo3(get)]
+    pub docstring: Option<String>,
+    #[pyo3(get)]
+    pub decorators: Vec<String>,
+    #[pyo3(get)]
+    pub methods: Vec<String>,
+    #[pyo3(get)]
+    pub attributes: Vec<String>,
+}
+
+/// PyO3 wrapper for extracted import
+#[pyclass]
+#[derive(Clone)]
+pub struct PyExtractedImport {
+    #[pyo3(get)]
+    pub module: String,
+    #[pyo3(get)]
+    pub names: Vec<String>,
+    #[pyo3(get)]
+    pub alias: Option<String>,
+    #[pyo3(get)]
+    pub is_from_import: bool,
+    #[pyo3(get)]
+    pub line: usize,
+}
+
+impl From<tree_sitter_parser::ExtractedFunction> for PyExtractedFunction {
+    fn from(f: tree_sitter_parser::ExtractedFunction) -> Self {
+        Self {
+            name: f.name,
+            qualified_name: f.qualified_name,
+            start_line: f.start_line,
+            end_line: f.end_line,
+            start_byte: f.start_byte,
+            end_byte: f.end_byte,
+            parameters: f.parameters,
+            return_type: f.return_type,
+            docstring: f.docstring,
+            is_async: f.is_async,
+            is_method: f.is_method,
+            parent_class: f.parent_class,
+            decorators: f.decorators,
+        }
+    }
+}
+
+impl From<tree_sitter_parser::ExtractedClass> for PyExtractedClass {
+    fn from(c: tree_sitter_parser::ExtractedClass) -> Self {
+        Self {
+            name: c.name,
+            qualified_name: c.qualified_name,
+            start_line: c.start_line,
+            end_line: c.end_line,
+            start_byte: c.start_byte,
+            end_byte: c.end_byte,
+            base_classes: c.base_classes,
+            docstring: c.docstring,
+            decorators: c.decorators,
+            methods: c.methods,
+            attributes: c.attributes,
+        }
+    }
+}
+
+impl From<tree_sitter_parser::ExtractedImport> for PyExtractedImport {
+    fn from(i: tree_sitter_parser::ExtractedImport) -> Self {
+        Self {
+            module: i.module,
+            names: i.names,
+            alias: i.alias,
+            is_from_import: i.is_from_import,
+            line: i.line,
+        }
+    }
+}
+
+impl From<tree_sitter_parser::ParsedFile> for PyParsedFile {
+    fn from(p: tree_sitter_parser::ParsedFile) -> Self {
+        Self {
+            path: p.path,
+            language: p.language,
+            functions: p.functions.into_iter().map(Into::into).collect(),
+            classes: p.classes.into_iter().map(Into::into).collect(),
+            imports: p.imports.into_iter().map(Into::into).collect(),
+            parse_error: p.parse_error,
+        }
+    }
+}
+
+/// Parse multiple files in parallel using tree-sitter (10-50x faster than Python AST)
+///
+/// Args:
+///     files: List of (path, source, language) tuples
+///            language: "python", "typescript", "javascript", "java", "go", "rust"
+///
+/// Returns:
+///     List of PyParsedFile with extracted functions, classes, imports
+#[pyfunction]
+fn parse_files_parallel(py: Python<'_>, files: Vec<(String, String, String)>) -> PyResult<Vec<PyParsedFile>> {
+    // Detach Python thread state during parallel parsing
+    let results = py.detach(|| {
+        tree_sitter_parser::parse_files_parallel(files)
+    });
+
+    Ok(results.into_iter().map(Into::into).collect())
+}
+
+/// Parse multiple files with automatic language detection from extension
+///
+/// Args:
+///     files: List of (path, source) tuples
+///
+/// Returns:
+///     List of PyParsedFile with extracted functions, classes, imports
+#[pyfunction]
+fn parse_files_parallel_auto(py: Python<'_>, files: Vec<(String, String)>) -> PyResult<Vec<PyParsedFile>> {
+    // Detach Python thread state during parallel parsing
+    let results = py.detach(|| {
+        tree_sitter_parser::parse_files_parallel_auto(files)
+    });
+
+    Ok(results.into_iter().map(Into::into).collect())
+}
+
+/// Parse a single file with tree-sitter
+///
+/// Args:
+///     path: File path
+///     source: File source code
+///     language: Language string ("python", "typescript", etc.)
+///
+/// Returns:
+///     PyParsedFile with extracted entities
+#[pyfunction]
+fn parse_file_tree_sitter(path: String, source: String, language: String) -> PyResult<PyParsedFile> {
+    let lang = tree_sitter_parser::SupportedLanguage::from_str(&language)
+        .ok_or_else(|| PyValueError::new_err(format!("Unsupported language: {}", language)))?;
+
+    let mut parser = tree_sitter_parser::TreeSitterParser::new();
+    let result = parser.parse_file(&path, &source, lang);
+
+    Ok(result.into())
+}
+
+/// Get list of supported languages for tree-sitter parsing
+#[pyfunction]
+fn get_supported_languages() -> Vec<String> {
+    vec![
+        "python".to_string(),
+        "typescript".to_string(),
+        "javascript".to_string(),
+        "java".to_string(),
+        "go".to_string(),
+        "rust".to_string(),
+    ]
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -3738,6 +3968,15 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(analyze_interprocedural, n)?)?;
     // Cross-file interprocedural analysis (REPO-414 Phase 2)
     n.add_function(wrap_pyfunction!(analyze_cross_file, n)?)?;
+    // Tree-sitter multi-language parallel parsing (Phase 2 performance)
+    n.add_class::<PyParsedFile>()?;
+    n.add_class::<PyExtractedFunction>()?;
+    n.add_class::<PyExtractedClass>()?;
+    n.add_class::<PyExtractedImport>()?;
+    n.add_function(wrap_pyfunction!(parse_files_parallel, n)?)?;
+    n.add_function(wrap_pyfunction!(parse_files_parallel_auto, n)?)?;
+    n.add_function(wrap_pyfunction!(parse_file_tree_sitter, n)?)?;
+    n.add_function(wrap_pyfunction!(get_supported_languages, n)?)?;
     Ok(())
 }
 

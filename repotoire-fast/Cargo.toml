@@ -61,6 +61,21 @@ regex = "1.11"
 lazy_static = "1.5"
 malachite-bigint = "0.2.3"
 
+# tree-sitter - Multi-language AST parsing (Phase 2 performance)
+# Provides unified API for parsing Python, TypeScript, JavaScript, etc.
+# Much faster than Python AST parsing when combined with Rayon parallelism
+tree-sitter = "0.24"
+tree-sitter-python = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-rust = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-go = "0.23"
+
+# serde - Serialization for parsed entities
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
 # Note: regex crate was evaluated but manual parsing proved faster for diff parsing
 
 [dev-dependencies]
