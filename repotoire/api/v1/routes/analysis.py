@@ -854,7 +854,7 @@ async def _user_has_repo_access(
 
     # Get organization by Clerk org_id
     org_result = await session.execute(
-        select(Organization).where(Organization.slug == user.org_slug)
+        select(Organization).where(Organization.clerk_org_id == user.org_id)
     )
     org = org_result.scalar_one_or_none()
 
@@ -873,12 +873,12 @@ async def _get_db_user(session: AsyncSession, clerk_user_id: str) -> User | None
 
 
 async def _get_user_org(session: AsyncSession, user: ClerkUser) -> Organization | None:
-    """Get user's organization."""
-    if not user.org_slug:
+    """Get user's organization by Clerk org ID."""
+    if not user.org_id:
         return None
 
     result = await session.execute(
-        select(Organization).where(Organization.slug == user.org_slug)
+        select(Organization).where(Organization.clerk_org_id == user.org_id)
     )
     return result.scalar_one_or_none()
 

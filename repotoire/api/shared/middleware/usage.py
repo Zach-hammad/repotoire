@@ -7,7 +7,7 @@ plan limits on API endpoints.
 import asyncio
 
 from fastapi import Depends, HTTPException
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -26,7 +26,7 @@ async def get_org_from_user_flexible(
 ) -> Organization:
     """Get the organization for an authenticated user (JWT or API key).
 
-    Supports lookup by either org_slug (JWT) or org_id (API key).
+    Looks up organization by clerk_org_id (from JWT org_id claim).
 
     Args:
         user: Authenticated Clerk user
@@ -38,21 +38,14 @@ async def get_org_from_user_flexible(
     Raises:
         HTTPException: If organization not found or user has no org context
     """
-    if not user.org_id and not user.org_slug:
+    if not user.org_id:
         raise HTTPException(
             status_code=403,
             detail="Organization context required. Use an org-scoped API key or select an organization.",
         )
 
-    # Build query to find org by either ID or slug
-    conditions = []
-    if user.org_slug:
-        conditions.append(Organization.slug == user.org_slug)
-    if user.org_id:
-        conditions.append(Organization.clerk_org_id == user.org_id)
-
     result = await db.execute(
-        select(Organization).where(or_(*conditions))
+        select(Organization).where(Organization.clerk_org_id == user.org_id)
     )
     org = result.scalar_one_or_none()
 
@@ -81,14 +74,14 @@ async def get_org_from_user(
     Raises:
         HTTPException: If organization not found
     """
-    if not user.org_slug:
+    if not user.org_id:
         raise HTTPException(
             status_code=400,
-            detail="Organization slug required",
+            detail="Organization context required",
         )
 
     result = await db.execute(
-        select(Organization).where(Organization.slug == user.org_slug)
+        select(Organization).where(Organization.clerk_org_id == user.org_id)
     )
     org = result.scalar_one_or_none()
 
@@ -240,22 +233,17 @@ def enforce_feature_for_api(feature: str):
     """
 
     async def _get_org_async(org_id: str | None, org_slug: str | None) -> Organization | None:
-        """Async database lookup for org."""
+        """Async database lookup for org by clerk_org_id."""
         async with async_session_factory() as session:
-            conditions = []
-            if org_slug:
-                conditions.append(Organization.slug == org_slug)
-            if org_id:
-                conditions.append(Organization.clerk_org_id == org_id)
-
-            if not conditions:
+            # Prefer org_id (clerk_org_id) as the canonical identifier
+            if not org_id:
                 return None
 
             # Eagerly load subscription to avoid lazy loading after session closes
             result = await session.execute(
                 select(Organization)
                 .options(selectinload(Organization.subscription))
-                .where(or_(*conditions))
+                .where(Organization.clerk_org_id == org_id)
             )
             return result.scalar_one_or_none()
 

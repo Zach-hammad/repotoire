@@ -30,14 +30,14 @@ async def get_org_from_user(
     Raises:
         HTTPException: If organization not found
     """
-    if not user.org_slug:
+    if not user.org_id:
         raise HTTPException(
             status_code=400,
-            detail="Organization slug required",
+            detail="Organization context required",
         )
 
     result = await db.execute(
-        select(Organization).where(Organization.slug == user.org_slug)
+        select(Organization).where(Organization.clerk_org_id == user.org_id)
     )
     org = result.scalar_one_or_none()
 

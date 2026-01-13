@@ -279,11 +279,11 @@ class BulkUpdateStatusResponse(BaseModel):
 
 
 async def _get_user_org(session: AsyncSession, user: ClerkUser) -> Organization | None:
-    """Get user's organization."""
-    if not user.org_slug:
+    """Get user's organization by Clerk org ID."""
+    if not user.org_id:
         return None
     result = await session.execute(
-        select(Organization).where(Organization.slug == user.org_slug)
+        select(Organization).where(Organization.clerk_org_id == user.org_id)
     )
     return result.scalar_one_or_none()
 
@@ -294,10 +294,10 @@ async def _user_has_repo_access(
     repo: Repository,
 ) -> bool:
     """Check if user has access to a repository."""
-    if not user.org_slug:
+    if not user.org_id:
         return False
     org_result = await session.execute(
-        select(Organization).where(Organization.slug == user.org_slug)
+        select(Organization).where(Organization.clerk_org_id == user.org_id)
     )
     org = org_result.scalar_one_or_none()
     if not org:
