@@ -132,7 +132,7 @@ class EmbeddingConfig:
 
     backend: EmbeddingBackend = "auto"  # Auto-selects best available backend
     model: Optional[str] = None  # Uses backend default if not specified
-    batch_size: int = 100
+    batch_size: int = 500  # Increased for throughput with batch DB updates
     include_context: bool = True  # Include surrounding code context
     max_code_length: int = 2000  # Max characters of code to embed
 

@@ -122,7 +122,7 @@ class TestCodeEmbedder:
             # Default is now "auto", which resolves to local when no API keys
             assert embedder.config.backend == "auto"
             assert embedder.resolved_backend == "local"
-            assert embedder.config.batch_size == 100
+            assert embedder.config.batch_size == 500  # Increased for batch DB updates
 
     def test_initialization_with_explicit_openai(self, mock_openai_client, monkeypatch):
         """Test embedder initializes with explicit OpenAI backend."""
@@ -133,7 +133,7 @@ class TestCodeEmbedder:
         assert embedder.resolved_backend == "openai"
         assert embedder.config.effective_model == "text-embedding-3-small"
         assert embedder.dimensions == 1536
-        assert embedder.config.batch_size == 100
+        assert embedder.config.batch_size == 500  # Increased for batch DB updates
 
     def test_initialization_with_custom_config(self, mock_openai_client, monkeypatch):
         """Test embedder with custom configuration."""

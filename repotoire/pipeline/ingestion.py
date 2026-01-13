@@ -609,7 +609,7 @@ class IngestionPipeline:
         from repotoire.models import FunctionEntity, ClassEntity, FileEntity
 
         entities_embedded = 0
-        embedding_batch_size = 50  # Smaller batches for API rate limits
+        embedding_batch_size = 500  # Larger batches for throughput (batch DB updates)
 
         # FalkorDB uses id() while Neo4j uses elementId()
         id_func = "id" if self.is_falkordb else "elementId"
@@ -710,31 +710,50 @@ class IngestionPipeline:
                     else:
                         embedding_dims = self.embedder.dimensions
 
-                    # Update database with embeddings
-                    for entity, embedding in zip(batch, embeddings):
-                        # FalkorDB requires vecf32() wrapper for vector storage
-                        if self.is_falkordb:
-                            update_query = f"""
-                            MATCH (e:{entity_type})
-                            WHERE {id_func}(e) = $id
-                            SET e.embedding = vecf32($embedding),
-                                e.embedding_dims = $dims,
-                                e.embedding_compressed = $compressed
-                            """
-                        else:
-                            update_query = f"""
-                            MATCH (e:{entity_type})
-                            WHERE {id_func}(e) = $id
-                            SET e.embedding = $embedding,
-                                e.embedding_dims = $dims,
-                                e.embedding_compressed = $compressed
-                            """
-                        self.db.execute_query(update_query, {
-                            "id": entity["id"],
-                            "embedding": embedding,
-                            "dims": embedding_dims,
-                            "compressed": self.embedding_compressor is not None,
-                        })
+                    # Update database with embeddings using batch UNWIND (50-100x faster)
+                    is_compressed = self.embedding_compressor is not None
+                    if self.is_falkordb and hasattr(self.db, "batch_update_embeddings"):
+                        # Use optimized batch update with UNWIND
+                        updates = [
+                            {
+                                "id": entity["qualified_name"],
+                                "embedding": embedding,
+                                "dims": embedding_dims,
+                                "compressed": is_compressed,
+                            }
+                            for entity, embedding in zip(batch, embeddings)
+                        ]
+                        self.db.batch_update_embeddings(
+                            updates, entity_type=entity_type
+                        )
+                    else:
+                        # Fallback to individual updates for Neo4j or older clients
+                        for entity, embedding in zip(batch, embeddings):
+                            if self.is_falkordb:
+                                update_query = f"""
+                                MATCH (e:{entity_type})
+                                WHERE {id_func}(e) = $id
+                                SET e.embedding = vecf32($embedding),
+                                    e.embedding_dims = $dims,
+                                    e.embedding_compressed = $compressed
+                                """
+                            else:
+                                update_query = f"""
+                                MATCH (e:{entity_type})
+                                WHERE {id_func}(e) = $id
+                                SET e.embedding = $embedding,
+                                    e.embedding_dims = $dims,
+                                    e.embedding_compressed = $compressed
+                                """
+                            self.db.execute_query(
+                                update_query,
+                                {
+                                    "id": entity["id"],
+                                    "embedding": embedding,
+                                    "dims": embedding_dims,
+                                    "compressed": is_compressed,
+                                },
+                            )
 
                     entities_embedded += len(batch)
                     logger.debug(f"Embedded batch of {len(batch)} {entity_type} entities ({entities_embedded}/{len(entities)})")

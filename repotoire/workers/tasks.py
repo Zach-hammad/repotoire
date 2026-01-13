@@ -52,6 +52,40 @@ logger = get_logger(__name__)
 CLONE_BASE_DIR = Path(os.getenv("REPOTOIRE_CLONE_DIR", "/tmp/repotoire-clones"))
 
 
+def _enable_commit_graph(repo_dir: Path) -> None:
+    """Enable git commit-graph optimization for faster history operations.
+
+    The commit-graph feature provides 5-10x speedup for git log, rev-list,
+    and other history-walking operations by caching commit graph structure.
+
+    Args:
+        repo_dir: Path to the git repository.
+    """
+    try:
+        # Enable reading commit-graph
+        subprocess.run(
+            ["git", "config", "core.commitGraph", "true"],
+            cwd=repo_dir,
+            check=True,
+            capture_output=True,
+            timeout=5,
+        )
+
+        # Enable auto-writing commit-graph on fetch
+        subprocess.run(
+            ["git", "config", "fetch.writeCommitGraph", "true"],
+            cwd=repo_dir,
+            check=True,
+            capture_output=True,
+            timeout=5,
+        )
+
+        logger.debug(f"Enabled commit-graph for {repo_dir}")
+    except Exception as e:
+        # Non-fatal: analysis continues without optimization
+        logger.debug(f"Could not enable commit-graph (optional optimization): {e}")
+
+
 @celery_app.task(
     bind=True,
     name="repotoire.workers.tasks.analyze_repository",
@@ -200,28 +234,20 @@ def analyze_repository(
 
         health = engine.analyze()
 
-        progress.update(
-            progress_percent=85,
-            current_step="Ingesting git history",
-        )
-
         # ============================================================
-        # PHASE 5: Ingest git history (optional, non-blocking)
+        # PHASE 5: Trigger git history ingestion (async, non-blocking)
         # ============================================================
-        git_history_stats = None
+        # Git history runs as a separate background task so it doesn't block
+        # the main analysis. It clones its own copy of the repo.
         try:
-            git_history_stats = _ingest_git_history(
-                clone_dir=clone_dir,
+            ingest_git_history_task.delay(
                 repo_id=repo_id,
                 repo_full_name=repo_full_name,
+                github_installation_id=repo_github_installation_id,
             )
-            if git_history_stats:
-                logger.info(
-                    f"Git history ingested: {git_history_stats.get('commits_processed', 0)} commits"
-                )
+            logger.info("Git history ingestion triggered as background task")
         except Exception as e:
-            # Git history is optional - don't fail the analysis if it fails
-            logger.warning(f"Git history ingestion failed (non-fatal): {e}")
+            logger.warning(f"Failed to trigger git history task (non-fatal): {e}")
 
         progress.update(
             progress_percent=95,
@@ -686,6 +712,9 @@ def _clone_repository_by_values(
         capture_output=True,
     )
 
+    # Enable commit-graph for faster git operations (5-10x speedup)
+    _enable_commit_graph(clone_dir)
+
     return clone_dir
 
 
@@ -903,28 +932,39 @@ def _get_score_at_commit(
     return row
 
 
-def _ingest_git_history(
-    clone_dir: Path,
+@celery_app.task(
+    name="repotoire.workers.tasks.ingest_git_history",
+    bind=True,
+    max_retries=1,
+    soft_time_limit=1800,  # 30 minute soft limit
+    time_limit=1860,  # 31 minute hard limit
+)
+def ingest_git_history_task(
+    self,
     repo_id: str,
     repo_full_name: str,
-    max_commits: int = 500,
+    github_installation_id: int | None = None,
+    max_commits: int = 100,  # Reduced from 500 to avoid long LLM processing
 ) -> dict[str, Any] | None:
-    """Ingest git history into Graphiti temporal knowledge graph.
+    """Celery task to ingest git history into Graphiti temporal knowledge graph.
 
-    This runs synchronously within the worker task after cloning the repo.
-    Uses asyncio.run() to execute the async Graphiti calls.
+    This runs as a separate background task so it doesn't block the main analysis.
+    Clones its own copy of the repo to avoid race conditions with cleanup.
 
     Args:
-        clone_dir: Path to the cloned repository.
         repo_id: UUID of the Repository for tagging.
         repo_full_name: Full name (owner/repo) for episode source.
-        max_commits: Maximum commits to process (default 500).
+        github_installation_id: GitHub App installation ID for auth.
+        max_commits: Maximum commits to process (default 100).
 
     Returns:
         Stats dict with commits_processed, or None if Graphiti unavailable.
     """
     import os
     import asyncio
+    import shutil
+    import subprocess
+    from pathlib import Path
 
     # Check for required dependencies
     try:
@@ -940,8 +980,32 @@ def _ingest_git_history(
         logger.debug("OPENAI_API_KEY not set, skipping git history ingestion")
         return None
 
+    # Clone to a temporary directory
+    clone_dir = CLONE_BASE_DIR / f"git_history_{repo_full_name.replace('/', '_')}_{repo_id[:8]}"
+
     try:
         import git
+
+        # Clone if needed
+        if clone_dir.exists():
+            shutil.rmtree(clone_dir, ignore_errors=True)
+
+        # Build clone URL with authentication
+        token = _get_github_token_by_installation_id(repo_full_name, github_installation_id)
+        clone_url = f"https://github.com/{repo_full_name}.git"
+        if token:
+            clone_url = f"https://x-access-token:{token}@github.com/{repo_full_name}.git"
+
+        logger.info(f"Cloning {repo_full_name} for git history ingestion")
+        subprocess.run(
+            ["git", "clone", "--depth", str(max_commits + 50), clone_url, str(clone_dir)],
+            check=True,
+            capture_output=True,
+            timeout=300,
+        )
+
+        # Enable commit-graph for faster git operations (5-10x speedup)
+        _enable_commit_graph(clone_dir)
 
         # Get FalkorDB connection parameters
         falkor_host = os.getenv("FALKORDB_HOST", "repotoire-falkor.internal")
@@ -1003,11 +1067,20 @@ def _ingest_git_history(
             return stats
 
         # Run async ingestion
-        return asyncio.run(ingest_commits())
+        result = asyncio.run(ingest_commits())
+        logger.info(f"Git history ingested: {result.get('commits_processed', 0)} commits for {repo_full_name}")
+        return result
 
     except Exception as e:
         logger.warning(f"Git history ingestion failed: {e}")
         return None
+    finally:
+        # Always cleanup the clone directory
+        if clone_dir.exists():
+            try:
+                shutil.rmtree(clone_dir, ignore_errors=True)
+            except Exception:
+                pass
 
 
 def _format_git_commit(commit, repo_full_name: str) -> str:

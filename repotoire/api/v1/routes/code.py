@@ -459,7 +459,7 @@ async def get_embeddings_status(
         client.close()
 
 
-async def _regenerate_embeddings_task(org_id: UUID, org_slug: str, batch_size: int = 50):
+async def _regenerate_embeddings_task(org_id: UUID, org_slug: str, batch_size: int = 500):
     """Background task to regenerate embeddings."""
     import os
     import sys
@@ -544,7 +544,7 @@ async def _regenerate_embeddings_task(org_id: UUID, org_slug: str, batch_size: i
     }
 )
 async def regenerate_embeddings(
-    batch_size: int = 50,
+    batch_size: int = 500,
     org: Organization = Depends(enforce_feature_for_api("api_access")),
 ):
     """
@@ -641,7 +641,7 @@ async def _compress_embeddings_task(
         print(f"[COMPRESS] Processing {total} embeddings...", flush=True)
 
         # Process in batches
-        batch_size = 100
+        batch_size = 500  # Increased for throughput
         processed = 0
 
         for i in range(0, total, batch_size):
