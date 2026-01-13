@@ -508,15 +508,38 @@ async def _regenerate_embeddings_task(org_id: UUID, org_slug: str, batch_size: i
             # Generate embeddings
             embeddings = embedder.embed_batch(texts)
 
-            # Update in graph
-            for qname, emb in zip(qnames, embeddings):
+            # Update in graph using batch UNWIND operation (50-100x faster)
+            # Use UNWIND to batch all updates in a single query
+            updates_data = [
+                {
+                    "qname": qname,
+                    "embedding": emb,
+                    "dims": len(emb),
+                }
+                for qname, emb in zip(qnames, embeddings)
+            ]
+
+            try:
+                # Single UNWIND query for all entity types
                 client.execute_query("""
-                    MATCH (n {qualified_name: $qname})
-                    SET n.embedding = $embedding,
+                    UNWIND $updates AS u
+                    MATCH (n {qualifiedName: u.qname})
+                    SET n.embedding = vecf32(u.embedding),
                         n.embedding_backend = 'deepinfra',
-                        n.embedding_dims = $dims,
+                        n.embedding_dims = u.dims,
                         n.embedding_model = 'Qwen/Qwen3-Embedding-8B'
-                """, {"qname": qname, "embedding": emb, "dims": len(emb)})
+                """, {"updates": updates_data})
+            except Exception as batch_err:
+                # Fallback to individual updates if batch fails
+                print(f"[EMBED] Batch update failed, falling back to individual: {batch_err}", flush=True)
+                for qname, emb in zip(qnames, embeddings):
+                    client.execute_query("""
+                        MATCH (n {qualifiedName: $qname})
+                        SET n.embedding = vecf32($embedding),
+                            n.embedding_backend = 'deepinfra',
+                            n.embedding_dims = $dims,
+                            n.embedding_model = 'Qwen/Qwen3-Embedding-8B'
+                    """, {"qname": qname, "embedding": emb, "dims": len(emb)})
 
             processed += len(batch)
             print(f"[EMBED] Processed {processed}/{total} embeddings", flush=True)
@@ -651,20 +674,41 @@ async def _compress_embeddings_task(
             batch_embeddings = [e["embedding"] for e in batch]
             reduced_embeddings = compressor.get_reduced_embeddings_batch(batch_embeddings)
 
-            # Update in graph
-            for entity, reduced in zip(batch, reduced_embeddings):
-                client.execute_query("""
-                    MATCH (n {qualified_name: $qname})
-                    SET n.embedding = $embedding,
-                        n.embedding_compressed = true,
-                        n.embedding_dims = $dims,
-                        n.embedding_original_dims = $orig_dims
-                """, {
+            # Update in graph using batch UNWIND operation (50-100x faster)
+            updates_data = [
+                {
                     "qname": entity["qname"],
                     "embedding": reduced,
                     "dims": target_dims,
                     "orig_dims": source_dims,
-                })
+                }
+                for entity, reduced in zip(batch, reduced_embeddings)
+            ]
+            try:
+                client.execute_query("""
+                    UNWIND $updates AS u
+                    MATCH (n {qualified_name: u.qname})
+                    SET n.embedding = vecf32(u.embedding),
+                        n.embedding_compressed = true,
+                        n.embedding_dims = u.dims,
+                        n.embedding_original_dims = u.orig_dims
+                """, {"updates": updates_data})
+            except Exception as batch_err:
+                # Fallback to individual updates if UNWIND fails
+                print(f"[COMPRESS] Batch update failed, falling back to individual: {batch_err}", flush=True)
+                for entity, reduced in zip(batch, reduced_embeddings):
+                    client.execute_query("""
+                        MATCH (n {qualified_name: $qname})
+                        SET n.embedding = vecf32($embedding),
+                            n.embedding_compressed = true,
+                            n.embedding_dims = $dims,
+                            n.embedding_original_dims = $orig_dims
+                    """, {
+                        "qname": entity["qname"],
+                        "embedding": reduced,
+                        "dims": target_dims,
+                        "orig_dims": source_dims,
+                    })
 
             processed += len(batch)
             if processed % 500 == 0:

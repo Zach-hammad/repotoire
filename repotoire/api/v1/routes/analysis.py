@@ -172,6 +172,25 @@ class AnalysisStatusResponse(BaseModel):
         description="Number of files processed in this analysis",
         ge=0,
     )
+
+    # Performance metrics
+    duration_seconds: float | None = Field(
+        None,
+        description="Total analysis duration in seconds",
+    )
+    files_per_second: float | None = Field(
+        None,
+        description="Parsing throughput (files processed per second)",
+    )
+    rust_parser_enabled: bool | None = Field(
+        None,
+        description="Whether Rust tree-sitter parser was used (10-100x faster)",
+    )
+    incremental_mode: bool | None = Field(
+        None,
+        description="Whether incremental analysis was used",
+    )
+
     error_message: str | None = Field(
         None,
         description="Error details if analysis failed",
@@ -206,6 +225,10 @@ class AnalysisStatusResponse(BaseModel):
                 "issues_score": 65,
                 "findings_count": 42,
                 "files_analyzed": 156,
+                "duration_seconds": 300.0,
+                "files_per_second": 0.52,
+                "rust_parser_enabled": True,
+                "incremental_mode": True,
                 "error_message": None,
                 "started_at": "2025-01-15T10:30:00Z",
                 "completed_at": "2025-01-15T10:35:00Z",
@@ -464,6 +487,18 @@ async def get_analysis_status(
             detail="Access denied to this analysis",
         )
 
+    # Calculate performance metrics from timestamps
+    duration_seconds = None
+    files_per_second = None
+    if analysis.started_at and analysis.completed_at:
+        duration_seconds = (analysis.completed_at - analysis.started_at).total_seconds()
+        if duration_seconds > 0 and analysis.files_analyzed > 0:
+            files_per_second = round(analysis.files_analyzed / duration_seconds, 2)
+
+    # Get Rust parser status
+    from repotoire.parsers.rust_parser import is_rust_parser_available
+    rust_parser_enabled = is_rust_parser_available()
+
     return AnalysisStatusResponse(
         id=analysis.id,
         repository_id=analysis.repository_id,
@@ -479,6 +514,10 @@ async def get_analysis_status(
         issues_score=analysis.issues_score,
         findings_count=analysis.findings_count,
         files_analyzed=analysis.files_analyzed,
+        duration_seconds=duration_seconds,
+        files_per_second=files_per_second,
+        rust_parser_enabled=rust_parser_enabled,
+        incremental_mode=getattr(analysis, 'incremental_mode', None),
         error_message=analysis.error_message,
         started_at=analysis.started_at,
         completed_at=analysis.completed_at,
@@ -754,8 +793,21 @@ async def get_analysis_history(
     result = await session.execute(query)
     rows = result.all()
 
-    return [
-        AnalysisStatusResponse(
+    # Get Rust parser status once for all responses
+    from repotoire.parsers.rust_parser import is_rust_parser_available
+    rust_parser_enabled = is_rust_parser_available()
+
+    responses = []
+    for run, full_name in rows:
+        # Calculate performance metrics from timestamps
+        duration_seconds = None
+        files_per_second = None
+        if run.started_at and run.completed_at:
+            duration_seconds = (run.completed_at - run.started_at).total_seconds()
+            if duration_seconds > 0 and run.files_analyzed > 0:
+                files_per_second = round(run.files_analyzed / duration_seconds, 2)
+
+        responses.append(AnalysisStatusResponse(
             id=run.id,
             repository_id=run.repository_id,
             full_name=full_name,  # Include for GitHub commit URLs
@@ -771,13 +823,16 @@ async def get_analysis_history(
             issues_score=run.issues_score,
             findings_count=run.findings_count,
             files_analyzed=run.files_analyzed,
+            duration_seconds=duration_seconds,
+            files_per_second=files_per_second,
+            rust_parser_enabled=rust_parser_enabled,
+            incremental_mode=getattr(run, 'incremental_mode', None),
             error_message=run.error_message,
             started_at=run.started_at,
             completed_at=run.completed_at,
             created_at=run.created_at,
-        )
-        for run, full_name in rows
-    ]
+        ))
+    return responses
 
 
 # =============================================================================

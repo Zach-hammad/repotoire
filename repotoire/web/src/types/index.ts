@@ -90,9 +90,15 @@ export type GitHubInstallation = components['schemas']['GitHubInstallationRespon
 export type GitHubAvailableRepo = components['schemas']['GitHubRepoResponse'];
 
 // Override AnalysisStatusResponse to use AnalysisStatus literal type
+// Also extend with performance metrics (added in Phase 2 Rust optimizations)
 type AnalysisStatusResponseBase = components['schemas']['AnalysisStatusResponse'];
 export interface AnalysisRunStatus extends Omit<AnalysisStatusResponseBase, 'status'> {
   status: AnalysisStatus;
+  // Performance metrics (Phase 2 Rust optimizations)
+  duration_seconds?: number | null;
+  files_per_second?: number | null;
+  rust_parser_enabled?: boolean | null;
+  incremental_mode?: boolean | null;
 }
 
 // Billing & Subscription

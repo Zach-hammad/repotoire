@@ -675,6 +675,16 @@ def ingest(
             "[dim]   Add --generate-embeddings to enable. "
             "Use --embedding-backend=local for free local embeddings.[/dim]"
         )
+
+    # Display Rust parser status
+    from repotoire.parsers.rust_parser import is_rust_parser_available, get_supported_languages
+    if is_rust_parser_available():
+        supported = get_supported_languages()
+        console.print(f"[green]⚡ Rust Parser: Enabled (10-100x faster)[/green]")
+        console.print(f"[dim]   Languages: {', '.join(supported)}[/dim]")
+    else:
+        console.print("[yellow]⚠️  Rust Parser: Not available (using Python AST)[/yellow]")
+        console.print("[dim]   Install repotoire-fast for 10-100x faster parsing[/dim]")
     console.print()
 
     try:

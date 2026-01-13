@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, memo, useMemo, useRef, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -35,8 +36,12 @@ import { toast } from 'sonner';
 import { useBackground } from '@/components/backgrounds';
 import { AINarratorPanel } from '@/components/dashboard/ai-narrator-panel';
 import { WeeklyNarrative, useWeeklyNarrativeNav } from '@/components/dashboard/weekly-narrative';
-import { AIInsightTooltip } from '@/components/dashboard/ai-insight-tooltip';
-import { OrbitalHealthScore } from '@/components/3d';
+import { AIInsightTooltip, useContextualInsight } from '@/components/dashboard/ai-insight-tooltip';
+// Dynamic import for Three.js component - must disable SSR for WebGL
+const OrbitalHealthScore = dynamic(
+  () => import('@/components/3d').then(mod => mod.OrbitalHealthScore),
+  { ssr: false, loading: () => <div className="w-[220px] h-[220px] animate-pulse bg-muted/20 rounded-full" /> }
+);
 import { HolographicCard } from '@/components/ui/holographic-card';
 import { GlowWrapper } from '@/components/ui/glow-wrapper';
 import {
@@ -121,6 +126,7 @@ function HealthScoreGauge({ loading, use3D = false }: { loading?: boolean; use3D
   const { data: healthScore } = useHealthScore();
   const router = useRouter();
   const { setFromHealthScore } = useBackground();
+  const { insight, isLoading: insightLoading, fetchInsight } = useContextualInsight();
 
   // Update background based on health score
   useEffect(() => {
@@ -177,7 +183,13 @@ function HealthScoreGauge({ loading, use3D = false }: { loading?: boolean; use3D
     <Card className="card-elevated card-diagnostic" glow={glowType} glowAnimate={scoreValue < 70}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <AIInsightTooltip metricType="health_score" metricValue={scoreValue}>
+          <AIInsightTooltip
+              metricType="health_score"
+              metricValue={scoreValue}
+              insight={insight}
+              isLoading={insightLoading}
+              onFetchInsight={fetchInsight}
+            >
             <CardTitle className="font-display text-sm cursor-help">Health Score</CardTitle>
           </AIInsightTooltip>
           <div className={`flex items-center gap-1 text-xs ${trendColor}`}>
@@ -210,7 +222,13 @@ function HealthScoreGauge({ loading, use3D = false }: { loading?: boolean; use3D
         {categories && (
           <div className="space-y-2.5 pt-2">
             {Object.entries(categories).map(([key, value]) => (
-              <AIInsightTooltip key={key} metricType={key as any} metricValue={value ?? 0}>
+              <AIInsightTooltip
+                key={key}
+                metricType={key as 'category_score'}
+                metricValue={value ?? 0}
+                context={{ category: key }}
+                onFetchInsight={fetchInsight}
+              >
                 <button
                   onClick={() => handleCategoryClick(key)}
                   className="w-full space-y-1 text-left hover:bg-muted/50 rounded-md p-1.5 -m-1 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -838,6 +856,25 @@ const RecentAnalyses = memo(function RecentAnalyses({ loading }: { loading?: boo
               {analysis.files_analyzed > 0 && (
                 <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-secondary/50">
                   {analysis.files_analyzed} files
+                </Badge>
+              )}
+              {/* Performance metrics */}
+              {analysis.duration_seconds && analysis.status === 'completed' && (
+                <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-secondary/50 font-mono">
+                  {analysis.duration_seconds < 60
+                    ? `${analysis.duration_seconds.toFixed(1)}s`
+                    : `${(analysis.duration_seconds / 60).toFixed(1)}m`}
+                </Badge>
+              )}
+              {analysis.files_per_second && analysis.files_per_second > 0 && (
+                <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-secondary/50 font-mono">
+                  {analysis.files_per_second.toFixed(1)} files/s
+                </Badge>
+              )}
+              {analysis.rust_parser_enabled && (
+                <Badge variant="outline" className="text-xs px-1.5 py-0 border-green-500/30 text-green-500">
+                  <Zap className="h-2.5 w-2.5 mr-0.5" aria-hidden="true" />
+                  Rust
                 </Badge>
               )}
               {analysis.status === 'completed' && analysis.findings_count > 0 && (
