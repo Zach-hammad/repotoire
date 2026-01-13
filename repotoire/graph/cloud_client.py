@@ -210,6 +210,37 @@ class CloudProxyClient(DatabaseClient):
             logger.debug(f"Could not get metadata for file '{file_path}': {e}")
             return None
 
+    def batch_get_file_metadata(self, file_paths: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Get file metadata for multiple files in a single query.
+
+        Performance: Uses UNWIND to fetch all metadata in O(1) query instead of O(N).
+
+        Args:
+            file_paths: List of file paths to fetch metadata for
+
+        Returns:
+            Dict mapping file_path to metadata dict (hash, lastModified).
+            Files not found in database are not included in result.
+        """
+        if not file_paths:
+            return {}
+
+        query = """
+        UNWIND $paths AS path
+        MATCH (f:File {filePath: path})
+        RETURN f.filePath as filePath, f.hash as hash, f.lastModified as lastModified
+        """
+        result = self.execute_query(query, {"paths": file_paths})
+
+        return {
+            record["filePath"]: {
+                "hash": record["hash"],
+                "lastModified": record["lastModified"]
+            }
+            for record in result
+            if record.get("filePath")
+        }
+
     def delete_file_entities(self, file_path: str) -> int:
         """Delete a file and its related entities."""
         response = self._request("DELETE", f"/files/{file_path}")
