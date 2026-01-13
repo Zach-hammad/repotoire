@@ -68,6 +68,7 @@ class RadonDetector(CodeSmellDetector):
                 - complexity_threshold: CC threshold
                 - maintainability_threshold: MI threshold
                 - max_findings: Max findings to report
+                - changed_files: List of relative file paths to analyze (for incremental analysis)
             enricher: Optional GraphEnricher for persistent collaboration
         """
         super().__init__(graph_client)
@@ -78,6 +79,8 @@ class RadonDetector(CodeSmellDetector):
         self.maintainability_threshold = config.get("maintainability_threshold", 65)
         self.max_findings = config.get("max_findings", 100)
         self.enricher = enricher
+        # Incremental analysis: only analyze changed files (10-100x faster)
+        self.changed_files = config.get("changed_files", None)
 
         if not self.repository_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repository_path}")
@@ -122,12 +125,29 @@ class RadonDetector(CodeSmellDetector):
         """
         try:
             # Build radon cc command
-            cmd = [
-                "radon", "cc",
-                "--json",
-                "--min", str(self.complexity_threshold),
-                str(self.repository_path)
-            ]
+            # If incremental analysis with changed_files, pass specific files
+            if self.changed_files:
+                # Filter to only Python files that exist
+                py_files = [
+                    f for f in self.changed_files
+                    if f.endswith('.py') and (self.repository_path / f).exists()
+                ]
+                if not py_files:
+                    logger.debug("No Python files in changed_files, skipping radon cc")
+                    return []
+                logger.info(f"Running radon cc on {len(py_files)} changed files (incremental)")
+                cmd = [
+                    "radon", "cc",
+                    "--json",
+                    "--min", str(self.complexity_threshold),
+                ] + py_files
+            else:
+                cmd = [
+                    "radon", "cc",
+                    "--json",
+                    "--min", str(self.complexity_threshold),
+                    str(self.repository_path)
+                ]
 
             # Run radon
             try:
@@ -172,12 +192,29 @@ class RadonDetector(CodeSmellDetector):
         """
         try:
             # Build radon mi command
-            cmd = [
-                "radon", "mi",
-                "--json",
-                "--min", "C",  # C grade and below
-                str(self.repository_path)
-            ]
+            # If incremental analysis with changed_files, pass specific files
+            if self.changed_files:
+                # Filter to only Python files that exist
+                py_files = [
+                    f for f in self.changed_files
+                    if f.endswith('.py') and (self.repository_path / f).exists()
+                ]
+                if not py_files:
+                    logger.debug("No Python files in changed_files, skipping radon mi")
+                    return []
+                logger.info(f"Running radon mi on {len(py_files)} changed files (incremental)")
+                cmd = [
+                    "radon", "mi",
+                    "--json",
+                    "--min", "C",  # C grade and below
+                ] + py_files
+            else:
+                cmd = [
+                    "radon", "mi",
+                    "--json",
+                    "--min", "C",  # C grade and below
+                    str(self.repository_path)
+                ]
 
             # Run radon
             try:

@@ -59,7 +59,7 @@ class LazyClassDetector(CodeSmellDetector):
             detector_config: Optional configuration dict with thresholds
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
         self.enricher = enricher
         self.logger = get_logger(__name__)
 
@@ -75,9 +75,11 @@ class LazyClassDetector(CodeSmellDetector):
         Returns:
             List of findings for lazy classes
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("c")
+        query = f"""
         MATCH (c:Class)
-        WHERE c.name IS NOT NULL
+        WHERE c.name IS NOT NULL {repo_filter}
 
         // Get method count and LOC
         OPTIONAL MATCH (c)-[:CONTAINS]->(m:Function)
@@ -115,11 +117,11 @@ class LazyClassDetector(CodeSmellDetector):
         try:
             results = self.db.execute_query(
                 query,
-                {
-                    "max_methods": self.max_methods,
-                    "max_avg_loc": self.max_avg_loc,
-                    "min_total_loc": self.min_total_loc,
-                },
+                self._get_query_params(
+                    max_methods=self.max_methods,
+                    max_avg_loc=self.max_avg_loc,
+                    min_total_loc=self.min_total_loc,
+                ),
             )
         except Exception as e:
             self.logger.error(f"Error executing Lazy Class detection query: {e}")

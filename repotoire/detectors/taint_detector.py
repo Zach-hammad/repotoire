@@ -119,6 +119,8 @@ class TaintDetector(CodeSmellDetector):
         self.max_findings = config.get("max_findings", 100)
         self.include_sanitized = config.get("include_sanitized", False)
         self.enricher = enricher
+        # Incremental analysis: only analyze changed files (10-100x faster)
+        self.changed_files = config.get("changed_files", None)
 
         # Default exclude patterns
         default_exclude = [
@@ -211,6 +213,36 @@ class TaintDetector(CodeSmellDetector):
         """
         files = []
 
+        # If incremental analysis, only scan changed Python files
+        if self.changed_files:
+            for rel_path in self.changed_files:
+                # Only scan Python files
+                if not rel_path.endswith('.py'):
+                    continue
+
+                # Skip excluded patterns
+                if self._should_exclude(rel_path):
+                    continue
+
+                path = self.repository_path / rel_path
+                if not path.exists():
+                    continue
+
+                # Read file content
+                try:
+                    content = path.read_text(encoding="utf-8", errors="ignore")
+                    # Skip very large files
+                    if len(content) > 1_000_000:
+                        continue
+                    files.append((rel_path, content))
+                except (OSError, UnicodeDecodeError) as e:
+                    logger.debug(f"Skipping {rel_path}: {e}")
+                    continue
+
+            logger.info(f"Scanning {len(files)} changed files for taint flows (incremental)")
+            return files
+
+        # Full analysis: scan all Python files
         for path in self.repository_path.rglob("*.py"):
             # Skip excluded patterns
             rel_path = str(path.relative_to(self.repository_path))

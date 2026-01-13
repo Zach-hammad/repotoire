@@ -225,7 +225,15 @@ def analyze_repository(
         # ============================================================
         from repotoire.detectors.engine import AnalysisEngine
 
-        engine = AnalysisEngine(graph_client=graph_client)
+        # Pass changed_files to enable incremental analysis in hybrid detectors
+        # This allows detectors to only analyze files that changed (10-100x faster)
+        changed_files = ingest_result.changed_files if ingest_result else []
+        engine = AnalysisEngine(
+            graph_client=graph_client,
+            repo_id=repo_id,
+            repository_path=str(clone_dir),
+            changed_files=changed_files,  # Enables incremental detector analysis
+        )
 
         def analysis_progress(pct: float) -> None:
             progress.update(

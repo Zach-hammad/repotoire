@@ -56,7 +56,7 @@ class LongParameterListDetector(CodeSmellDetector):
             detector_config: Optional detector configuration
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
         self.enricher = enricher
         self.is_falkordb = getattr(graph_client, "is_falkordb", False) or type(graph_client).__name__ == "FalkorDBClient"
 
@@ -119,11 +119,14 @@ class LongParameterListDetector(CodeSmellDetector):
         """
         findings: List[Finding] = []
 
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
         # Query for functions with many parameters
-        query = """
+        query = f"""
         MATCH (f:Function)
         WHERE f.parameters IS NOT NULL
           AND size(f.parameters) > $max_params
+          {repo_filter}
         OPTIONAL MATCH (file:File)-[:CONTAINS*]->(f)
         OPTIONAL MATCH (c:Class)-[:CONTAINS]->(f)
         RETURN f.qualifiedName AS func_name,
@@ -139,7 +142,7 @@ class LongParameterListDetector(CodeSmellDetector):
         LIMIT 100
         """
 
-        results = self.db.execute_query(query, {"max_params": self.max_params})
+        results = self.db.execute_query(query, self._get_query_params(max_params=self.max_params))
 
         for record in results:
             func_name = record.get("func_name", "")

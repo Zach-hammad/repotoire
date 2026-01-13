@@ -6,8 +6,26 @@ import os
 import re
 import time
 from collections import defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Tuple
+
+
+@dataclass
+class IngestionResult:
+    """Result of an ingestion run, including changed files for incremental analysis."""
+
+    files_processed: int = 0
+    files_failed: int = 0
+    files_skipped: int = 0
+    # Relative paths of files that were new, changed, or dependents (for hybrid detectors)
+    changed_files: List[str] = field(default_factory=list)
+    # Whether this was an incremental run
+    incremental: bool = False
+    # Breakdown for incremental runs
+    files_new: int = 0
+    files_changed: int = 0
+    files_unchanged: int = 0
 
 
 # Memoized helper functions for string parsing - avoid repeated splits
@@ -546,10 +564,22 @@ class IngestionPipeline:
             entities, relationships = parser.process_file(str(file_path))
 
             # Convert all entity file paths to relative paths for security
+            # CRITICAL: Also update qualified_name to use relative path to prevent duplicates
+            # when same repo is analyzed from different absolute paths (local vs worker clone)
             for entity in entities:
                 if hasattr(entity, 'file_path') and entity.file_path:
+                    old_file_path = entity.file_path
                     # Store relative path instead of absolute
-                    entity.file_path = self._get_relative_path(Path(entity.file_path))
+                    new_file_path = self._get_relative_path(Path(entity.file_path))
+                    entity.file_path = new_file_path
+
+                    # Update qualified_name to use relative path
+                    # Format: /abs/path/file.py::ClassName:line -> rel/path/file.py::ClassName:line
+                    if hasattr(entity, 'qualified_name') and entity.qualified_name:
+                        if old_file_path in entity.qualified_name:
+                            entity.qualified_name = entity.qualified_name.replace(
+                                old_file_path, new_file_path, 1
+                            )
 
             logger.debug(
                 f"Extracted {len(entities)} entities and {len(relationships)} relationships from {file_path}"
@@ -968,13 +998,16 @@ class IngestionPipeline:
         incremental: bool = False,
         patterns: Optional[List[str]] = None,
         progress_callback: Optional[Callable[[int, int, str], None]] = None
-    ) -> None:
+    ) -> IngestionResult:
         """Run the complete ingestion pipeline with security validation.
 
         Args:
             incremental: If True, only process changed files
             patterns: File patterns to match
             progress_callback: Optional callback function(current, total, filename) for progress tracking
+
+        Returns:
+            IngestionResult with files_processed count and changed_files list
         """
         start_time = time.time()
 
@@ -1101,11 +1134,22 @@ class IngestionPipeline:
         else:
             # Full ingestion: process all files
             files_to_process = files
+            # For full ingestion, all files are "changed" from detector perspective
+            changed_and_new_paths = [self._get_relative_path(f) for f in files]
 
         if not files_to_process:
             logger.info("No files to process (all files unchanged)")
             self._clear_file_cache()  # Clear cache on early return
-            return
+            return IngestionResult(
+                files_processed=0,
+                files_failed=0,
+                files_skipped=len(self.skipped_files),
+                changed_files=[],  # No changes
+                incremental=incremental,
+                files_new=files_new if incremental else 0,
+                files_changed=files_changed if incremental else 0,
+                files_unchanged=files_unchanged if incremental else 0,
+            )
 
         # Process each file
         all_entities = []
@@ -1293,6 +1337,27 @@ class IngestionPipeline:
 
         # Run post-ingestion callbacks (e.g., RAG cache invalidation)
         self._run_on_ingest_complete_callbacks()
+
+        # Build final list of changed files (includes dependents for incremental)
+        # For hybrid detectors to filter their analysis scope
+        final_changed_files = []
+        if incremental:
+            # changed_and_new_paths + dependent files that were processed
+            final_changed_files = [self._get_relative_path(f) for f in files_to_process]
+        else:
+            # Full ingestion: all files
+            final_changed_files = changed_and_new_paths
+
+        return IngestionResult(
+            files_processed=files_processed,
+            files_failed=files_failed,
+            files_skipped=len(self.skipped_files),
+            changed_files=final_changed_files,
+            incremental=incremental,
+            files_new=files_new if incremental else 0,
+            files_changed=files_changed if incremental else 0,
+            files_unchanged=files_unchanged if incremental else 0,
+        )
 
     def _run_type_inference(self) -> Dict[str, Dict[str, str]]:
         """Run Rust-based type inference to build accurate call graph.

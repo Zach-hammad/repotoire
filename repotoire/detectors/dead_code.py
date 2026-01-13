@@ -25,10 +25,11 @@ class DeadCodeDetector(CodeSmellDetector):
 
         Args:
             graph_client: FalkorDB database client
-            detector_config: Optional detector configuration
+            detector_config: Optional detector configuration. May include:
+                - repo_id: Repository UUID for filtering queries (multi-tenant isolation)
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
         self.enricher = enricher
 
         # Cross-validation confidence thresholds
@@ -223,15 +224,19 @@ class DeadCodeDetector(CodeSmellDetector):
         """
         findings: List[Finding] = []
 
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
+
         if self.is_falkordb:
             # FalkorDB-compatible query (no EXISTS subqueries)
-            query = """
+            query = f"""
             MATCH (f:Function)
             WHERE NOT (f)<-[:CALLS]-()
               AND NOT (f)<-[:USES]-()
               AND NOT (f.name STARTS WITH 'test_')
               AND NOT f.name IN ['main', '__main__', '__init__', 'setUp', 'tearDown']
               AND (f.is_method = false OR f.name STARTS WITH '_')
+              {repo_filter}
             OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
             WITH f, file, COALESCE(f.decorators, []) AS decorators
             WHERE size(decorators) = 0
@@ -251,25 +256,26 @@ class DeadCodeDetector(CodeSmellDetector):
             """
         else:
             # Neo4j query with EXISTS subqueries for better accuracy
-            query = """
+            query = f"""
             MATCH (f:Function)
             WHERE NOT (f)<-[:CALLS]-()
               AND NOT (f)<-[:USES]-()
               AND NOT (f.name STARTS WITH 'test_')
               AND NOT f.name IN ['main', '__main__', '__init__', 'setUp', 'tearDown']
+              {repo_filter}
               // Filter out methods that override base class methods (polymorphism)
-              AND NOT EXISTS {
+              AND NOT EXISTS {{
                   MATCH (c:Class)-[:CONTAINS]->(f)
                   MATCH (c)-[:INHERITS*]->(base:Class)
-                  MATCH (base)-[:CONTAINS]->(base_method:Function {name: f.name})
-              }
+                  MATCH (base)-[:CONTAINS]->(base_method:Function {{name: f.name}})
+              }}
               // Filter out public API methods (not starting with _)
               AND (f.is_method = false OR f.name STARTS WITH '_')
               // Filter out functions that are imported (check by name in import properties)
-              AND NOT EXISTS {
+              AND NOT EXISTS {{
                   MATCH ()-[imp:IMPORTS]->()
                   WHERE imp.imported_name = f.name
-              }
+              }}
             OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
             WITH f, file, COALESCE(f.decorators, []) AS decorators
             // Filter out functions with decorators or in __all__
@@ -290,7 +296,7 @@ class DeadCodeDetector(CodeSmellDetector):
             LIMIT 100
             """
 
-        results = self.db.execute_query(query)
+        results = self.db.execute_query(query, self._get_query_params())
 
         for record in results:
             # Filter out magic methods
@@ -458,13 +464,17 @@ class DeadCodeDetector(CodeSmellDetector):
         """
         findings: List[Finding] = []
 
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("c")
+
         if self.is_falkordb:
             # FalkorDB-compatible query (no EXISTS subqueries)
-            query = """
+            query = f"""
             MATCH (file:File)-[:CONTAINS]->(c:Class)
             WHERE NOT (c)<-[:CALLS]-()
               AND NOT (c)<-[:INHERITS]-()
               AND NOT (c)<-[:USES]-()
+              {repo_filter}
             OPTIONAL MATCH (file)-[:CONTAINS]->(m:Function)
             WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
             WITH c, file, count(m) AS method_count, COALESCE(c.decorators, []) AS decorators
@@ -484,21 +494,22 @@ class DeadCodeDetector(CodeSmellDetector):
             """
         else:
             # Neo4j query with EXISTS subqueries for better accuracy
-            query = """
+            query = f"""
             MATCH (file:File)-[:CONTAINS]->(c:Class)
             WHERE NOT (c)<-[:CALLS]-()  // Not instantiated directly
               AND NOT (c)<-[:INHERITS]-()  // Not inherited from
               AND NOT (c)<-[:USES]-()  // Not used in type hints
+              {repo_filter}
               // Check for CALLS via call_name property (cross-file calls)
-              AND NOT EXISTS {
+              AND NOT EXISTS {{
                   MATCH ()-[call:CALLS]->()
                   WHERE call.call_name = c.name
-              }
+              }}
               // Filter out classes that are imported (check by name in import properties)
-              AND NOT EXISTS {
+              AND NOT EXISTS {{
                   MATCH ()-[imp:IMPORTS]->()
                   WHERE imp.imported_name = c.name
-              }
+              }}
             OPTIONAL MATCH (file)-[:CONTAINS]->(m:Function)
             WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
             WITH c, file, count(m) AS method_count, COALESCE(c.decorators, []) AS decorators
@@ -519,7 +530,7 @@ class DeadCodeDetector(CodeSmellDetector):
             LIMIT 50
             """
 
-        results = self.db.execute_query(query)
+        results = self.db.execute_query(query, self._get_query_params())
 
         for record in results:
             name = record["name"]

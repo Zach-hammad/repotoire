@@ -85,6 +85,8 @@ class SemgrepDetector(CodeSmellDetector):
         self.max_findings = config.get("max_findings", 50)
         self.severity_threshold = config.get("severity_threshold", "INFO")
         self.enricher = enricher  # Graph enrichment for cross-detector collaboration
+        # Incremental analysis: only analyze changed files (10-100x faster)
+        self.changed_files = config.get("changed_files", None)
 
         # Default exclude patterns
         default_exclude = [
@@ -159,8 +161,21 @@ class SemgrepDetector(CodeSmellDetector):
         for pattern in self.exclude:
             cmd.extend(["--exclude", pattern])
 
-        # Target path
-        cmd.append(str(self.repository_path))
+        # If incremental analysis, pass specific files instead of repository path
+        if self.changed_files:
+            # Filter to files that exist (semgrep handles multiple languages)
+            existing_files = [
+                f for f in self.changed_files
+                if (self.repository_path / f).exists()
+            ]
+            if not existing_files:
+                logger.debug("No files in changed_files, skipping semgrep")
+                return []
+            logger.info(f"Running semgrep on {len(existing_files)} changed files (incremental)")
+            cmd.extend(existing_files)
+        else:
+            # Target path for full analysis
+            cmd.append(str(self.repository_path))
 
         # Run Semgrep using shared utility
         result = run_external_tool(

@@ -21,7 +21,7 @@ class ShotgunSurgeryDetector(CodeSmellDetector):
     """Detect classes with too many dependents (high fan-in)."""
 
     def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[Dict[str, Any]] = None, enricher: Optional[GraphEnricher] = None):
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
         self.enricher = enricher
         config = detector_config or {}
         thresholds = config.get("thresholds", {})
@@ -37,9 +37,12 @@ class ShotgunSurgeryDetector(CodeSmellDetector):
         Returns:
             List of Finding objects for classes used by many others.
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("c")
+        query = f"""
         // Find classes with many incoming dependencies
         MATCH (c:Class)<-[:USES|CALLS]-(caller:Function)
+        WHERE true {repo_filter}
         WITH c,
              count(DISTINCT caller) as caller_count,
              collect(DISTINCT caller.filePath) as affected_files
@@ -60,7 +63,7 @@ class ShotgunSurgeryDetector(CodeSmellDetector):
         try:
             results = self.db.execute_query(
                 query,
-                {"min_threshold": self.threshold_medium},
+                self._get_query_params(min_threshold=self.threshold_medium),
             )
         except Exception as e:
             self.logger.error(f"Error executing Shotgun Surgery detection query: {e}")

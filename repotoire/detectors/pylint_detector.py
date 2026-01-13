@@ -146,6 +146,8 @@ class PylintDetector(CodeSmellDetector):
         self.jobs = config.get("jobs", os.cpu_count() or 1)  # Parallel jobs (default: all CPUs)
         self.enricher = enricher  # Graph enrichment for cross-detector collaboration
         self.use_rust = config.get("use_rust", True)  # Use Rust implementations when available
+        # Incremental analysis: only analyze changed files (10-100x faster)
+        self.changed_files = config.get("changed_files", None)
 
         # Thresholds for Rust-based rules (matching pylint defaults)
         # Note: Rules covered by Ruff are no longer configured here
@@ -204,9 +206,21 @@ class PylintDetector(CodeSmellDetector):
         """
         results = []
 
-        # Find all Python files in repository
-        python_files = list(self.repository_path.rglob("*.py"))
-        logger.info(f"Running Rust checks on {len(python_files)} Python files")
+        # If incremental analysis, use changed_files instead of scanning all files
+        if self.changed_files:
+            # Filter to only Python files that exist
+            python_files = [
+                self.repository_path / f for f in self.changed_files
+                if f.endswith('.py') and (self.repository_path / f).exists()
+            ]
+            if not python_files:
+                logger.debug("No Python files in changed_files, skipping Rust pylint checks")
+                return []
+            logger.info(f"Running Rust checks on {len(python_files)} changed files (incremental)")
+        else:
+            # Find all Python files in repository
+            python_files = list(self.repository_path.rglob("*.py"))
+            logger.info(f"Running Rust checks on {len(python_files)} Python files")
 
         for file_path in python_files:
             # Skip common non-source directories
@@ -396,8 +410,21 @@ class PylintDetector(CodeSmellDetector):
                 disable_list.extend(RUST_SUPPORTED_RULES)
             cmd.extend(["--disable", ",".join(disable_list)])
 
-        # Add repository path
-        cmd.append(str(self.repository_path))
+        # If incremental analysis, pass specific files instead of repository path
+        if self.changed_files:
+            # Filter to only Python files that exist
+            py_files = [
+                f for f in self.changed_files
+                if f.endswith('.py') and (self.repository_path / f).exists()
+            ]
+            if not py_files:
+                logger.debug("No Python files in changed_files, skipping pylint")
+                return []
+            logger.info(f"Running pylint on {len(py_files)} changed files (incremental)")
+            cmd.extend(py_files)
+        else:
+            # Add repository path for full analysis
+            cmd.append(str(self.repository_path))
 
         # Run pylint using shared utility
         result = run_external_tool(

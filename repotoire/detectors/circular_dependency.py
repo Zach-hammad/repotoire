@@ -36,10 +36,11 @@ class CircularDependencyDetector(CodeSmellDetector):
 
         Args:
             graph_client: FalkorDB database client
-            detector_config: Optional detector configuration
+            detector_config: Optional detector configuration. May include:
+                - repo_id: Repository UUID for filtering queries (multi-tenant isolation)
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
         self.enricher = enricher
         # FalkorDB uses id() while Neo4j uses elementId()
         self.is_falkordb = getattr(graph_client, "is_falkordb", False) or type(graph_client).__name__ == "FalkorDBClient"
@@ -54,7 +55,8 @@ class CircularDependencyDetector(CodeSmellDetector):
         Returns:
             List of findings, one per circular dependency cycle
         """
-        graph_algo = GraphAlgorithms(self.db)
+        # Pass repo_id for multi-tenant filtering
+        graph_algo = GraphAlgorithms(self.db, repo_id=self.repo_id)
 
         # Use Rust-based SCC detection (no GDS required)
         logger.info("Using Rust SCC algorithm for circular dependency detection")
@@ -133,8 +135,11 @@ class CircularDependencyDetector(CodeSmellDetector):
         findings: List[Finding] = []
 
         # Original optimized query using bounded path traversal
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f1")
         query = f"""
         MATCH (f1:File)
+        WHERE true {repo_filter}
         MATCH (f2:File)
         WHERE {self.id_func}(f1) < {self.id_func}(f2) AND f1 <> f2
         MATCH path = shortestPath((f1)-[:IMPORTS*1..15]->(f2))
@@ -145,7 +150,7 @@ class CircularDependencyDetector(CodeSmellDetector):
         ORDER BY cycle_length DESC
         """
 
-        results = self.db.execute_query(query)
+        results = self.db.execute_query(query, self._get_query_params())
 
         # Deduplicate cycles
         seen_cycles: Set[tuple] = set()

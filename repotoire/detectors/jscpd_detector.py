@@ -70,6 +70,8 @@ class JscpdDetector(CodeSmellDetector):
         self.max_findings = config.get("max_findings", 50)
         self.threshold = config.get("threshold", 10.0)  # percentage
         self.enricher = enricher  # Graph enrichment for cross-detector collaboration
+        # Incremental analysis: only analyze changed files (10-100x faster)
+        self.changed_files = config.get("changed_files", None)
 
         # Default ignore patterns
         default_ignore = [
@@ -141,14 +143,28 @@ class JscpdDetector(CodeSmellDetector):
                 for pattern in self.ignore:
                     cmd.extend(["--ignore", pattern])
 
-                # Only scan source code directory (repotoire/), not tests or other dirs
-                # This avoids scanning test fixtures which have intentional duplication
-                source_dir = self.repository_path / "repotoire"
-                if source_dir.exists():
-                    cmd.append(str(source_dir))
+                # If incremental analysis, pass specific files
+                if self.changed_files:
+                    # Filter to supported file types that exist
+                    supported_extensions = {".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs"}
+                    filtered_files = [
+                        f for f in self.changed_files
+                        if Path(f).suffix in supported_extensions and (self.repository_path / f).exists()
+                    ]
+                    if not filtered_files:
+                        logger.debug("No supported files in changed_files, skipping jscpd")
+                        return []
+                    logger.info(f"Running jscpd on {len(filtered_files)} changed files (incremental)")
+                    cmd.extend(filtered_files)
                 else:
-                    # Fallback to repository root if repotoire/ doesn't exist
-                    cmd.append(str(self.repository_path))
+                    # Only scan source code directory (repotoire/), not tests or other dirs
+                    # This avoids scanning test fixtures which have intentional duplication
+                    source_dir = self.repository_path / "repotoire"
+                    if source_dir.exists():
+                        cmd.append(str(source_dir))
+                    else:
+                        # Fallback to repository root if repotoire/ doesn't exist
+                        cmd.append(str(self.repository_path))
 
                 # Run jscpd (suppress terminal output)
                 try:

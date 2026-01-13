@@ -41,13 +41,15 @@ class DegreeCentralityDetector(CodeSmellDetector):
     MIN_INDEGREE = 5
     MIN_OUTDEGREE = 10
 
-    def __init__(self, graph_client: FalkorDBClient):
+    def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[dict] = None):
         """Initialize detector with FalkorDB client.
 
         Args:
             graph_client: FalkorDB database client
+            detector_config: Optional detector configuration. May include:
+                - repo_id: Repository UUID for filtering queries (multi-tenant isolation)
         """
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
 
     def detect(self) -> List[Finding]:
         """Detect coupling issues using degree centrality.
@@ -60,7 +62,8 @@ class DegreeCentralityDetector(CodeSmellDetector):
         """
         findings = []
 
-        graph_algo = GraphAlgorithms(self.db)
+        # Pass repo_id for multi-tenant filtering
+        graph_algo = GraphAlgorithms(self.db, repo_id=self.repo_id)
 
         try:
             # Calculate degree centrality using pure Cypher (no GDS needed)

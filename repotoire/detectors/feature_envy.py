@@ -22,7 +22,7 @@ class FeatureEnvyDetector(CodeSmellDetector):
     """Detect methods that use other classes more than their own."""
 
     def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[Dict[str, Any]] = None, enricher: Optional[GraphEnricher] = None):
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
         self.enricher = enricher
         config = detector_config or {}
 
@@ -70,10 +70,12 @@ class FeatureEnvyDetector(CodeSmellDetector):
                     # Extract class name from affected nodes
                     for node in prev_finding.affected_nodes:
                         god_classes.add(node)
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("c")
+        query = f"""
         // Find methods and count internal vs external usage
         MATCH (c:Class)-[:CONTAINS]->(m:Function)
-        WHERE m.is_method = true
+        WHERE m.is_method = true {repo_filter}
 
         // Count internal uses (same class)
         OPTIONAL MATCH (m)-[r_internal:USES|CALLS]->()-[:CONTAINS*0..1]-(c)
@@ -104,10 +106,10 @@ class FeatureEnvyDetector(CodeSmellDetector):
         try:
             results = self.db.execute_query(
                 query,
-                {
-                    "threshold_ratio": self.threshold_ratio,
-                    "min_external_uses": self.min_external_uses,
-                },
+                self._get_query_params(
+                    threshold_ratio=self.threshold_ratio,
+                    min_external_uses=self.min_external_uses,
+                ),
             )
         except Exception as e:
             self.logger.error(f"Error executing Feature Envy detection query: {e}")

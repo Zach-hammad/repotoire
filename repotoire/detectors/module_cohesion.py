@@ -41,13 +41,15 @@ class ModuleCohesionDetector(CodeSmellDetector):
     # God module threshold (% of total files)
     GOD_MODULE_THRESHOLD = 20.0
 
-    def __init__(self, graph_client: FalkorDBClient):
+    def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[dict] = None):
         """Initialize detector with FalkorDB client.
 
         Args:
             graph_client: FalkorDB database client
+            detector_config: Optional detector configuration. May include:
+                - repo_id: Repository UUID for filtering queries (multi-tenant isolation)
         """
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
         self.modularity_score: Optional[float] = None
         self.community_count: int = 0
 
@@ -62,7 +64,8 @@ class ModuleCohesionDetector(CodeSmellDetector):
         findings = []
 
         # Initialize graph algorithms (uses Rust - no GDS required)
-        graph_algo = GraphAlgorithms(self.db)
+        # Pass repo_id for multi-tenant filtering
+        graph_algo = GraphAlgorithms(self.db, repo_id=self.repo_id)
 
         try:
             # Run Leiden community detection using Rust algorithm

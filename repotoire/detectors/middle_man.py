@@ -22,7 +22,7 @@ class MiddleManDetector(CodeSmellDetector):
     """Detect classes that mostly delegate to other classes."""
 
     def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[Dict[str, Any]] = None, enricher: Optional[GraphEnricher] = None):
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
         self.enricher = enricher
         config = detector_config or {}
         self.min_delegation_methods = config.get("min_delegation_methods", 3)
@@ -37,11 +37,14 @@ class MiddleManDetector(CodeSmellDetector):
         Returns:
             List of Finding objects for classes that mostly delegate.
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("c")
+        query = f"""
         // Find classes where most methods delegate to one other class
         MATCH (c:Class)-[:CONTAINS]->(m:Function)
         WHERE m.is_method = true
           AND (m.complexity IS NULL OR m.complexity <= $max_complexity)
+          {repo_filter}
 
         // Find delegation patterns
         MATCH (m)-[:CALLS]->(delegated:Function)
@@ -74,11 +77,11 @@ class MiddleManDetector(CodeSmellDetector):
         try:
             results = self.db.execute_query(
                 query,
-                {
-                    "min_delegation_methods": self.min_delegation_methods,
-                    "delegation_threshold": self.delegation_threshold,
-                    "max_complexity": self.max_complexity,
-                },
+                self._get_query_params(
+                    min_delegation_methods=self.min_delegation_methods,
+                    delegation_threshold=self.delegation_threshold,
+                    max_complexity=self.max_complexity,
+                ),
             )
         except Exception as e:
             self.logger.error(f"Error executing Middle Man detection query: {e}")

@@ -106,12 +106,14 @@ class AnalysisEngine:
         graph_client: DatabaseClient,
         detector_config: Dict = None,
         repository_path: str = ".",
+        repo_id: Optional[str] = None,
         keep_metadata: bool = False,
         enable_voting: bool = True,
         voting_strategy: str = "weighted",
         confidence_threshold: float = 0.6,
         parallel: bool = True,
         max_workers: int = 4,
+        changed_files: Optional[List[str]] = None,
     ):
         """Initialize analysis engine.
 
@@ -119,15 +121,18 @@ class AnalysisEngine:
             graph_client: Graph database client (FalkorDB)
             detector_config: Optional detector configuration dict
             repository_path: Path to repository root (for hybrid detectors)
+            repo_id: Repository UUID for filtering graph queries (multi-tenant isolation)
             keep_metadata: If True, don't cleanup detector metadata after analysis (enables hotspot queries)
             enable_voting: Enable voting engine for multi-detector consensus (REPO-156)
             voting_strategy: Voting strategy ("majority", "weighted", "threshold", "unanimous")
             confidence_threshold: Minimum confidence to include finding (0.0-1.0)
             parallel: Run independent detectors in parallel (REPO-217)
             max_workers: Maximum thread pool workers for parallel execution (default: 4)
+            changed_files: List of relative file paths that changed (for incremental hybrid detector analysis)
         """
         self.db = graph_client
         self.repository_path = repository_path
+        self.repo_id = repo_id
         self.keep_metadata = keep_metadata
         self.enable_voting = enable_voting
         self.parallel = parallel
@@ -158,52 +163,71 @@ class AnalysisEngine:
             confidence_threshold=confidence_threshold,
         )
 
-        # Register all detectors
+        # Helper to merge detector-specific config with repo_id for multi-tenant filtering
+        def with_repo_id(specific_config: Optional[Dict] = None) -> Dict:
+            """Merge detector-specific config with repo_id for graph query filtering."""
+            base = {"repo_id": repo_id} if repo_id else {}
+            if specific_config:
+                base.update(specific_config)
+            return base
+
+        # Helper for hybrid detector config (repository_path + changed_files for incremental analysis)
+        def hybrid_config(specific_config: Optional[Dict] = None) -> Dict:
+            """Build config for hybrid detectors with repository_path and changed_files."""
+            base = {"repository_path": repository_path}
+            if changed_files:
+                base["changed_files"] = changed_files
+            if specific_config:
+                base.update(specific_config)
+            return base
+
+        # Register all detectors (all graph detectors receive repo_id for filtering)
         self.detectors = [
-            CircularDependencyDetector(graph_client, enricher=self.enricher),
-            DeadCodeDetector(graph_client, enricher=self.enricher),
-            GodClassDetector(graph_client, detector_config=detector_config, enricher=self.enricher),
-            ArchitecturalBottleneckDetector(graph_client, enricher=self.enricher),
+            CircularDependencyDetector(graph_client, detector_config=with_repo_id(), enricher=self.enricher),
+            DeadCodeDetector(graph_client, detector_config=with_repo_id(), enricher=self.enricher),
+            GodClassDetector(graph_client, detector_config=with_repo_id(config.get("god_class")), enricher=self.enricher),
+            ArchitecturalBottleneckDetector(graph_client, detector_config=with_repo_id(), enricher=self.enricher),
             # GDS-based graph detectors (REPO-172, REPO-173)
-            ModuleCohesionDetector(graph_client),
-            CoreUtilityDetector(graph_client),
+            ModuleCohesionDetector(graph_client, detector_config=with_repo_id()),
+            CoreUtilityDetector(graph_client, detector_config=with_repo_id()),
             # GDS-based detectors (REPO-169, REPO-170, REPO-171)
-            InfluentialCodeDetector(graph_client),
-            DegreeCentralityDetector(graph_client),
+            InfluentialCodeDetector(graph_client, detector_config=with_repo_id()),
+            DegreeCentralityDetector(graph_client, detector_config=with_repo_id()),
             # Graph-unique detectors (FAL-115: Graph-Enhanced Linting Strategy)
-            FeatureEnvyDetector(graph_client, detector_config=config.get("feature_envy"), enricher=self.enricher),
-            ShotgunSurgeryDetector(graph_client, detector_config=config.get("shotgun_surgery"), enricher=self.enricher),
-            MiddleManDetector(graph_client, detector_config=config.get("middle_man"), enricher=self.enricher),
-            InappropriateIntimacyDetector(graph_client, detector_config=config.get("inappropriate_intimacy"), enricher=self.enricher),
+            FeatureEnvyDetector(graph_client, detector_config=with_repo_id(config.get("feature_envy")), enricher=self.enricher),
+            ShotgunSurgeryDetector(graph_client, detector_config=with_repo_id(config.get("shotgun_surgery")), enricher=self.enricher),
+            MiddleManDetector(graph_client, detector_config=with_repo_id(config.get("middle_man")), enricher=self.enricher),
+            InappropriateIntimacyDetector(graph_client, detector_config=with_repo_id(config.get("inappropriate_intimacy")), enricher=self.enricher),
             # Data clumps detector (REPO-216)
-            DataClumpsDetector(graph_client, detector_config=config.get("data_clumps"), enricher=self.enricher),
+            DataClumpsDetector(graph_client, detector_config=with_repo_id(config.get("data_clumps")), enricher=self.enricher),
             # New graph-based detectors (REPO-228, REPO-229, REPO-231)
-            AsyncAntipatternDetector(graph_client, detector_config=config.get("async_antipattern"), enricher=self.enricher),
-            TypeHintCoverageDetector(graph_client, detector_config=config.get("type_hint_coverage"), enricher=self.enricher),
-            LongParameterListDetector(graph_client, detector_config=config.get("long_parameter_list"), enricher=self.enricher),
+            AsyncAntipatternDetector(graph_client, detector_config=with_repo_id(config.get("async_antipattern")), enricher=self.enricher),
+            TypeHintCoverageDetector(graph_client, detector_config=with_repo_id(config.get("type_hint_coverage")), enricher=self.enricher),
+            LongParameterListDetector(graph_client, detector_config=with_repo_id(config.get("long_parameter_list")), enricher=self.enricher),
             # Additional graph-based detectors (REPO-221, REPO-223, REPO-232)
-            MessageChainDetector(graph_client, detector_config=config.get("message_chain"), enricher=self.enricher),
-            TestSmellDetector(graph_client, detector_config=config.get("test_smell"), enricher=self.enricher),
-            GeneratorMisuseDetector(graph_client, detector_config=config.get("generator_misuse"), enricher=self.enricher),
+            MessageChainDetector(graph_client, detector_config=with_repo_id(config.get("message_chain")), enricher=self.enricher),
+            TestSmellDetector(graph_client, detector_config=with_repo_id(config.get("test_smell")), enricher=self.enricher),
+            GeneratorMisuseDetector(graph_client, detector_config=with_repo_id(config.get("generator_misuse")), enricher=self.enricher),
             # Design smell detectors (REPO-222, REPO-230)
-            LazyClassDetector(graph_client, detector_config=config.get("lazy_class"), enricher=self.enricher),
-            RefusedBequestDetector(graph_client, detector_config=config.get("refused_bequest"), enricher=self.enricher),
+            LazyClassDetector(graph_client, detector_config=with_repo_id(config.get("lazy_class")), enricher=self.enricher),
+            RefusedBequestDetector(graph_client, detector_config=with_repo_id(config.get("refused_bequest")), enricher=self.enricher),
             # TrulyUnusedImportsDetector has high false positive rate - replaced by RuffImportDetector
             # TrulyUnusedImportsDetector(graph_client, detector_config=config.get("truly_unused_imports")),
             # Hybrid detectors (external tool + graph)
+            # All hybrid detectors receive changed_files for incremental analysis (10-100x faster)
             RuffImportDetector(
                 graph_client,
-                detector_config={"repository_path": repository_path},
+                detector_config=hybrid_config(),
                 enricher=self.enricher  # Enable graph enrichment
             ),
             RuffLintDetector(
                 graph_client,
-                detector_config={"repository_path": repository_path},
+                detector_config=hybrid_config(),
                 enricher=self.enricher  # Enable graph enrichment
             ),
             MypyDetector(
                 graph_client,
-                detector_config={"repository_path": repository_path},
+                detector_config=hybrid_config(),
                 enricher=self.enricher  # Enable graph enrichment
             ),
             # PylintDetector in selective mode: only checks that Ruff doesn't cover (the 10%)
@@ -211,8 +235,7 @@ class AnalysisEngine:
             # Note: R0801 (duplicate-code) removed - too slow (O(n²)), use RadonDetector instead
             PylintDetector(
                 graph_client,
-                detector_config={
-                    "repository_path": repository_path,
+                detector_config=hybrid_config({
                     "enable_only": [
                         # Design checks (class/module structure)
                         "R0901",  # too-many-ancestors
@@ -231,42 +254,42 @@ class AnalysisEngine:
                     ],
                     "max_findings": 50,  # Limit to keep it fast
                     "jobs": min(4, os.cpu_count() or 1)  # Use max 4 cores to avoid freezing
-                },
+                }),
                 enricher=self.enricher  # Enable graph enrichment
             ),
             BanditDetector(
                 graph_client,
-                detector_config={"repository_path": repository_path},
+                detector_config=hybrid_config(),
                 enricher=self.enricher  # Enable graph enrichment
             ),
             RadonDetector(
                 graph_client,
-                detector_config={"repository_path": repository_path},
+                detector_config=hybrid_config(),
                 enricher=self.enricher  # Enable graph enrichment
             ),
             # Duplicate code detection (fast, replaces slow Pylint R0801)
             JscpdDetector(
                 graph_client,
-                detector_config={"repository_path": repository_path},
+                detector_config=hybrid_config(),
                 enricher=self.enricher  # Enable graph enrichment
             ),
             # Advanced unused code detection (more accurate than graph-based DeadCodeDetector)
             VultureDetector(
                 graph_client,
-                detector_config={"repository_path": repository_path},
+                detector_config=hybrid_config(),
                 enricher=self.enricher  # Enable graph enrichment
             ),
             # Advanced security patterns (more powerful than Bandit)
             SemgrepDetector(
                 graph_client,
-                detector_config={"repository_path": repository_path},
+                detector_config=hybrid_config(),
                 enricher=self.enricher  # Enable graph enrichment
             ),
             # SATD (Self-Admitted Technical Debt) detector (REPO-410)
             # Scans TODO, FIXME, HACK, XXX, KLUDGE, REFACTOR, TEMP, BUG comments
             SATDDetector(
                 graph_client,
-                detector_config={"repository_path": repository_path},
+                detector_config=hybrid_config(),
                 enricher=self.enricher  # Enable graph enrichment
             ),
             # Taint tracking detector (REPO-411)
@@ -274,7 +297,7 @@ class AnalysisEngine:
             # Detects SQL injection, command injection, XSS, etc.
             TaintDetector(
                 graph_client,
-                detector_config={"repository_path": repository_path},
+                detector_config=hybrid_config(),
                 enricher=self.enricher  # Enable graph enrichment
             ),
         ]
@@ -287,12 +310,11 @@ class AnalysisEngine:
         self.detectors.append(
             DependencyScanner(
                 graph_client,
-                detector_config={
-                    "repository_path": repository_path,
+                detector_config=hybrid_config({
                     "max_findings": config.get("dependency_scanner", {}).get("max_findings", 50),
                     "ignore_packages": config.get("dependency_scanner", {}).get("ignore_packages", []),
                     "check_outdated": config.get("dependency_scanner", {}).get("check_outdated", False),
-                },
+                }),
             )
         )
 

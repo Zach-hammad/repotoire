@@ -22,7 +22,7 @@ class InappropriateIntimacyDetector(CodeSmellDetector):
     """Detect classes that are too tightly coupled."""
 
     def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[Dict[str, Any]] = None, enricher: Optional[GraphEnricher] = None):
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
         self.enricher = enricher
         config = detector_config or {}
         thresholds = config.get("thresholds", {})
@@ -41,9 +41,12 @@ class InappropriateIntimacyDetector(CodeSmellDetector):
         Returns:
             List of Finding objects for mutually coupled class pairs.
         """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("c1")
         query = f"""
         // Find pairs of classes with excessive mutual access
         MATCH (c1:Class)-[:CONTAINS]->(m1:Function)
+        WHERE true {repo_filter}
         MATCH (m1)-[r:USES|CALLS]->()-[:CONTAINS*0..1]-(c2:Class)
         WHERE c1 <> c2
         WITH c1, c2, count(r) as c1_to_c2
@@ -74,7 +77,7 @@ class InappropriateIntimacyDetector(CodeSmellDetector):
         try:
             results = self.db.execute_query(
                 query,
-                {"min_mutual_access": self.min_mutual_access},
+                self._get_query_params(min_mutual_access=self.min_mutual_access),
             )
         except Exception as e:
             self.logger.error(f"Error executing Inappropriate Intimacy detection query: {e}")

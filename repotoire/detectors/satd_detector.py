@@ -103,6 +103,8 @@ class SATDDetector(CodeSmellDetector):
         self.repository_path = Path(config.get("repository_path", "."))
         self.max_findings = config.get("max_findings", 500)
         self.enricher = enricher
+        # Incremental analysis: only analyze changed files (10-100x faster)
+        self.changed_files = config.get("changed_files", None)
 
         # Default exclude patterns
         default_exclude = [
@@ -184,6 +186,36 @@ class SATDDetector(CodeSmellDetector):
         """
         files = []
 
+        # If incremental analysis, only scan changed files
+        if self.changed_files:
+            for rel_path in self.changed_files:
+                # Check if file has a supported extension
+                if not any(rel_path.endswith(ext) for ext in self.file_extensions):
+                    continue
+
+                # Skip excluded patterns
+                if self._should_exclude(rel_path):
+                    continue
+
+                path = self.repository_path / rel_path
+                if not path.exists():
+                    continue
+
+                # Read file content
+                try:
+                    content = path.read_text(encoding="utf-8", errors="ignore")
+                    # Skip very large files (likely generated or minified)
+                    if len(content) > 1_000_000:
+                        continue
+                    files.append((rel_path, content))
+                except (OSError, UnicodeDecodeError) as e:
+                    logger.debug(f"Skipping {rel_path}: {e}")
+                    continue
+
+            logger.info(f"Scanning {len(files)} changed files for SATD (incremental)")
+            return files
+
+        # Full analysis: scan all files
         for ext in self.file_extensions:
             for path in self.repository_path.rglob(f"*{ext}"):
                 # Skip excluded patterns

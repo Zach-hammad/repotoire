@@ -72,7 +72,7 @@ class DataClumpsDetector(CodeSmellDetector):
             detector_config: Optional detector configuration
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
         self.enricher = enricher
         # FalkorDB uses id() while Neo4j uses elementId()
         self.is_falkordb = getattr(graph_client, "is_falkordb", False) or type(graph_client).__name__ == "FalkorDBClient"
@@ -132,17 +132,18 @@ class DataClumpsDetector(CodeSmellDetector):
         Returns:
             List of tuples: (function_name, parameter_set, file_path)
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
+        query = f"""
         MATCH (f:Function)
-        WHERE f.parameters IS NOT NULL
-          AND size(f.parameters) >= $min_params
+        WHERE coalesce(size(f.parameters), 0) >= $min_params {repo_filter}
         OPTIONAL MATCH (file:File)-[:CONTAINS*]->(f)
         RETURN f.qualifiedName AS name, f.parameters AS params, file.filePath AS filePath
         """
 
-        results = self.db.execute_query(query, {
-            "min_params": self.min_params
-        })
+        results = self.db.execute_query(query, self._get_query_params(
+            min_params=self.min_params
+        ))
 
         functions = []
         for row in results:

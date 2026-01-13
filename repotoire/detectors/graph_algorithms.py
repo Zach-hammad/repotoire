@@ -32,15 +32,45 @@ _pagerank_cache: Dict[str, float] = {}
 class GraphAlgorithms:
     """High-performance graph algorithms using Rust (no GDS required)."""
 
-    def __init__(self, client: FalkorDBClient):
+    def __init__(self, client: FalkorDBClient, repo_id: Optional[str] = None):
         """Initialize graph algorithms.
 
         Args:
             client: FalkorDB client instance
+            repo_id: Repository UUID for filtering queries (multi-tenant isolation)
         """
         self.client = client
+        self.repo_id = repo_id
         # Cache for node ID mappings
         self._node_cache: Dict[str, Dict[str, int]] = {}
+
+    def _get_repo_filter(self, node_alias: str = "n") -> str:
+        """Get Cypher WHERE clause fragment for repo_id filtering.
+
+        Args:
+            node_alias: The node alias to filter (default: 'n')
+
+        Returns:
+            Empty string if no repo_id, otherwise 'AND n.repoId = $repo_id'
+        """
+        if self.repo_id:
+            return f"AND {node_alias}.repoId = $repo_id"
+        return ""
+
+    def _get_query_params(self, **extra_params) -> Dict:
+        """Get query parameters including repo_id if set.
+
+        Args:
+            **extra_params: Additional parameters to include
+
+        Returns:
+            Dict with repo_id (if set) and any extra parameters
+        """
+        params = {}
+        if self.repo_id:
+            params["repo_id"] = self.repo_id
+        params.update(extra_params)
+        return params
 
     # -------------------------------------------------------------------------
     # Rust Algorithm Helpers - Extract graph data from FalkorDB
@@ -65,18 +95,23 @@ class GraphAlgorithms:
             - node_names: List mapping node_id -> qualified name
         """
         # Get all nodes and edges in one query
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("n")
+        repo_filter_a = self._get_repo_filter("a")
         query = f"""
         MATCH (n:{node_label})
+        WHERE true {repo_filter}
         WITH collect(n) AS nodes
         UNWIND nodes AS n
         WITH n, id(n) AS neo_id
         ORDER BY neo_id
         WITH collect({{neo_id: neo_id, name: n.qualifiedName}}) AS node_list
         MATCH (a:{node_label})-[r:{rel_type}]->(b:{node_label})
+        WHERE true {repo_filter_a}
         WITH node_list, collect({{src: id(a), dst: id(b)}}) AS edges
         RETURN node_list, edges
         """
-        result = self.client.execute_query(query)
+        result = self.client.execute_query(query, self._get_query_params())
 
         if not result or not result[0]['node_list']:
             return [], []
@@ -296,10 +331,13 @@ class GraphAlgorithms:
             List of function data with betweenness scores
         """
         # Use parameterized query to prevent injection
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
+        query = f"""
         MATCH (f:Function)
         WHERE f.betweenness_score IS NOT NULL
           AND f.betweenness_score > $threshold
+          {repo_filter}
         RETURN
             f.qualifiedName as qualified_name,
             f.betweenness_score as betweenness,
@@ -310,10 +348,10 @@ class GraphAlgorithms:
         ORDER BY f.betweenness_score DESC
         LIMIT $limit
         """
-        return self.client.execute_query(query, parameters={
-            "threshold": threshold,
-            "limit": limit
-        })
+        return self.client.execute_query(query, parameters=self._get_query_params(
+            threshold=threshold,
+            limit=limit
+        ))
 
     def get_betweenness_statistics(self) -> Optional[Dict[str, float]]:
         """Get statistical summary of betweenness scores.
@@ -321,9 +359,11 @@ class GraphAlgorithms:
         Returns:
             Dictionary with min, max, avg, stdev of betweenness scores
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
+        query = f"""
         MATCH (f:Function)
-        WHERE f.betweenness_score IS NOT NULL
+        WHERE f.betweenness_score IS NOT NULL {repo_filter}
         RETURN
             min(f.betweenness_score) as min_betweenness,
             max(f.betweenness_score) as max_betweenness,
@@ -331,7 +371,7 @@ class GraphAlgorithms:
             stdev(f.betweenness_score) as stdev_betweenness,
             count(f) as total_functions
         """
-        result = self.client.execute_query(query)
+        result = self.client.execute_query(query, self._get_query_params())
         return result[0] if result else None
 
     # ========================================================================
@@ -413,10 +453,13 @@ class GraphAlgorithms:
         Returns:
             List of function data with harmonic centrality scores
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
+        query = f"""
         MATCH (f:Function)
         WHERE f.harmonic_centrality IS NOT NULL
           AND f.harmonic_centrality > $threshold
+          {repo_filter}
         RETURN
             f.qualifiedName as qualified_name,
             f.harmonic_centrality as harmonic_centrality,
@@ -427,10 +470,10 @@ class GraphAlgorithms:
         ORDER BY f.harmonic_centrality DESC
         LIMIT $limit
         """
-        return self.client.execute_query(query, parameters={
-            "threshold": threshold,
-            "limit": limit
-        })
+        return self.client.execute_query(query, parameters=self._get_query_params(
+            threshold=threshold,
+            limit=limit
+        ))
 
     def get_low_harmonic_functions(
         self,
@@ -446,11 +489,14 @@ class GraphAlgorithms:
         Returns:
             List of function data with low harmonic centrality scores
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
+        query = f"""
         MATCH (f:Function)
         WHERE f.harmonic_centrality IS NOT NULL
           AND f.harmonic_centrality < $threshold
           AND f.harmonic_centrality > 0
+          {repo_filter}
         RETURN
             f.qualifiedName as qualified_name,
             f.harmonic_centrality as harmonic_centrality,
@@ -461,10 +507,10 @@ class GraphAlgorithms:
         ORDER BY f.harmonic_centrality ASC
         LIMIT $limit
         """
-        return self.client.execute_query(query, parameters={
-            "threshold": threshold,
-            "limit": limit
-        })
+        return self.client.execute_query(query, parameters=self._get_query_params(
+            threshold=threshold,
+            limit=limit
+        ))
 
     def get_harmonic_statistics(self) -> Optional[Dict[str, float]]:
         """Get statistical summary of harmonic centrality scores.
@@ -472,9 +518,11 @@ class GraphAlgorithms:
         Returns:
             Dictionary with min, max, avg, stdev of harmonic centrality scores
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
+        query = f"""
         MATCH (f:Function)
-        WHERE f.harmonic_centrality IS NOT NULL
+        WHERE f.harmonic_centrality IS NOT NULL {repo_filter}
         RETURN
             min(f.harmonic_centrality) as min_harmonic,
             max(f.harmonic_centrality) as max_harmonic,
@@ -482,7 +530,7 @@ class GraphAlgorithms:
             stdev(f.harmonic_centrality) as stdev_harmonic,
             count(f) as total_functions
         """
-        result = self.client.execute_query(query)
+        result = self.client.execute_query(query, self._get_query_params())
         return result[0] if result else None
 
     def cleanup_projection(self, projection_name: str = "calls-graph") -> bool:
@@ -521,9 +569,12 @@ class GraphAlgorithms:
         Returns:
             List of entry point function data
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
+        query = f"""
         MATCH (f:Function)
         WHERE NOT (:Function)-[:CALLS]->(f)
+          {repo_filter}
         RETURN
             f.qualifiedName as qualified_name,
             f.name as name,
@@ -531,7 +582,7 @@ class GraphAlgorithms:
             f.lineStart as line_number
         ORDER BY f.qualifiedName
         """
-        return self.client.execute_query(query)
+        return self.client.execute_query(query, self._get_query_params())
 
     # -------------------------------------------------------------------------
     # Community Detection (REPO-152)
@@ -769,12 +820,14 @@ class GraphAlgorithms:
             return _community_cache
 
         try:
-            query = """
+            # Filter by repoId for multi-tenant isolation
+            repo_filter = self._get_repo_filter("f")
+            query = f"""
             MATCH (f:Function)
-            WHERE f.communityId IS NOT NULL
+            WHERE f.communityId IS NOT NULL {repo_filter}
             RETURN f.qualifiedName AS qualified_name, f.communityId AS community_id
             """
-            result = self.client.execute_query(query)
+            result = self.client.execute_query(query, self._get_query_params())
 
             if result:
                 _community_cache = {
@@ -939,9 +992,11 @@ class GraphAlgorithms:
         Returns:
             Dictionary with min, max, avg, percentiles of PageRank scores
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
+        query = f"""
         MATCH (f:Function)
-        WHERE f.pagerank IS NOT NULL
+        WHERE f.pagerank IS NOT NULL {repo_filter}
         RETURN
             min(f.pagerank) AS min_pagerank,
             max(f.pagerank) AS max_pagerank,
@@ -950,7 +1005,7 @@ class GraphAlgorithms:
             percentileCont(f.pagerank, 0.9) AS p90_pagerank,
             count(f) AS total_functions
         """
-        result = self.client.execute_query(query)
+        result = self.client.execute_query(query, self._get_query_params())
         return result[0] if result else None
 
     # -------------------------------------------------------------------------
@@ -1136,17 +1191,19 @@ class GraphAlgorithms:
         Returns:
             Dictionary with community sizes, distribution, coupling metrics
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
+        query = f"""
         MATCH (f:File)
-        WHERE f.community_id IS NOT NULL
+        WHERE f.community_id IS NOT NULL {repo_filter}
         WITH f.community_id AS community, collect(f) AS files
         WITH community, size(files) AS community_size, files
         ORDER BY community_size DESC
-        WITH collect({
+        WITH collect({{
             community_id: community,
             size: community_size,
             files: [file IN files | file.qualifiedName]
-        }) AS communities
+        }}) AS communities
 
         // Calculate overall stats
         UNWIND communities AS c
@@ -1163,7 +1220,7 @@ class GraphAlgorithms:
             min_size,
             communities[0..10] AS largest_communities
         """
-        result = self.client.execute_query(query)
+        result = self.client.execute_query(query, self._get_query_params())
         return result[0] if result else None
 
     def get_inter_community_edges(self) -> List[Dict[str, Any]]:
@@ -1175,11 +1232,14 @@ class GraphAlgorithms:
         Returns:
             List of inter-community edges with source/target communities
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f1")
+        query = f"""
         MATCH (f1:File)-[r:IMPORTS]->(f2:File)
         WHERE f1.community_id IS NOT NULL
           AND f2.community_id IS NOT NULL
           AND f1.community_id <> f2.community_id
+          {repo_filter}
         WITH f1.community_id AS source_community,
              f2.community_id AS target_community,
              count(r) AS edge_count,
@@ -1189,7 +1249,7 @@ class GraphAlgorithms:
         ORDER BY edge_count DESC
         LIMIT 50
         """
-        return self.client.execute_query(query)
+        return self.client.execute_query(query, self._get_query_params())
 
     def get_misplaced_files(self) -> List[Dict[str, Any]]:
         """Find files that might be in the wrong directory.
@@ -1200,9 +1260,11 @@ class GraphAlgorithms:
         Returns:
             List of potentially misplaced files with metrics
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
+        query = f"""
         MATCH (f:File)
-        WHERE f.community_id IS NOT NULL
+        WHERE f.community_id IS NOT NULL {repo_filter}
         OPTIONAL MATCH (f)-[:IMPORTS]->(imported:File)
         WHERE imported.community_id IS NOT NULL
         WITH f,
@@ -1226,7 +1288,7 @@ class GraphAlgorithms:
             other_community_imports,
             external_ratio
         """
-        return self.client.execute_query(query)
+        return self.client.execute_query(query, self._get_query_params())
 
     def get_god_modules(self, threshold_percent: float = 20.0) -> List[Dict[str, Any]]:
         """Find communities that are too large (god modules).
@@ -1237,12 +1299,15 @@ class GraphAlgorithms:
         Returns:
             List of oversized communities
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
+        repo_filter_f2 = self._get_repo_filter("f2")
+        query = f"""
         MATCH (f:File)
-        WHERE f.community_id IS NOT NULL
+        WHERE f.community_id IS NOT NULL {repo_filter}
         WITH count(f) AS total_files
         MATCH (f2:File)
-        WHERE f2.community_id IS NOT NULL
+        WHERE f2.community_id IS NOT NULL {repo_filter_f2}
         WITH total_files, f2.community_id AS community, count(f2) AS community_size
         WITH total_files, community, community_size,
              toFloat(community_size) / total_files * 100 AS percentage
@@ -1254,9 +1319,9 @@ class GraphAlgorithms:
             total_files
         ORDER BY community_size DESC
         """
-        return self.client.execute_query(query, parameters={
-            "threshold": threshold_percent
-        })
+        return self.client.execute_query(query, parameters=self._get_query_params(
+            threshold=threshold_percent
+        ))
 
     # -------------------------------------------------------------------------
     # Strongly Connected Components (SCC) - REPO-170
@@ -1342,16 +1407,18 @@ class GraphAlgorithms:
         Returns:
             List of cycles with their member files
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
+        query = f"""
         MATCH (f:File)
-        WHERE f.scc_component IS NOT NULL
+        WHERE f.scc_component IS NOT NULL {repo_filter}
         WITH f.scc_component AS component_id, collect(f) AS files
         WHERE size(files) >= $min_size
         UNWIND files AS f
         OPTIONAL MATCH (f)-[:IMPORTS]->(imported:File)
         WHERE imported.scc_component = component_id
         WITH component_id, files,
-             collect(DISTINCT {from: f.qualifiedName, to: imported.qualifiedName}) AS cycle_edges
+             collect(DISTINCT {{from: f.qualifiedName, to: imported.qualifiedName}}) AS cycle_edges
         RETURN
             component_id,
             size(files) AS cycle_size,
@@ -1361,10 +1428,10 @@ class GraphAlgorithms:
         ORDER BY cycle_size DESC
         LIMIT $limit
         """
-        return self.client.execute_query(query, parameters={
-            "min_size": min_cycle_size,
-            "limit": max_results
-        })
+        return self.client.execute_query(query, parameters=self._get_query_params(
+            min_size=min_cycle_size,
+            limit=max_results
+        ))
 
     # -------------------------------------------------------------------------
     # Degree Centrality - REPO-171
@@ -1394,9 +1461,12 @@ class GraphAlgorithms:
         start_time = time.time()
 
         try:
+            # Filter by repoId for multi-tenant isolation
+            repo_filter = self._get_repo_filter("f")
             # Calculate both in-degree and out-degree with pure Cypher
-            query = """
+            query = f"""
             MATCH (f:File)
+            WHERE true {repo_filter}
             OPTIONAL MATCH (importer:File)-[:IMPORTS]->(f)
             OPTIONAL MATCH (f)-[:IMPORTS]->(imported:File)
             WITH f,
@@ -1406,7 +1476,7 @@ class GraphAlgorithms:
             RETURN count(f) AS nodes_updated
             """
 
-            result = self.client.execute_query(query)
+            result = self.client.execute_query(query, self._get_query_params())
 
             elapsed_ms = int((time.time() - start_time) * 1000)
 
@@ -1449,9 +1519,11 @@ class GraphAlgorithms:
         """
         validated_label = validate_identifier(node_label, "node label")
 
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("n")
         query = f"""
         MATCH (n:{validated_label})
-        WHERE n.in_degree IS NOT NULL AND n.in_degree >= $min_degree
+        WHERE n.in_degree IS NOT NULL AND n.in_degree >= $min_degree {repo_filter}
         WITH n, n.in_degree AS degree
         ORDER BY degree DESC
         WITH collect({{node: n, degree: degree}}) AS all_nodes
@@ -1475,10 +1547,10 @@ class GraphAlgorithms:
         ORDER BY degree DESC
         LIMIT 100
         """
-        return self.client.execute_query(query, parameters={
-            "percentile": percentile,
-            "min_degree": min_degree
-        })
+        return self.client.execute_query(query, parameters=self._get_query_params(
+            percentile=percentile,
+            min_degree=min_degree
+        ))
 
     def get_high_outdegree_nodes(
         self,
@@ -1504,9 +1576,11 @@ class GraphAlgorithms:
         """
         validated_label = validate_identifier(node_label, "node label")
 
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("n")
         query = f"""
         MATCH (n:{validated_label})
-        WHERE n.out_degree IS NOT NULL AND n.out_degree >= $min_degree
+        WHERE n.out_degree IS NOT NULL AND n.out_degree >= $min_degree {repo_filter}
         WITH n, n.out_degree AS degree
         ORDER BY degree DESC
         WITH collect({{node: n, degree: degree}}) AS all_nodes
@@ -1530,10 +1604,10 @@ class GraphAlgorithms:
         ORDER BY degree DESC
         LIMIT 100
         """
-        return self.client.execute_query(query, parameters={
-            "percentile": percentile,
-            "min_degree": min_degree
-        })
+        return self.client.execute_query(query, parameters=self._get_query_params(
+            percentile=percentile,
+            min_degree=min_degree
+        ))
 
     def get_degree_statistics(self, node_label: str = "File") -> Dict[str, Any]:
         """Get degree distribution statistics for the graph.
@@ -1549,9 +1623,11 @@ class GraphAlgorithms:
         """
         validated_label = validate_identifier(node_label, "node label")
 
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("n")
         query = f"""
         MATCH (n:{validated_label})
-        WHERE n.in_degree IS NOT NULL OR n.out_degree IS NOT NULL
+        WHERE (n.in_degree IS NOT NULL OR n.out_degree IS NOT NULL) {repo_filter}
         WITH
             collect(coalesce(n.in_degree, 0)) AS in_degrees,
             collect(coalesce(n.out_degree, 0)) AS out_degrees
@@ -1564,5 +1640,5 @@ class GraphAlgorithms:
             reduce(sum = 0.0, d IN out_degrees | sum + d) / size(out_degrees) AS avg_out_degree,
             reduce(max = 0, d IN out_degrees | CASE WHEN d > max THEN d ELSE max END) AS max_out_degree
         """
-        result = self.client.execute_query(query)
+        result = self.client.execute_query(query, self._get_query_params())
         return result[0] if result else {}

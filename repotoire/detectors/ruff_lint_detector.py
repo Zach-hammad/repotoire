@@ -88,6 +88,7 @@ class RuffLintDetector(CodeSmellDetector):
                 - max_findings: Max findings to report
                 - select_rules: Specific rules to enable
                 - ignore_rules: Rules to ignore
+                - changed_files: List of relative file paths to analyze (for incremental analysis)
             enricher: Optional GraphEnricher for persistent collaboration
         """
         super().__init__(graph_client)
@@ -101,6 +102,8 @@ class RuffLintDetector(CodeSmellDetector):
             "ANN001", "ANN002", "ANN003",  # Missing type annotations (gradual typing)
         ])
         self.enricher = enricher
+        # Incremental analysis: only analyze changed files (10-100x faster)
+        self.changed_files = config.get("changed_files", None)
 
         if not self.repository_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repository_path}")
@@ -146,8 +149,21 @@ class RuffLintDetector(CodeSmellDetector):
         if self.ignore_rules:
             cmd.extend(["--ignore", ",".join(self.ignore_rules)])
 
-        # Add repository path
-        cmd.append(str(self.repository_path))
+        # If incremental analysis, pass specific files instead of repository path
+        if self.changed_files:
+            # Filter to only Python files that exist
+            py_files = [
+                f for f in self.changed_files
+                if f.endswith('.py') and (self.repository_path / f).exists()
+            ]
+            if not py_files:
+                logger.debug("No Python files in changed_files, skipping ruff lint check")
+                return []
+            logger.info(f"Running ruff lint on {len(py_files)} changed files (incremental)")
+            cmd.extend(py_files)
+        else:
+            # Add repository path for full analysis
+            cmd.append(str(self.repository_path))
 
         # Run ruff using shared utility
         result = run_external_tool(

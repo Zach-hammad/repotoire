@@ -60,6 +60,7 @@ class VultureDetector(CodeSmellDetector):
                 - min_confidence: Min confidence (0-100)
                 - max_findings: Max findings to report
                 - exclude: List of patterns to exclude
+                - changed_files: List of relative file paths to analyze (for incremental analysis)
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
         super().__init__(graph_client)
@@ -69,6 +70,8 @@ class VultureDetector(CodeSmellDetector):
         self.min_confidence = config.get("min_confidence", 80)
         self.max_findings = config.get("max_findings", 100)
         self.enricher = enricher  # Graph enrichment for cross-detector collaboration
+        # Incremental analysis: only analyze changed files (10-100x faster)
+        self.changed_files = config.get("changed_files", None)
 
         # Default exclude patterns - don't check tests, migrations, or scripts
         default_exclude = [
@@ -160,11 +163,27 @@ class VultureDetector(CodeSmellDetector):
             List of unused code dictionaries
         """
         # Build vulture command
-        cmd = [
-            "vulture",
-            str(self.repository_path),
-            f"--min-confidence={self.min_confidence}",
-        ]
+        # If incremental analysis with changed_files, pass specific files
+        if self.changed_files:
+            # Filter to only Python files that exist
+            py_files = [
+                f for f in self.changed_files
+                if f.endswith('.py') and (self.repository_path / f).exists()
+            ]
+            if not py_files:
+                logger.debug("No Python files in changed_files, skipping vulture")
+                return []
+            logger.info(f"Running vulture on {len(py_files)} changed files (incremental)")
+            cmd = [
+                "vulture",
+                f"--min-confidence={self.min_confidence}",
+            ] + py_files
+        else:
+            cmd = [
+                "vulture",
+                str(self.repository_path),
+                f"--min-confidence={self.min_confidence}",
+            ]
 
         # Add exclude patterns
         for pattern in self.exclude:

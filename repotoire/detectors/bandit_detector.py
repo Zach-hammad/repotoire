@@ -77,6 +77,8 @@ class BanditDetector(CodeSmellDetector):
         self.max_findings = config.get("max_findings", 100)
         self.confidence_level = config.get("confidence_level", "LOW")
         self.enricher = enricher
+        # Incremental analysis: only analyze changed files (10-100x faster)
+        self.changed_files = config.get("changed_files", None)
 
         if not self.repository_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repository_path}")
@@ -121,8 +123,21 @@ class BanditDetector(CodeSmellDetector):
         # Confidence level
         cmd.extend(["--confidence-level", self.confidence_level])
 
-        # Add repository path
-        cmd.append(str(self.repository_path))
+        # If incremental analysis, pass specific files instead of repository path
+        if self.changed_files:
+            # Filter to only Python files that exist
+            py_files = [
+                f for f in self.changed_files
+                if f.endswith('.py') and (self.repository_path / f).exists()
+            ]
+            if not py_files:
+                logger.debug("No Python files in changed_files, skipping bandit")
+                return []
+            logger.info(f"Running bandit on {len(py_files)} changed files (incremental)")
+            cmd.extend(py_files)
+        else:
+            # Add repository path for full analysis
+            cmd.append(str(self.repository_path))
 
         # Run bandit using shared utility
         result = run_external_tool(

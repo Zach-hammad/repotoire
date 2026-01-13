@@ -84,6 +84,7 @@ class MypyDetector(CodeSmellDetector):
                 - mypy_config_file: Optional mypy config
                 - strict_mode: Enable strict checking
                 - max_findings: Max findings to report
+                - changed_files: List of relative file paths to analyze (for incremental analysis)
             enricher: Optional GraphEnricher for persistent collaboration
         """
         super().__init__(graph_client)
@@ -94,6 +95,8 @@ class MypyDetector(CodeSmellDetector):
         self.strict_mode = config.get("strict_mode", False)
         self.max_findings = config.get("max_findings", 100)
         self.enricher = enricher
+        # Incremental analysis: only analyze changed files (10-100x faster)
+        self.changed_files = config.get("changed_files", None)
 
         if not self.repository_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repository_path}")
@@ -130,7 +133,8 @@ class MypyDetector(CodeSmellDetector):
             List of mypy error dictionaries
         """
         # Build mypy command using python -m to avoid shebang issues
-        cmd = [sys.executable, "-m", "mypy", "--output", "json"]
+        # Enable incremental mode for faster subsequent runs
+        cmd = [sys.executable, "-m", "mypy", "--output", "json", "--incremental"]
 
         if self.mypy_config:
             cmd.extend(["--config-file", str(self.mypy_config)])
@@ -138,8 +142,21 @@ class MypyDetector(CodeSmellDetector):
         if self.strict_mode:
             cmd.append("--strict")
 
-        # Add repository path
-        cmd.append(str(self.repository_path))
+        # If incremental analysis with changed_files, pass specific files
+        if self.changed_files:
+            # Filter to only Python files that exist
+            py_files = [
+                f for f in self.changed_files
+                if f.endswith('.py') and (self.repository_path / f).exists()
+            ]
+            if not py_files:
+                logger.debug("No Python files in changed_files, skipping mypy")
+                return []
+            logger.info(f"Running mypy on {len(py_files)} changed files (incremental)")
+            cmd.extend(py_files)
+        else:
+            # Add repository path for full analysis
+            cmd.append(str(self.repository_path))
 
         # Run mypy using shared utility
         result = run_external_tool(

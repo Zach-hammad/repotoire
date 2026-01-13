@@ -30,9 +30,11 @@ class RuffImportDetector(CodeSmellDetector):
     def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[Dict[str, Any]] = None, enricher: Optional[GraphEnricher] = None):
         super().__init__(graph_client)
         config = detector_config or {}
-        self.repository_path = config.get("repository_path", ".")
+        self.repository_path = Path(config.get("repository_path", "."))
         self.enricher = enricher  # Graph enrichment for cross-detector collaboration
         self.logger = get_logger(__name__)
+        # Incremental analysis: only analyze changed files (10-100x faster)
+        self.changed_files = config.get("changed_files", None)
 
     def detect(self) -> List[Finding]:
         """
@@ -166,19 +168,39 @@ class RuffImportDetector(CodeSmellDetector):
             List of ruff finding dictionaries.
         """
         try:
+            # Build command - if incremental analysis, pass specific files
+            if self.changed_files:
+                # Filter to only Python files that exist
+                py_files = [
+                    f for f in self.changed_files
+                    if f.endswith('.py') and (self.repository_path / f).exists()
+                ]
+                if not py_files:
+                    self.logger.debug("No Python files in changed_files, skipping ruff import check")
+                    return []
+                self.logger.info(f"Running ruff import check on {len(py_files)} changed files (incremental)")
+                cmd = [
+                    "ruff", "check",
+                    "--select", "F401",  # Unused imports only
+                    "--output-format", "json",
+                ] + py_files
+            else:
+                cmd = [
+                    "ruff", "check",
+                    "--select", "F401",  # Unused imports only
+                    "--output-format", "json",
+                    str(self.repository_path),
+                ]
+
             # Run ruff with JSON output
             try:
                 result = subprocess.run(
-                    [
-                        "ruff", "check",
-                        "--select", "F401",  # Unused imports only
-                        "--output-format", "json",
-                        str(self.repository_path),
-                    ],
+                    cmd,
                     capture_output=True,
                     text=True,
                     check=False,  # Don't raise on non-zero exit (expected for findings)
                     timeout=60,  # Ruff is fast (Rust-based), 60s is generous
+                    cwd=self.repository_path,
                 )
             except subprocess.TimeoutExpired:
                 self.logger.warning(f"Ruff import check timed out after 60s on {self.repository_path}")

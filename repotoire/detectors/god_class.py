@@ -55,6 +55,7 @@ class GodClassDetector(CodeSmellDetector):
         Args:
             graph_client: FalkorDB database client
             detector_config: Optional dict with detector configuration:
+                - repo_id: Repository UUID for filtering queries (multi-tenant isolation)
                 - god_class_*: Threshold configuration
                 - excluded_patterns: List of regex patterns to exclude (default: DEFAULT_EXCLUDED_PATTERNS)
                 - use_pattern_exclusions: Enable/disable pattern-based exclusions (default: True)
@@ -62,7 +63,7 @@ class GodClassDetector(CodeSmellDetector):
                 - use_community_analysis: Enable/disable community-based analysis (default: True) [REPO-152]
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
         self.enricher = enricher
 
         # Load thresholds from config or use defaults
@@ -85,7 +86,8 @@ class GodClassDetector(CodeSmellDetector):
 
         # Community analysis (REPO-152)
         self.use_community_analysis = config.get("use_community_analysis", True)
-        self.graph_algorithms = GraphAlgorithms(graph_client)
+        # Pass repo_id for multi-tenant filtering
+        self.graph_algorithms = GraphAlgorithms(graph_client, repo_id=self.repo_id)
 
     def detect(self) -> List[Finding]:
         """Find god classes in the codebase.
@@ -104,8 +106,11 @@ class GodClassDetector(CodeSmellDetector):
         # Use parameterized query to prevent injection
         # Even though these are class attributes (not user input), parameterization
         # is the correct and safe approach
-        query = """
+        # Filter by repoId for multi-tenant isolation (if repo_id is set)
+        repo_filter = self._get_repo_filter("c")
+        query = f"""
         MATCH (file:File)-[:CONTAINS]->(c:Class)
+        WHERE true {repo_filter}
         WITH c, file
         OPTIONAL MATCH (c)-[:CONTAINS]->(m:Function)
         WITH c, file,
@@ -133,11 +138,11 @@ class GodClassDetector(CodeSmellDetector):
         LIMIT 50
         """
 
-        results = self.db.execute_query(query, parameters={
-            "medium_method_count": self.medium_method_count,
-            "medium_complexity": self.medium_complexity,
-            "medium_loc": self.medium_loc
-        })
+        results = self.db.execute_query(query, parameters=self._get_query_params(
+            medium_method_count=self.medium_method_count,
+            medium_complexity=self.medium_complexity,
+            medium_loc=self.medium_loc
+        ))
 
         for record in results:
             method_count = record["method_count"] or 0

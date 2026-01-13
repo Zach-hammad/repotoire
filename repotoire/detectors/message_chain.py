@@ -66,7 +66,7 @@ class MessageChainDetector(CodeSmellDetector):
             detector_config: Optional detector configuration
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
         self.enricher = enricher
         self.is_falkordb = getattr(graph_client, "is_falkordb", False) or type(graph_client).__name__ == "FalkorDBClient"
 
@@ -143,11 +143,13 @@ class MessageChainDetector(CodeSmellDetector):
         """
         findings: List[Finding] = []
 
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
         # Query for functions with high chain depth
         # This property would be set by the parser if it extracts chain depths
-        query = """
+        query = f"""
         MATCH (f:Function)
-        WHERE COALESCE(f.max_chain_depth, 0) >= $min_depth
+        WHERE COALESCE(f.max_chain_depth, 0) >= $min_depth {repo_filter}
         OPTIONAL MATCH (file:File)-[:CONTAINS*]->(f)
         RETURN f.qualifiedName AS func_name,
                f.name AS func_simple_name,
@@ -161,7 +163,7 @@ class MessageChainDetector(CodeSmellDetector):
         """
 
         try:
-            results = self.db.execute_query(query, {"min_depth": self.min_chain_depth})
+            results = self.db.execute_query(query, self._get_query_params(min_depth=self.min_chain_depth))
 
             for record in results:
                 func_name = record.get("func_name", "")

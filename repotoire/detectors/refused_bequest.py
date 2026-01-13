@@ -47,7 +47,7 @@ class RefusedBequestDetector(CodeSmellDetector):
             detector_config: Optional configuration dict with thresholds
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
         self.enricher = enricher
         self.logger = get_logger(__name__)
 
@@ -62,11 +62,14 @@ class RefusedBequestDetector(CodeSmellDetector):
         Returns:
             List of findings for refused bequest violations
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("child")
+        query = f"""
         // Find classes that inherit from another class
         MATCH (child:Class)-[:INHERITS]->(parent:Class)
         WHERE parent.name IS NOT NULL
           AND child.name IS NOT NULL
+          {repo_filter}
 
         // Find overridden methods (same name in both child and parent)
         MATCH (child)-[:CONTAINS]->(method:Function)
@@ -120,10 +123,10 @@ class RefusedBequestDetector(CodeSmellDetector):
         try:
             results = self.db.execute_query(
                 query,
-                {
-                    "min_overrides": self.min_overrides,
-                    "max_parent_call_ratio": self.max_parent_call_ratio,
-                },
+                self._get_query_params(
+                    min_overrides=self.min_overrides,
+                    max_parent_call_ratio=self.max_parent_call_ratio,
+                ),
             )
         except Exception as e:
             self.logger.error(f"Error executing Refused Bequest detection query: {e}")

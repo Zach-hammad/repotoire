@@ -33,13 +33,21 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
     Changes to these functions have high blast radius.
     """
 
-    def __init__(self, graph_client: FalkorDBClient, enricher: Optional[GraphEnricher] = None):
+    def __init__(
+        self,
+        graph_client: FalkorDBClient,
+        detector_config: Optional[dict] = None,
+        enricher: Optional[GraphEnricher] = None
+    ):
         """Initialize detector with FalkorDB client.
 
         Args:
             graph_client: FalkorDB database client
+            detector_config: Optional detector configuration. May include:
+                - repo_id: Repository UUID for filtering queries (multi-tenant isolation)
+            enricher: Optional GraphEnricher for cross-detector collaboration
         """
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
         self.enricher = enricher
 
         # Thresholds for betweenness centrality
@@ -99,7 +107,8 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
         ]
 
         # Initialize graph algorithms (uses Rust - no GDS required)
-        graph_algo = GraphAlgorithms(self.db)
+        # Pass repo_id for multi-tenant filtering
+        graph_algo = GraphAlgorithms(self.db, repo_id=self.repo_id)
 
         try:
             # Calculate betweenness centrality using Rust Brandes algorithm

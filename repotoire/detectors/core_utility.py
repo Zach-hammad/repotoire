@@ -36,13 +36,15 @@ class CoreUtilityDetector(CodeSmellDetector):
     # Minimum callers to not be considered isolated
     MIN_CALLERS_THRESHOLD = 2
 
-    def __init__(self, graph_client: FalkorDBClient):
+    def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[dict] = None):
         """Initialize detector with FalkorDB client.
 
         Args:
             graph_client: FalkorDB database client
+            detector_config: Optional detector configuration dict. May include:
+                - repo_id: Repository UUID for filtering queries (multi-tenant isolation)
         """
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
 
     def detect(self) -> List[Finding]:
         """Detect central coordinators and isolated code.
@@ -55,7 +57,8 @@ class CoreUtilityDetector(CodeSmellDetector):
         findings = []
 
         # Initialize graph algorithms (uses Rust - no GDS required)
-        graph_algo = GraphAlgorithms(self.db)
+        # Pass repo_id for multi-tenant filtering
+        graph_algo = GraphAlgorithms(self.db, repo_id=self.repo_id)
 
         try:
             # Calculate harmonic centrality using Rust algorithm

@@ -40,13 +40,15 @@ class InfluentialCodeDetector(CodeSmellDetector):
     # Minimum PageRank to be considered "high" (relative to threshold)
     MIN_PAGERANK_PERCENTILE = 90
 
-    def __init__(self, graph_client: FalkorDBClient):
+    def __init__(self, graph_client: FalkorDBClient, detector_config: Optional[dict] = None):
         """Initialize detector with FalkorDB client.
 
         Args:
             graph_client: FalkorDB database client
+            detector_config: Optional detector configuration dict. May include:
+                - repo_id: Repository UUID for filtering queries (multi-tenant isolation)
         """
-        super().__init__(graph_client)
+        super().__init__(graph_client, detector_config)
 
     def detect(self) -> List[Finding]:
         """Detect influential code and potential god classes.
@@ -59,7 +61,8 @@ class InfluentialCodeDetector(CodeSmellDetector):
         findings = []
 
         # Initialize graph algorithms (uses Rust - no GDS required)
-        graph_algo = GraphAlgorithms(self.db)
+        # Pass repo_id for multi-tenant filtering
+        graph_algo = GraphAlgorithms(self.db, repo_id=self.repo_id)
 
         try:
             # Calculate PageRank using Rust algorithm
@@ -103,12 +106,14 @@ class InfluentialCodeDetector(CodeSmellDetector):
         Returns:
             List of high PageRank functions with metrics
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
+        query = f"""
         MATCH (f:Function)
-        WHERE f.pagerank IS NOT NULL
+        WHERE f.pagerank IS NOT NULL {repo_filter}
         WITH f, f.pagerank AS pr
         ORDER BY pr DESC
-        WITH collect({func: f, pagerank: pr}) AS all_funcs
+        WITH collect({{func: f, pagerank: pr}}) AS all_funcs
         WITH all_funcs,
              toInteger(size(all_funcs) * 0.1) AS top_10_percent_idx
         WITH all_funcs,
@@ -136,7 +141,7 @@ class InfluentialCodeDetector(CodeSmellDetector):
         ORDER BY pr DESC
         LIMIT $limit
         """
-        return self.db.execute_query(query, parameters={"limit": limit})
+        return self.db.execute_query(query, parameters=self._get_query_params(limit=limit))
 
     def _get_bloated_code(
         self,
@@ -155,13 +160,16 @@ class InfluentialCodeDetector(CodeSmellDetector):
         Returns:
             List of bloated functions
         """
-        query = """
+        # Filter by repoId for multi-tenant isolation
+        repo_filter = self._get_repo_filter("f")
+        query = f"""
         MATCH (f:Function)
         WHERE f.pagerank IS NOT NULL
           AND (f.complexity IS NOT NULL OR f.loc IS NOT NULL)
+          {repo_filter}
         WITH f, f.pagerank AS pr
         ORDER BY pr DESC
-        WITH collect({func: f, pagerank: pr}) AS all_funcs
+        WITH collect({{func: f, pagerank: pr}}) AS all_funcs
         WITH all_funcs,
              // Get bottom 50% by PageRank
              toInteger(size(all_funcs) * 0.5) AS median_idx
@@ -189,11 +197,11 @@ class InfluentialCodeDetector(CodeSmellDetector):
         ORDER BY f.complexity DESC, f.loc DESC
         LIMIT $limit
         """
-        return self.db.execute_query(query, parameters={
-            "complexity_threshold": self.HIGH_COMPLEXITY_THRESHOLD,
-            "loc_threshold": self.HIGH_LOC_THRESHOLD,
-            "limit": limit
-        })
+        return self.db.execute_query(query, parameters=self._get_query_params(
+            complexity_threshold=self.HIGH_COMPLEXITY_THRESHOLD,
+            loc_threshold=self.HIGH_LOC_THRESHOLD,
+            limit=limit
+        ))
 
     def _create_influential_code_finding(self, func: dict) -> Optional[Finding]:
         """Create finding for influential code (high PageRank).
