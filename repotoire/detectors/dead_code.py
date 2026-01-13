@@ -238,9 +238,9 @@ class DeadCodeDetector(CodeSmellDetector):
               AND (f.is_method = false OR f.name STARTS WITH '_')
               {repo_filter}
             OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
-            WITH f, file, COALESCE(f.decorators, []) AS decorators
+            WITH f, file, COALESCE(f.decorators, []) AS decorators, COALESCE(file.exports, []) AS exports
             WHERE size(decorators) = 0
-              AND NOT (file.exports IS NOT NULL AND f.name IN file.exports)
+              AND NOT f.name IN exports
               AND NOT (file.filePath STARTS WITH 'tests/fixtures/' OR file.filePath CONTAINS '/tests/fixtures/')
               AND NOT (file.filePath STARTS WITH 'examples/' OR file.filePath CONTAINS '/examples/')
               AND NOT (file.filePath STARTS WITH 'test_fixtures/' OR file.filePath CONTAINS '/test_fixtures/')
@@ -477,9 +477,9 @@ class DeadCodeDetector(CodeSmellDetector):
               {repo_filter}
             OPTIONAL MATCH (file)-[:CONTAINS]->(m:Function)
             WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
-            WITH c, file, count(m) AS method_count, COALESCE(c.decorators, []) AS decorators
+            WITH c, file, count(m) AS method_count, COALESCE(c.decorators, []) AS decorators, COALESCE(file.exports, []) AS exports
             WHERE size(decorators) = 0
-              AND NOT (file.exports IS NOT NULL AND c.name IN file.exports)
+              AND NOT c.name IN exports
               AND NOT (file.filePath STARTS WITH 'tests/fixtures/' OR file.filePath CONTAINS '/tests/fixtures/')
               AND NOT (file.filePath STARTS WITH 'examples/' OR file.filePath CONTAINS '/examples/')
               AND NOT (file.filePath STARTS WITH 'test_fixtures/' OR file.filePath CONTAINS '/test_fixtures/')
