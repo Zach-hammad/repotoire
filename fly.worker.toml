@@ -23,6 +23,6 @@ primary_region = 'iad'
   worker = "/opt/venv/bin/celery -A repotoire.workers.celery_app worker --loglevel=info -Q default,analysis,analysis.high,webhooks,notifications,notifications.low --concurrency=2 --max-memory-per-child=1500000"
 
 [[vm]]
-  memory = '4gb'
+  memory = '8gb'
   cpu_kind = 'performance'  # Performance CPU for consistent performance
   cpus = 2
