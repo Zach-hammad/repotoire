@@ -277,7 +277,7 @@ class DeadCodeDetector(CodeSmellDetector):
             WITH f, file, COALESCE(f.decorators, []) AS decorators
             // Filter out functions with decorators or in __all__
             WHERE size(decorators) = 0
-              AND NOT (file.exports IS NOT NULL AND f.name IN file.exports)
+              AND NOT (file.exports IS NOT NULL AND any(e IN file.exports WHERE e = f.name))
               // Filter out test fixtures and examples
               AND NOT (file.filePath STARTS WITH 'tests/fixtures/' OR file.filePath CONTAINS '/tests/fixtures/')
               AND NOT (file.filePath STARTS WITH 'examples/' OR file.filePath CONTAINS '/examples/')
@@ -509,7 +509,7 @@ class DeadCodeDetector(CodeSmellDetector):
             WITH c, file, count(m) AS method_count, COALESCE(c.decorators, []) AS decorators
             // Filter out classes with decorators or in __all__
             WHERE size(decorators) = 0
-              AND NOT (file.exports IS NOT NULL AND c.name IN file.exports)
+              AND NOT (file.exports IS NOT NULL AND any(e IN file.exports WHERE e = c.name))
               // Filter out test fixtures and examples
               AND NOT (file.filePath STARTS WITH 'tests/fixtures/' OR file.filePath CONTAINS '/tests/fixtures/')
               AND NOT (file.filePath STARTS WITH 'examples/' OR file.filePath CONTAINS '/examples/')

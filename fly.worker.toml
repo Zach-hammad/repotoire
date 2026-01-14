@@ -11,6 +11,10 @@ primary_region = 'iad'
   ENVIRONMENT = "production"
   LOG_LEVEL = "INFO"
   REPOTOIRE_CLONE_DIR = "/tmp/repotoire-clones"
+  # Hugging Face cache directory (writable location for embedding models)
+  HF_HOME = "/tmp/huggingface"
+  TRANSFORMERS_CACHE = "/tmp/huggingface"
+  SENTENCE_TRANSFORMERS_HOME = "/tmp/huggingface"
 
 # No HTTP service - this is a background worker
 [processes]
