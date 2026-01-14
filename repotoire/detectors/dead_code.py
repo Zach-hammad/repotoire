@@ -36,9 +36,6 @@ class DeadCodeDetector(CodeSmellDetector):
         self.base_confidence = 0.70  # Graph-only confidence
         self.validated_confidence = 0.95  # When Vulture confirms
 
-        # FalkorDB doesn't support EXISTS {} subqueries
-        self.is_falkordb = getattr(graph_client, "is_falkordb", False) or type(graph_client).__name__ == "FalkorDBClient"
-
     @property
     def needs_previous_findings(self) -> bool:
         """DeadCodeDetector needs VultureDetector findings for cross-validation.
@@ -227,70 +224,27 @@ class DeadCodeDetector(CodeSmellDetector):
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_repo_filter("f")
 
-        if self.is_falkordb:
-            # FalkorDB-compatible query (no EXISTS subqueries)
-            query = f"""
-            MATCH (f:Function)
-            WHERE NOT (f)<-[:CALLS]-()
-              AND NOT (f)<-[:USES]-()
-              AND NOT (f.name STARTS WITH 'test_')
-              AND NOT f.name IN ['main', '__main__', '__init__', 'setUp', 'tearDown']
-              AND (f.is_method = false OR f.name STARTS WITH '_')
-              {repo_filter}
-            OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
-            WITH f, file, COALESCE(f.decorators, []) AS decorators
-            WHERE size(decorators) = 0
-            RETURN f.qualifiedName AS qualified_name,
-                   f.name AS name,
-                   f.filePath AS file_path,
-                   f.lineStart AS line_start,
-                   f.complexity AS complexity,
-                   file.filePath AS containing_file,
-                   decorators
-            ORDER BY f.complexity DESC
-            LIMIT 100
-            """
-        else:
-            # Neo4j query with EXISTS subqueries for better accuracy
-            query = f"""
-            MATCH (f:Function)
-            WHERE NOT (f)<-[:CALLS]-()
-              AND NOT (f)<-[:USES]-()
-              AND NOT (f.name STARTS WITH 'test_')
-              AND NOT f.name IN ['main', '__main__', '__init__', 'setUp', 'tearDown']
-              {repo_filter}
-              // Filter out methods that override base class methods (polymorphism)
-              AND NOT EXISTS {{
-                  MATCH (c:Class)-[:CONTAINS]->(f)
-                  MATCH (c)-[:INHERITS*]->(base:Class)
-                  MATCH (base)-[:CONTAINS]->(base_method:Function {{name: f.name}})
-              }}
-              // Filter out public API methods (not starting with _)
-              AND (f.is_method = false OR f.name STARTS WITH '_')
-              // Filter out functions that are imported (check by name in import properties)
-              AND NOT EXISTS {{
-                  MATCH ()-[imp:IMPORTS]->()
-                  WHERE imp.imported_name = f.name
-              }}
-            OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
-            WITH f, file, COALESCE(f.decorators, []) AS decorators
-            // Filter out functions with decorators or in __all__
-            WHERE size(decorators) = 0
-              AND NOT (file.exports IS NOT NULL AND any(e IN file.exports WHERE e = f.name))
-              // Filter out test fixtures and examples
-              AND NOT (file.filePath STARTS WITH 'tests/fixtures/' OR file.filePath CONTAINS '/tests/fixtures/')
-              AND NOT (file.filePath STARTS WITH 'examples/' OR file.filePath CONTAINS '/examples/')
-              AND NOT (file.filePath STARTS WITH 'test_fixtures/' OR file.filePath CONTAINS '/test_fixtures/')
-            RETURN f.qualifiedName AS qualified_name,
-                   f.name AS name,
-                   f.filePath AS file_path,
-                   f.lineStart AS line_start,
-                   f.complexity AS complexity,
-                   file.filePath AS containing_file,
-                   decorators
-            ORDER BY f.complexity DESC
-            LIMIT 100
-            """
+        query = f"""
+        MATCH (f:Function)
+        WHERE NOT (f)<-[:CALLS]-()
+          AND NOT (f)<-[:USES]-()
+          AND NOT (f.name STARTS WITH 'test_')
+          AND NOT f.name IN ['main', '__main__', '__init__', 'setUp', 'tearDown']
+          AND (f.is_method = false OR f.name STARTS WITH '_')
+          {repo_filter}
+        OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
+        WITH f, file, COALESCE(f.decorators, []) AS decorators
+        WHERE size(decorators) = 0
+        RETURN f.qualifiedName AS qualified_name,
+               f.name AS name,
+               f.filePath AS file_path,
+               f.lineStart AS line_start,
+               f.complexity AS complexity,
+               file.filePath AS containing_file,
+               decorators
+        ORDER BY f.complexity DESC
+        LIMIT 100
+        """
 
         results = self.db.execute_query(query, self._get_query_params())
 
@@ -463,64 +417,26 @@ class DeadCodeDetector(CodeSmellDetector):
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_repo_filter("c")
 
-        if self.is_falkordb:
-            # FalkorDB-compatible query (no EXISTS subqueries)
-            query = f"""
-            MATCH (file:File)-[:CONTAINS]->(c:Class)
-            WHERE NOT (c)<-[:CALLS]-()
-              AND NOT (c)<-[:INHERITS]-()
-              AND NOT (c)<-[:USES]-()
-              {repo_filter}
-            OPTIONAL MATCH (file)-[:CONTAINS]->(m:Function)
-            WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
-            WITH c, file, count(m) AS method_count, COALESCE(c.decorators, []) AS decorators
-            WHERE size(decorators) = 0
-            RETURN c.qualifiedName AS qualified_name,
-                   c.name AS name,
-                   c.filePath AS file_path,
-                   c.complexity AS complexity,
-                   file.filePath AS containing_file,
-                   method_count
-            ORDER BY method_count DESC, c.complexity DESC
-            LIMIT 50
-            """
-        else:
-            # Neo4j query with EXISTS subqueries for better accuracy
-            query = f"""
-            MATCH (file:File)-[:CONTAINS]->(c:Class)
-            WHERE NOT (c)<-[:CALLS]-()  // Not instantiated directly
-              AND NOT (c)<-[:INHERITS]-()  // Not inherited from
-              AND NOT (c)<-[:USES]-()  // Not used in type hints
-              {repo_filter}
-              // Check for CALLS via call_name property (cross-file calls)
-              AND NOT EXISTS {{
-                  MATCH ()-[call:CALLS]->()
-                  WHERE call.call_name = c.name
-              }}
-              // Filter out classes that are imported (check by name in import properties)
-              AND NOT EXISTS {{
-                  MATCH ()-[imp:IMPORTS]->()
-                  WHERE imp.imported_name = c.name
-              }}
-            OPTIONAL MATCH (file)-[:CONTAINS]->(m:Function)
-            WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
-            WITH c, file, count(m) AS method_count, COALESCE(c.decorators, []) AS decorators
-            // Filter out classes with decorators or in __all__
-            WHERE size(decorators) = 0
-              AND NOT (file.exports IS NOT NULL AND any(e IN file.exports WHERE e = c.name))
-              // Filter out test fixtures and examples
-              AND NOT (file.filePath STARTS WITH 'tests/fixtures/' OR file.filePath CONTAINS '/tests/fixtures/')
-              AND NOT (file.filePath STARTS WITH 'examples/' OR file.filePath CONTAINS '/examples/')
-              AND NOT (file.filePath STARTS WITH 'test_fixtures/' OR file.filePath CONTAINS '/test_fixtures/')
-            RETURN c.qualifiedName AS qualified_name,
-                   c.name AS name,
-                   c.filePath AS file_path,
-                   c.complexity AS complexity,
-                   file.filePath AS containing_file,
-                   method_count
-            ORDER BY method_count DESC, c.complexity DESC
-            LIMIT 50
-            """
+        # FalkorDB-compatible query (no EXISTS subqueries)
+        query = f"""
+        MATCH (file:File)-[:CONTAINS]->(c:Class)
+        WHERE NOT (c)<-[:CALLS]-()
+          AND NOT (c)<-[:INHERITS]-()
+          AND NOT (c)<-[:USES]-()
+          {repo_filter}
+        OPTIONAL MATCH (file)-[:CONTAINS]->(m:Function)
+        WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
+        WITH c, file, count(m) AS method_count, COALESCE(c.decorators, []) AS decorators
+        WHERE size(decorators) = 0
+        RETURN c.qualifiedName AS qualified_name,
+               c.name AS name,
+               c.filePath AS file_path,
+               c.complexity AS complexity,
+               file.filePath AS containing_file,
+               method_count
+        ORDER BY method_count DESC, c.complexity DESC
+        LIMIT 50
+        """
 
         results = self.db.execute_query(query, self._get_query_params())
 
