@@ -14,9 +14,11 @@ primary_region = 'iad'
 
 # No HTTP service - this is a background worker
 [processes]
-  worker = "/opt/venv/bin/celery -A repotoire.workers.celery_app worker --loglevel=info -Q default,analysis,analysis.high,webhooks,notifications,notifications.low --concurrency=4"
+  # Reduced concurrency (2) to prevent OOM with 4GB RAM (~2GB per worker)
+  # Added max-memory-per-child to recycle workers and prevent memory leaks
+  worker = "/opt/venv/bin/celery -A repotoire.workers.celery_app worker --loglevel=info -Q default,analysis,analysis.high,webhooks,notifications,notifications.low --concurrency=2 --max-memory-per-child=1500000"
 
 [[vm]]
   memory = '4gb'
-  cpu_kind = 'shared'
+  cpu_kind = 'performance'  # Performance CPU for consistent performance
   cpus = 2
