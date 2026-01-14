@@ -1245,13 +1245,14 @@ class NLQStatusResponse(BaseModel):
     message: str = Field(default="", description="Status message")
 
 
-def _get_git_history_rag(repo_id: str):
+def _get_git_history_rag(repo_id: str, user: Optional[APIKeyUser] = None):
     """Get GitHistoryRAG instance for a repository.
 
     Uses local embeddings (FREE) instead of Graphiti's LLM approach ($0.01+/commit).
 
     Args:
         repo_id: Repository UUID for multi-tenant isolation
+        user: Optional APIKeyUser for tenant-scoped graph access
 
     Returns:
         GitHistoryRAG instance
@@ -1264,15 +1265,21 @@ def _get_git_history_rag(repo_id: str):
     try:
         from repotoire.ai.embeddings import CodeEmbedder
         from repotoire.historical.git_rag import GitHistoryRAG
-        from repotoire.graph.factory import create_client
+        from repotoire.graph.tenant_factory import get_factory
     except ImportError as e:
         raise HTTPException(
             status_code=500,
             detail=f"GitHistoryRAG dependencies not available: {e}"
         )
 
-    # Get graph client
-    graph_client = create_client()
+    # Get tenant-scoped graph client if user provided
+    if user:
+        factory = get_factory()
+        graph_client = factory.get_client(org_id=UUID(user.org_id), org_slug=user.org_slug)
+    else:
+        # Fallback to generic client (for session-based auth)
+        from repotoire.graph.factory import create_client
+        graph_client = create_client()
 
     # Initialize embedder with local backend (FREE) or configured backend
     embedding_backend = os.environ.get("REPOTOIRE_EMBEDDING_BACKEND", "local")
@@ -1527,10 +1534,10 @@ async def get_nlq_status(
 # instead of Clerk session auth. This allows the CLI to use these endpoints.
 
 
-async def _handle_nlq_query(request: NLQRequest) -> NLQResponse:
+async def _handle_nlq_query(request: NLQRequest, user: Optional[APIKeyUser] = None) -> NLQResponse:
     """Shared handler for NLQ queries (used by both auth methods)."""
     try:
-        rag = _get_git_history_rag(request.repo_id)
+        rag = _get_git_history_rag(request.repo_id, user=user)
 
         # Run RAG query
         answer = await rag.ask(
@@ -1578,14 +1585,14 @@ async def _handle_nlq_query(request: NLQRequest) -> NLQResponse:
         )
 
 
-async def _handle_nlq_search(request: NLQRequest) -> NLQSearchResponse:
+async def _handle_nlq_search(request: NLQRequest, user: Optional[APIKeyUser] = None) -> NLQSearchResponse:
     """Shared handler for NLQ search (used by both auth methods)."""
     import time
 
     start_time = time.time()
 
     try:
-        rag = _get_git_history_rag(request.repo_id)
+        rag = _get_git_history_rag(request.repo_id, user=user)
 
         # Run search (no LLM)
         results = await rag.search(
@@ -1646,7 +1653,7 @@ async def natural_language_query_api(
     Uses semantic vector search + Claude Haiku to answer questions about
     git history. This is 99% cheaper than Graphiti (~$0.001/query vs $0.01+).
     """
-    return await _handle_nlq_query(request)
+    return await _handle_nlq_query(request, user=user)
 
 
 @router.post("/nlq-api/search", response_model=NLQSearchResponse)
@@ -1662,7 +1669,7 @@ async def nlq_search_api(
     Uses vector similarity search to find relevant commits without
     generating a natural language answer. Useful for browsing/exploring.
     """
-    return await _handle_nlq_search(request)
+    return await _handle_nlq_search(request, user=user)
 
 
 @router.get("/nlq-api/status/{repository_id}", response_model=NLQStatusResponse)
@@ -1676,7 +1683,7 @@ async def get_nlq_status_api(
     RAG queries are available.
     """
     try:
-        rag = _get_git_history_rag(repository_id)
+        rag = _get_git_history_rag(repository_id, user=user)
 
         # Get embeddings status
         status_info = rag.get_embeddings_status(repository_id)
