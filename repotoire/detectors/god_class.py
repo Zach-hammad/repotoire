@@ -731,14 +731,13 @@ class GodClassDetector(CodeSmellDetector):
             LCOM score between 0 (cohesive) and 1 (scattered)
         """
         # Query to get method-field usage patterns
-        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
+        # Collect all entities that methods use - label filtering removed for FalkorDB compatibility
         query = """
         MATCH (c:Class {qualifiedName: $qualified_name})
         MATCH (file:File)-[:CONTAINS]->(c)
         MATCH (file)-[:CONTAINS]->(m:Function)
         WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
         OPTIONAL MATCH (m)-[:USES]->(field)
-        WHERE field:Variable OR field:Attribute
         WITH m, collect(DISTINCT field.name) AS fields
         RETURN collect({method: m.name, fields: fields}) AS method_field_pairs,
                count(m) AS method_count
