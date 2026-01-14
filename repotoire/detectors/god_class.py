@@ -738,7 +738,7 @@ class GodClassDetector(CodeSmellDetector):
         MATCH (file)-[:CONTAINS]->(m:Function)
         WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
         OPTIONAL MATCH (m)-[:USES]->(field)
-        WHERE 'Variable' IN labels(field) OR 'Attribute' IN labels(field)
+        WHERE field:Variable OR field:Attribute
         WITH m, collect(DISTINCT field.name) AS fields
         RETURN collect({method: m.name, fields: fields}) AS method_field_pairs,
                count(m) AS method_count
