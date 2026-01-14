@@ -112,6 +112,7 @@ class GitHistoryRAG:
         self.embedder = embedder
         self.use_haiku = use_haiku
         self.is_falkordb = type(client).__name__ == "FalkorDBClient"
+        self.is_cloud_client = type(client).__name__ == "CloudProxyClient"
 
     async def ingest_commits(
         self,
@@ -337,12 +338,28 @@ class GitHistoryRAG:
 
         start_time = time.time()
 
+        # For cloud clients, use the dedicated API endpoint
+        # (vector queries with large embeddings don't work through generic /query proxy)
+        if self.is_cloud_client:
+            results = await self._cloud_search(
+                query=query,
+                repo_id=repo_id,
+                top_k=top_k,
+                author=author,
+                since=since,
+                until=until,
+            )
+            elapsed = (time.time() - start_time) * 1000
+            logger.debug(f"Cloud search completed in {elapsed:.1f}ms, found {len(results)} results")
+            return results
+
         # Generate query embedding
         query_embedding = self.embedder.embed_query(query)
 
-        # Vector search
+        # Vector search (with text fallback)
         results = self._vector_search_commits(
             query_embedding=query_embedding,
+            query_text=query,  # For text fallback
             repo_id=repo_id,
             top_k=top_k,
             author=author,
@@ -355,9 +372,135 @@ class GitHistoryRAG:
 
         return results
 
+    async def _cloud_search(
+        self,
+        query: str,
+        repo_id: str,
+        top_k: int,
+        author: Optional[str] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+    ) -> List[CommitSearchResult]:
+        """Search using the dedicated cloud API endpoint.
+
+        Cloud clients can't execute vector queries through the generic /query proxy
+        because FalkorDB's vecf32() doesn't handle parameter substitution for large
+        embedding arrays. Instead, we use the /api/v1/historical/nlq/search endpoint
+        which handles embeddings server-side.
+
+        Args:
+            query: Natural language search query
+            repo_id: Repository UUID
+            top_k: Number of results
+            author: Filter by author email (optional)
+            since: Filter commits after this date (optional)
+            until: Filter commits before this date (optional)
+
+        Returns:
+            List of CommitSearchResult
+        """
+        import httpx
+
+        # Get API URL and key from cloud client
+        api_url = getattr(self.client, "api_url", "https://repotoire-api.fly.dev")
+        api_key = getattr(self.client, "api_key", "")
+
+        # Build request payload
+        payload: Dict[str, Any] = {
+            "query": query,
+            "repo_id": repo_id,
+            "top_k": top_k,
+        }
+
+        if author:
+            payload["author"] = author
+        if since:
+            payload["since"] = since.isoformat()
+        if until:
+            payload["until"] = until.isoformat()
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as http_client:
+                response = await http_client.post(
+                    f"{api_url}/api/v1/historical/nlq-api/search",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+
+                if response.status_code >= 400:
+                    try:
+                        error = response.json()
+                        detail = error.get("detail", str(error))
+                    except Exception:
+                        detail = response.text
+                    raise Exception(f"API error ({response.status_code}): {detail}")
+
+                data = response.json()
+
+        except Exception as e:
+            logger.warning(f"Cloud search failed: {e}")
+            # Fall back to text search via generic query endpoint
+            return self._text_search_commits(
+                query_text=query,
+                repo_id=repo_id,
+                top_k=top_k,
+                author=author,
+                since=since,
+                until=until,
+            )
+
+        # Convert API response to CommitSearchResult objects
+        results = []
+        for commit_data in data.get("commits", []):
+            committed_at = None
+            if commit_data.get("committed_at"):
+                try:
+                    committed_at = datetime.fromisoformat(
+                        commit_data["committed_at"].replace("Z", "+00:00")
+                    )
+                except (ValueError, AttributeError):
+                    pass
+
+            commit = CommitEntity(
+                name=commit_data.get("short_sha", ""),
+                qualified_name=f"commit:{commit_data.get('sha', '')}",
+                file_path=".",
+                line_start=0,
+                line_end=0,
+                sha=commit_data.get("sha", ""),
+                short_sha=commit_data.get("short_sha", ""),
+                message=commit_data.get("message_subject", ""),
+                message_subject=commit_data.get("message_subject", ""),
+                author_name=commit_data.get("author_name", ""),
+                author_email=commit_data.get("author_email", ""),
+                committed_at=committed_at,
+                parent_shas=[],
+                branches=[],
+                tags=[],
+                files_changed=commit_data.get("files_changed", 0),
+                insertions=commit_data.get("insertions", 0),
+                deletions=commit_data.get("deletions", 0),
+                changed_file_paths=commit_data.get("changed_file_paths", []),
+                commit_type="",
+                impact_score=0.0,
+                repo_id=repo_id,
+            )
+
+            results.append(
+                CommitSearchResult(
+                    commit=commit,
+                    score=commit_data.get("score", 0.0),
+                    relevance_reason="Semantic similarity (cloud)",
+                    related_files=commit.changed_file_paths[:5],
+                )
+            )
+
+        return results
+
     def _vector_search_commits(
         self,
         query_embedding: List[float],
+        query_text: str,
         repo_id: str,
         top_k: int,
         author: Optional[str] = None,
@@ -366,8 +509,11 @@ class GitHistoryRAG:
     ) -> List[CommitSearchResult]:
         """Perform vector similarity search on Commit nodes.
 
+        Falls back to text search if vector search fails or returns empty.
+
         Args:
             query_embedding: Query vector
+            query_text: Original query text (for fallback)
             repo_id: Repository UUID
             top_k: Number of results
             author: Optional author filter
@@ -383,6 +529,7 @@ class GitHistoryRAG:
             "top_k": top_k,
             "embedding": query_embedding,
             "repoId": repo_id,
+            "query_text": query_text,  # For text fallback
         }
 
         if author:
@@ -466,7 +613,19 @@ class GitHistoryRAG:
             rows = self.client.execute_query(query, params)
         except Exception as e:
             logger.warning(f"Vector search failed: {e}")
-            return []
+            rows = []
+
+        # Fallback to text search if vector search fails or returns empty
+        if not rows and query_text:
+            logger.info("Falling back to text-based search")
+            return self._text_search_commits(
+                query_text=query_text,
+                repo_id=repo_id,
+                top_k=top_k,
+                author=author,
+                since=since,
+                until=until,
+            )
 
         # Convert to CommitSearchResult
         results = []
@@ -507,6 +666,141 @@ class GitHistoryRAG:
 
         return results
 
+    def _text_search_commits(
+        self,
+        query_text: str,
+        repo_id: str,
+        top_k: int,
+        author: Optional[str] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+    ) -> List[CommitSearchResult]:
+        """Fallback text-based search on commit messages.
+
+        Used when vector search fails or returns empty results.
+        Searches commit message for keywords from the query.
+
+        Args:
+            query_text: Search query
+            repo_id: Repository UUID
+            top_k: Number of results
+            author: Optional author filter
+            since: Optional date filter (after)
+            until: Optional date filter (before)
+
+        Returns:
+            List of CommitSearchResult
+        """
+        # Extract keywords from query (simple tokenization)
+        keywords = [w.lower() for w in query_text.split() if len(w) > 2]
+
+        # Build filter conditions
+        filters = ["c.repoId = $repoId"]
+        params: Dict[str, Any] = {
+            "top_k": top_k,
+            "repoId": repo_id,
+        }
+
+        if author:
+            filters.append("c.authorEmail = $author")
+            params["author"] = author
+
+        if since:
+            filters.append("c.committedAt >= $since")
+            params["since"] = since.isoformat()
+
+        if until:
+            filters.append("c.committedAt <= $until")
+            params["until"] = until.isoformat()
+
+        # Add keyword matching (any keyword in message)
+        # Use parameter to avoid injection and quoting issues
+        if keywords:
+            # Join keywords for a single CONTAINS check
+            params["searchTerm"] = keywords[0] if keywords else ""
+            filters.append("toLower(c.message) CONTAINS $searchTerm")
+
+        filter_clause = " AND ".join(filters)
+
+        query = f"""
+        MATCH (c:Commit)
+        WHERE {filter_clause}
+        RETURN
+            c.sha as sha,
+            c.shortSha as short_sha,
+            c.message as message,
+            c.messageSubject as message_subject,
+            c.authorName as author_name,
+            c.authorEmail as author_email,
+            c.committedAt as committed_at,
+            c.parentShas as parent_shas,
+            c.branches as branches,
+            c.tags as tags,
+            c.filesChanged as files_changed,
+            c.insertions as insertions,
+            c.deletions as deletions,
+            c.changedFilePaths as changed_file_paths,
+            c.commitType as commit_type,
+            c.impactScore as impact_score,
+            c.repoId as repo_id,
+            c.qualifiedName as qualified_name
+        ORDER BY c.committedAt DESC
+        LIMIT $top_k
+        """
+
+        try:
+            rows = self.client.execute_query(query, params)
+        except Exception as e:
+            logger.warning(f"Text search failed: {e}")
+            return []
+
+        # Convert to CommitSearchResult (score based on keyword matches)
+        results = []
+        for idx, row in enumerate(rows):
+            commit = CommitEntity(
+                name=row.get("short_sha", ""),
+                qualified_name=row.get("qualified_name", ""),
+                file_path=".",
+                line_start=0,
+                line_end=0,
+                sha=row.get("sha", ""),
+                short_sha=row.get("short_sha", ""),
+                message=row.get("message", ""),
+                message_subject=row.get("message_subject", ""),
+                author_name=row.get("author_name", ""),
+                author_email=row.get("author_email", ""),
+                committed_at=datetime.fromisoformat(row["committed_at"]) if row.get("committed_at") else None,
+                parent_shas=row.get("parent_shas", []) or [],
+                branches=row.get("branches", []) or [],
+                tags=row.get("tags", []) or [],
+                files_changed=row.get("files_changed", 0) or 0,
+                insertions=row.get("insertions", 0) or 0,
+                deletions=row.get("deletions", 0) or 0,
+                changed_file_paths=row.get("changed_file_paths", []) or [],
+                commit_type=row.get("commit_type", ""),
+                impact_score=row.get("impact_score", 0.0) or 0.0,
+                repo_id=row.get("repo_id"),
+            )
+
+            # Calculate simple relevance score based on keyword matches
+            message_lower = (row.get("message", "") or "").lower()
+            matches = sum(1 for kw in keywords if kw in message_lower)
+            score = min(1.0, matches / max(len(keywords), 1))
+
+            results.append(
+                CommitSearchResult(
+                    commit=commit,
+                    score=score,
+                    relevance_reason="Keyword match (text fallback)",
+                    related_files=commit.changed_file_paths[:5],
+                )
+            )
+
+        # Sort by score descending
+        results.sort(key=lambda r: r.score, reverse=True)
+
+        return results
+
     async def ask(
         self,
         query: str,
@@ -534,6 +828,17 @@ class GitHistoryRAG:
         import time
 
         start_time = time.time()
+
+        # For cloud clients, use the dedicated API endpoint
+        if self.is_cloud_client:
+            return await self._cloud_ask(
+                query=query,
+                repo_id=repo_id,
+                top_k=top_k,
+                author=author,
+                since=since,
+                until=until,
+            )
 
         # Step 1: Search for relevant commits
         results = await self.search(
@@ -567,6 +872,146 @@ class GitHistoryRAG:
             confidence=confidence,
             follow_up_questions=follow_ups,
             execution_time_ms=elapsed,
+        )
+
+    async def _cloud_ask(
+        self,
+        query: str,
+        repo_id: str,
+        top_k: int,
+        author: Optional[str] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+    ) -> GitHistoryAnswer:
+        """Ask using the dedicated cloud API endpoint.
+
+        Args:
+            query: Natural language question
+            repo_id: Repository UUID
+            top_k: Number of commits
+            author: Filter by author email (optional)
+            since: Filter commits after this date (optional)
+            until: Filter commits before this date (optional)
+
+        Returns:
+            GitHistoryAnswer
+        """
+        import httpx
+
+        # Get API URL and key from cloud client
+        api_url = getattr(self.client, "api_url", "https://repotoire-api.fly.dev")
+        api_key = getattr(self.client, "api_key", "")
+
+        # Build request payload
+        payload: Dict[str, Any] = {
+            "query": query,
+            "repo_id": repo_id,
+            "top_k": top_k,
+        }
+
+        if author:
+            payload["author"] = author
+        if since:
+            payload["since"] = since.isoformat()
+        if until:
+            payload["until"] = until.isoformat()
+
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as http_client:
+                response = await http_client.post(
+                    f"{api_url}/api/v1/historical/nlq-api",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+
+                if response.status_code >= 400:
+                    try:
+                        error = response.json()
+                        detail = error.get("detail", str(error))
+                    except Exception:
+                        detail = response.text
+                    raise Exception(f"API error ({response.status_code}): {detail}")
+
+                data = response.json()
+
+        except Exception as e:
+            logger.warning(f"Cloud ask failed: {e}")
+            # Fall back to search + local answer generation
+            results = await self.search(
+                query=query,
+                repo_id=repo_id,
+                top_k=top_k,
+                author=author,
+                since=since,
+                until=until,
+            )
+            if results:
+                answer, confidence = await self._generate_answer(query, results)
+                follow_ups = await self._generate_follow_ups(query, results)
+                return GitHistoryAnswer(
+                    answer=answer,
+                    commits=results,
+                    confidence=confidence,
+                    follow_up_questions=follow_ups,
+                )
+            return GitHistoryAnswer(
+                answer=f"Failed to query git history: {e}",
+                commits=[],
+                confidence=0.0,
+            )
+
+        # Convert API response to GitHistoryAnswer
+        commits = []
+        for commit_data in data.get("commits", []):
+            committed_at = None
+            if commit_data.get("committed_at"):
+                try:
+                    committed_at = datetime.fromisoformat(
+                        commit_data["committed_at"].replace("Z", "+00:00")
+                    )
+                except (ValueError, AttributeError):
+                    pass
+
+            commit = CommitEntity(
+                name=commit_data.get("short_sha", ""),
+                qualified_name=f"commit:{commit_data.get('sha', '')}",
+                file_path=".",
+                line_start=0,
+                line_end=0,
+                sha=commit_data.get("sha", ""),
+                short_sha=commit_data.get("short_sha", ""),
+                message=commit_data.get("message_subject", ""),
+                message_subject=commit_data.get("message_subject", ""),
+                author_name=commit_data.get("author_name", ""),
+                author_email=commit_data.get("author_email", ""),
+                committed_at=committed_at,
+                parent_shas=[],
+                branches=[],
+                tags=[],
+                files_changed=commit_data.get("files_changed", 0),
+                insertions=commit_data.get("insertions", 0),
+                deletions=commit_data.get("deletions", 0),
+                changed_file_paths=commit_data.get("changed_file_paths", []),
+                commit_type="",
+                impact_score=0.0,
+                repo_id=repo_id,
+            )
+
+            commits.append(
+                CommitSearchResult(
+                    commit=commit,
+                    score=commit_data.get("score", 0.0),
+                    relevance_reason="Semantic similarity (cloud)",
+                    related_files=commit.changed_file_paths[:5],
+                )
+            )
+
+        return GitHistoryAnswer(
+            answer=data.get("answer", "No answer generated."),
+            commits=commits,
+            confidence=data.get("confidence", 0.0),
+            follow_up_questions=data.get("follow_up_questions", []),
+            execution_time_ms=data.get("execution_time_ms", 0.0),
         )
 
     async def _generate_answer(
