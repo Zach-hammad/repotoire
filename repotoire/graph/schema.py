@@ -108,6 +108,7 @@ class GraphSchema:
         ("Function", "function_embeddings", "f"),
         ("Class", "class_embeddings", "c"),
         ("File", "file_embeddings", "f"),
+        ("Commit", "commit_embeddings", "c"),  # Git history RAG
     ]
 
     # Full-text index definitions for BM25 hybrid search (REPO-243)
@@ -147,6 +148,12 @@ class GraphSchema:
         "CREATE INDEX ON :Function(repoId)",
         "CREATE INDEX ON :Class(repoId)",
         "CREATE INDEX ON :Module(repoId)",
+        # Commit indexes for git history RAG (replaces Graphiti)
+        "CREATE INDEX ON :Commit(sha)",
+        "CREATE INDEX ON :Commit(shortSha)",
+        "CREATE INDEX ON :Commit(authorEmail)",
+        "CREATE INDEX ON :Commit(committedAt)",
+        "CREATE INDEX ON :Commit(repoId)",
     ]
 
     @staticmethod

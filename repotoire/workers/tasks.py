@@ -944,56 +944,42 @@ def _get_score_at_commit(
     name="repotoire.workers.tasks.ingest_git_history",
     bind=True,
     max_retries=1,
-    soft_time_limit=1800,  # 30 minute soft limit
-    time_limit=1860,  # 31 minute hard limit
+    soft_time_limit=600,  # 10 minute soft limit (no LLM, embeddings only)
+    time_limit=660,  # 11 minute hard limit
 )
 def ingest_git_history_task(
     self,
     repo_id: str,
     repo_full_name: str,
     github_installation_id: int | None = None,
-    max_commits: int = 100,  # Reduced from 500 to avoid long LLM processing
+    max_commits: int = 100,  # Increased from 25 - no LLM means fast ingestion
 ) -> dict[str, Any] | None:
-    """Celery task to ingest git history into Graphiti temporal knowledge graph.
+    """Celery task to ingest git history using GitHistoryRAG.
+
+    Uses Repotoire's existing RAG infrastructure instead of Graphiti's expensive
+    LLM-based approach. This is FREE (local embeddings) vs $10-20 per 1000 commits.
 
     This runs as a separate background task so it doesn't block the main analysis.
     Clones its own copy of the repo to avoid race conditions with cleanup.
 
     Args:
         repo_id: UUID of the Repository for tagging.
-        repo_full_name: Full name (owner/repo) for episode source.
+        repo_full_name: Full name (owner/repo) for context.
         github_installation_id: GitHub App installation ID for auth.
         max_commits: Maximum commits to process (default 100).
 
     Returns:
-        Stats dict with commits_processed, or None if Graphiti unavailable.
+        Stats dict with commits_processed, embeddings_generated, etc.
     """
-    import os
     import asyncio
     import shutil
     import subprocess
     from pathlib import Path
 
-    # Check for required dependencies
-    try:
-        from graphiti_core import Graphiti
-        from graphiti_core.nodes import EpisodeType
-        from graphiti_core.driver.falkordb_driver import FalkorDriver
-    except ImportError:
-        logger.debug("Graphiti not available, skipping git history ingestion")
-        return None
-
-    # Check for OpenAI API key (required for LLM processing)
-    if not os.getenv("OPENAI_API_KEY"):
-        logger.debug("OPENAI_API_KEY not set, skipping git history ingestion")
-        return None
-
     # Clone to a temporary directory
     clone_dir = CLONE_BASE_DIR / f"git_history_{repo_full_name.replace('/', '_')}_{repo_id[:8]}"
 
     try:
-        import git
-
         # Clone if needed
         if clone_dir.exists():
             shutil.rmtree(clone_dir, ignore_errors=True)
@@ -1004,7 +990,7 @@ def ingest_git_history_task(
         if token:
             clone_url = f"https://x-access-token:{token}@github.com/{repo_full_name}.git"
 
-        logger.info(f"Cloning {repo_full_name} for git history ingestion")
+        logger.info(f"Cloning {repo_full_name} for git history RAG ingestion")
         subprocess.run(
             ["git", "clone", "--depth", str(max_commits + 50), clone_url, str(clone_dir)],
             check=True,
@@ -1015,73 +1001,66 @@ def ingest_git_history_task(
         # Enable commit-graph for faster git operations (5-10x speedup)
         _enable_commit_graph(clone_dir)
 
-        # Get FalkorDB connection parameters
-        falkor_host = os.getenv("FALKORDB_HOST", "repotoire-falkor.internal")
-        falkor_port = int(os.getenv("FALKORDB_PORT", "6379"))
-        falkor_password = os.getenv("FALKORDB_PASSWORD")
+        # Get graph client (same one used by main ingestion)
+        from uuid import UUID as PyUUID
 
-        # Create FalkorDriver with connection parameters
-        driver = FalkorDriver(
-            host=falkor_host,
-            port=falkor_port,
-            password=falkor_password,
-            database="graphiti_commits",  # Separate database for git history
-        )
+        from repotoire.ai.embeddings import CodeEmbedder
+        from repotoire.historical.git_rag import GitHistoryRAG
+        from repotoire.integrations.git import GitRepository
 
-        # Initialize Graphiti with FalkorDB driver
-        graphiti = Graphiti(graph_driver=driver)
+        # Get org info for multi-tenant graph
+        org_id = None
+        org_slug = None
+        try:
+            with get_sync_session() as session:
+                repo_obj = session.get(Repository, PyUUID(repo_id))
+                if repo_obj and repo_obj.organization:
+                    org_id = repo_obj.organization_id
+                    org_slug = repo_obj.organization.slug
+        except Exception as e:
+            logger.debug(f"Could not get org info: {e}")
 
-        # Get git repo
-        repo = git.Repo(clone_dir)
+        graph_client = _get_graph_client_for_org(org_id, org_slug)
 
-        # Get commits (most recent first)
-        commits = list(repo.iter_commits("HEAD", max_count=max_commits))
+        # Initialize embedder with local backend (FREE, no API key required)
+        # Falls back to sentence-transformers if no API key available
+        embedding_backend = os.environ.get("REPOTOIRE_EMBEDDING_BACKEND", "local")
+        try:
+            embedder = CodeEmbedder(backend=embedding_backend)
+        except Exception as e:
+            logger.warning(f"Failed to initialize {embedding_backend} embedder, falling back to local: {e}")
+            embedder = CodeEmbedder(backend="local")
 
-        stats = {
-            "commits_processed": 0,
-            "commits_skipped": 0,
-            "errors": 0,
-            "oldest_commit": None,
-            "newest_commit": None,
-        }
+        # Initialize GitHistoryRAG
+        rag = GitHistoryRAG(client=graph_client, embedder=embedder)
 
-        async def ingest_commits():
-            for commit in commits:
-                try:
-                    # Format commit data
-                    episode_body = _format_git_commit(commit, repo_full_name)
+        # Get commit history using GitRepository
+        git_repo = GitRepository(str(clone_dir))
+        commits = git_repo.get_commit_history(max_commits=max_commits)
 
-                    await graphiti.add_episode(
-                        name=commit.summary[:80],
-                        episode_body=episode_body,
-                        source_description=f"Git commit {commit.hexsha[:8]} from {repo_full_name}",
-                        reference_time=commit.committed_datetime,
-                        source=EpisodeType.text,
-                    )
+        if not commits:
+            logger.warning(f"No commits found for {repo_full_name}")
+            return {"commits_processed": 0, "error": "No commits found"}
 
-                    stats["commits_processed"] += 1
-
-                    # Track date range
-                    commit_dt = commit.committed_datetime
-                    if stats["oldest_commit"] is None or commit_dt < stats["oldest_commit"]:
-                        stats["oldest_commit"] = commit_dt
-                    if stats["newest_commit"] is None or commit_dt > stats["newest_commit"]:
-                        stats["newest_commit"] = commit_dt
-
-                except Exception as e:
-                    logger.debug(f"Error processing commit {commit.hexsha[:8]}: {e}")
-                    stats["errors"] += 1
-
-            return stats
+        logger.info(f"Retrieved {len(commits)} commits for {repo_full_name}, starting RAG ingestion")
 
         # Run async ingestion
-        result = asyncio.run(ingest_commits())
-        logger.info(f"Git history ingested: {result.get('commits_processed', 0)} commits for {repo_full_name}")
+        async def run_ingestion():
+            return await rag.ingest_commits(commits, repo_id=repo_id)
+
+        result = asyncio.run(run_ingestion())
+
+        logger.info(
+            f"Git history RAG ingestion complete for {repo_full_name}: "
+            f"{result.get('commits_processed', 0)} commits, "
+            f"{result.get('embeddings_generated', 0)} embeddings"
+        )
+
         return result
 
     except Exception as e:
-        logger.warning(f"Git history ingestion failed: {e}")
-        return None
+        logger.warning(f"Git history RAG ingestion failed: {e}")
+        return {"commits_processed": 0, "error": str(e)}
     finally:
         # Always cleanup the clone directory
         if clone_dir.exists():
@@ -1089,99 +1068,6 @@ def ingest_git_history_task(
                 shutil.rmtree(clone_dir, ignore_errors=True)
             except Exception:
                 pass
-
-
-def _format_git_commit(commit, repo_full_name: str) -> str:
-    """Format a git commit for Graphiti episode ingestion.
-
-    Args:
-        commit: GitPython commit object.
-        repo_full_name: Full name (owner/repo) for context.
-
-    Returns:
-        Formatted episode text.
-    """
-    import re
-
-    # Get changed files and diff stats
-    if commit.parents:
-        parent = commit.parents[0]
-        diffs = parent.diff(commit)
-        changed_files = [d.a_path or d.b_path for d in diffs]
-
-        # Extract code changes from diffs
-        code_changes = []
-        for diff in diffs:
-            file_path = diff.a_path or diff.b_path
-            if not file_path.endswith(".py"):
-                continue
-            if not diff.diff:
-                continue
-            try:
-                diff_text = diff.diff.decode("utf-8", errors="ignore")
-
-                # Extract added/modified functions
-                func_pattern = r"^\+\s*(?:async\s+)?def\s+(\w+)"
-                funcs = re.findall(func_pattern, diff_text, re.MULTILINE)
-
-                # Extract added/modified classes
-                class_pattern = r"^\+\s*class\s+(\w+)"
-                classes = re.findall(class_pattern, diff_text, re.MULTILINE)
-
-                for func in funcs:
-                    code_changes.append(f"Modified function: {func} in {file_path}")
-                for cls in classes:
-                    code_changes.append(f"Modified class: {cls} in {file_path}")
-            except Exception:
-                pass
-    else:
-        # Initial commit (no parent)
-        changed_files = list(commit.stats.files.keys())
-        code_changes = []
-
-    # Format commit message
-    message_lines = commit.message.strip().split("\n")
-    summary = message_lines[0]
-    body = "\n".join(message_lines[1:]).strip() if len(message_lines) > 1 else ""
-
-    # Build episode text
-    episode_parts = [
-        f"Repository: {repo_full_name}",
-        f"Commit: {commit.hexsha}",
-        f"Author: {commit.author.name} <{commit.author.email}>",
-        f"Date: {commit.committed_datetime.isoformat()}",
-        "",
-        f"Summary: {summary}",
-    ]
-
-    if body:
-        episode_parts.append(f"\nDescription:\n{body}")
-
-    episode_parts.extend([
-        "",
-        f"Files Changed ({len(changed_files)}):",
-        *[f"  - {f}" for f in changed_files[:20]],
-    ])
-
-    if len(changed_files) > 20:
-        episode_parts.append(f"  ... and {len(changed_files) - 20} more files")
-
-    if code_changes:
-        episode_parts.extend([
-            "",
-            "Code Changes:",
-            *[f"  - {change}" for change in code_changes[:10]],
-        ])
-
-    episode_parts.extend([
-        "",
-        "Statistics:",
-        f"  +{commit.stats.total.get('insertions', 0)} insertions",
-        f"  -{commit.stats.total.get('deletions', 0)} deletions",
-        f"  {len(commit.stats.files)} files changed",
-    ])
-
-    return "\n".join(episode_parts)
 
 
 def _save_analysis_results(

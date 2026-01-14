@@ -5042,6 +5042,10 @@ cli.add_command(api_keys, name="api-keys")
 from .marketplace import marketplace
 cli.add_command(marketplace)
 
+# Register git history RAG commands (replaces Graphiti - 99% cheaper)
+from .historical import historical
+cli.add_command(historical)
+
 
 @cli.command()
 @click.argument("query")

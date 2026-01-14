@@ -75,6 +75,7 @@ class NodeType(str, Enum):
     CONCEPT = "Concept"
     CLUE = "Clue"
     SESSION = "Session"
+    COMMIT = "Commit"  # Git commit for RAG-based history queries
     IMPORT = "Import"
     VARIABLE = "Variable"
     ATTRIBUTE = "Attribute"
@@ -128,6 +129,7 @@ class RelationshipType(str, Enum):
     MODIFIED = "MODIFIED"
     VERSION_AT = "VERSION_AT"
     RELATED_TO = "RELATED_TO"
+    AUTHORED_BY = "AUTHORED_BY"  # Commit authored by developer
 
 
 class SecretsPolicy(str, Enum):
@@ -576,6 +578,109 @@ class GitCommit:
     branch: str = "main"
     changed_files: List[str] = field(default_factory=list)
     stats: Dict = field(default_factory=dict)
+
+
+@dataclass
+class CommitEntity(Entity):
+    """Git commit node for RAG-based history queries.
+
+    Stores git commit data in FalkorDB with vector embeddings for semantic
+    search. This replaces Graphiti's LLM-based episode storage with a cheaper,
+    faster approach using Repotoire's existing RAG infrastructure.
+
+    Attributes:
+        sha: Full commit SHA hash (unique identifier)
+        short_sha: Short commit SHA (7 chars) for display
+        message: Full commit message
+        message_subject: First line of commit message
+        author_name: Author display name
+        author_email: Author email address
+        committed_at: Commit timestamp
+        parent_shas: List of parent commit SHAs
+        branches: Branches containing this commit
+        tags: Tags pointing to this commit
+        files_changed: Number of files modified
+        insertions: Lines added
+        deletions: Lines removed
+        changed_file_paths: List of modified file paths
+        commit_type: Conventional commit type (feat, fix, docs, etc.)
+        impact_score: Estimated impact 0-1 based on changes
+
+    Example:
+        >>> commit = CommitEntity(
+        ...     name="abc1234",
+        ...     qualified_name="commit::abc1234567890",
+        ...     file_path=".",
+        ...     line_start=0,
+        ...     line_end=0,
+        ...     sha="abc1234567890def",
+        ...     short_sha="abc1234",
+        ...     message="feat: add OAuth authentication",
+        ...     author_name="Alice",
+        ...     author_email="alice@example.com",
+        ...     committed_at=datetime.now(),
+        ...     files_changed=5,
+        ...     insertions=200,
+        ...     deletions=50
+        ... )
+    """
+    sha: str = ""
+    short_sha: str = ""
+    message: str = ""
+    message_subject: str = ""
+    author_name: str = ""
+    author_email: str = ""
+    committed_at: Optional[datetime] = None
+    parent_shas: List[str] = field(default_factory=list)
+    branches: List[str] = field(default_factory=list)
+    tags: List[str] = field(default_factory=list)
+    files_changed: int = 0
+    insertions: int = 0
+    deletions: int = 0
+    changed_file_paths: List[str] = field(default_factory=list)
+    commit_type: str = ""  # feat, fix, docs, style, refactor, test, chore
+    impact_score: float = 0.0
+
+    def __post_init__(self) -> None:
+        self.node_type = NodeType.COMMIT
+        # Extract subject from message if not provided
+        if not self.message_subject and self.message:
+            self.message_subject = self.message.split("\n")[0][:80]
+        # Extract short_sha if not provided
+        if not self.short_sha and self.sha:
+            self.short_sha = self.sha[:7]
+
+    @classmethod
+    def from_git_commit(cls, commit: "GitCommit", repo_id: Optional[str] = None) -> "CommitEntity":
+        """Create CommitEntity from GitCommit DTO.
+
+        Args:
+            commit: GitCommit data transfer object
+            repo_id: Optional repository UUID for multi-tenant isolation
+
+        Returns:
+            CommitEntity ready for graph storage
+        """
+        return cls(
+            name=commit.short_hash,
+            qualified_name=f"commit::{commit.hash}",
+            file_path=".",
+            line_start=0,
+            line_end=0,
+            sha=commit.hash,
+            short_sha=commit.short_hash,
+            message=commit.message,
+            author_name=commit.author,
+            author_email=commit.author_email,
+            committed_at=commit.committed_at,
+            parent_shas=commit.parent_hashes,
+            branches=[commit.branch] if commit.branch else [],
+            files_changed=commit.stats.get("files_changed", len(commit.changed_files)),
+            insertions=commit.stats.get("insertions", 0),
+            deletions=commit.stats.get("deletions", 0),
+            changed_file_paths=commit.changed_files,
+            repo_id=repo_id,
+        )
 
 
 @dataclass

@@ -1182,3 +1182,338 @@ async def correct_attribution(
         detail="Attribution correction is not yet implemented. "
                "User corrections cannot be persisted at this time.",
     )
+
+
+# =============================================================================
+# New RAG-based Endpoints (Replaces Graphiti - 99% cheaper)
+# =============================================================================
+
+
+class NLQRequest(BaseModel):
+    """Request for natural language query over git history."""
+
+    query: str = Field(..., description="Natural language question about git history")
+    repo_id: str = Field(..., description="Repository UUID")
+    top_k: int = Field(default=10, ge=1, le=50, description="Number of commits to retrieve")
+    author: Optional[str] = Field(None, description="Filter by author email")
+    since: Optional[datetime] = Field(None, description="Filter commits after this date")
+    until: Optional[datetime] = Field(None, description="Filter commits before this date")
+
+
+class NLQCommitResult(BaseModel):
+    """A commit result from NLQ search."""
+
+    sha: str = Field(..., description="Full commit SHA")
+    short_sha: str = Field(..., description="Short commit SHA (7 chars)")
+    message_subject: str = Field(..., description="First line of commit message")
+    author_name: str = Field(..., description="Author name")
+    author_email: str = Field(..., description="Author email")
+    committed_at: Optional[datetime] = Field(None, description="Commit timestamp")
+    files_changed: int = Field(default=0, description="Number of files changed")
+    insertions: int = Field(default=0, description="Lines added")
+    deletions: int = Field(default=0, description="Lines deleted")
+    score: float = Field(default=0.0, description="Relevance score (0-1)")
+    changed_file_paths: List[str] = Field(default_factory=list, description="Files changed")
+
+
+class NLQResponse(BaseModel):
+    """Response from natural language query over git history."""
+
+    answer: str = Field(..., description="Natural language answer")
+    commits: List[NLQCommitResult] = Field(default_factory=list, description="Relevant commits")
+    confidence: float = Field(default=0.0, description="Answer confidence (0-1)")
+    follow_up_questions: List[str] = Field(default_factory=list, description="Suggested follow-ups")
+    execution_time_ms: float = Field(default=0.0, description="Query execution time")
+
+
+class NLQSearchResponse(BaseModel):
+    """Response from semantic search over git history (without LLM answer)."""
+
+    commits: List[NLQCommitResult] = Field(default_factory=list, description="Matching commits")
+    total_count: int = Field(default=0, description="Total matching commits")
+    execution_time_ms: float = Field(default=0.0, description="Search execution time")
+
+
+class NLQStatusResponse(BaseModel):
+    """Status of git history RAG for a repository."""
+
+    total_commits: int = Field(default=0, description="Total commits in graph")
+    commits_with_embeddings: int = Field(default=0, description="Commits with embeddings")
+    coverage: float = Field(default=0.0, description="Embedding coverage (0-1)")
+    rag_available: bool = Field(default=False, description="Whether RAG queries are available")
+    message: str = Field(default="", description="Status message")
+
+
+def _get_git_history_rag(repo_id: str):
+    """Get GitHistoryRAG instance for a repository.
+
+    Uses local embeddings (FREE) instead of Graphiti's LLM approach ($0.01+/commit).
+
+    Args:
+        repo_id: Repository UUID for multi-tenant isolation
+
+    Returns:
+        GitHistoryRAG instance
+
+    Raises:
+        HTTPException: If dependencies not available
+    """
+    import os
+
+    try:
+        from repotoire.ai.embeddings import CodeEmbedder
+        from repotoire.historical.git_rag import GitHistoryRAG
+        from repotoire.graph.factory import create_client
+    except ImportError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"GitHistoryRAG dependencies not available: {e}"
+        )
+
+    # Get graph client
+    graph_client = create_client()
+
+    # Initialize embedder with local backend (FREE) or configured backend
+    embedding_backend = os.environ.get("REPOTOIRE_EMBEDDING_BACKEND", "local")
+    try:
+        embedder = CodeEmbedder(backend=embedding_backend)
+    except Exception as e:
+        logger.warning(f"Failed to initialize {embedding_backend} embedder, falling back to local: {e}")
+        embedder = CodeEmbedder(backend="local")
+
+    return GitHistoryRAG(client=graph_client, embedder=embedder)
+
+
+@router.post("/nlq", response_model=NLQResponse)
+async def natural_language_query(
+    request: NLQRequest,
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> NLQResponse:
+    """Query git history using natural language with RAG.
+
+    Uses semantic vector search + Claude Haiku to answer questions about
+    git history. This is 99% cheaper than Graphiti (~$0.001/query vs $0.01+).
+
+    Examples:
+    - "When did we add OAuth authentication?"
+    - "What changes did Alice make to the parser?"
+    - "Show refactorings of the UserManager class"
+    - "What caused the performance regression last month?"
+
+    Returns:
+        Natural language answer with supporting commits and confidence score.
+    """
+    # Verify repository exists and user has access
+    try:
+        repo_uuid = UUID(request.repo_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid repository ID format",
+        )
+
+    result = await db.execute(
+        select(Repository).where(Repository.id == repo_uuid)
+    )
+    repo = result.scalar_one_or_none()
+
+    if not repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository not found: {request.repo_id}",
+        )
+
+    try:
+        rag = _get_git_history_rag(request.repo_id)
+
+        # Run RAG query
+        answer = await rag.ask(
+            query=request.query,
+            repo_id=request.repo_id,
+            top_k=request.top_k,
+            author=request.author,
+            since=request.since,
+            until=request.until,
+        )
+
+        # Convert commits to response model
+        commits = [
+            NLQCommitResult(
+                sha=r.commit.sha,
+                short_sha=r.commit.short_sha,
+                message_subject=r.commit.message_subject,
+                author_name=r.commit.author_name,
+                author_email=r.commit.author_email,
+                committed_at=r.commit.committed_at,
+                files_changed=r.commit.files_changed,
+                insertions=r.commit.insertions,
+                deletions=r.commit.deletions,
+                score=r.score,
+                changed_file_paths=r.commit.changed_file_paths[:10],
+            )
+            for r in answer.commits
+        ]
+
+        return NLQResponse(
+            answer=answer.answer,
+            commits=commits,
+            confidence=answer.confidence,
+            follow_up_questions=answer.follow_up_questions,
+            execution_time_ms=answer.execution_time_ms,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"NLQ query failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process query: {e}"
+        )
+
+
+@router.post("/nlq/search", response_model=NLQSearchResponse)
+async def nlq_search(
+    request: NLQRequest,
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> NLQSearchResponse:
+    """Semantic search over git history (no LLM, faster).
+
+    Uses vector similarity search to find relevant commits without
+    generating a natural language answer. Useful for browsing/exploring.
+
+    Returns:
+        List of matching commits ordered by relevance.
+    """
+    import time
+
+    start_time = time.time()
+
+    # Verify repository exists and user has access
+    try:
+        repo_uuid = UUID(request.repo_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid repository ID format",
+        )
+
+    result = await db.execute(
+        select(Repository).where(Repository.id == repo_uuid)
+    )
+    repo = result.scalar_one_or_none()
+
+    if not repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository not found: {request.repo_id}",
+        )
+
+    try:
+        rag = _get_git_history_rag(request.repo_id)
+
+        # Run search (no LLM)
+        results = await rag.search(
+            query=request.query,
+            repo_id=request.repo_id,
+            top_k=request.top_k,
+            author=request.author,
+            since=request.since,
+            until=request.until,
+        )
+
+        # Convert to response model
+        commits = [
+            NLQCommitResult(
+                sha=r.commit.sha,
+                short_sha=r.commit.short_sha,
+                message_subject=r.commit.message_subject,
+                author_name=r.commit.author_name,
+                author_email=r.commit.author_email,
+                committed_at=r.commit.committed_at,
+                files_changed=r.commit.files_changed,
+                insertions=r.commit.insertions,
+                deletions=r.commit.deletions,
+                score=r.score,
+                changed_file_paths=r.commit.changed_file_paths[:10],
+            )
+            for r in results
+        ]
+
+        elapsed = (time.time() - start_time) * 1000
+
+        return NLQSearchResponse(
+            commits=commits,
+            total_count=len(commits),
+            execution_time_ms=elapsed,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"NLQ search failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to search: {e}"
+        )
+
+
+@router.get("/nlq/status/{repository_id}", response_model=NLQStatusResponse)
+async def get_nlq_status(
+    repository_id: str,
+    user: ClerkUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> NLQStatusResponse:
+    """Get status of git history RAG for a repository.
+
+    Returns information about commit embeddings coverage and whether
+    RAG queries are available.
+    """
+    # Verify repository exists and user has access
+    try:
+        repo_uuid = UUID(repository_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid repository ID format",
+        )
+
+    result = await db.execute(
+        select(Repository).where(Repository.id == repo_uuid)
+    )
+    repo = result.scalar_one_or_none()
+
+    if not repo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Repository not found: {repository_id}",
+        )
+
+    try:
+        rag = _get_git_history_rag(repository_id)
+
+        # Get embeddings status
+        status_info = rag.get_embeddings_status(repository_id)
+
+        return NLQStatusResponse(
+            total_commits=status_info.get("total_commits", 0),
+            commits_with_embeddings=status_info.get("commits_with_embeddings", 0),
+            coverage=status_info.get("coverage", 0.0),
+            rag_available=status_info.get("total_commits", 0) > 0,
+            message="Git history RAG is ready" if status_info.get("total_commits", 0) > 0
+                    else "No commits ingested. Run analysis or use `repotoire historical ingest-git`",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Failed to get NLQ status: {e}")
+        return NLQStatusResponse(
+            total_commits=0,
+            commits_with_embeddings=0,
+            coverage=0.0,
+            rag_available=False,
+            message=f"Git history RAG unavailable: {e}",
+        )
