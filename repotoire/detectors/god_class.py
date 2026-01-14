@@ -343,37 +343,30 @@ class GodClassDetector(CodeSmellDetector):
         if lcom >= 0.4:
             return False  # Not cohesive enough to be a legitimate pattern
 
-        # Query graph for semantic indicators
+        # Query graph for method names - do pattern checks in Python (FalkorDB any() returns String not Boolean)
         query = """
         MATCH (c:Class {qualifiedName: $qualified_name})
         MATCH (file:File)-[:CONTAINS]->(c)
         MATCH (file)-[:CONTAINS]->(m:Function)
         WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
         WITH c, collect(DISTINCT toLower(m.name)) AS method_names
-
-        // Check for lifecycle/connection methods (client pattern)
-        WITH c, method_names,
-             any(name IN method_names WHERE name IN [
-                'connect', 'disconnect', 'close', 'open',
-                'start', 'stop', 'shutdown', 'cleanup',
-                '__enter__', '__exit__', '__del__'
-             ]) AS has_lifecycle,
-
-             // Check for factory/builder methods
-             any(name IN method_names WHERE name IN [
-                'create', 'build', 'make', 'construct',
-                'generate', 'produce', 'assemble'
-             ]) AS has_factory,
-
-             // Check for pipeline/orchestrator methods
-             any(name IN method_names WHERE name IN [
-                'execute', 'run', 'process', 'orchestrate',
-                'coordinate', 'manage', 'handle'
-             ]) AS has_orchestrator
-
-        RETURN has_lifecycle, has_factory, has_orchestrator,
-               size(method_names) AS method_count
+        RETURN method_names, size(method_names) AS method_count
         """
+
+        # Pattern definitions
+        lifecycle_methods = {
+            'connect', 'disconnect', 'close', 'open',
+            'start', 'stop', 'shutdown', 'cleanup',
+            '__enter__', '__exit__', '__del__'
+        }
+        factory_methods = {
+            'create', 'build', 'make', 'construct',
+            'generate', 'produce', 'assemble'
+        }
+        orchestrator_methods = {
+            'execute', 'run', 'process', 'orchestrate',
+            'coordinate', 'manage', 'handle'
+        }
 
         try:
             result = self.db.execute_query(query, {"qualified_name": qualified_name})
@@ -381,9 +374,12 @@ class GodClassDetector(CodeSmellDetector):
                 return False
 
             record = result[0]
-            has_lifecycle = record.get("has_lifecycle", False)
-            has_factory = record.get("has_factory", False)
-            has_orchestrator = record.get("has_orchestrator", False)
+            method_names = set(record.get("method_names", []))
+
+            # Check patterns in Python
+            has_lifecycle = bool(method_names & lifecycle_methods)
+            has_factory = bool(method_names & factory_methods)
+            has_orchestrator = bool(method_names & orchestrator_methods)
 
             # If high cohesion + lifecycle methods = legitimate client pattern
             if has_lifecycle:
