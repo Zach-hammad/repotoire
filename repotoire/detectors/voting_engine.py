@@ -22,6 +22,7 @@ from collections import defaultdict
 
 from repotoire.models import Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.detectors.grouping import get_finding_group_key, get_issue_category
 
 logger = get_logger(__name__)
 
@@ -218,102 +219,32 @@ class VotingEngine:
     def _get_entity_key(self, finding: Finding) -> str:
         """Generate unique key for entity identification.
 
+        Delegates to unified grouping module to ensure consistent keys
+        across voting engine and deduplicator.
+
         Groups findings by:
         1. Issue category (so only same-type issues get merged)
-        2. Entity location (nodes, files, line range)
+        2. Issue type hint (prevents different problems from merging)
+        3. Entity location (nodes, files, line range)
 
         This ensures detectors only "vote" on the same type of issue,
         not different issues that happen to be in the same location.
         """
-        nodes = tuple(sorted(finding.affected_nodes or []))
-        files = tuple(sorted(finding.affected_files or []))
-
-        # Include line range for more precise grouping
-        line_key = ""
-        if finding.line_start:
-            # Bucket into ranges of 10 lines
-            bucket = (finding.line_start // 10) * 10
-            line_key = f"|L{bucket}"
-
-        # CRITICAL: Include issue category so only same-type issues merge
-        # Different detectors finding different problems should NOT be merged
-        category = self._get_issue_category(finding)
-
-        return f"{category}|{nodes}|{files}{line_key}"
+        # Use unified grouping module for consistent keys
+        # Use 5-line buckets (same as deduplicator) for consistency
+        group_key = get_finding_group_key(finding, line_proximity_threshold=5)
+        return str(group_key)
 
     def _get_issue_category(self, finding: Finding) -> str:
         """Determine the category/type of issue for grouping.
+
+        Delegates to unified grouping module.
 
         Only findings in the same category can be merged via voting.
         This prevents merging unrelated issues just because they're
         in the same location.
         """
-        detector = finding.detector
-
-        # Map detectors to issue categories
-        category_map = {
-            # Structural issues (can corroborate each other)
-            "GodClassDetector": "structural_complexity",
-            "RadonDetector": "structural_complexity",
-
-            # Coupling issues
-            "CircularDependencyDetector": "coupling",
-            "ShotgunSurgeryDetector": "coupling",
-            "InappropriateIntimacyDetector": "coupling",
-            "FeatureEnvyDetector": "coupling",
-
-            # Dead/unused code
-            "DeadCodeDetector": "dead_code",
-            "VultureDetector": "dead_code",
-
-            # Import issues
-            "RuffImportDetector": "imports",
-
-            # Linting/style (same rules from different linters)
-            "RuffLintDetector": "linting",
-            "PylintDetector": "linting",
-
-            # Type issues
-            "MypyDetector": "type_errors",
-
-            # Security issues
-            "BanditDetector": "security",
-            "SemgrepDetector": "security",
-
-            # Duplication
-            "JscpdDetector": "duplication",
-
-            # Architecture
-            "ArchitecturalBottleneckDetector": "architecture",
-            "MiddleManDetector": "architecture",
-        }
-
-        # Check for known detector
-        if detector in category_map:
-            return category_map[detector]
-
-        # Handle merged/consensus detector names
-        if detector.startswith("Consensus[") or detector.startswith("Merged["):
-            # Extract first detector name from merged name
-            inner = detector.split("[")[1].split("]")[0]
-            first_detector = inner.split("+")[0]
-            if first_detector in category_map:
-                return category_map[first_detector]
-
-        # Check collaboration metadata tags for category hints
-        if finding.collaboration_metadata:
-            tags = finding.get_collaboration_tags()
-            if "security" in tags:
-                return "security"
-            if "complexity" in tags or "god_class" in tags:
-                return "structural_complexity"
-            if "coupling" in tags:
-                return "coupling"
-            if "dead_code" in tags or "unused" in tags:
-                return "dead_code"
-
-        # Default: use detector name as category (no merging with others)
-        return f"detector_{detector}"
+        return get_issue_category(finding)
 
     def _calculate_consensus(self, findings: List[Finding]) -> ConsensusResult:
         """Calculate consensus for a group of findings.
