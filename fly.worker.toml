@@ -15,14 +15,22 @@ primary_region = 'iad'
   HF_HOME = "/tmp/huggingface"
   TRANSFORMERS_CACHE = "/tmp/huggingface"
   SENTENCE_TRANSFORMERS_HOME = "/tmp/huggingface"
+  # PyTorch thread control - let Celery manage parallelism
+  OMP_NUM_THREADS = "1"
+  MKL_NUM_THREADS = "1"
+  TOKENIZERS_PARALLELISM = "false"
 
 # No HTTP service - this is a background worker
 [processes]
-  # Reduced concurrency (2) to prevent OOM with 4GB RAM (~2GB per worker)
-  # Added max-memory-per-child to recycle workers and prevent memory leaks
-  worker = "/opt/venv/bin/celery -A repotoire.workers.celery_app worker --loglevel=info -Q default,analysis,analysis.high,webhooks,notifications,notifications.low --concurrency=2 --max-memory-per-child=1500000"
+  # Single worker (concurrency=1) with full memory access for ML models
+  # max-memory-per-child=3500000 (3.5GB) allows 2.5GB model + 1GB headroom
+  # max-tasks-per-child=50 prevents memory leaks via predictable recycling
+  # prefetch-multiplier=1 prevents prefetching for long-running ML tasks
+  worker = "/opt/venv/bin/celery -A repotoire.workers.celery_app worker --loglevel=info -Q default,analysis,analysis.high,webhooks,notifications,notifications.low --concurrency=1 --max-memory-per-child=3500000 --max-tasks-per-child=50 --prefetch-multiplier=1"
 
 [[vm]]
   memory = '8gb'
   cpu_kind = 'performance'  # Performance CPU for consistent performance
   cpus = 2
+  # Swap for memory spikes during model loading
+  swap_size_mb = 4096
