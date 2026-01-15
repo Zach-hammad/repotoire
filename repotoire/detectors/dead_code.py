@@ -233,15 +233,15 @@ class DeadCodeDetector(CodeSmellDetector):
           AND (f.is_method = false OR f.name STARTS WITH '_')
           {repo_filter}
         OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
-        WITH f, file, COALESCE(f.decorators, []) AS decorators
-        WHERE size(decorators) = 0
+        WITH f, file
+        WHERE f.decorators IS NULL OR size(f.decorators) = 0
         RETURN f.qualifiedName AS qualified_name,
                f.name AS name,
                f.filePath AS file_path,
                f.lineStart AS line_start,
                f.complexity AS complexity,
                file.filePath AS containing_file,
-               decorators
+               f.decorators AS decorators
         ORDER BY f.complexity DESC
         LIMIT 100
         """
@@ -426,8 +426,8 @@ class DeadCodeDetector(CodeSmellDetector):
           {repo_filter}
         OPTIONAL MATCH (file)-[:CONTAINS]->(m:Function)
         WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
-        WITH c, file, count(m) AS method_count, COALESCE(c.decorators, []) AS decorators
-        WHERE size(decorators) = 0
+        WITH c, file, count(m) AS method_count
+        WHERE c.decorators IS NULL OR size(c.decorators) = 0
         RETURN c.qualifiedName AS qualified_name,
                c.name AS name,
                c.filePath AS file_path,
