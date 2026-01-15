@@ -12,6 +12,7 @@ from collections import defaultdict
 
 from repotoire.models import Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.detectors.grouping import get_finding_group_key, get_issue_category
 
 logger = get_logger(__name__)
 
@@ -121,7 +122,12 @@ class FindingDeduplicator:
     def _get_duplicate_key(self, finding: Finding) -> str:
         """Generate unique key for identifying duplicate findings.
 
-        Key components:
+        Uses unified grouping module to ensure consistent keys across
+        deduplicator and voting engine.
+
+        Key components (from grouping module):
+        - Issue category (prevents cross-category merges)
+        - Issue type hint (prevents merging different problems)
         - Sorted affected nodes (to catch same entity)
         - Sorted affected files
         - Line range bucket (groups nearby lines)
@@ -132,17 +138,9 @@ class FindingDeduplicator:
         Returns:
             Unique key string for grouping duplicates
         """
-        # Sort to ensure consistent keys
-        nodes = tuple(sorted(finding.affected_nodes))
-        files = tuple(sorted(finding.affected_files))
-
-        # Bucket line numbers into ranges (e.g., lines 10-14 -> bucket 10)
-        if finding.line_start is not None:
-            line_bucket = (finding.line_start // self.line_proximity_threshold) * self.line_proximity_threshold
-        else:
-            line_bucket = None
-
-        return f"{nodes}|{files}|{line_bucket}"
+        # Use unified grouping module for consistent keys
+        group_key = get_finding_group_key(finding, self.line_proximity_threshold)
+        return str(group_key)
 
     def _merge_finding_group(self, findings: List[Finding]) -> Finding:
         """Merge a group of duplicate findings into one.
@@ -358,18 +356,12 @@ class FindingDeduplicator:
             reverse=True
         )[:10]
 
-        # Group merged findings by type/category
+        # Group merged findings by type/category (using unified grouping)
         merged_by_category = defaultdict(int)
         for finding in merged_findings:
             if finding.detector_agreement_count > 1:
-                # Extract category from collaboration metadata or title
-                category = "unknown"
-                if finding.collaboration_metadata:
-                    # Get most common tag from all detectors
-                    all_tags = [tag for meta in finding.collaboration_metadata for tag in meta.tags]
-                    if all_tags:
-                        from collections import Counter
-                        category = Counter(all_tags).most_common(1)[0][0]
+                # Use unified category extraction
+                category = get_issue_category(finding)
                 merged_by_category[category] += 1
 
         return {

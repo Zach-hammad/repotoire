@@ -351,8 +351,24 @@ class AnalysisEngine:
                 # Store root cause summary for reporting
                 self.root_cause_summary = root_cause_summary
 
-                # Apply voting engine for multi-detector consensus (REPO-156)
+                # Two-phase deduplication strategy:
+                # Phase 1: Deduplicator removes same-detector duplicates
+                # Phase 2: Voting engine builds cross-detector consensus
                 original_count = len(findings)
+
+                # Phase 1: Always run deduplicator first
+                # Uses unified grouping (category-aware) to prevent cross-category merges
+                findings, dedup_stats = self.deduplicator.merge_duplicates(findings)
+                self.dedup_stats = dedup_stats
+                after_dedup_count = len(findings)
+
+                if dedup_stats.get("duplicate_count", 0) > 0:
+                    logger.debug(
+                        f"Deduplication: removed {dedup_stats['duplicate_count']} duplicates "
+                        f"({original_count} -> {after_dedup_count})"
+                    )
+
+                # Phase 2: Optionally run voting for multi-detector consensus
                 if self.enable_voting:
                     findings, voting_stats = self.voting_engine.vote(findings)
                     self.voting_stats = voting_stats
@@ -363,10 +379,7 @@ class AnalysisEngine:
                             f"boosted by multi-detector consensus"
                         )
                 else:
-                    # Fall back to simple deduplication (REPO-152 Phase 3)
-                    findings, dedup_stats = self.deduplicator.merge_duplicates(findings)
                     self.voting_stats = None
-                    self.dedup_stats = dedup_stats
 
                 deduplicated_count = len(findings)
                 if original_count != deduplicated_count:
