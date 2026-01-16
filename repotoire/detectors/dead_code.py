@@ -2,16 +2,11 @@
 
 Supports cross-detector validation with VultureDetector (REPO-153).
 When both graph-based and AST-based detection agree, confidence exceeds 95%.
-
-Version: 2026-01-16-v5 (simplified query, removed STARTS WITH)
 """
 
-import logging
 import uuid
 from typing import List, Optional, Dict, Set
 from datetime import datetime
-
-logger = logging.getLogger(__name__)
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.models import CollaborationMetadata, Finding, Severity
@@ -123,8 +118,6 @@ class DeadCodeDetector(CodeSmellDetector):
         Returns:
             List of findings for dead code
         """
-        logger.info("DeadCodeDetector.detect() starting - Version: 2026-01-16-v5 (simplified query, removed STARTS WITH)")
-
         # Build set of Vulture-confirmed unused items for cross-validation
         vulture_unused = self._extract_vulture_unused(previous_findings)
 
@@ -258,8 +251,6 @@ class DeadCodeDetector(CodeSmellDetector):
         """
 
         params = self._get_query_params()
-        logger.info(f"_find_dead_functions: Executing query with params={params}")
-        logger.debug(f"_find_dead_functions: Query=\n{query}")
         results = self.db.execute_query(query, params)
 
         for record in results:
@@ -464,8 +455,6 @@ class DeadCodeDetector(CodeSmellDetector):
         """
 
         params = self._get_query_params()
-        logger.info(f"_find_dead_classes: Executing query with params={params}")
-        logger.debug(f"_find_dead_classes: Query=\n{query}")
         results = self.db.execute_query(query, params)
 
         for record in results:
