@@ -3,7 +3,7 @@
 Supports cross-detector validation with VultureDetector (REPO-153).
 When both graph-based and AST-based detection agree, confidence exceeds 95%.
 
-Version: 2026-01-16-v3 (OPTIONAL MATCH pattern with logging)
+Version: 2026-01-16-v4 (count() = 0 instead of IS NULL)
 """
 
 import logging
@@ -123,7 +123,7 @@ class DeadCodeDetector(CodeSmellDetector):
         Returns:
             List of findings for dead code
         """
-        logger.info("DeadCodeDetector.detect() starting - Version: 2026-01-16-v3 (OPTIONAL MATCH pattern)")
+        logger.info("DeadCodeDetector.detect() starting - Version: 2026-01-16-v4 (count() = 0 instead of IS NULL)")
 
         # Build set of Vulture-confirmed unused items for cross-validation
         vulture_unused = self._extract_vulture_unused(previous_findings)
@@ -231,8 +231,8 @@ class DeadCodeDetector(CodeSmellDetector):
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_repo_filter("f")
 
-        # Note: Using OPTIONAL MATCH + IS NULL instead of NOT (pattern)
-        # because FalkorDB has type mismatch issues with NOT patterns.
+        # Note: Using count() = 0 instead of IS NULL because FalkorDB's IS NULL
+        # returns String instead of Boolean, causing type mismatch errors.
         # Also removed is_method filter from Cypher - applied in Python below.
         query = f"""
         MATCH (f:Function)
@@ -241,8 +241,8 @@ class DeadCodeDetector(CodeSmellDetector):
           {repo_filter}
         OPTIONAL MATCH (f)<-[call:CALLS]-()
         OPTIONAL MATCH (f)<-[use:USES]-()
-        WITH f, call, use
-        WHERE call IS NULL AND use IS NULL
+        WITH f, count(call) AS call_count, count(use) AS use_count
+        WHERE call_count = 0 AND use_count = 0
         OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
         WITH f, file
         RETURN f.qualifiedName AS qualified_name,
@@ -443,16 +443,16 @@ class DeadCodeDetector(CodeSmellDetector):
         repo_filter = self._get_repo_filter("c")
 
         # FalkorDB-compatible query
-        # Note: Using OPTIONAL MATCH + IS NULL instead of NOT (pattern)
-        # because FalkorDB has type mismatch issues with NOT patterns
+        # Note: Using count() = 0 instead of IS NULL because FalkorDB's IS NULL
+        # returns String instead of Boolean, causing type mismatch errors
         query = f"""
         MATCH (file:File)-[:CONTAINS]->(c:Class)
         WHERE 1=1 {repo_filter}
         OPTIONAL MATCH (c)<-[call:CALLS]-()
         OPTIONAL MATCH (c)<-[inherit:INHERITS]-()
         OPTIONAL MATCH (c)<-[use:USES]-()
-        WITH c, file, call, inherit, use
-        WHERE call IS NULL AND inherit IS NULL AND use IS NULL
+        WITH c, file, count(call) AS call_count, count(inherit) AS inherit_count, count(use) AS use_count
+        WHERE call_count = 0 AND inherit_count = 0 AND use_count = 0
         OPTIONAL MATCH (file)-[:CONTAINS]->(m:Function)
         WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
         WITH c, file, count(m) AS method_count
