@@ -3,7 +3,7 @@
 Supports cross-detector validation with VultureDetector (REPO-153).
 When both graph-based and AST-based detection agree, confidence exceeds 95%.
 
-Version: 2026-01-16-v4 (count() = 0 instead of IS NULL)
+Version: 2026-01-16-v5 (simplified query, removed STARTS WITH)
 """
 
 import logging
@@ -123,7 +123,7 @@ class DeadCodeDetector(CodeSmellDetector):
         Returns:
             List of findings for dead code
         """
-        logger.info("DeadCodeDetector.detect() starting - Version: 2026-01-16-v4 (count() = 0 instead of IS NULL)")
+        logger.info("DeadCodeDetector.detect() starting - Version: 2026-01-16-v5 (simplified query, removed STARTS WITH)")
 
         # Build set of Vulture-confirmed unused items for cross-validation
         vulture_unused = self._extract_vulture_unused(previous_findings)
@@ -443,8 +443,8 @@ class DeadCodeDetector(CodeSmellDetector):
         repo_filter = self._get_repo_filter("c")
 
         # FalkorDB-compatible query
-        # Note: Using count() = 0 instead of IS NULL because FalkorDB's IS NULL
-        # returns String instead of Boolean, causing type mismatch errors
+        # Note: Simplified to avoid FalkorDB type mismatch issues
+        # Method count moved to Python post-processing
         query = f"""
         MATCH (file:File)-[:CONTAINS]->(c:Class)
         WHERE 1=1 {repo_filter}
@@ -453,17 +453,13 @@ class DeadCodeDetector(CodeSmellDetector):
         OPTIONAL MATCH (c)<-[use:USES]-()
         WITH c, file, count(call) AS call_count, count(inherit) AS inherit_count, count(use) AS use_count
         WHERE call_count = 0 AND inherit_count = 0 AND use_count = 0
-        OPTIONAL MATCH (file)-[:CONTAINS]->(m:Function)
-        WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
-        WITH c, file, count(m) AS method_count
         RETURN c.qualifiedName AS qualified_name,
                c.name AS name,
                c.filePath AS file_path,
                c.complexity AS complexity,
                file.filePath AS containing_file,
-               method_count,
                c.decorators AS decorators
-        ORDER BY method_count DESC, c.complexity DESC
+        ORDER BY c.complexity DESC
         LIMIT 50
         """
 
@@ -500,7 +496,8 @@ class DeadCodeDetector(CodeSmellDetector):
             qualified_name = record["qualified_name"]
             file_path = record["containing_file"] or record["file_path"]
             complexity = record["complexity"] or 0
-            method_count = record["method_count"] or 0
+            # method_count removed from query due to FalkorDB STARTS WITH issues
+            method_count = 0
 
             # Cross-validation with Vulture (REPO-153)
             vulture_match = self._check_vulture_confirms(name, file_path, vulture_unused)
