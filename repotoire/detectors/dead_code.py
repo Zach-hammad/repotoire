@@ -234,7 +234,6 @@ class DeadCodeDetector(CodeSmellDetector):
           {repo_filter}
         OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
         WITH f, file
-        WHERE f.decorators IS NULL OR size(f.decorators) = 0
         RETURN f.qualifiedName AS qualified_name,
                f.name AS name,
                f.filePath AS file_path,
@@ -292,6 +291,11 @@ class DeadCodeDetector(CodeSmellDetector):
 
             # Filter out other common internal patterns
             if name.startswith("_get_") or name.startswith("_set_") or name.startswith("_check_"):
+                continue
+
+            # Skip decorated functions (decorators like @property, @classmethod indicate usage)
+            decorators = record.get("decorators")
+            if decorators and len(decorators) > 0:
                 continue
 
             finding_id = str(uuid.uuid4())
@@ -427,13 +431,13 @@ class DeadCodeDetector(CodeSmellDetector):
         OPTIONAL MATCH (file)-[:CONTAINS]->(m:Function)
         WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
         WITH c, file, count(m) AS method_count
-        WHERE c.decorators IS NULL OR size(c.decorators) = 0
         RETURN c.qualifiedName AS qualified_name,
                c.name AS name,
                c.filePath AS file_path,
                c.complexity AS complexity,
                file.filePath AS containing_file,
-               method_count
+               method_count,
+               c.decorators AS decorators
         ORDER BY method_count DESC, c.complexity DESC
         LIMIT 50
         """
@@ -457,6 +461,11 @@ class DeadCodeDetector(CodeSmellDetector):
 
             # Skip test classes (test classes often have fixtures that aren't "called")
             if name.startswith("Test") or name.endswith("Test"):
+                continue
+
+            # Skip decorated classes (decorators like @dataclass, @pytest.fixture indicate usage)
+            decorators = record.get("decorators")
+            if decorators and len(decorators) > 0:
                 continue
 
             finding_id = str(uuid.uuid4())
