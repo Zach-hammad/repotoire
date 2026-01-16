@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
+from repotoire.detectors.external_tool_runner import get_js_exec_command
 from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.models import CollaborationMetadata, Finding, Severity
@@ -122,15 +123,16 @@ class JscpdDetector(CodeSmellDetector):
     def _run_jscpd(self) -> List[Dict[str, Any]]:
         """Run jscpd and parse JSON output.
 
+        Uses bun if available for faster execution, falls back to npx.
+
         Returns:
             List of duplicate code dictionaries
         """
         try:
             # Create temporary output directory
             with tempfile.TemporaryDirectory() as temp_dir:
-                # Build jscpd command
-                cmd = [
-                    "npx", "jscpd",
+                # Build jscpd command (uses bun if available)
+                cmd = get_js_exec_command("jscpd") + [
                     "--reporters", "json",
                     "--output", temp_dir,
                     "--format", "python",

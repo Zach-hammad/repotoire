@@ -58,7 +58,7 @@ port = 6379
 password = "${FALKORDB_PASSWORD}"
 
 [ingestion]
-patterns = ["**/*.py", "**/*.js"]
+patterns = ["**/*.py", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
 follow_symlinks = false
 max_file_size_mb = 10
 batch_size = 100
@@ -125,7 +125,11 @@ Neo4jConfig = DatabaseConfig
 @dataclass
 class IngestionConfig:
     """Ingestion pipeline configuration."""
-    patterns: list[str] = field(default_factory=lambda: ["**/*.py"])
+    patterns: list[str] = field(default_factory=lambda: [
+        "**/*.py",
+        "**/*.ts", "**/*.tsx",
+        "**/*.js", "**/*.jsx",
+    ])
     follow_symlinks: bool = False
     max_file_size_mb: float = 10.0
     batch_size: int = 100

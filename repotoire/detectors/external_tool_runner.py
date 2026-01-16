@@ -32,6 +32,102 @@ logger = get_logger(__name__)
 
 T = TypeVar("T")
 
+# Cache for JS runtime detection
+_js_runtime_cache: Optional[str] = None
+
+
+def get_js_runtime() -> str:
+    """Detect available JavaScript runtime (bun or npm).
+
+    Prefers Bun for performance when available, falls back to npm.
+
+    Returns:
+        "bun" or "npm"
+    """
+    global _js_runtime_cache
+
+    if _js_runtime_cache is not None:
+        return _js_runtime_cache
+
+    # Check for bun first (faster)
+    try:
+        result = subprocess.run(
+            ["bun", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            _js_runtime_cache = "bun"
+            logger.debug(f"Using Bun runtime: {result.stdout.strip()}")
+            return "bun"
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # Fall back to npm
+    _js_runtime_cache = "npm"
+    logger.debug("Using npm runtime (bun not found)")
+    return "npm"
+
+
+def get_js_exec_command(package: str) -> List[str]:
+    """Get command to execute a JS package binary.
+
+    Uses bunx or npx depending on available runtime.
+
+    Args:
+        package: Package name to execute (e.g., "eslint", "tsc")
+
+    Returns:
+        Command list like ["bunx", "eslint"] or ["npx", "eslint"]
+    """
+    runtime = get_js_runtime()
+    if runtime == "bun":
+        return ["bunx", package]
+    return ["npx", package]
+
+
+def run_js_tool(
+    package: str,
+    args: List[str],
+    tool_name: str,
+    timeout: int = 120,
+    cwd: Optional[Path] = None,
+    env: Optional[Dict[str, str]] = None,
+) -> "ExternalToolResult":
+    """Run a JavaScript tool using the best available runtime.
+
+    Automatically selects bun or npm based on availability.
+
+    Args:
+        package: JS package to run (e.g., "eslint", "tsc")
+        args: Arguments to pass to the tool
+        tool_name: Human-readable tool name for error messages
+        timeout: Timeout in seconds (default: 120)
+        cwd: Working directory for the tool
+        env: Environment variables to pass
+
+    Returns:
+        ExternalToolResult with stdout, stderr, and status
+
+    Example:
+        result = run_js_tool(
+            package="eslint",
+            args=["--format", "json", "."],
+            tool_name="eslint",
+            timeout=120,
+            cwd=repo_path,
+        )
+    """
+    cmd = get_js_exec_command(package) + args
+    return run_external_tool(
+        cmd=cmd,
+        tool_name=tool_name,
+        timeout=timeout,
+        cwd=cwd,
+        env=env,
+    )
+
 
 class ExternalToolResult:
     """Result from running an external tool."""

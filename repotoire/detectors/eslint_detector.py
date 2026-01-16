@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.external_tool_runner import (
     get_graph_context,
-    run_external_tool,
+    run_js_tool,
 )
 from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
@@ -191,23 +191,24 @@ class ESLintDetector(CodeSmellDetector):
     def _run_eslint(self) -> List[Dict[str, Any]]:
         """Run ESLint and parse JSON output.
 
+        Uses bun if available for faster execution, falls back to npx.
+
         Returns:
             List of ESLint file result dictionaries
         """
-        # Build ESLint command
-        cmd = [
-            "npx", "eslint",
+        # Build ESLint arguments
+        args = [
             "--format", "json",
             "--no-error-on-unmatched-pattern",
         ]
 
         # Add config file if specified
         if self.config_file:
-            cmd.extend(["--config", str(self.config_file)])
+            args.extend(["--config", str(self.config_file)])
 
         # Add extensions
         for ext in self.extensions:
-            cmd.extend(["--ext", ext])
+            args.extend(["--ext", ext])
 
         # If incremental analysis, pass specific files
         if self.changed_files:
@@ -222,16 +223,17 @@ class ESLintDetector(CodeSmellDetector):
                 logger.debug("No JS/TS files in changed_files, skipping ESLint")
                 return []
             logger.info(f"Running ESLint on {len(filtered_files)} changed files (incremental)")
-            cmd.extend(filtered_files)
+            args.extend(filtered_files)
         else:
             # Add repository path for full analysis
-            cmd.append(str(self.repository_path))
+            args.append(str(self.repository_path))
 
-        # Run ESLint using shared utility
-        result = run_external_tool(
-            cmd=cmd,
+        # Run ESLint (uses bun if available, falls back to npx)
+        result = run_js_tool(
+            package="eslint",
+            args=args,
             tool_name="eslint",
-            timeout=120,  # ESLint can be slow on large codebases
+            timeout=120,
             cwd=self.repository_path,
         )
 

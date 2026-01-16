@@ -38,6 +38,8 @@ from repotoire.detectors.vulture_detector import VultureDetector
 from repotoire.detectors.semgrep_detector import SemgrepDetector
 from repotoire.detectors.satd_detector import SATDDetector
 from repotoire.detectors.eslint_detector import ESLintDetector
+from repotoire.detectors.tsc_detector import TscDetector
+from repotoire.detectors.npm_audit_detector import NpmAuditDetector
 
 __all__ = [
     "AnalysisEngine",
@@ -73,4 +75,6 @@ __all__ = [
     "SemgrepDetector",
     "SATDDetector",
     "ESLintDetector",
+    "TscDetector",
+    "NpmAuditDetector",
 ]
