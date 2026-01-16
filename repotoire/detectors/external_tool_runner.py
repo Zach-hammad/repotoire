@@ -22,7 +22,9 @@ Usage:
 """
 
 import json
+import os
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
 
@@ -32,42 +34,66 @@ logger = get_logger(__name__)
 
 T = TypeVar("T")
 
-# Cache for JS runtime detection
+# Cache for JS runtime detection with thread safety
 _js_runtime_cache: Optional[str] = None
+_js_runtime_lock = threading.Lock()
 
 
 def get_js_runtime() -> str:
     """Detect available JavaScript runtime (bun or npm).
 
     Prefers Bun for performance when available, falls back to npm.
+    Thread-safe with double-checked locking.
 
     Returns:
         "bun" or "npm"
     """
     global _js_runtime_cache
 
+    # Fast path: check cache without lock
     if _js_runtime_cache is not None:
         return _js_runtime_cache
 
-    # Check for bun first (faster)
-    try:
-        result = subprocess.run(
-            ["bun", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            _js_runtime_cache = "bun"
-            logger.debug(f"Using Bun runtime: {result.stdout.strip()}")
-            return "bun"
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
+    # Slow path: acquire lock and check again
+    with _js_runtime_lock:
+        # Double-check after acquiring lock
+        if _js_runtime_cache is not None:
+            return _js_runtime_cache
 
-    # Fall back to npm
-    _js_runtime_cache = "npm"
-    logger.debug("Using npm runtime (bun not found)")
-    return "npm"
+        # Check for bun first (faster)
+        try:
+            result = subprocess.run(
+                ["bun", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                _js_runtime_cache = "bun"
+                logger.debug(f"Using Bun runtime: {result.stdout.strip()}")
+                return "bun"
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Check if npm is available before defaulting to it
+        try:
+            result = subprocess.run(
+                ["npm", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                _js_runtime_cache = "npm"
+                logger.debug(f"Using npm runtime: {result.stdout.strip()}")
+                return "npm"
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # No JS runtime available - still return npm but log warning
+        logger.warning("No JavaScript runtime (bun or npm) found. JS tool commands may fail.")
+        _js_runtime_cache = "npm"
+        return "npm"
 
 
 def get_js_exec_command(package: str) -> List[str]:
@@ -177,7 +203,7 @@ def run_external_tool(
         tool_name: Human-readable tool name for error messages
         timeout: Timeout in seconds (default: 120)
         cwd: Working directory for the tool
-        env: Environment variables to pass
+        env: Environment variables to pass (merged with parent environment)
         check_installed: Whether to catch FileNotFoundError
 
     Returns:
@@ -194,6 +220,14 @@ def run_external_tool(
             data = result.json_output
             violations = data.get("results", [])
     """
+    # Merge custom env with parent environment to preserve PATH, etc.
+    # If env is None, subprocess.run inherits parent environment automatically
+    # If env is provided, we need to merge it with os.environ
+    effective_env = None
+    if env is not None:
+        effective_env = os.environ.copy()
+        effective_env.update(env)
+
     try:
         result = subprocess.run(
             cmd,
@@ -201,7 +235,7 @@ def run_external_tool(
             text=True,
             cwd=cwd,
             timeout=timeout,
-            env=env,
+            env=effective_env,
         )
         return ExternalToolResult(
             success=True,
@@ -220,7 +254,14 @@ def run_external_tool(
 
     except FileNotFoundError as e:
         if check_installed:
-            logger.error(f"{tool_name} not found. Install with: pip install {tool_name}")
+            # Provide appropriate install command based on tool type
+            cmd_name = cmd[0] if cmd else tool_name
+            if cmd_name in ("npx", "bunx", "npm", "bun", "yarn", "pnpm", "eslint", "tsc"):
+                logger.error(f"{tool_name} not found. Install with: npm install -g {tool_name}")
+            elif cmd_name in ("pip", "python", "bandit", "ruff", "mypy", "pylint"):
+                logger.error(f"{tool_name} not found. Install with: pip install {tool_name}")
+            else:
+                logger.error(f"{tool_name} not found. Please install it first.")
         return ExternalToolResult(
             success=False,
             error=e,

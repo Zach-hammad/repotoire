@@ -63,6 +63,7 @@ def _split_path_components(path: str, sep: str = os.sep) -> Tuple[str, ...]:
     return tuple(path.split(sep))
 
 from repotoire_fast import scan_files as rust_scan_files
+from repotoire_fast import batch_hash_files as rust_batch_hash_files
 
 from repotoire.graph import FalkorDBClient, GraphSchema
 from repotoire.graph.base import DatabaseClient
@@ -182,6 +183,10 @@ class IngestionPipeline:
         # Cache for file content and hash to avoid redundant reads
         # Key: Path, Value: (content_bytes, md5_hash)
         self._file_cache: Dict[Path, Tuple[bytes, str]] = {}
+
+        # Hash-only cache populated by Rust batch hashing (used during incremental analysis)
+        # Key: str (path), Value: str (md5_hash)
+        self._hash_cache: Dict[str, str] = {}
 
         # Callbacks to run after ingestion completes (e.g., cache invalidation)
         self._on_ingest_complete_callbacks: List[Callable[[], None]] = []
@@ -328,6 +333,8 @@ class IngestionPipeline:
         Reads the file in binary mode, computes MD5 hash, and caches both.
         Subsequent calls for the same path return cached values.
 
+        If hash was pre-computed by Rust batch hashing, reuses that hash.
+
         Args:
             file_path: Path to the file to read
 
@@ -345,7 +352,13 @@ class IngestionPipeline:
 
         with open(normalized_path, "rb") as f:
             content = f.read()
-        file_hash = hashlib.md5(content).hexdigest()
+
+        # Check if hash was pre-computed by Rust batch hashing
+        path_str = str(normalized_path)
+        if path_str in self._hash_cache:
+            file_hash = self._hash_cache[path_str]
+        else:
+            file_hash = hashlib.md5(content).hexdigest()
 
         self._file_cache[normalized_path] = (content, file_hash)
         return content, file_hash
@@ -356,9 +369,44 @@ class IngestionPipeline:
         Should be called after ingestion batch completes to prevent memory bloat.
         """
         cache_size = len(self._file_cache)
+        hash_cache_size = len(self._hash_cache)
         self._file_cache.clear()
-        if cache_size > 0:
-            logger.debug(f"Cleared file cache ({cache_size} entries)")
+        self._hash_cache.clear()
+        if cache_size > 0 or hash_cache_size > 0:
+            logger.debug(f"Cleared file cache ({cache_size} entries) and hash cache ({hash_cache_size} entries)")
+
+    def _batch_compute_hashes(self, file_paths: List[Path]) -> Dict[str, str]:
+        """Compute MD5 hashes for multiple files in parallel using Rust.
+
+        Uses Rust's Rayon parallel iterator for ~10x speedup over Python sequential hashing.
+        Results are cached in _hash_cache for subsequent lookups.
+
+        Args:
+            file_paths: List of file paths to hash
+
+        Returns:
+            Dictionary mapping file path (str) to MD5 hash
+        """
+        if not file_paths:
+            return {}
+
+        # Convert paths to strings for Rust FFI
+        path_strings = [str(p.resolve()) for p in file_paths]
+
+        # Call Rust batch_hash_files (uses Rayon for parallel processing)
+        import time
+        start = time.perf_counter()
+        results = rust_batch_hash_files(path_strings)
+        elapsed = time.perf_counter() - start
+
+        # Convert to dictionary and cache
+        hash_dict = {}
+        for path_str, file_hash in results:
+            hash_dict[path_str] = file_hash
+            self._hash_cache[path_str] = file_hash
+
+        logger.debug(f"Rust batch hashed {len(results)} files in {elapsed:.3f}s ({len(results)/elapsed:.0f} files/sec)")
+        return hash_dict
 
     def register_parser(self, language: str, parser: CodeParser) -> None:
         """Register a language parser.
@@ -1082,6 +1130,19 @@ class IngestionPipeline:
             existing_metadata = self.db.batch_get_file_metadata(all_rel_paths)
             logger.debug(f"Fetched metadata for {len(existing_metadata)} existing files in single query")
 
+            # PERFORMANCE: Identify files that need hash comparison (exist in DB)
+            # Then batch compute hashes using Rust (parallel, ~10x faster than Python)
+            files_needing_hash = [
+                file_path_map[rel_path] for rel_path in file_path_map
+                if existing_metadata.get(rel_path) is not None
+            ]
+
+            if files_needing_hash:
+                # Compute all hashes in parallel using Rust
+                hash_results = self._batch_compute_hashes(files_needing_hash)
+            else:
+                hash_results = {}
+
             # Track files that need deletion (changed files)
             files_to_delete = []
 
@@ -1094,8 +1155,13 @@ class IngestionPipeline:
                     files_new += 1
                 else:
                     # File exists in database, compare hashes
-                    # Use cached hash (will read file once, cache for later use by parser)
-                    _, current_hash = self._get_file_content_and_hash(file_path)
+                    # Use hash from Rust batch computation (fast path)
+                    resolved_path = str(file_path.resolve())
+                    current_hash = hash_results.get(resolved_path)
+
+                    if current_hash is None:
+                        # Fallback to Python if Rust hash not available
+                        _, current_hash = self._get_file_content_and_hash(file_path)
 
                     if current_hash == metadata["hash"]:
                         # File unchanged, skip

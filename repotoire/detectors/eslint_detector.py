@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.external_tool_runner import (
+    batch_get_graph_context,
     get_graph_context,
     run_js_tool,
 )
@@ -165,6 +166,26 @@ class ESLintDetector(CodeSmellDetector):
             logger.info("No ESLint violations found")
             return []
 
+        # Collect unique file paths for batch graph context fetching (N+1 optimization)
+        unique_files = set()
+        for file_result in eslint_results:
+            file_path = file_result.get("filePath", "")
+            if file_path:
+                # Normalize path for graph queries
+                file_path_obj = Path(file_path)
+                if file_path_obj.is_absolute():
+                    try:
+                        rel_path = str(file_path_obj.relative_to(self.repository_path))
+                    except ValueError:
+                        rel_path = file_path
+                else:
+                    rel_path = file_path
+                unique_files.add(rel_path.replace("\\", "/"))
+
+        # Batch fetch graph context for all files at once (instead of N queries)
+        file_contexts = batch_get_graph_context(self.db, list(unique_files))
+        logger.debug(f"Batch fetched graph context for {len(file_contexts)} files")
+
         # Flatten messages from all files and create findings
         findings = []
         message_count = 0
@@ -177,7 +198,7 @@ class ESLintDetector(CodeSmellDetector):
                 if message_count >= self.max_findings:
                     break
 
-                finding = self._create_finding(file_path, message)
+                finding = self._create_finding(file_path, message, file_contexts)
                 if finding:
                     findings.append(finding)
                     message_count += 1
@@ -254,12 +275,14 @@ class ESLintDetector(CodeSmellDetector):
         self,
         file_path: str,
         message: Dict[str, Any],
+        file_contexts: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Optional[Finding]:
         """Create finding from ESLint message with graph enrichment.
 
         Args:
             file_path: Absolute file path from ESLint
             message: ESLint message dictionary
+            file_contexts: Pre-fetched graph contexts keyed by file path (batch optimization)
 
         Returns:
             Finding object or None if enrichment fails
@@ -283,8 +306,23 @@ class ESLintDetector(CodeSmellDetector):
         else:
             rel_path = file_path
 
-        # Enrich with graph data
-        graph_data = self._get_graph_context(rel_path, line)
+        # Normalize path separators for cross-platform compatibility with FalkorDB
+        # Windows backslashes must be converted to forward slashes for graph queries
+        rel_path = rel_path.replace("\\", "/")
+
+        # Enrich with graph data - use pre-fetched context if available (batch optimization)
+        if file_contexts and rel_path in file_contexts:
+            # Use pre-fetched file context (no additional query needed)
+            base_context = file_contexts[rel_path]
+            graph_data = {
+                "file_loc": base_context.get("file_loc"),
+                "language": base_context.get("language", "typescript"),
+                "nodes": base_context.get("affected_nodes", []),
+                "complexity": max(base_context.get("complexities", [0]) or [0]),
+            }
+        else:
+            # Fallback to individual query (for backwards compatibility)
+            graph_data = self._get_graph_context(rel_path, line)
 
         # Determine severity
         severity = self._get_severity(rule_id, eslint_severity)

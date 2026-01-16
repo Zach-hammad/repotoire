@@ -155,7 +155,8 @@ class JscpdDetector(CodeSmellDetector):
                 # If incremental analysis, pass specific files
                 if self.changed_files:
                     # Filter to supported file types that exist
-                    supported_extensions = {".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs"}
+                    # Include all TypeScript variants: .ts, .tsx, .mts (ES modules), .cts (CommonJS)
+                    supported_extensions = {".py", ".js", ".ts", ".jsx", ".tsx", ".mts", ".cts", ".java", ".go", ".rs"}
                     filtered_files = [
                         f for f in self.changed_files
                         if Path(f).suffix in supported_extensions and (self.repository_path / f).exists()
@@ -169,6 +170,9 @@ class JscpdDetector(CodeSmellDetector):
                     # Scan current directory (cwd is set to repository_path)
                     # Using "." ensures ignore patterns work correctly
                     cmd.append(".")
+
+                # Log command for debugging
+                logger.debug(f"Running jscpd command: {' '.join(cmd)}")
 
                 # Run jscpd (suppress terminal output)
                 try:
@@ -230,8 +234,9 @@ class JscpdDetector(CodeSmellDetector):
         file2_end = second_file.get("endLoc", {}).get("line", 0)
 
         # Handle paths - jscpd returns relative paths
-        file1_path = str(Path(file1_name))
-        file2_path = str(Path(file2_name))
+        # Normalize path separators for cross-platform FalkorDB compatibility
+        file1_path = str(Path(file1_name)).replace("\\", "/")
+        file2_path = str(Path(file2_name)).replace("\\", "/")
 
         # Enrich with graph data
         graph_data1 = self._get_file_graph_context(file1_path)
@@ -283,9 +288,11 @@ class JscpdDetector(CodeSmellDetector):
             else:
                 confidence_score = 0.85
 
-            # Flag first location
+            # Flag first location (use file path as qualified name since jscpd
+            # doesn't provide function/class context - File nodes use filePath)
             try:
-                entity_qname1 = f"{file1_path}:{file1_start}"
+                # Use just the file path - File nodes are matched by filePath property
+                entity_qname1 = file1_path
                 self.enricher.flag_entity(
                     entity_qualified_name=entity_qname1,
                     detector="JscpdDetector",
@@ -303,9 +310,10 @@ class JscpdDetector(CodeSmellDetector):
             except Exception as e:
                 logger.warning(f"Failed to flag entity at {file1_path}:{file1_start} in graph: {e}")
 
-            # Flag second location
+            # Flag second location (use file path as qualified name)
             try:
-                entity_qname2 = f"{file2_path}:{file2_start}"
+                # Use just the file path - File nodes are matched by filePath property
+                entity_qname2 = file2_path
                 self.enricher.flag_entity(
                     entity_qualified_name=entity_qname2,
                     detector="JscpdDetector",

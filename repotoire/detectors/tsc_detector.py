@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.external_tool_runner import (
+    batch_get_graph_context,
     get_graph_context,
     run_js_tool,
 )
@@ -137,8 +138,13 @@ class TscDetector(CodeSmellDetector):
         """
         logger.info(f"Running tsc type check on {self.repository_path}")
 
-        # Check if TypeScript files exist
-        ts_files = list(self.repository_path.rglob("*.ts")) + list(self.repository_path.rglob("*.tsx"))
+        # Check if TypeScript files exist (include all TS variants)
+        ts_files = (
+            list(self.repository_path.rglob("*.ts")) +
+            list(self.repository_path.rglob("*.tsx")) +
+            list(self.repository_path.rglob("*.mts")) +  # ES module TypeScript
+            list(self.repository_path.rglob("*.cts"))    # CommonJS TypeScript
+        )
         if not ts_files:
             logger.info("No TypeScript files found, skipping tsc")
             return []
@@ -150,10 +156,21 @@ class TscDetector(CodeSmellDetector):
             logger.info("No tsc type errors found")
             return []
 
-        # Create findings
+        # Collect unique file paths for batch graph context fetching (N+1 optimization)
+        unique_files = set()
+        for error in tsc_errors[:self.max_findings]:
+            file_path = error.get("file", "")
+            if file_path:
+                unique_files.add(file_path)  # Already normalized in _run_tsc()
+
+        # Batch fetch graph context for all files at once (instead of N queries)
+        file_contexts = batch_get_graph_context(self.db, list(unique_files))
+        logger.debug(f"Batch fetched graph context for {len(file_contexts)} files")
+
+        # Create findings with pre-fetched context
         findings = []
         for error in tsc_errors[:self.max_findings]:
-            finding = self._create_finding(error)
+            finding = self._create_finding(error, file_contexts)
             if finding:
                 findings.append(finding)
 
@@ -209,15 +226,31 @@ class TscDetector(CodeSmellDetector):
             if match:
                 file_path, line_num, col, level, code, message = match.groups()
 
+                # Normalize path separators for cross-platform compatibility
+                # Windows paths may have backslashes, tsc may output mixed separators
+                normalized_file = file_path.replace("\\", "/")
+                normalized_repo = str(self.repository_path).replace("\\", "/")
+
                 # Convert to relative path
                 try:
+                    # Try direct relative path calculation
                     rel_path = str(Path(file_path).relative_to(self.repository_path))
                 except ValueError:
-                    rel_path = file_path
+                    # Try with normalized paths (handles Windows drive letters)
+                    if normalized_file.startswith(normalized_repo):
+                        rel_path = normalized_file[len(normalized_repo):].lstrip("/")
+                    else:
+                        rel_path = normalized_file
+
+                # Normalize to forward slashes for graph queries
+                rel_path = rel_path.replace("\\", "/")
 
                 # Filter for changed files if incremental
-                if self.changed_files and rel_path not in self.changed_files:
-                    continue
+                # Also normalize changed_files for comparison
+                if self.changed_files:
+                    normalized_changed = [f.replace("\\", "/") for f in self.changed_files]
+                    if rel_path not in normalized_changed:
+                        continue
 
                 errors.append({
                     "file": rel_path,
@@ -231,11 +264,16 @@ class TscDetector(CodeSmellDetector):
         logger.info(f"tsc found {len(errors)} type errors")
         return errors
 
-    def _create_finding(self, error: Dict[str, Any]) -> Optional[Finding]:
+    def _create_finding(
+        self,
+        error: Dict[str, Any],
+        file_contexts: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Optional[Finding]:
         """Create finding from tsc error with graph enrichment.
 
         Args:
             error: tsc error dictionary
+            file_contexts: Pre-fetched graph contexts keyed by file path (batch optimization)
 
         Returns:
             Finding object or None
@@ -246,8 +284,19 @@ class TscDetector(CodeSmellDetector):
         code = error["code"]
         message = error["message"]
 
-        # Enrich with graph data
-        graph_data = self._get_graph_context(file_path, line)
+        # Enrich with graph data - use pre-fetched context if available (batch optimization)
+        if file_contexts and file_path in file_contexts:
+            # Use pre-fetched file context (no additional query needed)
+            base_context = file_contexts[file_path]
+            graph_data = {
+                "file_loc": base_context.get("file_loc"),
+                "language": base_context.get("language", "typescript"),
+                "nodes": base_context.get("affected_nodes", []),
+                "complexity": max(base_context.get("complexities", [0]) or [0]),
+            }
+        else:
+            # Fallback to individual query (for backwards compatibility)
+            graph_data = self._get_graph_context(file_path, line)
 
         # Determine severity
         severity = self._get_severity(code)

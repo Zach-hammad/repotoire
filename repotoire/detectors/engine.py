@@ -63,6 +63,11 @@ from repotoire.detectors.semgrep_detector import SemgrepDetector
 from repotoire.detectors.satd_detector import SATDDetector
 from repotoire.detectors.taint_detector import TaintDetector
 from repotoire.detectors.deduplicator import FindingDeduplicator
+
+# TypeScript/JavaScript detectors
+from repotoire.detectors.tsc_detector import TscDetector
+from repotoire.detectors.eslint_detector import ESLintDetector
+from repotoire.detectors.npm_audit_detector import NpmAuditDetector
 from repotoire.detectors.root_cause_analyzer import RootCauseAnalyzer
 from repotoire.detectors.voting_engine import VotingEngine, VotingStrategy, ConfidenceMethod
 
@@ -299,6 +304,25 @@ class AnalysisEngine:
                 graph_client,
                 detector_config=hybrid_config(),
                 enricher=self.enricher  # Enable graph enrichment
+            ),
+            # TypeScript/JavaScript detectors
+            # TypeScript compiler type checking (like Mypy for Python)
+            TscDetector(
+                graph_client,
+                detector_config=hybrid_config(),
+                enricher=self.enricher
+            ),
+            # ESLint code quality checking
+            ESLintDetector(
+                graph_client,
+                detector_config=hybrid_config(),
+                enricher=self.enricher
+            ),
+            # npm audit security vulnerability scanning
+            NpmAuditDetector(
+                graph_client,
+                detector_config=hybrid_config(),
+                enricher=self.enricher
             ),
         ]
 

@@ -149,7 +149,7 @@ class TestESLintDetector:
         suggestion = detector._suggest_fix("no-eval", "eval is dangerous", None)
         assert "Replace eval()" in suggestion
 
-    @patch("repotoire.detectors.eslint_detector.run_external_tool")
+    @patch("repotoire.detectors.eslint_detector.run_js_tool")
     def test_detect_with_findings(self, mock_run_tool, mock_graph_client, temp_repo):
         """Test detection with ESLint findings."""
         # Mock ESLint output
@@ -208,7 +208,7 @@ class TestESLintDetector:
         assert "no-var" in var_finding.title
         assert var_finding.severity == Severity.LOW
 
-    @patch("repotoire.detectors.eslint_detector.run_external_tool")
+    @patch("repotoire.detectors.eslint_detector.run_js_tool")
     def test_detect_no_findings(self, mock_run_tool, mock_graph_client, temp_repo):
         """Test detection with no ESLint findings."""
         mock_result = MagicMock()
@@ -225,7 +225,7 @@ class TestESLintDetector:
         findings = detector.detect()
         assert len(findings) == 0
 
-    @patch("repotoire.detectors.eslint_detector.run_external_tool")
+    @patch("repotoire.detectors.eslint_detector.run_js_tool")
     def test_detect_timeout(self, mock_run_tool, mock_graph_client, temp_repo):
         """Test detection handles timeout gracefully."""
         mock_result = MagicMock()
@@ -242,7 +242,7 @@ class TestESLintDetector:
         findings = detector.detect()
         assert len(findings) == 0
 
-    @patch("repotoire.detectors.eslint_detector.run_external_tool")
+    @patch("repotoire.detectors.eslint_detector.run_js_tool")
     def test_incremental_analysis(self, mock_run_tool, mock_graph_client, temp_repo):
         """Test incremental analysis with changed_files."""
         mock_result = MagicMock()
@@ -261,10 +261,10 @@ class TestESLintDetector:
 
         detector.detect()
 
-        # Verify run_external_tool was called with the changed file
+        # Verify run_js_tool was called with the changed file
         call_args = mock_run_tool.call_args
-        cmd = call_args.kwargs["cmd"]
-        assert "src/utils.ts" in cmd
+        args = call_args.kwargs["args"]
+        assert "src/utils.ts" in args
 
     def test_max_findings_limit(self, mock_graph_client, temp_repo):
         """Test max_findings configuration."""

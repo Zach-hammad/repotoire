@@ -129,17 +129,40 @@ class NpmAuditDetector(CodeSmellDetector):
         Returns:
             List of vulnerability dictionaries
         """
+        # Check for lock file - npm audit requires package-lock.json
+        has_package_lock = (self.repository_path / "package-lock.json").exists()
+        has_yarn_lock = (self.repository_path / "yarn.lock").exists()
+        has_pnpm_lock = (self.repository_path / "pnpm-lock.yaml").exists()
+        has_bun_lock = (self.repository_path / "bun.lockb").exists()
+
+        if not any([has_package_lock, has_yarn_lock, has_pnpm_lock, has_bun_lock]):
+            logger.warning(
+                "No lock file found (package-lock.json, yarn.lock, pnpm-lock.yaml, or bun.lockb). "
+                "npm audit requires a lock file. Run 'npm install' first."
+            )
+            return []
+
         runtime = get_js_runtime()
 
-        if runtime == "bun":
-            # Bun doesn't have full audit support yet, use npm
-            # Fall back to npm for audit
-            cmd = ["npm", "audit", "--json"]
+        # Use appropriate audit command based on lock file and runtime
+        if has_yarn_lock:
+            cmd = ["yarn", "audit", "--json"]
+        elif has_pnpm_lock:
+            cmd = ["pnpm", "audit", "--json"]
+        elif has_bun_lock and runtime == "bun":
+            # Bun has audit support now
+            cmd = ["bun", "audit", "--json"]
         else:
+            # Default to npm audit
             cmd = ["npm", "audit", "--json"]
 
         if self.production_only:
-            cmd.append("--omit=dev")
+            if cmd[0] == "npm":
+                cmd.append("--omit=dev")
+            elif cmd[0] == "yarn":
+                cmd.append("--groups=production")
+            elif cmd[0] == "pnpm":
+                cmd.append("--prod")
 
         result = run_external_tool(
             cmd=cmd,
@@ -255,7 +278,7 @@ class NpmAuditDetector(CodeSmellDetector):
             suggested_fix=self._suggest_fix(vuln),
             estimated_effort="Small (15-30 minutes)" if vuln.get("fix_available") else "Medium (1-2 hours)",
             created_at=datetime.now(),
-            language="javascript",  # Could be typescript too
+            language=self._detect_language(affected_files),
         )
 
         # Flag entities in graph for cross-detector collaboration
@@ -298,10 +321,14 @@ class NpmAuditDetector(CodeSmellDetector):
         Returns:
             List of file paths that import the package
         """
+        # FalkorDB: Use ENDS WITH for string suffix matching instead of CONTAINS
+        # (CONTAINS is for list membership in FalkorDB, not string substring)
         query = """
         MATCH (f:File)-[:CONTAINS]->(e)-[r:IMPORTS]->(target)
-        WHERE target.qualifiedName CONTAINS $package
-           OR r.module CONTAINS $package
+        WHERE target.qualifiedName ENDS WITH $package
+           OR r.module ENDS WITH $package
+           OR target.qualifiedName = $package
+           OR r.module = $package
         RETURN DISTINCT f.filePath as file_path
         LIMIT 10
         """
@@ -390,6 +417,26 @@ class NpmAuditDetector(CodeSmellDetector):
             return f"Run `npm audit fix` or manually update {package} to a patched version"
 
         return f"Check for alternative packages or apply workarounds for {package}. See advisory for details."
+
+    def _detect_language(self, affected_files: List[str]) -> str:
+        """Detect language from affected files.
+
+        Args:
+            affected_files: List of affected file paths
+
+        Returns:
+            "typescript" or "javascript"
+        """
+        # Check if any affected files are TypeScript
+        for f in affected_files:
+            if f.endswith((".ts", ".tsx", ".mts", ".cts")):
+                return "typescript"
+
+        # Check if tsconfig.json exists in the repository
+        if (self.repository_path / "tsconfig.json").exists():
+            return "typescript"
+
+        return "javascript"
 
     def severity(self, finding: Finding) -> Severity:
         """Calculate severity for an npm audit finding.

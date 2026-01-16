@@ -24,7 +24,7 @@ def mock_graph_client():
 
 @pytest.fixture
 def temp_repo():
-    """Create a temporary repository with package.json."""
+    """Create a temporary repository with package.json and package-lock.json."""
     with tempfile.TemporaryDirectory() as tmpdir:
         repo_path = Path(tmpdir)
 
@@ -36,6 +36,25 @@ def temp_repo():
             "dependencies": {
                 "lodash": "^4.17.0",
                 "axios": "^0.21.0",
+            }
+        }))
+
+        # Create a package-lock.json (required for npm audit)
+        package_lock = repo_path / "package-lock.json"
+        package_lock.write_text(json.dumps({
+            "name": "test-project",
+            "version": "1.0.0",
+            "lockfileVersion": 2,
+            "requires": True,
+            "packages": {
+                "": {
+                    "name": "test-project",
+                    "version": "1.0.0",
+                    "dependencies": {
+                        "lodash": "^4.17.0",
+                        "axios": "^0.21.0",
+                    }
+                }
             }
         }))
 
