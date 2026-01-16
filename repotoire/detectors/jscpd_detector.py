@@ -73,22 +73,25 @@ class JscpdDetector(CodeSmellDetector):
         self.enricher = enricher  # Graph enrichment for cross-detector collaboration
         # Incremental analysis: only analyze changed files (10-100x faster)
         self.changed_files = config.get("changed_files", None)
+        # Language formats to scan (default: all supported languages)
+        # Common formats: python, javascript, typescript, java, go, rust, etc.
+        self.formats = config.get("formats", None)  # None = scan all languages
 
-        # Default ignore patterns
+        # Default ignore patterns (prefixed with **/ to work from any directory level)
         default_ignore = [
-            "node_modules/**",
-            ".venv/**",
-            "venv/**",
-            "env/**",
-            "__pycache__/**",
-            "*.pyc",
-            ".git/**",
-            "dist/**",
-            "build/**",
-            ".pytest_cache/**",
-            "htmlcov/**",
-            ".tox/**",
-            "*.egg-info/**",
+            "**/node_modules/**",
+            "**/.venv/**",
+            "**/venv/**",
+            "**/env/**",
+            "**/__pycache__/**",
+            "**/*.pyc",
+            "**/.git/**",
+            "**/dist/**",
+            "**/build/**",
+            "**/.pytest_cache/**",
+            "**/htmlcov/**",
+            "**/.tox/**",
+            "**/*.egg-info/**",
         ]
         self.ignore = config.get("ignore", default_ignore)
 
@@ -135,15 +138,19 @@ class JscpdDetector(CodeSmellDetector):
                 cmd = get_js_exec_command("jscpd") + [
                     "--reporters", "json",
                     "--output", temp_dir,
-                    "--format", "python",
                     "--min-lines", str(self.min_lines),
                     "--min-tokens", str(self.min_tokens),
                     "--threshold", str(self.threshold),
                 ]
 
-                # Add ignore patterns
-                for pattern in self.ignore:
-                    cmd.extend(["--ignore", pattern])
+                # Add language format filter if specified
+                if self.formats:
+                    for fmt in self.formats:
+                        cmd.extend(["--format", fmt])
+
+                # Add ignore patterns (comma-separated, as jscpd expects)
+                if self.ignore:
+                    cmd.extend(["--ignore", ",".join(self.ignore)])
 
                 # If incremental analysis, pass specific files
                 if self.changed_files:
@@ -159,8 +166,9 @@ class JscpdDetector(CodeSmellDetector):
                     logger.info(f"Running jscpd on {len(filtered_files)} changed files (incremental)")
                     cmd.extend(filtered_files)
                 else:
-                    # Scan the full repository (ignore patterns handle exclusions)
-                    cmd.append(str(self.repository_path))
+                    # Scan current directory (cwd is set to repository_path)
+                    # Using "." ensures ignore patterns work correctly
+                    cmd.append(".")
 
                 # Run jscpd (suppress terminal output)
                 try:
