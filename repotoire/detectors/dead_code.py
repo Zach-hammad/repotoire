@@ -224,15 +224,18 @@ class DeadCodeDetector(CodeSmellDetector):
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_repo_filter("f")
 
-        # Note: Removed is_method filter from Cypher due to FalkorDB type issues
-        # The filter is applied in Python below
+        # Note: Using OPTIONAL MATCH + IS NULL instead of NOT (pattern)
+        # because FalkorDB has type mismatch issues with NOT patterns.
+        # Also removed is_method filter from Cypher - applied in Python below.
         query = f"""
         MATCH (f:Function)
-        WHERE NOT (f)<-[:CALLS]-()
-          AND NOT (f)<-[:USES]-()
-          AND NOT (f.name STARTS WITH 'test_')
+        WHERE NOT (f.name STARTS WITH 'test_')
           AND NOT f.name IN ['main', '__main__', '__init__', 'setUp', 'tearDown']
           {repo_filter}
+        OPTIONAL MATCH (f)<-[call:CALLS]-()
+        OPTIONAL MATCH (f)<-[use:USES]-()
+        WITH f, call, use
+        WHERE call IS NULL AND use IS NULL
         OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
         WITH f, file
         RETURN f.qualifiedName AS qualified_name,
@@ -429,13 +432,17 @@ class DeadCodeDetector(CodeSmellDetector):
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_repo_filter("c")
 
-        # FalkorDB-compatible query (no EXISTS subqueries)
+        # FalkorDB-compatible query
+        # Note: Using OPTIONAL MATCH + IS NULL instead of NOT (pattern)
+        # because FalkorDB has type mismatch issues with NOT patterns
         query = f"""
         MATCH (file:File)-[:CONTAINS]->(c:Class)
-        WHERE NOT (c)<-[:CALLS]-()
-          AND NOT (c)<-[:INHERITS]-()
-          AND NOT (c)<-[:USES]-()
-          {repo_filter}
+        WHERE 1=1 {repo_filter}
+        OPTIONAL MATCH (c)<-[call:CALLS]-()
+        OPTIONAL MATCH (c)<-[inherit:INHERITS]-()
+        OPTIONAL MATCH (c)<-[use:USES]-()
+        WITH c, file, call, inherit, use
+        WHERE call IS NULL AND inherit IS NULL AND use IS NULL
         OPTIONAL MATCH (file)-[:CONTAINS]->(m:Function)
         WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
         WITH c, file, count(m) AS method_count
