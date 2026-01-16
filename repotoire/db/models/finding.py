@@ -76,6 +76,7 @@ class Finding(Base, UUIDPrimaryKeyMixin):
         suggested_fix: Suggested fix for the issue
         estimated_effort: Estimated effort to fix (e.g., "Small (2-4 hours)")
         graph_context: Additional graph data about the issue (JSON)
+        language: Primary language of affected files (e.g., python, typescript)
         status_reason: Optional reason for status change (e.g., why it's a false positive)
         status_changed_by: User ID who changed the status
         status_changed_at: When the status was last changed
@@ -150,6 +151,11 @@ class Finding(Base, UUIDPrimaryKeyMixin):
         JSONB,
         nullable=True,
     )
+    language: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Primary language of affected files (e.g., python, typescript)",
+    )
     status_reason: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,
@@ -192,6 +198,7 @@ class Finding(Base, UUIDPrimaryKeyMixin):
         Index("ix_findings_severity", "severity"),
         Index("ix_findings_detector", "detector"),
         Index("ix_findings_status", "status"),
+        Index("ix_findings_language", "language"),
     )
 
     def __repr__(self) -> str:

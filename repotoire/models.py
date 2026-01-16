@@ -12,7 +12,88 @@ All models use dataclasses for immutability and type safety.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+# Language detection mapping
+EXTENSION_TO_LANGUAGE = {
+    ".py": "python",
+    ".pyi": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".mts": "typescript",
+    ".cts": "typescript",
+    ".java": "java",
+    ".go": "go",
+    ".rs": "rust",
+    ".rb": "ruby",
+    ".php": "php",
+    ".c": "c",
+    ".h": "c",
+    ".cpp": "cpp",
+    ".hpp": "cpp",
+    ".cc": "cpp",
+    ".cxx": "cpp",
+    ".cs": "csharp",
+    ".swift": "swift",
+    ".kt": "kotlin",
+    ".kts": "kotlin",
+    ".scala": "scala",
+    ".ex": "elixir",
+    ".exs": "elixir",
+}
+
+
+def detect_language_from_path(file_path: str) -> str:
+    """Detect programming language from file path extension.
+
+    Args:
+        file_path: Path to file (can be string or Path)
+
+    Returns:
+        Language identifier (e.g., "python", "typescript") or "unknown"
+
+    Example:
+        >>> detect_language_from_path("src/main.ts")
+        'typescript'
+        >>> detect_language_from_path("app/views.py")
+        'python'
+    """
+    path = Path(file_path)
+    return EXTENSION_TO_LANGUAGE.get(path.suffix.lower(), "unknown")
+
+
+def detect_primary_language(file_paths: List[str]) -> Optional[str]:
+    """Detect the most common language from a list of file paths.
+
+    Args:
+        file_paths: List of file paths
+
+    Returns:
+        Most common language or None if empty/unknown
+
+    Example:
+        >>> detect_primary_language(["a.py", "b.py", "c.ts"])
+        'python'
+    """
+    if not file_paths:
+        return None
+
+    language_counts: Dict[str, int] = {}
+    for path in file_paths:
+        lang = detect_language_from_path(path)
+        if lang != "unknown":
+            language_counts[lang] = language_counts.get(lang, 0) + 1
+
+    if not language_counts:
+        return None
+
+    return max(language_counts, key=language_counts.get)  # type: ignore
 
 
 class Severity(str, Enum):
@@ -906,6 +987,7 @@ class Finding:
         estimated_effort: Estimated effort to fix (e.g., "Small (2-4 hours)")
         created_at: When the finding was detected
         collaboration_metadata: List of collaboration metadata from multiple detectors
+        language: Primary language of affected files (e.g., "python", "typescript")
 
     Example:
         >>> finding = Finding(
@@ -935,6 +1017,7 @@ class Finding:
     estimated_effort: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
     collaboration_metadata: List[CollaborationMetadata] = field(default_factory=list)
+    language: Optional[str] = None  # Primary language of affected files (e.g., "python", "typescript")
 
     # Deduplication fields (REPO-152 Phase 3)
     is_duplicate: bool = False
@@ -1059,6 +1142,11 @@ class Finding:
 
         # Calculate final score (0-100 scale)
         return (severity_weight + confidence_weight + agreement_weight) * 100
+
+    def __post_init__(self) -> None:
+        """Auto-detect language from affected_files if not set."""
+        if self.language is None and self.affected_files:
+            self.language = detect_primary_language(self.affected_files)
 
 
 @dataclass
