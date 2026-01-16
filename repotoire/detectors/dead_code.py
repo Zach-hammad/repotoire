@@ -224,13 +224,14 @@ class DeadCodeDetector(CodeSmellDetector):
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_repo_filter("f")
 
+        # Note: Removed is_method filter from Cypher due to FalkorDB type issues
+        # The filter is applied in Python below
         query = f"""
         MATCH (f:Function)
         WHERE NOT (f)<-[:CALLS]-()
           AND NOT (f)<-[:USES]-()
           AND NOT (f.name STARTS WITH 'test_')
           AND NOT f.name IN ['main', '__main__', '__init__', 'setUp', 'tearDown']
-          AND (f.is_method = false OR f.name STARTS WITH '_')
           {repo_filter}
         OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
         WITH f, file
@@ -240,7 +241,8 @@ class DeadCodeDetector(CodeSmellDetector):
                f.lineStart AS line_start,
                f.complexity AS complexity,
                file.filePath AS containing_file,
-               f.decorators AS decorators
+               f.decorators AS decorators,
+               f.is_method AS is_method
         ORDER BY f.complexity DESC
         LIMIT 100
         """
@@ -251,6 +253,12 @@ class DeadCodeDetector(CodeSmellDetector):
             # Filter out magic methods
             name = record["name"]
             if name in self.MAGIC_METHODS:
+                continue
+
+            # Filter methods that aren't private (moved from Cypher due to FalkorDB type issues)
+            # Only flag methods if they start with '_' (private), skip public methods as they may be called externally
+            is_method = record.get("is_method")
+            if is_method and not name.startswith("_"):
                 continue
 
             # Check if it's an entry point (exact match or prefix)
