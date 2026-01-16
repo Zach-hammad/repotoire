@@ -68,6 +68,13 @@ from repotoire.graph import FalkorDBClient, GraphSchema
 from repotoire.graph.base import DatabaseClient
 from repotoire.parsers import CodeParser, PythonParser
 from repotoire.models import Entity, Relationship, SecretsPolicy, RelationshipType
+
+# Optional TypeScript/JavaScript parsers
+try:
+    from repotoire.parsers import TreeSitterTypeScriptParser, TreeSitterJavaScriptParser
+    _HAS_TYPESCRIPT_PARSER = True
+except ImportError:
+    _HAS_TYPESCRIPT_PARSER = False
 from repotoire.logging_config import get_logger, LogContext, log_operation
 
 logger = get_logger(__name__)
@@ -278,6 +285,15 @@ class IngestionPipeline:
 
         # Register default parsers with secrets policy
         self.register_parser("python", PythonParser(secrets_policy=secrets_policy))
+
+        # Register TypeScript/JavaScript parsers if available
+        if _HAS_TYPESCRIPT_PARSER:
+            try:
+                self.register_parser("typescript", TreeSitterTypeScriptParser())
+                self.register_parser("javascript", TreeSitterJavaScriptParser())
+                logger.info("TypeScript and JavaScript parsers registered")
+            except ImportError as e:
+                logger.debug(f"TypeScript/JavaScript parsers not available: {e}")
 
         # Initialize Rust parallel parser if available (Phase 2 performance)
         self.rust_parser = None
@@ -491,7 +507,10 @@ class IngestionPipeline:
             List of validated file paths
         """
         if patterns is None:
+            # Default patterns include all supported languages
             patterns = ["**/*.py"]
+            if _HAS_TYPESCRIPT_PARSER:
+                patterns.extend(["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"])
 
         ignored_dirs = [".git", "__pycache__", "node_modules", ".venv", "venv", "build", "dist"]
         file_paths = rust_scan_files(str(self.repo_path), patterns, ignored_dirs)
@@ -1030,9 +1049,12 @@ class IngestionPipeline:
         # Scan for files
         with LogContext(operation="scan_files"):
             files = self.scan(patterns)
+            default_patterns = ["**/*.py"]
+            if _HAS_TYPESCRIPT_PARSER:
+                default_patterns.extend(["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"])
             logger.info(f"Scanned repository", extra={
                 "files_found": len(files),
-                "patterns": patterns or ["**/*.py"]
+                "patterns": patterns or default_patterns
             })
 
         if not files:

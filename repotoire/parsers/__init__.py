@@ -6,6 +6,18 @@ from repotoire.parsers.tree_sitter_adapter import UniversalASTNode, TreeSitterAd
 from repotoire.parsers.base_tree_sitter_parser import BaseTreeSitterParser
 from repotoire.parsers.tree_sitter_python import TreeSitterPythonParser
 
+# Optional TypeScript/JavaScript parsers (requires tree-sitter-typescript)
+try:
+    from repotoire.parsers.tree_sitter_typescript import (
+        TreeSitterTypeScriptParser,
+        TreeSitterJavaScriptParser,
+    )
+    _HAS_TYPESCRIPT = True
+except ImportError:
+    _HAS_TYPESCRIPT = False
+    TreeSitterTypeScriptParser = None  # type: ignore
+    TreeSitterJavaScriptParser = None  # type: ignore
+
 __all__ = [
     "CodeParser",
     "PythonParser",
@@ -13,4 +25,6 @@ __all__ = [
     "TreeSitterAdapter",
     "BaseTreeSitterParser",
     "TreeSitterPythonParser",
+    "TreeSitterTypeScriptParser",
+    "TreeSitterJavaScriptParser",
 ]
