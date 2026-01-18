@@ -559,6 +559,9 @@ class IngestionPipeline:
             patterns = ["**/*.py"]
             if _HAS_TYPESCRIPT_PARSER:
                 patterns.extend(["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"])
+            # Add Java, Go, and Rust when Rust tree-sitter parser is available
+            if self.rust_parser is not None:
+                patterns.extend(["**/*.java", "**/*.go", "**/*.rs"])
 
         ignored_dirs = [".git", "__pycache__", "node_modules", ".venv", "venv", "build", "dist"]
         file_paths = rust_scan_files(str(self.repo_path), patterns, ignored_dirs)
@@ -1100,6 +1103,8 @@ class IngestionPipeline:
             default_patterns = ["**/*.py"]
             if _HAS_TYPESCRIPT_PARSER:
                 default_patterns.extend(["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"])
+            if self.rust_parser is not None:
+                default_patterns.extend(["**/*.java", "**/*.go", "**/*.rs"])
             logger.info(f"Scanned repository", extra={
                 "files_found": len(files),
                 "patterns": patterns or default_patterns

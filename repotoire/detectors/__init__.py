@@ -40,6 +40,7 @@ from repotoire.detectors.satd_detector import SATDDetector
 from repotoire.detectors.eslint_detector import ESLintDetector
 from repotoire.detectors.tsc_detector import TscDetector
 from repotoire.detectors.npm_audit_detector import NpmAuditDetector
+from repotoire.detectors.infinite_loop_detector import InfiniteLoopDetector
 
 __all__ = [
     "AnalysisEngine",
@@ -77,4 +78,6 @@ __all__ = [
     "ESLintDetector",
     "TscDetector",
     "NpmAuditDetector",
+    # Rust-based detectors
+    "InfiniteLoopDetector",
 ]

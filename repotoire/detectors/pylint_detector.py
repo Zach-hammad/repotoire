@@ -61,19 +61,10 @@ logger = get_logger(__name__)
 # Try to import Rust-based pylint rules (only rules NOT covered by Ruff)
 try:
     from repotoire_fast import (
-        check_too_many_attributes,      # R0902
-        check_too_few_public_methods,   # R0903
-        check_import_self,              # R0401
-        check_too_many_lines,           # C0302
-        check_too_many_ancestors,       # R0901
-        check_attribute_defined_outside_init,  # W0201
-        check_protected_access,         # W0212
-        check_unused_wildcard_import,   # W0614
-        check_undefined_loop_variable,  # W0631
-        check_disallowed_name,          # C0104
+        check_all_pylint_rules_batch,   # All rules, multiple files in parallel (10x faster)
     )
     RUST_PYLINT_AVAILABLE = True
-    logger.debug("Rust pylint rules available")
+    logger.debug("Rust pylint rules available (batch mode)")
 except ImportError:
     RUST_PYLINT_AVAILABLE = False
     logger.debug("Rust pylint rules not available, using pylint only")
@@ -197,15 +188,18 @@ class PylintDetector(CodeSmellDetector):
         return findings[:self.max_findings]
 
     def _run_rust_checks(self) -> List[Dict[str, Any]]:
-        """Run Rust-based pylint rule checks on all Python files.
+        """Run Rust-based pylint rule checks on all Python files using batch processing.
+
+        Uses check_all_pylint_rules_batch for 10x speedup:
+        - Parses each file only once (instead of 10x per rule)
+        - Processes files in parallel with Rayon
+        - Releases Python GIL during Rust processing
 
         Only runs checks for rules NOT covered by Ruff (use RuffLintDetector for the rest).
 
         Returns:
             List of pylint-compatible result dictionaries
         """
-        results = []
-
         # If incremental analysis, use changed_files instead of scanning all files
         if self.changed_files:
             # Filter to only Python files that exist
@@ -216,12 +210,14 @@ class PylintDetector(CodeSmellDetector):
             if not python_files:
                 logger.debug("No Python files in changed_files, skipping Rust pylint checks")
                 return []
-            logger.info(f"Running Rust checks on {len(python_files)} changed files (incremental)")
+            logger.info(f"Running Rust batch checks on {len(python_files)} changed files (incremental)")
         else:
             # Find all Python files in repository
             python_files = list(self.repository_path.rglob("*.py"))
-            logger.info(f"Running Rust checks on {len(python_files)} Python files")
+            logger.info(f"Running Rust batch checks on {len(python_files)} Python files")
 
+        # Prepare files for batch processing: (rel_path, source) tuples
+        files_to_check = []
         for file_path in python_files:
             # Skip common non-source directories
             path_str = str(file_path)
@@ -230,142 +226,61 @@ class PylintDetector(CodeSmellDetector):
 
             try:
                 source = file_path.read_text(encoding="utf-8")
+                rel_path = str(file_path.relative_to(self.repository_path))
+                files_to_check.append((rel_path, source))
             except Exception as e:
                 logger.debug(f"Failed to read {file_path}: {e}")
                 continue
 
-            rel_path = str(file_path.relative_to(self.repository_path))
+        if not files_to_check:
+            logger.debug("No valid Python files to check")
+            return []
 
-            # R0401: cyclic-import / import-self
-            if "R0401" in self.enable_only or not self.enable_only:
-                for code, message, line in check_import_self(source, rel_path):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "cyclic-import",
-                        "type": "refactor",
-                    })
+        # Run batch check - parses each file once, runs all 10 rules in parallel
+        # Returns: List[(path, List[(code, message, line)])]
+        batch_results = check_all_pylint_rules_batch(
+            files_to_check,
+            max_attributes=self.max_attributes,
+            min_public_methods=self.min_public_methods,
+            max_lines=self.max_module_lines,
+            max_ancestors=self.max_ancestors,
+            disallowed_names=self.disallowed_names,
+        )
 
-            # R0902: too-many-instance-attributes
-            if "R0902" in self.enable_only or not self.enable_only:
-                for code, message, line in check_too_many_attributes(source, self.max_attributes):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "too-many-instance-attributes",
-                        "type": "refactor",
-                    })
+        # Map rule codes to symbols and types
+        CODE_TO_SYMBOL = {
+            "C0104": ("disallowed-name", "convention"),
+            "C0302": ("too-many-lines", "convention"),
+            "R0401": ("cyclic-import", "refactor"),
+            "R0901": ("too-many-ancestors", "refactor"),
+            "R0902": ("too-many-instance-attributes", "refactor"),
+            "R0903": ("too-few-public-methods", "refactor"),
+            "W0201": ("attribute-defined-outside-init", "warning"),
+            "W0212": ("protected-access", "warning"),
+            "W0614": ("unused-wildcard-import", "warning"),
+            "W0631": ("undefined-loop-variable", "warning"),
+        }
 
-            # R0903: too-few-public-methods
-            if "R0903" in self.enable_only or not self.enable_only:
-                for code, message, line in check_too_few_public_methods(source, self.min_public_methods):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "too-few-public-methods",
-                        "type": "refactor",
-                    })
+        # Convert batch results to pylint-compatible format
+        results = []
+        for rel_path, findings in batch_results:
+            for code, message, line in findings:
+                # Filter by enable_only if specified
+                if self.enable_only and code not in self.enable_only:
+                    continue
 
-            # C0302: too-many-lines
-            if "C0302" in self.enable_only or not self.enable_only:
-                for code, message, line in check_too_many_lines(source, self.max_module_lines):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "too-many-lines",
-                        "type": "convention",
-                    })
+                symbol, msg_type = CODE_TO_SYMBOL.get(code, ("unknown", "convention"))
+                results.append({
+                    "path": rel_path,
+                    "line": line,
+                    "column": 0,
+                    "message": message,
+                    "message-id": code,
+                    "symbol": symbol,
+                    "type": msg_type,
+                })
 
-            # R0901: too-many-ancestors
-            if "R0901" in self.enable_only or not self.enable_only:
-                for code, message, line in check_too_many_ancestors(source, self.max_ancestors):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "too-many-ancestors",
-                        "type": "refactor",
-                    })
-
-            # W0201: attribute-defined-outside-init
-            if "W0201" in self.enable_only or not self.enable_only:
-                for code, message, line in check_attribute_defined_outside_init(source):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "attribute-defined-outside-init",
-                        "type": "warning",
-                    })
-
-            # W0212: protected-access
-            if "W0212" in self.enable_only or not self.enable_only:
-                for code, message, line in check_protected_access(source):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "protected-access",
-                        "type": "warning",
-                    })
-
-            # W0614: unused-wildcard-import
-            if "W0614" in self.enable_only or not self.enable_only:
-                for code, message, line in check_unused_wildcard_import(source):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "unused-wildcard-import",
-                        "type": "warning",
-                    })
-
-            # W0631: undefined-loop-variable
-            if "W0631" in self.enable_only or not self.enable_only:
-                for code, message, line in check_undefined_loop_variable(source):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "undefined-loop-variable",
-                        "type": "warning",
-                    })
-
-            # C0104: disallowed-name
-            if "C0104" in self.enable_only or not self.enable_only:
-                for code, message, line in check_disallowed_name(source, self.disallowed_names):
-                    results.append({
-                        "path": rel_path,
-                        "line": line,
-                        "column": 0,
-                        "message": message,
-                        "message-id": code,
-                        "symbol": "disallowed-name",
-                        "type": "convention",
-                    })
-
+        logger.info(f"Rust batch checks found {len(results)} issues")
         return results
 
     def _run_pylint(self, exclude_rust_rules: bool = False) -> List[Dict[str, Any]]:

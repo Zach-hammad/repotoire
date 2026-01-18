@@ -721,11 +721,13 @@ class PythonParser(CodeParser):
 
         Args:
             tree: Python AST
-            file_path: Path to source file
+            file_path: Path to source file (str or Path)
 
         Returns:
             List of entities (File, Class, Function, Attribute)
         """
+        # Ensure file_path is a string (accept both str and Path objects)
+        file_path = str(file_path)
         entities: List[Entity] = []
 
         # Create file entity (not part of visitor since it needs file metadata)
@@ -767,16 +769,18 @@ class PythonParser(CodeParser):
 
         Args:
             tree: Python AST
-            file_path: Path to source file
+            file_path: Path to source file (str or Path)
             entities: Extracted entities
 
         Returns:
             List of relationships (IMPORTS, CALLS, CONTAINS, etc.)
         """
+        # Ensure file_path is a string (accept both str and Path objects)
+        file_path = str(file_path)
         relationships: List[Relationship] = []
 
         # Build entity lookup map
-        entity_map = {e.qualified_name: e for e in entities}
+        entity_map = {str(e.qualified_name): e for e in entities}
 
         # Extract imports (only module-level, not nested in functions/classes)
         file_entity_name = file_path  # Use file path as qualified name for File node

@@ -320,8 +320,8 @@ class Node2VecEmbedder:
             backend = "rust_unified"
 
         elif use_rust_word2vec:
-            # REPO-249: Use Rust walks + Rust Word2Vec
-            from repotoire_fast import node2vec_random_walks, train_word2vec_skipgram, PyWord2VecConfig
+            # REPO-249: Use Rust walks + Rust Word2Vec (parallel Hogwild! SGD for 3-5x speedup)
+            from repotoire_fast import node2vec_random_walks, train_word2vec_skipgram_parallel, PyWord2VecConfig
 
             logger.info(
                 f"Generating {num_nodes * self.config.walks_per_node} walks "
@@ -341,7 +341,7 @@ class Node2VecEmbedder:
             walks_int = [w for w in walks_int if len(w) > 1]
             logger.info(f"Generated {len(walks_int)} walks")
 
-            logger.info("Training Word2Vec with Rust (no gensim)...")
+            logger.info("Training Word2Vec with Rust parallel (Hogwild! SGD, 3-5x faster)...")
             config = PyWord2VecConfig(
                 embedding_dim=self.config.embedding_dimension,
                 window_size=self.config.window_size,
@@ -352,7 +352,8 @@ class Node2VecEmbedder:
                 seed=seed,
             )
 
-            embeddings_dict = train_word2vec_skipgram(walks_int, config)
+            # Use parallel training (Hogwild! SGD) for 3-5x speedup over sequential
+            embeddings_dict = train_word2vec_skipgram_parallel(walks_int, config)
 
             embeddings = {}
             for node_id, embedding in embeddings_dict.items():

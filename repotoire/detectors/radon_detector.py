@@ -9,6 +9,11 @@ Architecture:
     3. Enrich findings with Neo4j graph data (call patterns, dependencies)
     4. Generate detailed maintainability findings
 
+Performance optimization (REPO-XXX):
+    - Cyclomatic complexity: Uses Rust calculate_complexity_files for 10-50x speedup
+    - Falls back to radon subprocess if Rust module unavailable
+    - Maintainability index: Still uses radon (no Rust equivalent yet)
+
 This approach achieves:
     - Accurate complexity metrics (radon's analysis)
     - Rich context (graph-based metadata, call relationships)
@@ -29,6 +34,14 @@ from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# Try to import Rust complexity calculation for 10-50x speedup
+try:
+    from repotoire_fast import calculate_complexity_files
+    RUST_COMPLEXITY_AVAILABLE = True
+except ImportError:
+    RUST_COMPLEXITY_AVAILABLE = False
+    logger.debug("Rust complexity calculation not available, using radon subprocess")
 
 
 class RadonDetector(CodeSmellDetector):
@@ -118,7 +131,112 @@ class RadonDetector(CodeSmellDetector):
         return findings[:self.max_findings]
 
     def _run_radon_cc(self) -> List[Dict[str, Any]]:
-        """Run radon cyclomatic complexity and parse JSON output.
+        """Run cyclomatic complexity analysis.
+
+        Uses Rust calculate_complexity_files for 10-50x speedup when available,
+        falls back to radon subprocess otherwise.
+
+        Returns:
+            List of complexity violation dictionaries
+        """
+        # Try Rust implementation first (10-50x faster)
+        if RUST_COMPLEXITY_AVAILABLE:
+            return self._run_rust_cc()
+
+        # Fall back to radon subprocess
+        return self._run_radon_cc_subprocess()
+
+    def _run_rust_cc(self) -> List[Dict[str, Any]]:
+        """Run cyclomatic complexity using Rust (10-50x faster than radon).
+
+        Returns:
+            List of complexity violation dictionaries
+        """
+        import time
+        start = time.perf_counter()
+
+        # Determine files to analyze
+        if self.changed_files:
+            py_files = [
+                f for f in self.changed_files
+                if f.endswith('.py') and (self.repository_path / f).exists()
+            ]
+            if not py_files:
+                logger.debug("No Python files in changed_files, skipping complexity check")
+                return []
+        else:
+            # Scan all Python files in repository
+            py_files = [
+                str(p.relative_to(self.repository_path))
+                for p in self.repository_path.rglob("*.py")
+                if not any(skip in str(p) for skip in [
+                    "__pycache__", ".venv", "venv", "node_modules", ".git",
+                    "build", "dist", ".tox", ".pytest_cache"
+                ])
+            ]
+
+        if not py_files:
+            return []
+
+        # Read source files and prepare for Rust
+        files_with_source = []
+        for rel_path in py_files:
+            full_path = self.repository_path / rel_path
+            try:
+                source = full_path.read_text(encoding="utf-8", errors="replace")
+                files_with_source.append((rel_path, source))
+            except Exception as e:
+                logger.debug(f"Failed to read {rel_path}: {e}")
+
+        if not files_with_source:
+            return []
+
+        logger.info(f"Running Rust complexity analysis on {len(files_with_source)} files...")
+
+        # Run Rust complexity calculation in parallel
+        try:
+            results = calculate_complexity_files(files_with_source)
+        except Exception as e:
+            logger.warning(f"Rust complexity failed, falling back to radon: {e}")
+            return self._run_radon_cc_subprocess()
+
+        elapsed = time.perf_counter() - start
+        logger.info(f"Rust complexity analysis completed in {elapsed:.2f}s")
+
+        # Convert Rust results to radon-compatible format
+        violations = []
+        for file_path, func_complexities in results:
+            for func_name, complexity in func_complexities.items():
+                # Only report functions exceeding threshold
+                if complexity >= self.complexity_threshold:
+                    # Determine grade based on complexity
+                    if complexity <= 5:
+                        rank = "A"
+                    elif complexity <= 10:
+                        rank = "B"
+                    elif complexity <= 20:
+                        rank = "C"
+                    elif complexity <= 30:
+                        rank = "D"
+                    elif complexity <= 40:
+                        rank = "E"
+                    else:
+                        rank = "F"
+
+                    violations.append({
+                        "file": file_path,
+                        "name": func_name,
+                        "complexity": complexity,
+                        "rank": rank,
+                        "type": "function",
+                        "lineno": 0,  # Rust doesn't track line numbers currently
+                    })
+
+        logger.info(f"Rust found {len(violations)} complexity violations")
+        return violations
+
+    def _run_radon_cc_subprocess(self) -> List[Dict[str, Any]]:
+        """Run radon cyclomatic complexity via subprocess (fallback).
 
         Returns:
             List of complexity violation dictionaries
