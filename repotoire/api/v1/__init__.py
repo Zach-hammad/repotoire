@@ -30,6 +30,7 @@ from repotoire.api.v1.routes import (
     provenance_settings,
     rules,
     sandbox,
+    security,
     status,
     team,
     usage,
@@ -173,6 +174,11 @@ V1_OPENAPI_TAGS = [
         "description": "User settings and preferences. Configure display options, privacy "
         "settings, and provenance display preferences.",
     },
+    {
+        "name": "security",
+        "description": "Security scanning features. Detect hardcoded secrets, API keys, "
+        "passwords, and tokens in repository code. Export results in SARIF format for CI/CD.",
+    },
 ]
 
 # Create v1 FastAPI sub-application
@@ -255,6 +261,7 @@ v1_app.include_router(preferences.router)
 v1_app.include_router(provenance_settings.router)
 v1_app.include_router(rules.router)
 v1_app.include_router(sandbox.router)
+v1_app.include_router(security.router)
 v1_app.include_router(team.router)
 v1_app.include_router(usage.router)
 v1_app.include_router(webhooks.router)

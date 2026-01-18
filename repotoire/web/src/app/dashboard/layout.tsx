@@ -15,6 +15,7 @@ import {
   AlertCircle,
   FolderGit2,
   Package,
+  ShieldAlert,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
@@ -46,6 +47,12 @@ const sidebarSections = [
     items: [
       { name: 'AI Fixes', href: '/dashboard/fixes', icon: ListChecks },
       { name: 'File Browser', href: '/dashboard/files', icon: FileCode2 },
+    ],
+  },
+  {
+    name: 'Security',
+    items: [
+      { name: 'Secrets Scanner', href: '/dashboard/security/secrets', icon: ShieldAlert },
     ],
   },
   {
