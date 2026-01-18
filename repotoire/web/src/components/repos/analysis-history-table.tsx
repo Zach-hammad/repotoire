@@ -28,7 +28,19 @@ import {
   Wand2,
   History,
   PlayCircle,
+  Download,
+  FileText,
+  FileJson,
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { toast } from 'sonner';
+import { API_BASE_URL } from '@/lib/api';
+import { useAuth } from '@clerk/nextjs';
 
 // =============================================================================
 // Types
@@ -87,6 +99,41 @@ export function AnalysisHistoryTable({
   generatingFixesId,
   onRunAnalysis,
 }: AnalysisHistoryTableProps) {
+  const { getToken } = useAuth();
+
+  // Handle download report with authentication
+  const handleDownloadReport = async (runId: string, format: 'html' | 'json') => {
+    try {
+      const token = await getToken();
+      const response = await fetch(
+        `${API_BASE_URL}/analysis/${runId}/report?format=${format}`,
+        {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Download failed' }));
+        throw new Error(error.detail || 'Failed to download report');
+      }
+
+      // Get the blob and trigger download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `report-${runId}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      toast.success(`Report downloaded as ${format.toUpperCase()}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to download report');
+    }
+  };
+
   // Define columns with proper typing
   const columns: DataTableColumn<AnalysisRunStatus>[] = [
     {
@@ -179,6 +226,30 @@ export function AnalysisHistoryTable({
       hideMobile: true,
       cell: (run) => (
         <div className="flex items-center justify-end gap-2">
+          {run.status === 'completed' && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title="Download report"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleDownloadReport(run.id, 'html')}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Download HTML
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleDownloadReport(run.id, 'json')}>
+                  <FileJson className="h-4 w-4 mr-2" />
+                  Download JSON
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           {run.status === 'completed' &&
             run.findings_count > 0 &&
             onGenerateFixes && (

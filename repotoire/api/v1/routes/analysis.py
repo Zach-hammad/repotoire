@@ -4,20 +4,25 @@ This module provides endpoints for:
 - Triggering repository analysis
 - Checking analysis status
 - Streaming real-time progress via SSE
+- Downloading analysis reports (HTML/JSON)
 """
 
 from __future__ import annotations
 
+import io
 import os
 from datetime import datetime, timezone
-from typing import AsyncGenerator
+from enum import Enum
+from typing import AsyncGenerator, Literal
 from uuid import UUID
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
 from repotoire.api.shared.auth import ClerkUser, get_current_user, get_current_user_or_api_key, require_org
@@ -30,8 +35,17 @@ from repotoire.db.models import (
     Repository,
     User,
 )
+from repotoire.db.models.finding import Finding as DBFinding, FindingSeverity
 from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
+from repotoire.models import (
+    CodebaseHealth,
+    Finding,
+    FindingsSummary,
+    MetricsBreakdown,
+    Severity,
+)
+from repotoire.reporters.html_reporter import HTMLReporter
 from repotoire.workers.limits import ConcurrencyLimiter, RateLimiter
 
 logger = get_logger(__name__)
@@ -833,6 +847,283 @@ async def get_analysis_history(
             created_at=run.created_at,
         ))
     return responses
+
+
+class ReportFormat(str, Enum):
+    """Supported report output formats."""
+    HTML = "html"
+    JSON = "json"
+
+
+@router.get(
+    "/{analysis_run_id}/report",
+    summary="Download analysis report",
+    description="""
+Download the analysis report in HTML or JSON format.
+
+**Formats:**
+- **HTML**: Beautiful, self-contained HTML report suitable for sharing or archival.
+  Includes interactive elements, code snippets, and visualizations.
+- **JSON**: Machine-readable format for integration with other tools.
+
+**Report Contents:**
+- Overall health score and grade (A-F)
+- Category scores (Structure, Quality, Architecture)
+- All findings with severity, descriptions, and suggested fixes
+- Key metrics and statistics
+
+**Use Cases:**
+- Generate reports for stakeholders or compliance
+- Archive analysis results for historical reference
+- Export data for custom dashboards or analysis
+- Share results with team members who don't have Repotoire access
+    """,
+    responses={
+        200: {
+            "description": "Report generated successfully",
+            "content": {
+                "text/html": {"example": "<html>...</html>"},
+                "application/json": {"example": {"grade": "B", "score": 82}},
+            },
+        },
+        403: {
+            "description": "Access denied to this analysis",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "forbidden",
+                        "detail": "Access denied to this analysis",
+                        "error_code": "FORBIDDEN",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "Analysis run not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": "not_found",
+                        "detail": "Analysis run not found",
+                        "error_code": "NOT_FOUND",
+                    }
+                }
+            },
+        },
+    },
+)
+async def download_analysis_report(
+    analysis_run_id: UUID,
+    format: ReportFormat = Query(
+        ReportFormat.HTML,
+        description="Output format for the report",
+    ),
+    user: ClerkUser = Depends(get_current_user_or_api_key),
+    session: AsyncSession = Depends(get_db),
+) -> StreamingResponse | JSONResponse:
+    """Download analysis report in HTML or JSON format."""
+    # Fetch analysis with findings eagerly loaded
+    result = await session.execute(
+        select(AnalysisRun)
+        .options(selectinload(AnalysisRun.findings))
+        .where(AnalysisRun.id == analysis_run_id)
+    )
+    analysis = result.scalar_one_or_none()
+
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis run not found",
+        )
+
+    # Verify access
+    repo = await session.get(Repository, analysis.repository_id)
+    if not repo or not await _user_has_repo_access(session, user, repo):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this analysis",
+        )
+
+    # Check if analysis is complete
+    if analysis.status != AnalysisStatus.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Analysis is not completed (status: {analysis.status.value}). "
+            "Reports can only be generated for completed analyses.",
+        )
+
+    # Build CodebaseHealth from database records
+    health = _build_codebase_health(analysis)
+
+    if format == ReportFormat.JSON:
+        # Return JSON report
+        return JSONResponse(
+            content=health.to_dict(),
+            headers={
+                "Content-Disposition": f'attachment; filename="report-{analysis_run_id}.json"'
+            },
+        )
+
+    # Generate HTML report
+    reporter = HTMLReporter()
+    html_content = _generate_html_report(reporter, health)
+
+    return StreamingResponse(
+        io.BytesIO(html_content.encode("utf-8")),
+        media_type="text/html",
+        headers={
+            "Content-Disposition": f'attachment; filename="report-{analysis_run_id}.html"'
+        },
+    )
+
+
+def _build_codebase_health(analysis: AnalysisRun) -> CodebaseHealth:
+    """Build CodebaseHealth from AnalysisRun and its findings.
+
+    Args:
+        analysis: AnalysisRun with findings loaded
+
+    Returns:
+        CodebaseHealth object suitable for report generation
+    """
+    # Convert DB findings to model findings
+    findings = []
+    findings_summary = FindingsSummary()
+
+    for db_finding in analysis.findings:
+        # Map DB severity to model severity
+        severity = _map_severity(db_finding.severity)
+
+        # Update findings summary
+        if severity == Severity.CRITICAL:
+            findings_summary.critical += 1
+        elif severity == Severity.HIGH:
+            findings_summary.high += 1
+        elif severity == Severity.MEDIUM:
+            findings_summary.medium += 1
+        elif severity == Severity.LOW:
+            findings_summary.low += 1
+        else:
+            findings_summary.info += 1
+
+        finding = Finding(
+            id=str(db_finding.id),
+            detector=db_finding.detector,
+            severity=severity,
+            title=db_finding.title,
+            description=db_finding.description,
+            affected_nodes=db_finding.affected_nodes or [],
+            affected_files=db_finding.affected_files or [],
+            line_start=db_finding.line_start,
+            line_end=db_finding.line_end,
+            graph_context=db_finding.graph_context or {},
+            suggested_fix=db_finding.suggested_fix,
+            estimated_effort=db_finding.estimated_effort,
+            created_at=db_finding.created_at,
+            language=db_finding.language,
+        )
+        findings.append(finding)
+
+    # Calculate grade from overall score
+    overall_score = float(analysis.health_score or 0)
+    grade = _get_grade_from_score(overall_score)
+
+    # Build metrics breakdown (use defaults for metrics we don't store)
+    metrics = MetricsBreakdown(
+        total_files=analysis.files_analyzed,
+        total_classes=0,  # Not stored in AnalysisRun
+        total_functions=0,  # Not stored in AnalysisRun
+        total_loc=0,  # Not stored in AnalysisRun
+    )
+
+    return CodebaseHealth(
+        grade=grade,
+        overall_score=overall_score,
+        structure_score=float(analysis.structure_score or 0),
+        quality_score=float(analysis.quality_score or 0),
+        architecture_score=float(analysis.architecture_score or 0),
+        issues_score=float(analysis.issues_score or 0),
+        metrics=metrics,
+        findings_summary=findings_summary,
+        findings=findings,
+        analyzed_at=analysis.completed_at or analysis.created_at,
+    )
+
+
+def _map_severity(db_severity: FindingSeverity) -> Severity:
+    """Map database severity enum to model severity enum."""
+    mapping = {
+        FindingSeverity.CRITICAL: Severity.CRITICAL,
+        FindingSeverity.HIGH: Severity.HIGH,
+        FindingSeverity.MEDIUM: Severity.MEDIUM,
+        FindingSeverity.LOW: Severity.LOW,
+        FindingSeverity.INFO: Severity.INFO,
+    }
+    return mapping.get(db_severity, Severity.INFO)
+
+
+def _get_grade_from_score(score: float) -> str:
+    """Get letter grade from score."""
+    if score >= 90:
+        return "A"
+    elif score >= 80:
+        return "B"
+    elif score >= 70:
+        return "C"
+    elif score >= 60:
+        return "D"
+    return "F"
+
+
+def _generate_html_report(reporter: HTMLReporter, health: CodebaseHealth) -> str:
+    """Generate HTML report content without writing to file.
+
+    This is a modified version that returns HTML string instead of
+    writing to a file.
+
+    Args:
+        reporter: HTMLReporter instance
+        health: CodebaseHealth data
+
+    Returns:
+        HTML report as string
+    """
+    from jinja2 import Template
+    from repotoire.reporters.html_reporter import HTML_TEMPLATE
+
+    # Extract code snippets for findings (without repo_path, we skip code snippets)
+    findings_with_code = []
+    for finding in health.findings:
+        finding_data = {
+            "id": finding.id,
+            "detector": finding.detector,
+            "severity": finding.severity,
+            "title": finding.title,
+            "description": finding.description,
+            "affected_files": finding.affected_files,
+            "affected_nodes": finding.affected_nodes,
+            "suggested_fix": finding.suggested_fix,
+            "estimated_effort": finding.estimated_effort,
+            "priority_score": getattr(finding, "priority_score", 0),
+            "detector_agreement_count": getattr(finding, "detector_agreement_count", 1),
+            "aggregate_confidence": getattr(finding, "aggregate_confidence", 0.0),
+            "code_snippets": [],  # No repo path, so no code snippets
+        }
+        findings_with_code.append(finding_data)
+
+    # Prepare template data
+    template_data = {
+        "health": health,
+        "findings": findings_with_code,
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "severity_colors": reporter._get_severity_colors(),
+        "severity_labels": reporter._get_severity_labels(),
+        "dedup_stats": health.dedup_stats if health.dedup_stats else None,
+    }
+
+    # Render template
+    template = Template(HTML_TEMPLATE)
+    return template.render(**template_data)
 
 
 # =============================================================================
