@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useTheme } from 'next-themes';
 import type { LucideIcon } from 'lucide-react';
-import { Moon, Sun, Monitor, Shield, ChevronRight, Key, Bot, Loader2, Bell, Sparkles, Box, Waves, Palette } from 'lucide-react';
+import { Moon, Sun, Monitor, Shield, ChevronRight, Key, Bot, Loader2, Bell, Sparkles, Box, Waves, Palette, Gauge } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -417,6 +417,33 @@ export default function SettingsPage() {
                 </div>
               </>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Detector Settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Gauge className="h-5 w-5" />
+              Detector Settings
+            </CardTitle>
+            <CardDescription>
+              Configure code analysis sensitivity and thresholds for your organization
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              href="/dashboard/settings/detectors"
+              className="flex items-center justify-between p-4 -m-4 rounded-lg hover:bg-muted/50 transition-colors"
+            >
+              <div>
+                <p className="font-medium">Configure Detectors</p>
+                <p className="text-sm text-muted-foreground">
+                  Set sensitivity presets and customize thresholds for code smell detection
+                </p>
+              </div>
+              <ChevronRight className="h-5 w-5 text-muted-foreground" />
+            </Link>
           </CardContent>
         </Card>
 

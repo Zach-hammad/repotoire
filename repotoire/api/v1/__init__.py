@@ -16,6 +16,7 @@ from repotoire.api.v1.routes import (
     cli_auth,
     code,
     customer_webhooks,
+    detector_settings,
     findings,
     fixes,
     github,
@@ -234,6 +235,7 @@ v1_app.include_router(billing.router)
 v1_app.include_router(cli_auth.router)
 v1_app.include_router(code.router)
 v1_app.include_router(customer_webhooks.router)
+v1_app.include_router(detector_settings.router)
 v1_app.include_router(findings.router)
 v1_app.include_router(fixes.router)
 v1_app.include_router(github.router)

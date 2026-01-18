@@ -16,6 +16,7 @@ from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin, generate_repr
 
 if TYPE_CHECKING:
     from .billing import Subscription, UsageRecord
+    from .detector_settings import DetectorSettings
     from .github import GitHubInstallation
     from .quota_override import QuotaOverride
     from .repository import Repository
@@ -162,6 +163,12 @@ class Organization(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     webhooks: Mapped[List["Webhook"]] = relationship(
         "Webhook",
         back_populates="organization",
+        cascade="all, delete-orphan",
+    )
+    detector_settings: Mapped["DetectorSettings | None"] = relationship(
+        "DetectorSettings",
+        back_populates="organization",
+        uselist=False,
         cascade="all, delete-orphan",
     )
 

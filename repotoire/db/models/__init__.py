@@ -43,6 +43,7 @@ from .notification import InAppNotification, NotificationType
 from .gdpr import ConsentRecord, ConsentType, DataExport, ExportStatus
 from .provenance_settings import ProvenanceSettings
 from .user_preferences import UserPreferences
+from .detector_settings import DetectorPreset, DetectorSettings, PRESET_THRESHOLDS
 from .github import GitHubInstallation, GitHubRepository
 from .organization import (
     InviteStatus,
@@ -116,6 +117,9 @@ __all__ = [
     "NotificationType",
     "ProvenanceSettings",
     "UserPreferences",
+    "DetectorSettings",
+    "DetectorPreset",
+    "PRESET_THRESHOLDS",
     # Enums
     "PlanTier",
     "MemberRole",
