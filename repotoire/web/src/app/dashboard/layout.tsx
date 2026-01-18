@@ -16,6 +16,8 @@ import {
   FolderGit2,
   Package,
   ShieldAlert,
+  Boxes,
+  GitBranch,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
@@ -53,6 +55,13 @@ const sidebarSections = [
     name: 'Security',
     items: [
       { name: 'Secrets Scanner', href: '/dashboard/security/secrets', icon: ShieldAlert },
+    ],
+  },
+  {
+    name: 'Monorepo',
+    items: [
+      { name: 'Packages', href: '/dashboard/monorepo', icon: Boxes },
+      { name: 'Dependencies', href: '/dashboard/monorepo/dependencies', icon: GitBranch },
     ],
   },
   {

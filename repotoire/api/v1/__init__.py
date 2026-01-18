@@ -23,6 +23,7 @@ from repotoire.api.v1.routes import (
     graph,
     historical,
     marketplace,
+    monorepo,
     narratives,
     notifications,
     organizations,
@@ -179,6 +180,12 @@ V1_OPENAPI_TAGS = [
         "description": "Security scanning features. Detect hardcoded secrets, API keys, "
         "passwords, and tokens in repository code. Export results in SARIF format for CI/CD.",
     },
+    {
+        "name": "monorepo",
+        "description": "Monorepo analysis and optimization. Detect packages, analyze per-package "
+        "health scores, detect affected packages from changes, and visualize dependency graphs. "
+        "Supports npm/yarn workspaces, Nx, Turborepo, Lerna, Poetry, Cargo, and Go modules.",
+    },
 ]
 
 # Create v1 FastAPI sub-application
@@ -254,6 +261,7 @@ v1_app.include_router(github.router)
 v1_app.include_router(graph.router)
 v1_app.include_router(historical.router)
 v1_app.include_router(marketplace.router)
+v1_app.include_router(monorepo.router)
 v1_app.include_router(narratives.router)
 v1_app.include_router(notifications.router)
 v1_app.include_router(organizations.router)
