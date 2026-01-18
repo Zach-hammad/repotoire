@@ -277,3 +277,444 @@ class TestTreeSitterJavaScriptParser:
             assert class_entities[0].name == "Calculator"
         finally:
             Path(temp_path).unlink()
+
+
+class TestJSDocExtraction:
+    """Tests for JSDoc comment extraction."""
+
+    @pytest.fixture
+    def ts_parser(self):
+        """Create a TypeScript parser."""
+        from repotoire.parsers.tree_sitter_typescript import TreeSitterTypeScriptParser
+        return TreeSitterTypeScriptParser()
+
+    def test_jsdoc_on_function(self, ts_parser):
+        """Test JSDoc extraction from function declaration."""
+        source = '''/**
+ * Calculates the sum of two numbers.
+ * @param a First number
+ * @param b Second number
+ * @returns The sum of a and b
+ */
+function add(a: number, b: number): number {
+    return a + b;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'add'), None)
+            assert func is not None
+            assert func.docstring is not None
+            assert "Calculates the sum" in func.docstring
+            assert "@param a" in func.docstring
+            assert "@returns" in func.docstring
+        finally:
+            Path(temp_path).unlink()
+
+    def test_jsdoc_on_class(self, ts_parser):
+        """Test JSDoc extraction from class declaration."""
+        source = '''/**
+ * Represents a user in the system.
+ * @class
+ */
+class User {
+    name: string;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+
+            cls = next((e for e in entities if e.name == 'User'), None)
+            assert cls is not None
+            assert cls.docstring is not None
+            assert "Represents a user" in cls.docstring
+        finally:
+            Path(temp_path).unlink()
+
+    def test_no_jsdoc_returns_none(self, ts_parser):
+        """Test that functions without JSDoc return None for docstring."""
+        source = '''function noDoc(x: number): number {
+    return x * 2;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'noDoc'), None)
+            assert func is not None
+            assert func.docstring is None
+        finally:
+            Path(temp_path).unlink()
+
+    def test_regular_comment_not_jsdoc(self, ts_parser):
+        """Test that regular comments are not treated as JSDoc."""
+        source = '''// This is a regular comment
+function regularComment(x: number): number {
+    return x;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'regularComment'), None)
+            assert func is not None
+            # Regular // comments should not be extracted as docstrings
+            assert func.docstring is None
+        finally:
+            Path(temp_path).unlink()
+
+
+class TestReactPatternDetection:
+    """Tests for React hooks and component detection."""
+
+    @pytest.fixture
+    def tsx_parser(self):
+        """Create a TSX parser for React components."""
+        from repotoire.parsers.tree_sitter_typescript import TreeSitterTypeScriptParser
+        return TreeSitterTypeScriptParser(use_tsx=True)
+
+    def test_detect_usestate_hook(self, tsx_parser):
+        """Test detection of useState hook."""
+        source = '''function Counter() {
+    const [count, setCount] = useState(0);
+    return <div>{count}</div>;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.tsx', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = tsx_parser.parse(temp_path)
+            entities = tsx_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'Counter'), None)
+            assert func is not None
+            assert 'react_hooks' in func.metadata
+            assert 'useState' in func.metadata['react_hooks']
+        finally:
+            Path(temp_path).unlink()
+
+    def test_detect_multiple_hooks(self, tsx_parser):
+        """Test detection of multiple React hooks."""
+        source = '''function App() {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        fetchData().then(setData);
+    }, []);
+
+    const memoizedValue = useMemo(() => data?.length, [data]);
+    const callback = useCallback(() => setLoading(true), []);
+
+    return <div>{loading ? 'Loading...' : data}</div>;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.tsx', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = tsx_parser.parse(temp_path)
+            entities = tsx_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'App'), None)
+            assert func is not None
+
+            hooks = func.metadata.get('react_hooks', [])
+            assert 'useState' in hooks
+            assert 'useEffect' in hooks
+            assert 'useMemo' in hooks
+            assert 'useCallback' in hooks
+        finally:
+            Path(temp_path).unlink()
+
+    def test_detect_react_component(self, tsx_parser):
+        """Test detection of React functional component."""
+        source = '''function Button({ onClick, children }) {
+    return <button onClick={onClick}>{children}</button>;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.tsx', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = tsx_parser.parse(temp_path)
+            entities = tsx_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'Button'), None)
+            assert func is not None
+            assert func.metadata.get('is_react_component') is True
+            assert func.metadata.get('component_type') == 'functional'
+        finally:
+            Path(temp_path).unlink()
+
+    def test_detect_component_with_hooks(self, tsx_parser):
+        """Test detection of component with hooks."""
+        source = '''function SearchInput() {
+    const [query, setQuery] = useState('');
+    const inputRef = useRef(null);
+
+    return <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)} />;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.tsx', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = tsx_parser.parse(temp_path)
+            entities = tsx_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'SearchInput'), None)
+            assert func is not None
+            assert func.metadata.get('is_react_component') is True
+            assert func.metadata.get('component_type') == 'functional_with_hooks'
+            assert 'useState' in func.metadata.get('react_hooks', [])
+            assert 'useRef' in func.metadata.get('react_hooks', [])
+        finally:
+            Path(temp_path).unlink()
+
+    def test_detect_custom_hooks(self, tsx_parser):
+        """Test detection of custom hooks."""
+        source = '''function useCustomHook(initialValue) {
+    const [value, setValue] = useState(initialValue);
+
+    useEffect(() => {
+        console.log('Value changed:', value);
+    }, [value]);
+
+    return [value, setValue];
+}
+
+function Component() {
+    const [val, setVal] = useCustomHook('test');
+    return <div>{val}</div>;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.tsx', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = tsx_parser.parse(temp_path)
+            entities = tsx_parser.extract_entities(tree, temp_path)
+
+            # Custom hook itself uses hooks
+            custom_hook = next((e for e in entities if e.name == 'useCustomHook'), None)
+            assert custom_hook is not None
+            assert 'useState' in custom_hook.metadata.get('react_hooks', [])
+
+            # Component uses custom hook
+            component = next((e for e in entities if e.name == 'Component'), None)
+            assert component is not None
+            assert 'useCustomHook' in component.metadata.get('react_hooks', [])
+        finally:
+            Path(temp_path).unlink()
+
+    def test_arrow_component_with_hooks(self, tsx_parser):
+        """Test arrow function component with hooks."""
+        source = '''const Toggle = () => {
+    const [isOn, setIsOn] = useState(false);
+    return <button onClick={() => setIsOn(!isOn)}>{isOn ? 'ON' : 'OFF'}</button>;
+};
+'''
+        with tempfile.NamedTemporaryFile(suffix='.tsx', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = tsx_parser.parse(temp_path)
+            entities = tsx_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'Toggle'), None)
+            assert func is not None
+            assert func.metadata.get('is_react_component') is True
+            assert 'useState' in func.metadata.get('react_hooks', [])
+        finally:
+            Path(temp_path).unlink()
+
+    def test_non_component_function(self, tsx_parser):
+        """Test that non-component functions are not marked as components."""
+        source = '''function calculateSum(a: number, b: number): number {
+    return a + b;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.tsx', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = tsx_parser.parse(temp_path)
+            entities = tsx_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'calculateSum'), None)
+            assert func is not None
+            assert func.metadata.get('is_react_component') is not True
+        finally:
+            Path(temp_path).unlink()
+
+
+class TestNestedCallDetection:
+    """Tests for nested and chained function call detection."""
+
+    @pytest.fixture
+    def ts_parser(self):
+        """Create a TypeScript parser."""
+        from repotoire.parsers.tree_sitter_typescript import TreeSitterTypeScriptParser
+        return TreeSitterTypeScriptParser()
+
+    def test_simple_call(self, ts_parser):
+        """Test simple function call extraction."""
+        source = '''function main() {
+    console.log("hello");
+    doSomething();
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+            relationships = ts_parser.extract_relationships(tree, temp_path, entities)
+
+            call_rels = [r for r in relationships if r.rel_type.value == "CALLS"]
+            called_names = {r.target_id for r in call_rels}
+
+            assert 'log' in called_names or 'doSomething' in called_names
+        finally:
+            Path(temp_path).unlink()
+
+    def test_method_call(self, ts_parser):
+        """Test method call extraction (obj.method())."""
+        source = '''function processData() {
+    const result = data.filter(x => x > 0).map(x => x * 2);
+    return result;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+            relationships = ts_parser.extract_relationships(tree, temp_path, entities)
+
+            call_rels = [r for r in relationships if r.rel_type.value == "CALLS"]
+            called_names = {r.target_id for r in call_rels}
+
+            # Should detect filter and map calls
+            assert 'filter' in called_names or 'map' in called_names
+        finally:
+            Path(temp_path).unlink()
+
+    def test_nested_call(self, ts_parser):
+        """Test nested function call extraction (func1(func2()))."""
+        source = '''function nested() {
+    const result = processResult(fetchData());
+    return result;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+            relationships = ts_parser.extract_relationships(tree, temp_path, entities)
+
+            call_rels = [r for r in relationships if r.rel_type.value == "CALLS"]
+            called_names = {r.target_id for r in call_rels}
+
+            # Should detect both processResult and fetchData
+            assert 'processResult' in called_names
+            assert 'fetchData' in called_names
+        finally:
+            Path(temp_path).unlink()
+
+
+class TestNestingLevelTracking:
+    """Tests for nesting level calculation."""
+
+    @pytest.fixture
+    def ts_parser(self):
+        """Create a TypeScript parser."""
+        from repotoire.parsers.tree_sitter_typescript import TreeSitterTypeScriptParser
+        return TreeSitterTypeScriptParser()
+
+    def test_top_level_class(self, ts_parser):
+        """Test that top-level class has nesting level 0."""
+        source = '''class TopLevel {
+    method() {}
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+
+            cls = next((e for e in entities if e.name == 'TopLevel'), None)
+            assert cls is not None
+            assert cls.nesting_level == 0
+        finally:
+            Path(temp_path).unlink()
+
+    def test_multiple_top_level_classes(self, ts_parser):
+        """Test multiple top-level classes all have nesting level 0."""
+        source = '''class First {
+    foo() {}
+}
+
+class Second {
+    bar() {}
+}
+
+class Third {
+    baz() {}
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+
+            classes = [e for e in entities if e.__class__.__name__ == 'ClassEntity']
+            assert len(classes) == 3
+
+            for cls in classes:
+                assert cls.nesting_level == 0, f"Class {cls.name} should have nesting level 0"
+        finally:
+            Path(temp_path).unlink()
