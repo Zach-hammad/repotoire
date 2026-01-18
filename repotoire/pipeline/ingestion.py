@@ -83,6 +83,13 @@ try:
     _HAS_JAVA_PARSER = True
 except ImportError:
     _HAS_JAVA_PARSER = False
+
+# Optional Go parser
+try:
+    from repotoire.parsers import TreeSitterGoParser
+    _HAS_GO_PARSER = True
+except ImportError:
+    _HAS_GO_PARSER = False
 from repotoire.logging_config import get_logger, LogContext, log_operation
 
 logger = get_logger(__name__)
@@ -314,6 +321,14 @@ class IngestionPipeline:
                 logger.info("Java parser registered")
             except ImportError as e:
                 logger.debug(f"Java parser not available: {e}")
+
+        # Register Go parser if available
+        if _HAS_GO_PARSER:
+            try:
+                self.register_parser("go", TreeSitterGoParser())
+                logger.info("Go parser registered")
+            except ImportError as e:
+                logger.debug(f"Go parser not available: {e}")
 
         # Initialize Rust parallel parser if available (Phase 2 performance)
         self.rust_parser = None

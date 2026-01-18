@@ -620,10 +620,11 @@ See full troubleshooting guide in project documentation.
 - **Graph detectors** (feature envy, data clumps, god class, inappropriate intimacy, etc.)
 - **TypeScript/JavaScript support** (tree-sitter parser with JSDoc, React patterns, nesting tracking)
 - **Java support** (tree-sitter parser with Javadoc, annotations, interfaces, enums)
+- **Go support** (tree-sitter parser with doc comments, structs, interfaces, methods, goroutines, channels)
 - **GitHub Checks integration** (automatic PR analysis with check runs)
 
 ### In Progress 🚧
-- Multi-language support (Go)
+- Additional graph detectors
 
 ### Planned Features 📋
 - Web dashboard

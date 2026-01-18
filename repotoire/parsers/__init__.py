@@ -26,6 +26,14 @@ except ImportError:
     _HAS_JAVA = False
     TreeSitterJavaParser = None  # type: ignore
 
+# Optional Go parser (requires tree-sitter-go)
+try:
+    from repotoire.parsers.tree_sitter_go import TreeSitterGoParser
+    _HAS_GO = True
+except ImportError:
+    _HAS_GO = False
+    TreeSitterGoParser = None  # type: ignore
+
 __all__ = [
     "CodeParser",
     "PythonParser",
@@ -36,4 +44,5 @@ __all__ = [
     "TreeSitterTypeScriptParser",
     "TreeSitterJavaScriptParser",
     "TreeSitterJavaParser",
+    "TreeSitterGoParser",
 ]
