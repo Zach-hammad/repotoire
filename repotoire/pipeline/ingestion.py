@@ -76,6 +76,13 @@ try:
     _HAS_TYPESCRIPT_PARSER = True
 except ImportError:
     _HAS_TYPESCRIPT_PARSER = False
+
+# Optional Java parser
+try:
+    from repotoire.parsers import TreeSitterJavaParser
+    _HAS_JAVA_PARSER = True
+except ImportError:
+    _HAS_JAVA_PARSER = False
 from repotoire.logging_config import get_logger, LogContext, log_operation
 
 logger = get_logger(__name__)
@@ -299,6 +306,14 @@ class IngestionPipeline:
                 logger.info("TypeScript and JavaScript parsers registered")
             except ImportError as e:
                 logger.debug(f"TypeScript/JavaScript parsers not available: {e}")
+
+        # Register Java parser if available
+        if _HAS_JAVA_PARSER:
+            try:
+                self.register_parser("java", TreeSitterJavaParser())
+                logger.info("Java parser registered")
+            except ImportError as e:
+                logger.debug(f"Java parser not available: {e}")
 
         # Initialize Rust parallel parser if available (Phase 2 performance)
         self.rust_parser = None

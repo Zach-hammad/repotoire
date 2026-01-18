@@ -619,10 +619,11 @@ See full troubleshooting guide in project documentation.
 - RAG system with OpenAI embeddings
 - **Graph detectors** (feature envy, data clumps, god class, inappropriate intimacy, etc.)
 - **TypeScript/JavaScript support** (tree-sitter parser with JSDoc, React patterns, nesting tracking)
+- **Java support** (tree-sitter parser with Javadoc, annotations, interfaces, enums)
 - **GitHub Checks integration** (automatic PR analysis with check runs)
 
 ### In Progress 🚧
-- Multi-language support (Java, Go)
+- Multi-language support (Go)
 
 ### Planned Features 📋
 - Web dashboard
