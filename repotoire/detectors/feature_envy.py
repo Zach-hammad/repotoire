@@ -10,6 +10,7 @@ understanding cross-class relationships via the knowledge graph.
 Addresses: FAL-110
 """
 
+import json
 from typing import List, Dict, Any, Optional
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.models import CollaborationMetadata, Finding, Severity
@@ -230,13 +231,6 @@ class FeatureEnvyDetector(CodeSmellDetector):
                 confidence=confidence,
                 evidence=evidence,
                 tags=tags
-            ))
-            # Add collaboration metadata (REPO-150 Phase 1)
-            finding.add_collaboration_metadata(CollaborationMetadata(
-                detector="FeatureEnvyDetector",
-                confidence=0.85,
-                evidence=['feature_envy', 'external_field_access'],
-                tags=['feature_envy', 'coupling', 'code_quality']
             ))
 
             # Flag entity in graph for cross-detector collaboration (REPO-151 Phase 2)

@@ -617,10 +617,12 @@ See full troubleshooting guide in project documentation.
 - Configuration management (YAML, JSON, TOML)
 - HTML report generation with code snippets
 - RAG system with OpenAI embeddings
+- **Graph detectors** (feature envy, data clumps, god class, inappropriate intimacy, etc.)
+- **TypeScript/JavaScript support** (tree-sitter parser with JSDoc, React patterns, nesting tracking)
+- **GitHub Checks integration** (automatic PR analysis with check runs)
 
 ### In Progress 🚧
-- Additional graph detectors (feature envy, data clumps)
-- Multi-language support (TypeScript, Java, Go)
+- Multi-language support (Java, Go)
 
 ### Planned Features 📋
 - Web dashboard

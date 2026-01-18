@@ -10,6 +10,7 @@ bidirectional relationships between classes.
 Addresses: FAL-113
 """
 
+import json
 from typing import List, Dict, Any, Optional
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.models import CollaborationMetadata, Finding, Severity
