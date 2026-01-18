@@ -22,6 +22,7 @@ from uuid import UUID
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from repotoire.db.models import (
     AnalysisRun,
@@ -129,10 +130,20 @@ def on_analysis_complete(analysis_run_id: str) -> dict:
                 repo=repo,
             )
 
+            # Post GitHub Check Run with analysis results
+            # This provides rich feedback in the PR UI
+            post_check_run.delay(
+                repo_id=str(repo.id),
+                analysis_run_id=analysis_run_id,
+                head_sha=analysis.commit_sha,
+            )
+            log.info("triggered_check_run_post")
+
             return {
                 "status": "notified",
                 "notification_type": "analysis_complete",
                 "fix_generation": "triggered",
+                "check_run": "triggered",
             }
 
     except Exception as e:
@@ -519,6 +530,205 @@ def set_commit_status_result(
 
     except Exception as e:
         log.exception("set_commit_status_result_error", error=str(e))
+        return {"status": "error", "error": str(e)}
+
+
+# =============================================================================
+# GitHub Check Runs (Checks API)
+# =============================================================================
+
+
+@celery_app.task(name="repotoire.workers.hooks.post_check_run")
+def post_check_run(
+    repo_id: str,
+    analysis_run_id: str,
+    check_run_id: int | None = None,
+    head_sha: str | None = None,
+) -> dict:
+    """Post or update a GitHub Check Run with analysis results.
+
+    Creates a new check run if check_run_id is not provided, or updates
+    an existing one with the final analysis results.
+
+    Check runs provide rich feedback in the GitHub UI including:
+    - Health score with pass/fail status
+    - Finding counts by severity
+    - Line-level annotations in the PR diff view
+    - Direct link to the full Repotoire report
+
+    Args:
+        repo_id: UUID of the Repository.
+        analysis_run_id: UUID of the AnalysisRun.
+        check_run_id: Optional existing check run ID to update.
+        head_sha: Git commit SHA (required if creating new check run).
+
+    Returns:
+        dict with status and check run details.
+    """
+    import asyncio
+
+    log = logger.bind(
+        repo_id=repo_id,
+        analysis_run_id=analysis_run_id,
+        check_run_id=check_run_id,
+    )
+
+    try:
+        from repotoire.api.shared.services.github import GitHubAppClient
+        from repotoire.db.models import GitHubRepository
+        from repotoire.db.models.finding import FindingSeverity
+
+        with get_sync_session() as session:
+            # Get analysis run
+            analysis = session.get(AnalysisRun, UUID(analysis_run_id))
+            if not analysis:
+                log.warning("analysis_not_found")
+                return {"status": "skipped", "reason": "analysis_not_found"}
+
+            if analysis.status != AnalysisStatus.COMPLETED:
+                log.warning("analysis_not_completed", status=analysis.status)
+                return {"status": "skipped", "reason": "analysis_not_completed"}
+
+            # Get repository
+            repo = session.get(Repository, UUID(repo_id))
+            if not repo:
+                log.warning("repo_not_found")
+                return {"status": "skipped", "reason": "repo_not_found"}
+
+            # Find GitHubRepository to get installation ID
+            gh_repo_result = session.execute(
+                select(GitHubRepository)
+                .options(selectinload(GitHubRepository.installation))
+                .where(GitHubRepository.full_name == repo.full_name)
+            )
+            github_repo = gh_repo_result.scalar_one_or_none()
+
+            if not github_repo or not github_repo.installation:
+                log.warning("no_github_installation")
+                return {"status": "skipped", "reason": "no_github_installation"}
+
+            installation_id = github_repo.installation.installation_id
+            owner, repo_name = repo.full_name.split("/", 1)
+
+            # Get finding counts by severity
+            findings_query = session.execute(
+                select(FindingDB)
+                .where(FindingDB.analysis_run_id == analysis.id)
+            )
+            findings = findings_query.scalars().all()
+
+            critical_count = sum(1 for f in findings if f.severity == FindingSeverity.CRITICAL)
+            high_count = sum(1 for f in findings if f.severity == FindingSeverity.HIGH)
+            findings_count = len(findings)
+            health_score = analysis.health_score or 0
+
+            # Build annotations from findings (max 50)
+            annotations = []
+            for finding in findings[:50]:
+                if finding.file_path and finding.line_number:
+                    # Map severity to annotation level
+                    if finding.severity in (FindingSeverity.CRITICAL, FindingSeverity.HIGH):
+                        level = "failure"
+                    elif finding.severity == FindingSeverity.MEDIUM:
+                        level = "warning"
+                    else:
+                        level = "notice"
+
+                    annotations.append({
+                        "path": finding.file_path,
+                        "start_line": finding.line_number,
+                        "end_line": finding.end_line or finding.line_number,
+                        "annotation_level": level,
+                        "message": finding.message or finding.description or "Issue detected",
+                        "title": finding.rule_id or finding.detector_name,
+                    })
+
+            # Build details URL
+            details_url = f"{APP_BASE_URL}/analysis/{analysis_run_id}"
+
+            # Create or update check run
+            github = GitHubAppClient()
+
+            # Use event loop for async call
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            try:
+                if check_run_id:
+                    # Update existing check run
+                    result = loop.run_until_complete(
+                        github.complete_check_run_with_results(
+                            installation_id=installation_id,
+                            owner=owner,
+                            repo=repo_name,
+                            check_run_id=check_run_id,
+                            health_score=health_score,
+                            findings_count=findings_count,
+                            critical_count=critical_count,
+                            high_count=high_count,
+                            details_url=details_url,
+                            annotations=annotations,
+                        )
+                    )
+                    log.info(
+                        "check_run_updated",
+                        check_run_id=check_run_id,
+                        conclusion=result.get("conclusion"),
+                    )
+                else:
+                    # Create new check run (need head_sha)
+                    commit_sha = head_sha or analysis.commit_sha
+                    if not commit_sha:
+                        log.warning("no_commit_sha")
+                        return {"status": "skipped", "reason": "no_commit_sha"}
+
+                    # Create and immediately complete
+                    create_result = loop.run_until_complete(
+                        github.create_check_run_for_analysis(
+                            installation_id=installation_id,
+                            owner=owner,
+                            repo=repo_name,
+                            head_sha=commit_sha,
+                            analysis_run_id=analysis_run_id,
+                            details_url=details_url,
+                        )
+                    )
+                    check_run_id = create_result["check_run_id"]
+
+                    result = loop.run_until_complete(
+                        github.complete_check_run_with_results(
+                            installation_id=installation_id,
+                            owner=owner,
+                            repo=repo_name,
+                            check_run_id=check_run_id,
+                            health_score=health_score,
+                            findings_count=findings_count,
+                            critical_count=critical_count,
+                            high_count=high_count,
+                            details_url=details_url,
+                            annotations=annotations,
+                        )
+                    )
+                    log.info(
+                        "check_run_created_and_completed",
+                        check_run_id=check_run_id,
+                        conclusion=result.get("conclusion"),
+                    )
+            finally:
+                loop.close()
+
+            return {
+                "status": "posted",
+                "check_run_id": check_run_id,
+                "health_score": health_score,
+                "findings_count": findings_count,
+                "critical_count": critical_count,
+                "high_count": high_count,
+                "annotations_count": len(annotations),
+            }
+
+    except Exception as e:
+        log.exception("post_check_run_error", error=str(e))
         return {"status": "error", "error": str(e)}
 
 

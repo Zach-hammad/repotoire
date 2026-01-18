@@ -776,6 +776,289 @@ class GitHubAppClient:
             "branch": fix_branch,
         }
 
+    # =========================================================================
+    # Check Run Methods (GitHub Checks API)
+    # =========================================================================
+
+    async def create_check_run(
+        self,
+        access_token: str,
+        owner: str,
+        repo: str,
+        name: str,
+        head_sha: str,
+        status: str = "queued",
+        details_url: Optional[str] = None,
+        external_id: Optional[str] = None,
+        started_at: Optional[str] = None,
+        output: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Create a check run for a commit.
+
+        Check runs are used to report detailed status information about
+        code analysis results directly in the GitHub UI.
+
+        Args:
+            access_token: Installation access token.
+            owner: Repository owner.
+            repo: Repository name.
+            name: Name of the check (e.g., "Repotoire Code Health").
+            head_sha: The SHA of the commit to create the check run for.
+            status: Initial status ("queued", "in_progress", "completed").
+            details_url: URL for more details (links to Repotoire dashboard).
+            external_id: Optional external identifier (e.g., analysis_run_id).
+            started_at: ISO 8601 timestamp when the check started.
+            output: Optional output object with title, summary, text, annotations.
+
+        Returns:
+            Created check run data including id.
+
+        Raises:
+            httpx.HTTPStatusError: If the API request fails.
+        """
+        payload: dict[str, Any] = {
+            "name": name,
+            "head_sha": head_sha,
+            "status": status,
+        }
+
+        if details_url:
+            payload["details_url"] = details_url
+        if external_id:
+            payload["external_id"] = external_id
+        if started_at:
+            payload["started_at"] = started_at
+        if output:
+            payload["output"] = output
+
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            response = await client.post(
+                f"{GITHUB_API_BASE}/repos/{owner}/{repo}/check-runs",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            logger.info(
+                f"Created check run {data['id']} for {owner}/{repo}@{head_sha[:7]}"
+            )
+            return data
+
+    async def update_check_run(
+        self,
+        access_token: str,
+        owner: str,
+        repo: str,
+        check_run_id: int,
+        status: Optional[str] = None,
+        conclusion: Optional[str] = None,
+        completed_at: Optional[str] = None,
+        details_url: Optional[str] = None,
+        output: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Update an existing check run.
+
+        Used to report progress and final results of code analysis.
+
+        Args:
+            access_token: Installation access token.
+            owner: Repository owner.
+            repo: Repository name.
+            check_run_id: The ID of the check run to update.
+            status: New status ("queued", "in_progress", "completed").
+            conclusion: Final conclusion (required when status is "completed").
+                One of: "action_required", "cancelled", "failure", "neutral",
+                "success", "skipped", "stale", "timed_out".
+            completed_at: ISO 8601 timestamp when the check completed.
+            details_url: URL for more details.
+            output: Output object with title, summary, text, and annotations.
+                Annotations provide line-level feedback in the PR diff view.
+
+        Returns:
+            Updated check run data.
+
+        Raises:
+            httpx.HTTPStatusError: If the API request fails.
+        """
+        payload: dict[str, Any] = {}
+
+        if status:
+            payload["status"] = status
+        if conclusion:
+            payload["conclusion"] = conclusion
+        if completed_at:
+            payload["completed_at"] = completed_at
+        if details_url:
+            payload["details_url"] = details_url
+        if output:
+            payload["output"] = output
+
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            response = await client.patch(
+                f"{GITHUB_API_BASE}/repos/{owner}/{repo}/check-runs/{check_run_id}",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            logger.info(
+                f"Updated check run {check_run_id} for {owner}/{repo} "
+                f"(status={status}, conclusion={conclusion})"
+            )
+            return data
+
+    async def create_check_run_for_analysis(
+        self,
+        installation_id: int,
+        owner: str,
+        repo: str,
+        head_sha: str,
+        analysis_run_id: str,
+        details_url: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Create a check run for a Repotoire analysis.
+
+        High-level method that creates a check run with standard Repotoire
+        branding and links.
+
+        Args:
+            installation_id: GitHub App installation ID.
+            owner: Repository owner.
+            repo: Repository name.
+            head_sha: The SHA of the commit being analyzed.
+            analysis_run_id: Repotoire analysis run ID.
+            details_url: Optional URL to the Repotoire dashboard.
+
+        Returns:
+            Dict with check_run_id for later updates.
+        """
+        token, _ = await self.get_installation_token(installation_id)
+
+        # Generate details URL if not provided
+        if not details_url:
+            base_url = os.getenv("REPOTOIRE_DASHBOARD_URL", "https://app.repotoire.com")
+            details_url = f"{base_url}/analysis/{analysis_run_id}"
+
+        started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+        check_run = await self.create_check_run(
+            access_token=token,
+            owner=owner,
+            repo=repo,
+            name="Repotoire Code Health",
+            head_sha=head_sha,
+            status="in_progress",
+            details_url=details_url,
+            external_id=analysis_run_id,
+            started_at=started_at,
+            output={
+                "title": "Analyzing code health...",
+                "summary": "Repotoire is analyzing your code for quality issues, "
+                "architectural problems, and technical debt.",
+            },
+        )
+
+        return {
+            "check_run_id": check_run["id"],
+            "details_url": details_url,
+        }
+
+    async def complete_check_run_with_results(
+        self,
+        installation_id: int,
+        owner: str,
+        repo: str,
+        check_run_id: int,
+        health_score: float,
+        findings_count: int,
+        critical_count: int,
+        high_count: int,
+        details_url: str,
+        annotations: Optional[list[dict[str, Any]]] = None,
+    ) -> dict[str, Any]:
+        """Complete a check run with analysis results.
+
+        High-level method that updates a check run with final results,
+        including health score and finding counts.
+
+        Args:
+            installation_id: GitHub App installation ID.
+            owner: Repository owner.
+            repo: Repository name.
+            check_run_id: The check run ID to update.
+            health_score: Overall health score (0-100).
+            findings_count: Total number of findings.
+            critical_count: Number of critical severity findings.
+            high_count: Number of high severity findings.
+            details_url: URL to the full analysis report.
+            annotations: Optional list of annotation objects for line-level feedback.
+                Each annotation should have: path, start_line, end_line,
+                annotation_level ("notice", "warning", "failure"), message.
+
+        Returns:
+            Updated check run data.
+        """
+        token, _ = await self.get_installation_token(installation_id)
+
+        # Determine conclusion based on findings
+        if critical_count > 0:
+            conclusion = "failure"
+            title = f"❌ {critical_count} critical issue(s) found"
+        elif high_count > 0:
+            conclusion = "neutral"
+            title = f"⚠️ {high_count} high severity issue(s) found"
+        elif findings_count > 0:
+            conclusion = "success"
+            title = f"✅ Code health: {health_score:.0f}/100 ({findings_count} minor issues)"
+        else:
+            conclusion = "success"
+            title = f"✅ Code health: {health_score:.0f}/100 (No issues found)"
+
+        # Build summary markdown
+        summary_parts = [
+            f"## Code Health Score: {health_score:.0f}/100",
+            "",
+            "| Severity | Count |",
+            "|----------|-------|",
+            f"| 🔴 Critical | {critical_count} |",
+            f"| 🟠 High | {high_count} |",
+            f"| 🟡 Medium | {findings_count - critical_count - high_count} |",
+            "",
+            f"[View Full Report]({details_url})",
+        ]
+        summary = "\n".join(summary_parts)
+
+        output: dict[str, Any] = {
+            "title": title,
+            "summary": summary,
+        }
+
+        # Add annotations if provided (max 50 per API call)
+        if annotations:
+            output["annotations"] = annotations[:50]
+
+        completed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+        return await self.update_check_run(
+            access_token=token,
+            owner=owner,
+            repo=repo,
+            check_run_id=check_run_id,
+            status="completed",
+            conclusion=conclusion,
+            completed_at=completed_at,
+            details_url=details_url,
+            output=output,
+        )
+
 
 def get_github_client() -> GitHubAppClient:
     """FastAPI dependency that provides GitHub App client.

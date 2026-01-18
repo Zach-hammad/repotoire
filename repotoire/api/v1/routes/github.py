@@ -800,24 +800,80 @@ async def handle_push_event(db: AsyncSession, payload: dict) -> None:
 
 
 async def handle_pull_request_event(db: AsyncSession, payload: dict) -> None:
-    """Handle pull request events."""
+    """Handle pull request events.
+
+    Queues PR analysis when a PR is opened or updated (synchronized).
+    Creates a GitHub Check Run for immediate feedback in the PR UI.
+    """
     action = payload.get("action")
     repo_data = payload.get("repository", {})
     repo_id = repo_data.get("id")
+    pr_data = payload.get("pull_request", {})
+    pr_number = payload.get("number") or pr_data.get("number")
+    head_sha = pr_data.get("head", {}).get("sha")
 
-    if action in ("opened", "synchronize"):
+    if action in ("opened", "synchronize", "reopened"):
         # Find the repo if it's enabled for analysis
         result = await db.execute(
-            select(GitHubRepository).where(
+            select(GitHubRepository)
+            .options(selectinload(GitHubRepository.installation))
+            .where(
                 GitHubRepository.repo_id == repo_id,
                 GitHubRepository.enabled == True,
             )
         )
         repo = result.scalar_one_or_none()
 
-        if repo:
-            # TODO: Queue PR analysis job via Celery
-            logger.info(f"PR event for enabled repo: {repo.full_name}")
+        if not repo:
+            logger.debug(f"PR event for non-enabled repo {repo_data.get('full_name')}")
+            return
+
+        # Check if PR analysis is enabled for this repo
+        if not repo.pr_analysis_enabled:
+            logger.debug(f"PR analysis disabled for {repo.full_name}")
+            return
+
+        logger.info(
+            f"PR event for enabled repo: {repo.full_name}",
+            extra={
+                "action": action,
+                "pr_number": pr_number,
+                "head_sha": head_sha[:8] if head_sha else None,
+            },
+        )
+
+        # Get installation ID for GitHub API calls
+        installation = repo.installation
+        github_installation_id = installation.installation_id
+
+        # Parse owner/repo from full_name
+        owner, repo_name = repo.full_name.split("/", 1)
+
+        # Create a Check Run for immediate feedback in the PR
+        if head_sha:
+            try:
+                github = GitHubAppClient()
+                check_result = await github.create_check_run_for_analysis(
+                    installation_id=github_installation_id,
+                    owner=owner,
+                    repo=repo_name,
+                    head_sha=head_sha,
+                    analysis_run_id=f"pr-{pr_number}-{head_sha[:8]}",
+                )
+                logger.info(
+                    f"Created check run {check_result['check_run_id']} for PR #{pr_number}"
+                )
+            except Exception as e:
+                # Don't fail the webhook if check run creation fails
+                logger.warning(f"Failed to create check run: {e}")
+
+        # Queue PR analysis via Celery
+        from repotoire.workers.webhooks import process_pr_event
+
+        task = process_pr_event.delay(payload)
+        logger.info(
+            f"Queued PR analysis task {task.id} for {repo.full_name} PR #{pr_number}"
+        )
 
 
 @router.get("/installations")
