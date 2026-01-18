@@ -468,7 +468,7 @@ Returns detailed progress information including:
 )
 async def get_analysis_status(
     analysis_run_id: UUID,
-    user: ClerkUser = Depends(get_current_user),
+    user: ClerkUser = Depends(get_current_user_or_api_key),
     session: AsyncSession = Depends(get_db),
 ) -> AnalysisStatusResponse:
     """Get the current status of an analysis run."""

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from repotoire.api.shared.auth import ClerkUser, get_current_user, require_org
+from repotoire.api.shared.auth import ClerkUser, get_current_user, get_current_user_or_api_key, require_org
 from repotoire.db.models import (
     AnalysisRun,
     Finding,
@@ -422,12 +422,13 @@ class RepositoryInfo(BaseModel):
 
 @router.get("/repositories")
 async def get_repositories(
-    user: ClerkUser = Depends(require_org),
+    user: ClerkUser = Depends(get_current_user_or_api_key),
     session: AsyncSession = Depends(get_db),
 ) -> List[RepositoryInfo]:
     """Get all repositories for the organization.
 
     Used for populating filter dropdowns on findings/fixes pages.
+    Supports both JWT and API key authentication.
     """
     org = await _get_user_org(session, user)
     if not org:
