@@ -86,7 +86,7 @@ class BaseTreeSitterParser(CodeParser):
 
         # Extract classes
         for class_node in self._find_classes(tree):
-            class_entity = self._extract_class(class_node, file_path)
+            class_entity = self._extract_class(class_node, file_path, tree)
             if class_entity:
                 entities.append(class_entity)
 
@@ -386,16 +386,73 @@ class BaseTreeSitterParser(CodeParser):
 
         return False
 
+    def _calculate_nesting_level(
+        self,
+        node: UniversalASTNode,
+        tree: UniversalASTNode
+    ) -> int:
+        """Calculate nesting level of a node within scopes.
+
+        Counts how many scope-creating constructs contain the node:
+        - A class at module level has nesting_level = 0
+        - A class inside a function has nesting_level = 1
+        - A function inside a class has nesting_level = 1
+        - A nested function has nesting_level = depth of nesting
+
+        Scope-creating node types (language-agnostic):
+        - class_definition, class_declaration
+        - function_definition, function_declaration, method_definition
+        - arrow_function (for JavaScript/TypeScript)
+
+        Args:
+            node: The node to calculate nesting for
+            tree: Root tree node
+
+        Returns:
+            Nesting level (0 for top-level)
+        """
+        nesting_level = 0
+
+        # Scope-creating node types
+        scope_types = {
+            # Python
+            "class_definition",
+            "function_definition",
+            # JavaScript/TypeScript
+            "class_declaration",
+            "function_declaration",
+            "method_definition",
+            "arrow_function",
+            # Java/C#
+            "class_body",
+            "method_declaration",
+            # Go
+            "function_literal",
+            "method_spec",
+        }
+
+        # Walk the tree to find all scope nodes that contain this node
+        for scope_node in tree.walk():
+            if scope_node.node_type in scope_types:
+                # Check if scope_node contains our target node
+                # But is not the node itself
+                if scope_node != node and self._contains_node(scope_node, node):
+                    nesting_level += 1
+
+        return nesting_level
+
     def _extract_class(
         self,
         class_node: UniversalASTNode,
-        file_path: str
+        file_path: str,
+        tree: Optional[UniversalASTNode] = None
     ) -> Optional[ClassEntity]:
         """Extract ClassEntity from class node.
 
         Args:
             class_node: Class definition node
             file_path: Path to source file
+            tree: Root tree node for nesting level calculation
 
         Returns:
             ClassEntity or None if extraction fails
@@ -423,9 +480,8 @@ class BaseTreeSitterParser(CodeParser):
         # Check if exception (inherits from Exception)
         is_exception = any("Exception" in base for base in base_classes)
 
-        # Calculate nesting level (0 for top-level classes)
-        # TODO: Implement proper nesting detection by traversing parent nodes
-        nesting_level = 0  # Default to 0 for now
+        # Calculate nesting level by counting containing scopes
+        nesting_level = self._calculate_nesting_level(class_node, tree) if tree else 0
 
         return ClassEntity(
             name=class_name,

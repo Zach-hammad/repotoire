@@ -339,6 +339,8 @@ class TreeSitterTypeScriptParser(BaseTreeSitterParser):
         JSDoc comments precede the function/class definition and look like:
         /**
          * Description here
+         * @param name Description
+         * @returns Description
          */
 
         Args:
@@ -347,13 +349,70 @@ class TreeSitterTypeScriptParser(BaseTreeSitterParser):
         Returns:
             JSDoc text or None
         """
-        # Look for comment node immediately preceding this node
-        # In tree-sitter, comments are usually siblings, not children
-        # For now, return None - proper JSDoc extraction requires looking at siblings
-        # which would need access to parent context
+        # Access the raw tree-sitter node to find preceding comments
+        raw_node = node._raw_node
+        if not raw_node:
+            return None
 
-        # Alternative: look for string/comment in the body (less common in TS)
+        # Look for comment node immediately preceding this node
+        # In tree-sitter, comments are siblings
+        prev_sibling = raw_node.prev_sibling
+        while prev_sibling:
+            node_type = prev_sibling.type
+
+            # JSDoc comments are "comment" nodes starting with /**
+            if node_type == "comment":
+                comment_text = prev_sibling.text
+                if isinstance(comment_text, bytes):
+                    comment_text = comment_text.decode("utf-8")
+
+                # Check if it's a JSDoc comment (starts with /**)
+                if comment_text.strip().startswith("/**"):
+                    return self._clean_jsdoc(comment_text)
+
+                # Regular comment, keep looking
+                prev_sibling = prev_sibling.prev_sibling
+                continue
+
+            # Skip whitespace/newlines if they exist as nodes
+            elif node_type in ("", "newline", "whitespace"):
+                prev_sibling = prev_sibling.prev_sibling
+                continue
+
+            # Hit a non-comment node, stop searching
+            else:
+                break
+
         return None
+
+    def _clean_jsdoc(self, jsdoc: str) -> str:
+        """Clean up JSDoc comment text.
+
+        Removes comment markers and normalizes whitespace.
+
+        Args:
+            jsdoc: Raw JSDoc comment text
+
+        Returns:
+            Cleaned JSDoc text
+        """
+        lines = jsdoc.strip().split("\n")
+        cleaned_lines = []
+
+        for line in lines:
+            line = line.strip()
+            # Remove comment markers
+            if line.startswith("/**"):
+                line = line[3:].strip()
+            elif line.startswith("*/"):
+                continue
+            elif line.startswith("*"):
+                line = line[1:].strip()
+
+            if line:
+                cleaned_lines.append(line)
+
+        return "\n".join(cleaned_lines)
 
     def _extract_base_classes(self, class_node: UniversalASTNode) -> List[str]:
         """Extract TypeScript base class and interfaces.
@@ -531,6 +590,302 @@ class TreeSitterTypeScriptParser(BaseTreeSitterParser):
                     complexity += 1
 
         return complexity
+
+
+    def _detect_react_hooks(self, func_node: UniversalASTNode) -> List[str]:
+        """Detect React hooks used in a function.
+
+        React hooks are functions starting with 'use' that are called
+        at the top level of a component function.
+
+        Built-in hooks detected:
+        - useState, useEffect, useContext, useReducer
+        - useCallback, useMemo, useRef, useImperativeHandle
+        - useLayoutEffect, useDebugValue, useDeferredValue
+        - useTransition, useId, useSyncExternalStore
+
+        Also detects custom hooks (functions starting with 'use').
+
+        Args:
+            func_node: Function node to analyze
+
+        Returns:
+            List of hook names used (e.g., ["useState", "useEffect"])
+        """
+        hooks_found = []
+        seen_hooks = set()
+
+        # Built-in React hooks for reference
+        builtin_hooks = {
+            "useState", "useEffect", "useContext", "useReducer",
+            "useCallback", "useMemo", "useRef", "useImperativeHandle",
+            "useLayoutEffect", "useDebugValue", "useDeferredValue",
+            "useTransition", "useId", "useSyncExternalStore",
+            "useInsertionEffect"
+        }
+
+        for node in func_node.walk():
+            if node.node_type == "call_expression":
+                # Get the function being called
+                func_field = node.get_field("function")
+                if not func_field:
+                    continue
+
+                # Extract the hook name
+                hook_name = None
+                if func_field.node_type == "identifier":
+                    hook_name = func_field.text
+                elif func_field.node_type == "member_expression":
+                    # Handle React.useState pattern
+                    property_node = func_field.get_field("property")
+                    if property_node:
+                        hook_name = property_node.text
+
+                # Check if it's a hook (starts with 'use')
+                if hook_name and hook_name.startswith("use") and hook_name not in seen_hooks:
+                    # Validate it looks like a hook (camelCase after 'use')
+                    if len(hook_name) > 3 and hook_name[3].isupper():
+                        hooks_found.append(hook_name)
+                        seen_hooks.add(hook_name)
+
+        return hooks_found
+
+    def _is_react_component(self, func_node: UniversalASTNode) -> bool:
+        """Detect if a function is a React functional component.
+
+        A function is considered a React component if:
+        1. It returns JSX elements (detected by jsx_element, jsx_self_closing_element)
+        2. Its name starts with an uppercase letter (convention)
+
+        Args:
+            func_node: Function node to analyze
+
+        Returns:
+            True if function appears to be a React component
+        """
+        # Check for JSX return
+        has_jsx_return = False
+
+        for node in func_node.walk():
+            if node.node_type in (
+                "jsx_element",
+                "jsx_self_closing_element",
+                "jsx_fragment"
+            ):
+                has_jsx_return = True
+                break
+
+        return has_jsx_return
+
+    def _extract_function(
+        self,
+        func_node: UniversalASTNode,
+        file_path: str,
+        parent_class: Optional[str] = None
+    ):
+        """Extract FunctionEntity from TypeScript function node.
+
+        Handles various TypeScript function forms and adds React pattern detection:
+        - function_declaration
+        - method_definition
+        - arrow_function in variable_declarator
+        - React hooks detection
+        - React component detection
+
+        Args:
+            func_node: Function node
+            file_path: Path to source file
+            parent_class: Qualified name of parent class if this is a method
+
+        Returns:
+            FunctionEntity or None if extraction fails
+        """
+        # Handle variable_declarator with arrow function
+        if func_node.node_type == "variable_declarator":
+            entity = self._extract_arrow_function(func_node, file_path, parent_class)
+            if entity:
+                self._add_react_metadata(entity, func_node)
+            return entity
+
+        # Handle public_field_definition (class property arrow function)
+        if func_node.node_type == "public_field_definition":
+            entity = self._extract_class_arrow_method(func_node, file_path, parent_class)
+            if entity:
+                self._add_react_metadata(entity, func_node)
+            return entity
+
+        # Standard function/method extraction
+        entity = super()._extract_function(func_node, file_path, parent_class)
+        if entity:
+            self._add_react_metadata(entity, func_node)
+        return entity
+
+    def _add_react_metadata(self, entity, func_node: UniversalASTNode) -> None:
+        """Add React-specific metadata to a function entity.
+
+        Args:
+            entity: FunctionEntity to update
+            func_node: Function node to analyze
+        """
+        # Get the actual function node for analysis (might be wrapped)
+        analysis_node = func_node
+        if func_node.node_type == "variable_declarator":
+            value = func_node.get_field("value")
+            if value:
+                analysis_node = value
+        elif func_node.node_type == "public_field_definition":
+            value = func_node.get_field("value")
+            if value:
+                analysis_node = value
+
+        # Detect React hooks
+        hooks = self._detect_react_hooks(analysis_node)
+        if hooks:
+            entity.metadata["react_hooks"] = hooks
+
+        # Detect if it's a React component
+        if self._is_react_component(analysis_node):
+            entity.metadata["is_react_component"] = True
+
+            # Check if it's a functional component with hooks (common pattern)
+            if hooks:
+                entity.metadata["component_type"] = "functional_with_hooks"
+            else:
+                entity.metadata["component_type"] = "functional"
+
+    def _extract_call_name(self, call_node: UniversalASTNode) -> Optional[str]:
+        """Extract function/method name from TypeScript call expression.
+
+        Handles various call patterns:
+        - Simple calls: `foo()`
+        - Method calls: `obj.method()`
+        - Chained calls: `obj.method1().method2()` -> returns "method2"
+        - Nested calls: `func1(func2())` -> handled by finding all calls
+
+        Args:
+            call_node: call_expression node
+
+        Returns:
+            Called function/method name or None
+        """
+        func_field = call_node.get_field("function")
+        if not func_field:
+            # Try first child as fallback
+            if call_node.children:
+                func_field = call_node.children[0]
+            else:
+                return None
+
+        # Simple identifier call: foo()
+        if func_field.node_type == "identifier":
+            return func_field.text
+
+        # Member expression: obj.method() or obj.prop.method()
+        if func_field.node_type == "member_expression":
+            return self._extract_member_call_name(func_field)
+
+        # Call expression (chained): obj.method1().method2()
+        if func_field.node_type == "call_expression":
+            # This is the object being called on, get its name
+            # The actual method being called is in the parent member_expression
+            # This case is handled when we process the outer call_expression
+            return None
+
+        return None
+
+    def _extract_member_call_name(self, member_node: UniversalASTNode) -> Optional[str]:
+        """Extract method name from member expression.
+
+        Handles:
+        - obj.method -> "method"
+        - obj.prop.method -> "method"
+        - obj.method1().method2 -> "method2"
+
+        Args:
+            member_node: member_expression node
+
+        Returns:
+            The called method name
+        """
+        # Get the property (rightmost part)
+        property_node = member_node.get_field("property")
+        if property_node and property_node.node_type == "property_identifier":
+            return property_node.text
+
+        # Try children if field access doesn't work
+        for child in reversed(member_node.children):
+            if child.node_type in ("identifier", "property_identifier"):
+                return child.text
+
+        return None
+
+    def _find_all_calls(self, func_node: UniversalASTNode) -> List[UniversalASTNode]:
+        """Find all call expressions including nested calls.
+
+        This finds both top-level and nested calls:
+        - `foo()` - found
+        - `foo(bar())` - both foo and bar found
+        - `obj.method1().method2()` - both calls found
+
+        Args:
+            func_node: Function node to search within
+
+        Returns:
+            List of all call_expression nodes
+        """
+        calls = []
+        for node in func_node.walk():
+            if node.node_type == "call_expression":
+                calls.append(node)
+        return calls
+
+    def _find_calls_in_function(
+        self,
+        tree: UniversalASTNode,
+        entity
+    ) -> List[UniversalASTNode]:
+        """Find function call nodes inside a specific function.
+
+        Override base implementation to find all calls including nested ones.
+
+        Args:
+            tree: Root UniversalASTNode
+            entity: FunctionEntity to search within
+
+        Returns:
+            List of call nodes found in the function
+        """
+        # Find function nodes to search
+        func_nodes = []
+
+        # Check function declarations
+        for node in tree.walk():
+            if node.node_type == "function_declaration":
+                func_nodes.append(node)
+            elif node.node_type == "lexical_declaration":
+                # Arrow functions in const/let
+                for child in node.children:
+                    if child.node_type == "variable_declarator":
+                        value = child.get_field("value")
+                        if value and value.node_type == "arrow_function":
+                            func_nodes.append(child)
+            elif node.node_type == "method_definition":
+                func_nodes.append(node)
+
+        for func_node in func_nodes:
+            # Check if this is the right function by line numbers
+            if func_node.node_type == "variable_declarator":
+                start_line = func_node.start_line + 1
+                end_line = func_node.end_line + 1
+            else:
+                start_line = func_node.start_line + 1
+                end_line = func_node.end_line + 1
+
+            if start_line == entity.line_start and end_line == entity.line_end:
+                # Found the function, get all calls including nested ones
+                return self._find_all_calls(func_node)
+
+        return []
 
 
 class TreeSitterJavaScriptParser(TreeSitterTypeScriptParser):
