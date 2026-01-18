@@ -28,6 +28,7 @@ from repotoire.api.v1.routes import (
     organizations,
     preferences,
     provenance_settings,
+    rules,
     sandbox,
     status,
     team,
@@ -163,6 +164,11 @@ V1_OPENAPI_TAGS = [
         "weekly changelogs, and contextual tooltips using natural language.",
     },
     {
+        "name": "rules",
+        "description": "Custom code quality rules. Create, manage, and test Cypher-based "
+        "rules for detecting code smells and architectural issues.",
+    },
+    {
         "name": "settings",
         "description": "User settings and preferences. Configure display options, privacy "
         "settings, and provenance display preferences.",
@@ -247,6 +253,7 @@ v1_app.include_router(notifications.router)
 v1_app.include_router(organizations.router)
 v1_app.include_router(preferences.router)
 v1_app.include_router(provenance_settings.router)
+v1_app.include_router(rules.router)
 v1_app.include_router(sandbox.router)
 v1_app.include_router(team.router)
 v1_app.include_router(usage.router)

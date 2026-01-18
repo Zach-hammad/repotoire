@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useTheme } from 'next-themes';
 import type { LucideIcon } from 'lucide-react';
-import { Moon, Sun, Monitor, Shield, ChevronRight, Key, Bot, Loader2, Bell, Sparkles, Box, Waves, Palette, Gauge } from 'lucide-react';
+import { Moon, Sun, Monitor, Shield, ChevronRight, Key, Bot, Loader2, Bell, Sparkles, Box, Waves, Palette, Gauge, Code2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -440,6 +440,33 @@ export default function SettingsPage() {
                 <p className="font-medium">Configure Detectors</p>
                 <p className="text-sm text-muted-foreground">
                   Set sensitivity presets and customize thresholds for code smell detection
+                </p>
+              </div>
+              <ChevronRight className="h-5 w-5 text-muted-foreground" />
+            </Link>
+          </CardContent>
+        </Card>
+
+        {/* Custom Rules */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Code2 className="h-5 w-5" />
+              Custom Rules
+            </CardTitle>
+            <CardDescription>
+              Create and manage custom code quality rules using Cypher patterns
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              href="/dashboard/settings/rules"
+              className="flex items-center justify-between p-4 -m-4 rounded-lg hover:bg-muted/50 transition-colors"
+            >
+              <div>
+                <p className="font-medium">Manage Rules</p>
+                <p className="text-sm text-muted-foreground">
+                  Define Cypher queries to detect custom code smells and architectural issues
                 </p>
               </div>
               <ChevronRight className="h-5 w-5 text-muted-foreground" />
