@@ -9,6 +9,9 @@ Features:
 - get_prompt_context: Get context for prompt engineering
 - get_file_content: Read specific file contents
 - get_architecture: Get codebase structure overview
+- list_repositories: List all repositories in your organization
+- trigger_analysis: Start a code health analysis for a repository
+- get_analysis_status: Check progress of an analysis run
 
 Authentication:
 - Requires REPOTOIRE_API_KEY environment variable
@@ -275,6 +278,56 @@ class RepotoireAPIClient:
         """
         return await self._request("GET", "/api/v1/code/embeddings/status")
 
+    # =========================================================================
+    # Analysis API Methods (REPO-432)
+    # =========================================================================
+
+    async def list_repositories(self) -> dict[str, Any]:
+        """List all repositories for the organization.
+
+        Returns:
+            List of repositories with health scores and last analysis times
+        """
+        return await self._request("GET", "/api/v1/analytics/repositories")
+
+    async def trigger_analysis(
+        self,
+        repository_id: str,
+        incremental: bool = True,
+        priority: bool = False,
+        commit_sha: str | None = None,
+    ) -> dict[str, Any]:
+        """Trigger a code health analysis for a repository.
+
+        Args:
+            repository_id: UUID of the repository to analyze
+            incremental: Whether to use incremental analysis (default: True)
+            priority: Whether to prioritize this analysis in the queue (default: False)
+            commit_sha: Specific commit to analyze (optional, defaults to HEAD)
+
+        Returns:
+            Analysis run details including analysis_run_id and status
+        """
+        payload = {
+            "repository_id": repository_id,
+            "incremental": incremental,
+            "priority": priority,
+        }
+        if commit_sha:
+            payload["commit_sha"] = commit_sha
+        return await self._request("POST", "/api/v1/analysis/trigger", json_data=payload)
+
+    async def get_analysis_status(self, analysis_run_id: str) -> dict[str, Any]:
+        """Get the status of an analysis run.
+
+        Args:
+            analysis_run_id: UUID of the analysis run
+
+        Returns:
+            Analysis status including progress, scores, and findings count
+        """
+        return await self._request("GET", f"/api/v1/analysis/{analysis_run_id}/status")
+
     async def close(self) -> None:
         """Close the HTTP client."""
         await self.client.aclose()
@@ -425,6 +478,57 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
             },
         ),
+        # Analysis tools (REPO-432)
+        types.Tool(
+            name="list_repositories",
+            description="List all repositories in your organization. Shows health scores and last analysis times.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        types.Tool(
+            name="trigger_analysis",
+            description="Trigger a code health analysis for a repository. Returns an analysis_run_id to track progress.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repository_id": {
+                        "type": "string",
+                        "description": "UUID of the repository to analyze (use list_repositories to find IDs)",
+                    },
+                    "incremental": {
+                        "type": "boolean",
+                        "description": "Use incremental analysis for faster results (default: true)",
+                        "default": True,
+                    },
+                    "priority": {
+                        "type": "boolean",
+                        "description": "Prioritize this analysis in the queue (default: false)",
+                        "default": False,
+                    },
+                    "commit_sha": {
+                        "type": "string",
+                        "description": "Specific commit SHA to analyze (optional, defaults to HEAD)",
+                    },
+                },
+                "required": ["repository_id"],
+            },
+        ),
+        types.Tool(
+            name="get_analysis_status",
+            description="Get the status of an analysis run. Shows progress, health scores, and findings count.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "analysis_run_id": {
+                        "type": "string",
+                        "description": "UUID of the analysis run (returned by trigger_analysis)",
+                    },
+                },
+                "required": ["analysis_run_id"],
+            },
+        ),
     ]
 
 
@@ -446,6 +550,16 @@ async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[types.T
 
         elif name == "get_architecture":
             return await _handle_get_architecture(arguments)
+
+        # Analysis tools (REPO-432)
+        elif name == "list_repositories":
+            return await _handle_list_repositories(arguments)
+
+        elif name == "trigger_analysis":
+            return await _handle_trigger_analysis(arguments)
+
+        elif name == "get_analysis_status":
+            return await _handle_get_analysis_status(arguments)
 
         else:
             raise ValueError(f"Unknown tool: {name}")
@@ -724,6 +838,216 @@ def _format_tree(structure: dict, prefix: str = "", is_last: bool = True) -> str
         output += _format_tree(child, new_prefix, is_last_child)
 
     return output
+
+
+# =============================================================================
+# Analysis Tool Handlers (REPO-432)
+# =============================================================================
+
+
+async def _handle_list_repositories(arguments: dict[str, Any]) -> list[types.TextContent]:
+    """Handle list_repositories tool calls."""
+    api = get_api_client()
+
+    try:
+        result = await api.list_repositories()
+
+        # Handle both list and dict responses
+        repos = result if isinstance(result, list) else result.get("repositories", result)
+
+        if not repos:
+            return [
+                types.TextContent(
+                    type="text",
+                    text="**No repositories found.**\n\n"
+                    "Connect a repository at https://repotoire.com/repositories",
+                )
+            ]
+
+        output = f"**Repositories** ({len(repos)} total)\n\n"
+        output += "| Repository | Health | Last Analyzed |\n"
+        output += "|------------|--------|---------------|\n"
+
+        for repo in repos:
+            name = repo.get("full_name", "Unknown")
+            repo_id = repo.get("id", "")
+            score = repo.get("health_score")
+            last_analyzed = repo.get("last_analyzed_at")
+
+            # Format health score with grade
+            if score is not None:
+                grade = _get_grade(score)
+                health = f"{score} ({grade})"
+            else:
+                health = "Not analyzed"
+
+            # Format last analyzed date
+            if last_analyzed:
+                # Truncate to date only if it's a full timestamp
+                if "T" in str(last_analyzed):
+                    last_analyzed = str(last_analyzed).split("T")[0]
+            else:
+                last_analyzed = "Never"
+
+            output += f"| `{name}` | {health} | {last_analyzed} |\n"
+
+        output += f"\n**Usage:** Use a repository ID with `trigger_analysis` to start analysis.\n"
+        output += "\n**Repository IDs:**\n"
+        for repo in repos:
+            name = repo.get("full_name", "Unknown")
+            repo_id = repo.get("id", "")
+            output += f"- `{repo_id}` - {name}\n"
+
+        return [types.TextContent(type="text", text=output)]
+
+    except RuntimeError as e:
+        return [types.TextContent(type="text", text=f"Error listing repositories: {str(e)}")]
+
+
+async def _handle_trigger_analysis(arguments: dict[str, Any]) -> list[types.TextContent]:
+    """Handle trigger_analysis tool calls."""
+    api = get_api_client()
+
+    repository_id = arguments.get("repository_id")
+    if not repository_id:
+        return [
+            types.TextContent(
+                type="text",
+                text="**Error:** `repository_id` is required.\n\n"
+                "Use `list_repositories` to find available repository IDs.",
+            )
+        ]
+
+    try:
+        result = await api.trigger_analysis(
+            repository_id=repository_id,
+            incremental=arguments.get("incremental", True),
+            priority=arguments.get("priority", False),
+            commit_sha=arguments.get("commit_sha"),
+        )
+
+        analysis_id = result.get("analysis_run_id", result.get("id", "unknown"))
+        status = result.get("status", "queued")
+        message = result.get("message", "")
+
+        output = "**Analysis Triggered Successfully**\n\n"
+        output += f"- **Analysis ID:** `{analysis_id}`\n"
+        output += f"- **Status:** {status}\n"
+
+        if message:
+            output += f"- **Message:** {message}\n"
+
+        output += f"\n**Next steps:**\n"
+        output += f"1. Use `get_analysis_status` with ID `{analysis_id}` to check progress\n"
+        output += f"2. Analysis typically takes 1-5 minutes depending on codebase size\n"
+
+        return [types.TextContent(type="text", text=output)]
+
+    except RuntimeError as e:
+        error_msg = str(e)
+        if "404" in error_msg or "not found" in error_msg.lower():
+            return [
+                types.TextContent(
+                    type="text",
+                    text=f"**Error:** Repository not found: `{repository_id}`\n\n"
+                    "Use `list_repositories` to find valid repository IDs.",
+                )
+            ]
+        return [types.TextContent(type="text", text=f"**Error triggering analysis:** {error_msg}")]
+
+
+async def _handle_get_analysis_status(arguments: dict[str, Any]) -> list[types.TextContent]:
+    """Handle get_analysis_status tool calls."""
+    api = get_api_client()
+
+    analysis_run_id = arguments.get("analysis_run_id")
+    if not analysis_run_id:
+        return [
+            types.TextContent(
+                type="text",
+                text="**Error:** `analysis_run_id` is required.\n\n"
+                "This ID is returned when you call `trigger_analysis`.",
+            )
+        ]
+
+    try:
+        result = await api.get_analysis_status(analysis_run_id)
+
+        status = result.get("status", "unknown")
+        progress = result.get("progress_percent", 0)
+        current_step = result.get("current_step", "")
+
+        output = f"**Analysis Status**\n\n"
+        output += f"- **ID:** `{analysis_run_id}`\n"
+        output += f"- **Status:** {status}\n"
+
+        if status in ("running", "in_progress"):
+            output += f"- **Progress:** {progress}%\n"
+            if current_step:
+                output += f"- **Current Step:** {current_step}\n"
+            output += "\n*Analysis in progress. Check again in a moment.*"
+
+        elif status == "completed":
+            health_score = result.get("health_score")
+            structure_score = result.get("structure_score")
+            quality_score = result.get("quality_score")
+            architecture_score = result.get("architecture_score")
+            findings_count = result.get("findings_count", 0)
+            files_analyzed = result.get("files_analyzed", 0)
+            duration = result.get("duration_seconds", 0)
+
+            output += f"- **Progress:** 100%\n\n"
+            output += f"**Results:**\n"
+
+            if health_score is not None:
+                grade = _get_grade(health_score)
+                output += f"- **Health Score:** {health_score}/100 ({grade})\n"
+
+            output += f"- **Structure Score:** {structure_score or 'N/A'}\n"
+            output += f"- **Quality Score:** {quality_score or 'N/A'}\n"
+            output += f"- **Architecture Score:** {architecture_score or 'N/A'}\n"
+            output += f"- **Findings:** {findings_count}\n"
+            output += f"- **Files Analyzed:** {files_analyzed}\n"
+            output += f"- **Duration:** {duration:.1f}s\n"
+
+            output += f"\n*View full report at https://repotoire.com/dashboard*"
+
+        elif status == "failed":
+            error = result.get("error_message", "Unknown error")
+            output += f"- **Error:** {error}\n"
+            output += "\n*Analysis failed. Check repository access and try again.*"
+
+        elif status == "queued":
+            queue_position = result.get("queue_position", "unknown")
+            output += f"- **Queue Position:** {queue_position}\n"
+            output += "\n*Analysis is queued. Check again in a moment.*"
+
+        return [types.TextContent(type="text", text=output)]
+
+    except RuntimeError as e:
+        error_msg = str(e)
+        if "404" in error_msg or "not found" in error_msg.lower():
+            return [
+                types.TextContent(
+                    type="text",
+                    text=f"**Error:** Analysis run not found: `{analysis_run_id}`\n\n"
+                    "The analysis may have expired or the ID is incorrect.",
+                )
+            ]
+        return [types.TextContent(type="text", text=f"**Error getting status:** {error_msg}")]
+
+
+def _get_grade(score: int) -> str:
+    """Get letter grade from score."""
+    if score >= 90:
+        return "A"
+    elif score >= 80:
+        return "B"
+    elif score >= 70:
+        return "C"
+    elif score >= 60:
+        return "D"
+    return "F"
 
 
 # =============================================================================
