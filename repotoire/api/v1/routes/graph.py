@@ -16,12 +16,15 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from repotoire.api.shared.auth.clerk import get_clerk_client
+from repotoire.api.shared.auth.clerk import (
+    ClerkUser,
+    get_current_user_or_api_key,
+)
 from repotoire.db.models import Organization, OrganizationMembership, User
 from repotoire.db.session import get_db
 from repotoire.graph.tenant_factory import get_factory
@@ -48,60 +51,34 @@ router = APIRouter(prefix="/graph", tags=["graph"])
 
 
 @dataclass
-class APIKeyUser:
-    """Authenticated user from API key."""
+class GraphUser:
+    """Authenticated user with org info for graph operations."""
 
     org_id: str  # Our internal org UUID
     org_slug: str
     user_id: Optional[str] = None
 
 
-async def get_current_api_key_user(
+async def get_graph_user(
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-) -> APIKeyUser:
-    """Validate API key and return authenticated user with org info."""
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header",
+    user: ClerkUser = Depends(get_current_user_or_api_key),
+) -> GraphUser:
+    """Get authenticated user with organization info for graph operations.
+
+    Supports both JWT tokens (frontend) and API keys (CLI).
+    Looks up the organization in our database to get the internal UUID.
+    """
+    org = None
+    clerk_org_id = user.org_id
+
+    # If no org_id from JWT/API key, look up from user's membership
+    if not clerk_org_id and user.user_id:
+        result = await db.execute(
+            select(User).where(User.clerk_user_id == user.user_id)
         )
-
-    parts = authorization.split(" ", 1)
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Authorization format. Use: Bearer <api_key>",
-        )
-
-    api_key = parts[1]
-
-    try:
-        clerk = get_clerk_client()
-        api_key_data = await asyncio.to_thread(
-            clerk.api_keys.verify_api_key, secret=api_key
-        )
-
-        subject = api_key_data.subject
-        clerk_org_id = None
-        org = None
-
-        if subject.startswith("org_"):
-            clerk_org_id = subject
-        elif hasattr(api_key_data, "org_id") and api_key_data.org_id:
-            clerk_org_id = api_key_data.org_id
-        elif subject.startswith("user_"):
-            # User-scoped key - look up user's organization
-            result = await db.execute(
-                select(User).where(User.clerk_user_id == subject)
-            )
-            db_user = result.scalar_one_or_none()
-            if not db_user:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="User not found",
-                )
-
+        db_user = result.scalar_one_or_none()
+        if db_user:
             result = await db.execute(
                 select(OrganizationMembership).where(
                     OrganizationMembership.user_id == db_user.id
@@ -115,36 +92,35 @@ async def get_current_api_key_user(
                     )
                 )
                 org = result.scalar_one_or_none()
-                if org:
-                    clerk_org_id = org.clerk_org_id
 
-        # Look up org by Clerk ID
-        if not org and clerk_org_id:
-            result = await db.execute(
-                select(Organization).where(Organization.clerk_org_id == clerk_org_id)
-            )
-            org = result.scalar_one_or_none()
-
-        if not org:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Organization not found",
-            )
-
-        return APIKeyUser(
-            org_id=str(org.id),
-            org_slug=org.slug,
-            user_id=subject if subject.startswith("user_") else None,
+    # Look up org by Clerk ID
+    if not org and clerk_org_id:
+        result = await db.execute(
+            select(Organization).where(Organization.clerk_org_id == clerk_org_id)
         )
+        org = result.scalar_one_or_none()
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"API key validation failed: {e}")
+    if not org:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired API key",
+            detail="Organization not found. Please ensure you are a member of an organization.",
         )
+
+    return GraphUser(
+        org_id=str(org.id),
+        org_slug=org.slug,
+        user_id=user.user_id,
+    )
+
+
+# Legacy alias for backwards compatibility with CLI
+async def get_current_api_key_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: ClerkUser = Depends(get_current_user_or_api_key),
+) -> GraphUser:
+    """Legacy alias for get_graph_user. Use get_graph_user for new code."""
+    return await get_graph_user(request, db, user)
 
 
 # =============================================================================
@@ -232,7 +208,7 @@ class DeleteResponse(BaseModel):
 # =============================================================================
 
 
-def _get_client_for_user(user: APIKeyUser):
+def _get_client_for_user(user: GraphUser):
     """Get graph client scoped to user's organization."""
     factory = get_factory()
     return factory.get_client(org_id=UUID(user.org_id), org_slug=user.org_slug)
@@ -246,7 +222,7 @@ def _get_client_for_user(user: APIKeyUser):
 @router.post("/query", response_model=QueryResponse)
 async def execute_query(
     request: QueryRequest,
-    user: APIKeyUser = Depends(get_current_api_key_user),
+    user: GraphUser = Depends(get_graph_user),
 ) -> QueryResponse:
     """Execute a Cypher query on the organization's graph."""
     client = _get_client_for_user(user)
@@ -269,7 +245,7 @@ async def execute_query(
 
 @router.get("/stats", response_model=StatsResponse)
 async def get_stats(
-    user: APIKeyUser = Depends(get_current_api_key_user),
+    user: GraphUser = Depends(get_graph_user),
 ) -> StatsResponse:
     """Get graph statistics."""
     client = _get_client_for_user(user)
@@ -282,7 +258,7 @@ async def get_stats(
 
 @router.delete("/clear", response_model=DeleteResponse)
 async def clear_graph(
-    user: APIKeyUser = Depends(get_current_api_key_user),
+    user: GraphUser = Depends(get_graph_user),
 ) -> DeleteResponse:
     """Clear all nodes and relationships from the graph."""
     client = _get_client_for_user(user)
@@ -300,7 +276,7 @@ async def clear_graph(
 @router.post("/batch/nodes", response_model=BatchNodesResponse)
 async def batch_create_nodes(
     request: BatchNodesRequest,
-    user: APIKeyUser = Depends(get_current_api_key_user),
+    user: GraphUser = Depends(get_graph_user),
 ) -> BatchNodesResponse:
     """Batch create nodes in the graph with automatic embedding generation.
 
@@ -449,7 +425,7 @@ async def _generate_and_store_embeddings(client, entities: List[Entity]) -> None
 @router.post("/batch/relationships", response_model=BatchRelationshipsResponse)
 async def batch_create_relationships(
     request: BatchRelationshipsRequest,
-    user: APIKeyUser = Depends(get_current_api_key_user),
+    user: GraphUser = Depends(get_graph_user),
 ) -> BatchRelationshipsResponse:
     """Batch create relationships in the graph."""
     client = _get_client_for_user(user)
@@ -486,7 +462,7 @@ async def batch_create_relationships(
 
 @router.get("/files", response_model=FilePathsResponse)
 async def get_file_paths(
-    user: APIKeyUser = Depends(get_current_api_key_user),
+    user: GraphUser = Depends(get_graph_user),
 ) -> FilePathsResponse:
     """Get all file paths in the graph."""
     client = _get_client_for_user(user)
@@ -500,7 +476,7 @@ async def get_file_paths(
 @router.get("/files/{file_path:path}/metadata", response_model=FileMetadataResponse)
 async def get_file_metadata(
     file_path: str,
-    user: APIKeyUser = Depends(get_current_api_key_user),
+    user: GraphUser = Depends(get_graph_user),
 ) -> FileMetadataResponse:
     """Get metadata for a specific file (for incremental ingestion)."""
     client = _get_client_for_user(user)
@@ -514,7 +490,7 @@ async def get_file_metadata(
 @router.delete("/files/{file_path:path}", response_model=DeleteResponse)
 async def delete_file(
     file_path: str,
-    user: APIKeyUser = Depends(get_current_api_key_user),
+    user: GraphUser = Depends(get_graph_user),
 ) -> DeleteResponse:
     """Delete a file and its related entities from the graph."""
     client = _get_client_for_user(user)
@@ -527,7 +503,7 @@ async def delete_file(
 
 @router.post("/indexes")
 async def create_indexes(
-    user: APIKeyUser = Depends(get_current_api_key_user),
+    user: GraphUser = Depends(get_graph_user),
 ) -> Dict[str, str]:
     """Create indexes for better query performance."""
     client = _get_client_for_user(user)
