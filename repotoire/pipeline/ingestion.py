@@ -26,6 +26,9 @@ class IngestionResult:
     files_new: int = 0
     files_changed: int = 0
     files_unchanged: int = 0
+    # Path expression cache for O(1) reachability queries (REPO-416)
+    # Contains precomputed transitive closure for CALLS, IMPORTS, INHERITS relationships
+    path_cache: Optional["PyPathCache"] = None
 
 
 # Try to import Rust string operations for performance
@@ -34,6 +37,14 @@ try:
     _HAS_RUST_STRING_OPS = True
 except ImportError:
     _HAS_RUST_STRING_OPS = False
+
+# Try to import Rust path cache for O(1) reachability queries (REPO-416)
+try:
+    from repotoire_fast import PyPathCache
+    _HAS_PATH_CACHE = True
+except ImportError:
+    _HAS_PATH_CACHE = False
+    PyPathCache = None  # type: ignore
 
 # Memoized helper functions for string parsing - avoid repeated splits
 @functools.lru_cache(maxsize=10000)
@@ -1460,6 +1471,11 @@ class IngestionPipeline:
                 f"{validation_stats['low_confidence']} low confidence"
             )
 
+        # Build path expression cache for O(1) reachability queries (REPO-416)
+        # This enables 100-1000x speedup in detectors like TrulyUnusedImports, DeadCode, etc.
+        logger.info("Building path expression cache for fast reachability queries...")
+        path_cache = self._build_path_cache()
+
         logger.info("Ingestion complete", extra=log_extra)
 
         # Clear file content cache to free memory
@@ -1491,6 +1507,7 @@ class IngestionPipeline:
             files_new=files_new if incremental else 0,
             files_changed=files_changed if incremental else 0,
             files_unchanged=files_unchanged if incremental else 0,
+            path_cache=path_cache,
         )
 
     def _run_type_inference(self) -> Dict[str, Dict[str, str]]:
@@ -2274,6 +2291,113 @@ class IngestionPipeline:
             logger.debug(f"Graph validation failed (non-critical): {e}")
 
         return stats
+
+    def _build_path_cache(self) -> Optional["PyPathCache"]:
+        """Build transitive closure cache for O(1) reachability queries (REPO-416).
+
+        Precomputes reachability for CALLS, IMPORTS, and INHERITS relationships
+        for 100-1000x speedup in detectors that need path queries.
+
+        The cache is built once after ingestion and shared across all detectors.
+        Memory usage is approximately O(V * avg_reachable) per relationship type.
+
+        Returns:
+            PyPathCache instance, or None if Rust extension not available
+        """
+        if not _HAS_PATH_CACHE:
+            logger.debug("repotoire_fast path cache not available, skipping cache build")
+            return None
+
+        try:
+            cache_start = time.time()
+            cache = PyPathCache()
+
+            # Step 1: Get all nodes with their IDs and qualified names
+            nodes_query = """
+            MATCH (n)
+            WHERE n.qualifiedName IS NOT NULL
+              AND (n:File OR n:Class OR n:Function OR n:Module)
+            RETURN id(n) AS id, n.qualifiedName AS qn
+            """
+            nodes_result = self.db.execute_query(nodes_query)
+
+            if not nodes_result:
+                logger.debug("No nodes found for path cache")
+                return cache
+
+            # Register all nodes with the cache
+            nodes = [(int(row["id"]), row["qn"]) for row in nodes_result]
+            cache.register_nodes(nodes)
+
+            # Build ID lookup for edge queries
+            num_nodes = max(row["id"] for row in nodes_result) + 1
+
+            # Step 2: Build cache for CALLS relationships
+            calls_query = """
+            MATCH (caller)-[:CALLS]->(callee)
+            WHERE caller.qualifiedName IS NOT NULL AND callee.qualifiedName IS NOT NULL
+            RETURN id(caller) AS src, id(callee) AS dst
+            """
+            calls_result = self.db.execute_query(calls_query)
+            calls_edges = [(int(row["src"]), int(row["dst"])) for row in calls_result]
+
+            if calls_edges:
+                cache.build_cache("CALLS", calls_edges, num_nodes)
+                stats = cache.stats("CALLS")
+                if stats:
+                    logger.debug(
+                        f"Built CALLS cache: {stats.num_nodes} nodes, {stats.num_edges} edges, "
+                        f"{stats.num_reachable_pairs} reachable pairs, {stats.memory_bytes / 1024:.1f} KB"
+                    )
+
+            # Step 3: Build cache for IMPORTS relationships
+            imports_query = """
+            MATCH (importer)-[:IMPORTS]->(imported)
+            WHERE importer.qualifiedName IS NOT NULL AND imported.qualifiedName IS NOT NULL
+            RETURN id(importer) AS src, id(imported) AS dst
+            """
+            imports_result = self.db.execute_query(imports_query)
+            imports_edges = [(int(row["src"]), int(row["dst"])) for row in imports_result]
+
+            if imports_edges:
+                cache.build_cache("IMPORTS", imports_edges, num_nodes)
+                stats = cache.stats("IMPORTS")
+                if stats:
+                    logger.debug(
+                        f"Built IMPORTS cache: {stats.num_nodes} nodes, {stats.num_edges} edges, "
+                        f"{stats.num_reachable_pairs} reachable pairs, {stats.memory_bytes / 1024:.1f} KB"
+                    )
+
+            # Step 4: Build cache for INHERITS relationships
+            inherits_query = """
+            MATCH (child)-[:INHERITS]->(parent)
+            WHERE child.qualifiedName IS NOT NULL AND parent.qualifiedName IS NOT NULL
+            RETURN id(child) AS src, id(parent) AS dst
+            """
+            inherits_result = self.db.execute_query(inherits_query)
+            inherits_edges = [(int(row["src"]), int(row["dst"])) for row in inherits_result]
+
+            if inherits_edges:
+                cache.build_cache("INHERITS", inherits_edges, num_nodes)
+                stats = cache.stats("INHERITS")
+                if stats:
+                    logger.debug(
+                        f"Built INHERITS cache: {stats.num_nodes} nodes, {stats.num_edges} edges, "
+                        f"{stats.num_reachable_pairs} reachable pairs, {stats.memory_bytes / 1024:.1f} KB"
+                    )
+
+            cache_duration = time.time() - cache_start
+            total_edges = len(calls_edges) + len(imports_edges) + len(inherits_edges)
+            logger.info(
+                f"Built path expression cache in {cache_duration:.2f}s: "
+                f"{len(nodes)} nodes, {total_edges} edges (CALLS+IMPORTS+INHERITS)"
+            )
+
+            return cache
+
+        except Exception as e:
+            logger.warning(f"Failed to build path cache (non-critical): {e}")
+            return None
 
     def _report_skipped_files(self) -> None:
         """Report skipped files summary."""

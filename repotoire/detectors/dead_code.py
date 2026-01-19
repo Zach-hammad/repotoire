@@ -2,15 +2,28 @@
 
 Supports cross-detector validation with VultureDetector (REPO-153).
 When both graph-based and AST-based detection agree, confidence exceeds 95%.
+
+REPO-416: Added path cache support for O(1) reachability queries from entry points.
 """
 
 import uuid
-from typing import List, Optional, Dict, Set
+from typing import List, Optional, Dict, Set, TYPE_CHECKING
 from datetime import datetime
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.graph.enricher import GraphEnricher
+
+# Try to import Rust path cache for O(1) reachability queries (REPO-416)
+try:
+    from repotoire_fast import batch_can_reach
+    _HAS_PATH_CACHE = True
+except ImportError:
+    _HAS_PATH_CACHE = False
+    batch_can_reach = None  # type: ignore
+
+if TYPE_CHECKING:
+    from repotoire_fast import PyPathCache
 
 
 class DeadCodeDetector(CodeSmellDetector):
@@ -27,10 +40,14 @@ class DeadCodeDetector(CodeSmellDetector):
             graph_client: FalkorDB database client
             detector_config: Optional detector configuration. May include:
                 - repo_id: Repository UUID for filtering queries (multi-tenant isolation)
+                - path_cache: Prebuilt path cache for O(1) reachability queries (REPO-416)
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
         super().__init__(graph_client, detector_config)
         self.enricher = enricher
+
+        # Path cache for O(1) reachability queries from entry points (REPO-416)
+        self.path_cache: Optional["PyPathCache"] = (detector_config or {}).get("path_cache")
 
         # Cross-validation confidence thresholds
         self.base_confidence = 0.70  # Graph-only confidence

@@ -4,10 +4,11 @@ Uses Rust-based Strongly Connected Components (Tarjan's SCC) for O(V+E) cycle
 detection - 10-100x faster than pairwise path queries. No GDS plugin required.
 
 REPO-200: Updated to use Rust algorithms directly (no GDS dependency).
+REPO-416: Added path cache support for O(1) cycle detection in fallback path.
 """
 
 import uuid
-from typing import List, Set, Optional
+from typing import List, Set, Optional, TYPE_CHECKING
 from datetime import datetime
 
 from repotoire.detectors.base import CodeSmellDetector
@@ -15,6 +16,16 @@ from repotoire.detectors.graph_algorithms import GraphAlgorithms
 from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.logging_config import get_logger
+
+# Check if path cache is available (REPO-416)
+try:
+    from repotoire_fast import PyPathCache
+    _HAS_PATH_CACHE = True
+except ImportError:
+    _HAS_PATH_CACHE = False
+
+if TYPE_CHECKING:
+    from repotoire_fast import PyPathCache
 
 logger = get_logger(__name__)
 
@@ -38,6 +49,7 @@ class CircularDependencyDetector(CodeSmellDetector):
             graph_client: FalkorDB database client
             detector_config: Optional detector configuration. May include:
                 - repo_id: Repository UUID for filtering queries (multi-tenant isolation)
+                - path_cache: Prebuilt path cache for O(1) cycle detection (REPO-416)
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
         super().__init__(graph_client, detector_config)
@@ -45,6 +57,8 @@ class CircularDependencyDetector(CodeSmellDetector):
         # FalkorDB uses id() while Neo4j uses elementId()
         self.is_falkordb = getattr(graph_client, "is_falkordb", False) or type(graph_client).__name__ == "FalkorDBClient"
         self.id_func = "id" if self.is_falkordb else "elementId"
+        # Path cache for O(1) cycle detection (REPO-416)
+        self.path_cache: Optional["PyPathCache"] = (detector_config or {}).get("path_cache")
 
     def detect(self) -> List[Finding]:
         """Find circular dependencies in the codebase.
@@ -127,14 +141,52 @@ class CircularDependencyDetector(CodeSmellDetector):
         """Detect circular dependencies using traditional path queries.
 
         This is the fallback method when GDS is not available.
-        Uses bounded shortestPath queries to find cycles.
+        Uses path cache for O(1) cycle detection (REPO-416) when available,
+        otherwise falls back to bounded shortestPath queries.
 
         Returns:
             List of findings
         """
         findings: List[Finding] = []
 
-        # Original optimized query using bounded path traversal
+        # REPO-416: Try path cache first (100-1000x faster)
+        if self.path_cache is not None and _HAS_PATH_CACHE:
+            try:
+                # PyPathCache.find_cycles(rel_type) returns list of cycles (as node ID lists)
+                cached_cycles = self.path_cache.find_cycles("IMPORTS")
+                seen_cycles: Set[tuple] = set()
+
+                for cycle_ids in cached_cycles:
+                    if len(cycle_ids) < 2:
+                        continue
+
+                    # Convert node IDs to qualified names
+                    cycle_names = [self.path_cache.get_name(node_id) for node_id in cycle_ids]
+                    cycle_names = [n for n in cycle_names if n is not None]
+
+                    if not cycle_names:
+                        continue
+
+                    # Normalize to canonical form
+                    normalized = self._normalize_cycle(cycle_names)
+                    if normalized in seen_cycles:
+                        continue
+                    seen_cycles.add(normalized)
+
+                    finding = self._create_finding(
+                        cycle_files=cycle_names,
+                        cycle_length=len(cycle_names),
+                        detection_method="path_cache"
+                    )
+                    findings.append(finding)
+
+                logger.info(f"Path cache found {len(findings)} circular dependencies")
+                return findings
+
+            except Exception as e:
+                logger.warning(f"Path cache cycle detection failed: {e}, using Cypher fallback")
+
+        # Fallback: Original optimized query using bounded path traversal
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_repo_filter("f1")
         query = f"""

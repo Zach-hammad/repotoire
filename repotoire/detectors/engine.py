@@ -3,9 +3,17 @@
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from repotoire.graph import DatabaseClient
+
+# Try to import Rust path cache for O(1) reachability queries (REPO-416)
+try:
+    from repotoire_fast import PyPathCache
+    _HAS_PATH_CACHE = True
+except ImportError:
+    _HAS_PATH_CACHE = False
+    PyPathCache = None  # type: ignore
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.models import (
     Finding,
@@ -129,6 +137,7 @@ class AnalysisEngine:
         parallel: bool = True,
         max_workers: int = 4,
         changed_files: Optional[List[str]] = None,
+        path_cache: Optional["PyPathCache"] = None,
     ):
         """Initialize analysis engine.
 
@@ -144,6 +153,7 @@ class AnalysisEngine:
             parallel: Run independent detectors in parallel (REPO-217)
             max_workers: Maximum thread pool workers for parallel execution (default: 4)
             changed_files: List of relative file paths that changed (for incremental hybrid detector analysis)
+            path_cache: Optional prebuilt path expression cache for O(1) reachability queries (REPO-416)
         """
         self.db = graph_client
         self.repository_path = repository_path
@@ -155,6 +165,12 @@ class AnalysisEngine:
         # Check if using FalkorDB (no GDS support)
         self.is_falkordb = getattr(graph_client, "is_falkordb", False) or type(graph_client).__name__ == "FalkorDBClient"
         config = detector_config or {}
+
+        # Path expression cache for O(1) reachability queries (REPO-416)
+        # Build from graph if not provided (e.g., when running analyze without ingest)
+        self.path_cache = path_cache
+        if self.path_cache is None and _HAS_PATH_CACHE:
+            self.path_cache = self._build_path_cache()
 
         # Initialize GraphEnricher for cross-detector collaboration (REPO-151 Phase 2)
         self.enricher = GraphEnricher(graph_client)
@@ -180,8 +196,11 @@ class AnalysisEngine:
 
         # Helper to merge detector-specific config with repo_id for multi-tenant filtering
         def with_repo_id(specific_config: Optional[Dict] = None) -> Dict:
-            """Merge detector-specific config with repo_id for graph query filtering."""
+            """Merge detector-specific config with repo_id and path_cache for graph query filtering."""
             base = {"repo_id": repo_id} if repo_id else {}
+            # Include path cache for O(1) reachability queries (REPO-416)
+            if self.path_cache is not None:
+                base["path_cache"] = self.path_cache
             if specific_config:
                 base.update(specific_config)
             return base
@@ -358,6 +377,79 @@ class AnalysisEngine:
                 }),
             )
         )
+
+    def _build_path_cache(self) -> Optional["PyPathCache"]:
+        """Build transitive closure cache for O(1) reachability queries (REPO-416).
+
+        This cache precomputes all reachability relationships for CALLS, IMPORTS,
+        and INHERITS edges, enabling O(1) lookup instead of O(V+E) traversal.
+
+        Returns:
+            PyPathCache instance with precomputed caches, or None if building fails.
+        """
+        if not _HAS_PATH_CACHE:
+            logger.debug("Path cache not available (repotoire_fast not installed)")
+            return None
+
+        try:
+            from repotoire_fast import PyPathCache
+
+            cache = PyPathCache()
+
+            # Query all nodes with qualified names
+            nodes_query = """
+            MATCH (n)
+            WHERE n.qualifiedName IS NOT NULL
+            RETURN n.qualifiedName AS name
+            ORDER BY name
+            """
+            nodes_result = self.db.execute_query(nodes_query)
+            node_names = [r["name"] for r in nodes_result if r.get("name")]
+
+            if not node_names:
+                logger.debug("No nodes found for path cache")
+                return None
+
+            # Register nodes (assigns integer IDs)
+            node_tuples = [(i, name) for i, name in enumerate(node_names)]
+            cache.register_nodes(node_tuples)
+            num_nodes = len(node_names)
+            logger.debug(f"Registered {num_nodes} nodes for path cache")
+
+            # Build cache for each relationship type
+            for rel_type in ["CALLS", "IMPORTS", "INHERITS"]:
+                edges_query = f"""
+                MATCH (a)-[:{rel_type}]->(b)
+                WHERE a.qualifiedName IS NOT NULL AND b.qualifiedName IS NOT NULL
+                RETURN a.qualifiedName AS src, b.qualifiedName AS dst
+                """
+                edges_result = self.db.execute_query(edges_query)
+
+                # Convert to (src_id, dst_id) pairs
+                edges = []
+                for r in edges_result:
+                    src_name = r.get("src")
+                    dst_name = r.get("dst")
+                    if src_name and dst_name:
+                        src_id = cache.get_id(src_name)
+                        dst_id = cache.get_id(dst_name)
+                        if src_id is not None and dst_id is not None:
+                            edges.append((src_id, dst_id))
+
+                if edges:
+                    cache.build_cache(rel_type, edges, num_nodes)
+                    stats = cache.stats(rel_type)
+                    logger.debug(
+                        f"Built {rel_type} cache: {len(edges)} edges, "
+                        f"density={stats.get('density', 0):.4f}"
+                    )
+
+            logger.info(f"Path cache built: {num_nodes} nodes, 3 relationship types")
+            return cache
+
+        except Exception as e:
+            logger.warning(f"Failed to build path cache: {e}")
+            return None
 
     def analyze(self, progress_callback=None) -> CodebaseHealth:
         """Run complete analysis and generate health report.

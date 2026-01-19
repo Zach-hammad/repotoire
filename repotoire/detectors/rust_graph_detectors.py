@@ -16,17 +16,22 @@ ACADEMIC REFERENCES:
 - Martin, R. "Agile Software Development" (2002) - Package stability metrics
 - Tornhill, A. "Your Code as a Crime Scene" (2015) - Hotspot analysis
 - Lippert, M. & Roock, S. "Refactoring in Large Software Projects" (2006)
+
+REPO-416: Added path cache support for O(1) reachability queries.
 """
 
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.logging_config import get_logger
 from repotoire.models import CollaborationMetadata, Finding, Severity
+
+if TYPE_CHECKING:
+    from repotoire_fast import PyPathCache
 
 # Import Rust graph detector functions
 from repotoire_fast import (
@@ -440,6 +445,8 @@ class LayeredArchitectureDetector(CodeSmellDetector):
     ):
         super().__init__(graph_client, detector_config)
         self.enricher = enricher
+        # Path cache for O(1) reachability queries (REPO-416)
+        self.path_cache: Optional["PyPathCache"] = self.config.get("path_cache")
         # Default layer configuration (can be overridden)
         self.layers = self.config.get("layers", [
             {"name": "infrastructure", "level": 0, "patterns": ["repositories", "database", "data"]},

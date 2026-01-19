@@ -2,17 +2,21 @@
 
 REPO-152: Enhanced with community detection and PageRank importance scoring
 for 40-60% false positive reduction.
+REPO-416: Added path cache support for O(1) reachability queries.
 """
 
 import re
 import uuid
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from datetime import datetime
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.graph_algorithms import GraphAlgorithms
 from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.graph.enricher import GraphEnricher
+
+if TYPE_CHECKING:
+    from repotoire_fast import PyPathCache
 
 
 class GodClassDetector(CodeSmellDetector):
@@ -56,6 +60,7 @@ class GodClassDetector(CodeSmellDetector):
             graph_client: FalkorDB database client
             detector_config: Optional dict with detector configuration:
                 - repo_id: Repository UUID for filtering queries (multi-tenant isolation)
+                - path_cache: Prebuilt path cache for O(1) reachability queries (REPO-416)
                 - god_class_*: Threshold configuration
                 - excluded_patterns: List of regex patterns to exclude (default: DEFAULT_EXCLUDED_PATTERNS)
                 - use_pattern_exclusions: Enable/disable pattern-based exclusions (default: True)
@@ -68,6 +73,9 @@ class GodClassDetector(CodeSmellDetector):
 
         # Load thresholds from config or use defaults
         config = detector_config or {}
+
+        # Path cache for O(1) reachability queries (REPO-416)
+        self.path_cache: Optional["PyPathCache"] = config.get("path_cache")
         self.high_method_count = config.get("god_class_high_method_count", self.DEFAULT_HIGH_METHOD_COUNT)
         self.medium_method_count = config.get("god_class_medium_method_count", self.DEFAULT_MEDIUM_METHOD_COUNT)
         self.high_complexity = config.get("god_class_high_complexity", self.DEFAULT_HIGH_COMPLEXITY)

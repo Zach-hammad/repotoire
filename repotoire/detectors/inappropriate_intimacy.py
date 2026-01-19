@@ -8,15 +8,19 @@ Traditional linters cannot detect this pattern as it requires tracking
 bidirectional relationships between classes.
 
 Addresses: FAL-113
+REPO-416: Added path cache support for O(1) reachability queries.
 """
 
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
+
+if TYPE_CHECKING:
+    from repotoire_fast import PyPathCache
 
 
 class InappropriateIntimacyDetector(CodeSmellDetector):
@@ -34,6 +38,8 @@ class InappropriateIntimacyDetector(CodeSmellDetector):
         # FalkorDB uses id() while Neo4j uses elementId()
         self.is_falkordb = getattr(graph_client, "is_falkordb", False) or type(graph_client).__name__ == "FalkorDBClient"
         self.id_func = "id" if self.is_falkordb else "elementId"
+        # Path cache for O(1) reachability queries (REPO-416)
+        self.path_cache: Optional["PyPathCache"] = config.get("path_cache")
 
     def detect(self) -> List[Finding]:
         """

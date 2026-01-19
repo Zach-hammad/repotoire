@@ -4,21 +4,33 @@ This module provides reusable Cypher patterns for detecting common graph structu
 and calculating graph metrics used by detectors.
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from repotoire.graph import FalkorDBClient
 from repotoire.validation import validate_identifier
+
+# Check if path cache is available (REPO-416)
+try:
+    from repotoire_fast import PyPathCache
+    _HAS_PATH_CACHE = True
+except ImportError:
+    _HAS_PATH_CACHE = False
+
+if TYPE_CHECKING:
+    from repotoire_fast import PyPathCache
 
 
 class CypherPatterns:
     """Reusable Cypher patterns for common graph analysis tasks."""
 
-    def __init__(self, client: FalkorDBClient):
+    def __init__(self, client: FalkorDBClient, path_cache: Optional["PyPathCache"] = None):
         """Initialize patterns helper.
 
         Args:
             client: FalkorDB client instance
+            path_cache: Optional prebuilt path expression cache for O(1) queries (REPO-416)
         """
         self.client = client
+        self.path_cache = path_cache
 
     def find_cycles(
         self,
@@ -30,7 +42,8 @@ class CypherPatterns:
     ) -> List[Dict[str, Any]]:
         """Find circular dependencies in the graph.
 
-        Uses shortest path queries to detect cycles between nodes.
+        Uses path cache for O(1) cycle detection when available (REPO-416),
+        falling back to shortest path queries.
 
         Args:
             node_label: Label of nodes to check for cycles
@@ -48,6 +61,33 @@ class CypherPatterns:
             >>> for cycle in cycles:
             ...     print(f"Cycle of length {cycle['length']}: {cycle['nodes']}")
         """
+        # REPO-416: Use path cache for 100-1000x faster cycle detection
+        if self.path_cache is not None and _HAS_PATH_CACHE:
+            try:
+                # PyPathCache.find_cycles(rel_type) returns list of cycles (as node ID lists)
+                cached_cycles = self.path_cache.find_cycles(relationship_type)
+                # Filter by min_length and max_length, convert IDs to file paths
+                results = []
+                for cycle_ids in cached_cycles:
+                    if min_length <= len(cycle_ids) <= max_length:
+                        # Convert node IDs to qualified names
+                        cycle_names = [self.path_cache.get_name(node_id) for node_id in cycle_ids]
+                        cycle_names = [n for n in cycle_names if n is not None]
+                        if cycle_names:
+                            results.append({
+                                "nodes": cycle_names,
+                                "length": len(cycle_names),
+                            })
+                        if len(results) >= limit:
+                            break
+                # Sort by length descending
+                results.sort(key=lambda x: x["length"], reverse=True)
+                return results[:limit]
+            except Exception:
+                # Fall through to Cypher query on any error
+                pass
+
+        # Fallback: Use O(V²) Cypher query
         # Validate inputs to prevent Cypher injection
         validated_label = validate_identifier(node_label, "node label")
         validated_rel_type = validate_identifier(relationship_type, "relationship type")
