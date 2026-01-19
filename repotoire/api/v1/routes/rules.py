@@ -19,7 +19,7 @@ from repotoire.db.models import (
     User,
 )
 from repotoire.db.session import get_db
-from repotoire.graph.factory import get_factory
+from repotoire.graph.factory import create_client
 from repotoire.logging_config import get_logger
 from repotoire.models import Rule, Severity
 from repotoire.rules.engine import RuleEngine
@@ -221,15 +221,13 @@ async def require_admin_or_owner(
 
 def get_rule_engine(org: Organization) -> RuleEngine:
     """Get RuleEngine for the organization's graph."""
-    factory = get_factory()
-    client = factory.get_client(org_id=org.id, org_slug=org.slug)
+    client = create_client(org_id=org.id, org_slug=org.slug)
     return RuleEngine(client)
 
 
 def get_rule_validator(org: Organization) -> RuleValidator:
     """Get RuleValidator for the organization's graph."""
-    factory = get_factory()
-    client = factory.get_client(org_id=org.id, org_slug=org.slug)
+    client = create_client(org_id=org.id, org_slug=org.slug)
     return RuleValidator(client)
 
 

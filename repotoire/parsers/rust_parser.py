@@ -271,7 +271,7 @@ def _convert_parsed_file(
 
     # Convert imports to relationships
     for imp in parsed.imports:
-        # Create IMPORTS relationship
+        # Create symbolic IMPORTS relationship (module.name format)
         for name in imp.names:
             if imp.is_from_import:
                 target = f"{imp.module}.{name}" if imp.module else name
@@ -282,6 +282,22 @@ def _convert_parsed_file(
                 target_id=target,
                 rel_type=RelationshipType.IMPORTS,
             ))
+
+        # Create File-to-File IMPORTS relationship
+        # Convert module path to potential file path
+        module_path = imp.module if imp.is_from_import else (imp.names[0] if imp.names else "")
+        if module_path:
+            target_file = _module_to_file_path(module_path)
+            if target_file:
+                relationships.append(Relationship(
+                    source_id=file_entity.qualified_name,
+                    target_id=target_file,
+                    rel_type=RelationshipType.IMPORTS,
+                    properties={
+                        'import_type': 'file',
+                        'module': module_path,
+                    },
+                ))
 
     # Build a mapping from simple function names to qualified names
     # This helps resolve calls like "self.method()" to actual function entities
@@ -321,6 +337,65 @@ def _convert_parsed_file(
                 ))
 
     return entities, relationships
+
+
+def _module_to_file_path(module_path: str) -> Optional[str]:
+    """Convert a Python module path to a file path.
+
+    Args:
+        module_path: Module path like "repotoire.models" or "os.path"
+
+    Returns:
+        File path like "repotoire/models.py" or None for stdlib/external modules
+    """
+    if not module_path:
+        return None
+
+    # Skip standard library and common external modules
+    stdlib_prefixes = {
+        'os', 'sys', 're', 'json', 'typing', 'collections', 'functools',
+        'itertools', 'pathlib', 'dataclasses', 'enum', 'abc', 'io',
+        'datetime', 'time', 'math', 'random', 'hashlib', 'logging',
+        'unittest', 'pytest', 'asyncio', 'concurrent', 'threading',
+        'multiprocessing', 'subprocess', 'shutil', 'tempfile', 'glob',
+        'fnmatch', 'pickle', 'copy', 'pprint', 'textwrap', 'string',
+        'struct', 'codecs', 'unicodedata', 'difflib', 'contextlib',
+        'warnings', 'traceback', 'inspect', 'importlib', 'pkgutil',
+        'socket', 'ssl', 'http', 'urllib', 'email', 'html', 'xml',
+        'base64', 'binascii', 'zlib', 'gzip', 'bz2', 'lzma', 'zipfile',
+        'tarfile', 'csv', 'configparser', 'argparse', 'getopt', 'secrets',
+        'hmac', 'sqlite3', 'decimal', 'fractions', 'statistics', 'array',
+        'weakref', 'types', 'operator', 'graphlib', 'heapq', 'bisect',
+    }
+
+    # Common external packages to skip
+    external_prefixes = {
+        'numpy', 'pandas', 'scipy', 'matplotlib', 'sklearn', 'tensorflow',
+        'torch', 'keras', 'flask', 'django', 'fastapi', 'starlette',
+        'pydantic', 'sqlalchemy', 'requests', 'httpx', 'aiohttp',
+        'click', 'rich', 'typer', 'pytest', 'hypothesis', 'mypy',
+        'black', 'ruff', 'pylint', 'flake8', 'isort', 'bandit',
+        'celery', 'redis', 'boto3', 'botocore', 'google', 'azure',
+        'openai', 'anthropic', 'langchain', 'transformers', 'spacy',
+        'networkx', 'igraph', 'neo4j', 'falkordb', 'graphiti',
+        'jinja2', 'yaml', 'toml', 'tomli', 'dotenv', 'environs',
+        'uvicorn', 'gunicorn', 'hypercorn', 'psutil', 'watchdog',
+        'PIL', 'cv2', 'skimage', 'soundfile', 'librosa',
+        'maturin', 'setuptools', 'pip', 'wheel', 'build', 'twine',
+    }
+
+    first_part = module_path.split('.')[0]
+    if first_part in stdlib_prefixes or first_part in external_prefixes:
+        return None
+
+    # Skip relative imports (starting with .)
+    if module_path.startswith('.'):
+        return None
+
+    # Convert module path to file path
+    # e.g., "repotoire.models" -> "repotoire/models.py"
+    file_path = module_path.replace('.', '/') + '.py'
+    return file_path
 
 
 def _resolve_caller_qn(
