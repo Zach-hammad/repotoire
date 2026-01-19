@@ -172,6 +172,12 @@ class AnalysisEngine:
         if self.path_cache is None and _HAS_PATH_CACHE:
             self.path_cache = self._build_path_cache()
 
+        # Log path cache status for debugging
+        if self.path_cache is not None:
+            logger.info("Path cache enabled - detectors will use O(1) reachability queries")
+        else:
+            logger.warning("Path cache NOT enabled - detectors will use slower Cypher queries")
+
         # Initialize GraphEnricher for cross-detector collaboration (REPO-151 Phase 2)
         self.enricher = GraphEnricher(graph_client)
 
@@ -387,8 +393,12 @@ class AnalysisEngine:
         Returns:
             PyPathCache instance with precomputed caches, or None if building fails.
         """
+        import time as time_module
+        start_time = time_module.time()
+        logger.info("Building path cache for O(1) reachability queries...")
+
         if not _HAS_PATH_CACHE:
-            logger.debug("Path cache not available (repotoire_fast not installed)")
+            logger.warning("Path cache not available (repotoire_fast not installed)")
             return None
 
         try:
@@ -403,27 +413,34 @@ class AnalysisEngine:
             RETURN n.qualifiedName AS name
             ORDER BY name
             """
+            query_start = time_module.time()
             nodes_result = self.db.execute_query(nodes_query)
+            query_time = time_module.time() - query_start
             node_names = [r["name"] for r in nodes_result if r.get("name")]
 
+            logger.info(f"Path cache nodes query returned {len(node_names)} nodes in {query_time:.2f}s")
+
             if not node_names:
-                logger.debug("No nodes found for path cache")
+                logger.warning("No nodes found for path cache - graph may be empty")
                 return None
 
             # Register nodes (assigns integer IDs)
             node_tuples = [(i, name) for i, name in enumerate(node_names)]
             cache.register_nodes(node_tuples)
             num_nodes = len(node_names)
-            logger.debug(f"Registered {num_nodes} nodes for path cache")
+            logger.info(f"Registered {num_nodes} nodes for path cache")
 
             # Build cache for each relationship type
+            total_edges = 0
             for rel_type in ["CALLS", "IMPORTS", "INHERITS"]:
                 edges_query = f"""
                 MATCH (a)-[:{rel_type}]->(b)
                 WHERE a.qualifiedName IS NOT NULL AND b.qualifiedName IS NOT NULL
                 RETURN a.qualifiedName AS src, b.qualifiedName AS dst
                 """
+                rel_start = time_module.time()
                 edges_result = self.db.execute_query(edges_query)
+                rel_query_time = time_module.time() - rel_start
 
                 # Convert to (src_id, dst_id) pairs
                 edges = []
@@ -438,17 +455,23 @@ class AnalysisEngine:
 
                 if edges:
                     cache.build_cache(rel_type, edges, num_nodes)
+                    total_edges += len(edges)
                     stats = cache.stats(rel_type)
-                    logger.debug(
-                        f"Built {rel_type} cache: {len(edges)} edges, "
+                    logger.info(
+                        f"Built {rel_type} cache: {len(edges)} edges in {rel_query_time:.2f}s, "
                         f"density={stats.get('density', 0):.4f}"
                     )
+                else:
+                    logger.info(f"No {rel_type} edges found ({rel_query_time:.2f}s)")
 
-            logger.info(f"Path cache built: {num_nodes} nodes, 3 relationship types")
+            total_time = time_module.time() - start_time
+            logger.info(f"Path cache complete: {num_nodes} nodes, {total_edges} edges in {total_time:.2f}s")
             return cache
 
         except Exception as e:
+            import traceback
             logger.warning(f"Failed to build path cache: {e}")
+            logger.warning(f"Path cache traceback: {traceback.format_exc()}")
             return None
 
     def analyze(self, progress_callback=None) -> CodebaseHealth:
