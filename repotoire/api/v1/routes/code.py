@@ -84,11 +84,18 @@ def get_graph_client_for_org(org: Organization) -> DatabaseClient:
     return factory.get_client(org_id=org.id, org_slug=org.slug)
 
 
-def get_embedder() -> CodeEmbedder:
-    """Get CodeEmbedder instance.
+def get_embedder(request: Request) -> CodeEmbedder:
+    """Get CodeEmbedder singleton from app state.
 
-    Respects REPOTOIRE_EMBEDDING_BACKEND env var to force a specific backend.
+    Uses the pre-loaded embedder from lifespan to avoid OOM from repeated model loading.
+    Falls back to creating new instance if not pre-loaded (API backends).
     """
+    # Try to get cached embedder from app state (loaded in lifespan)
+    embedder = getattr(request.app.state, "embedder", None)
+    if embedder is not None:
+        return embedder
+
+    # Fallback: create new instance (for API backends that don't need caching)
     import os
     backend = os.getenv("REPOTOIRE_EMBEDDING_BACKEND", "auto")
     return CodeEmbedder(backend=backend)
@@ -140,7 +147,8 @@ def _retrieval_result_to_code_entity(result: RetrievalResult) -> CodeEntity:
 )
 @code_ai_limiter.limit("60/minute;500/hour")
 async def search_code(
-    request: CodeSearchRequest,
+    request: Request,
+    search_request: CodeSearchRequest,
     org: Organization = Depends(enforce_feature_for_api("api_access")),
     embedder: CodeEmbedder = Depends(get_embedder),
 ) -> CodeSearchResponse:
@@ -163,14 +171,14 @@ async def search_code(
     retriever = get_retriever_for_org(org, embedder)
 
     try:
-        logger.info(f"Code search request: {request.query}", extra={"org_id": str(org.id)})
+        logger.info(f"Code search request: {search_request.query}", extra={"org_id": str(org.id)})
 
         # Perform hybrid retrieval
         results = retriever.retrieve(
-            query=request.query,
-            top_k=request.top_k,
-            entity_types=request.entity_types,
-            include_related=request.include_related
+            query=search_request.query,
+            top_k=search_request.top_k,
+            entity_types=search_request.entity_types,
+            include_related=search_request.include_related
         )
 
         # Convert to API models
@@ -181,8 +189,8 @@ async def search_code(
         return CodeSearchResponse(
             results=code_entities,
             total=len(code_entities),
-            query=request.query,
-            search_strategy="hybrid" if request.include_related else "vector",
+            query=search_request.query,
+            search_strategy="hybrid" if search_request.include_related else "vector",
             execution_time_ms=execution_time_ms
         )
 
@@ -208,7 +216,8 @@ async def search_code(
 )
 @code_ai_limiter.limit("30/minute;200/hour")
 async def ask_code_question(
-    request: CodeAskRequest,
+    request: Request,
+    ask_request: CodeAskRequest,
     org: Organization = Depends(enforce_feature_for_api("api_access")),
     embedder: CodeEmbedder = Depends(get_embedder),
 ) -> CodeAskResponse:
@@ -232,13 +241,13 @@ async def ask_code_question(
     retriever = get_retriever_for_org(org, embedder)
 
     try:
-        logger.info(f"Code Q&A request: {request.question}", extra={"org_id": str(org.id)})
+        logger.info(f"Code Q&A request: {ask_request.question}", extra={"org_id": str(org.id)})
 
         # Step 1: Retrieve relevant code
         retrieval_results = retriever.retrieve(
-            query=request.question,
-            top_k=request.top_k,
-            include_related=request.include_related
+            query=ask_request.question,
+            top_k=ask_request.top_k,
+            include_related=ask_request.include_related
         )
 
         if not retrieval_results:
@@ -272,8 +281,8 @@ async def ask_code_question(
         messages = []
 
         # Add conversation history if provided
-        if request.conversation_history:
-            for msg in request.conversation_history[-5:]:  # Last 5 messages
+        if ask_request.conversation_history:
+            for msg in ask_request.conversation_history[-5:]:  # Last 5 messages
                 messages.append(msg)
 
         # Add system message with context (including hot rules)
@@ -308,7 +317,7 @@ async def ask_code_question(
         system_message = "\n".join(system_message_parts)
 
         messages.append({"role": "system", "content": system_message})
-        messages.append({"role": "user", "content": request.question})
+        messages.append({"role": "user", "content": ask_request.question})
 
         # Call OpenAI - run main answer and follow-up questions in parallel
         client = AsyncOpenAI()
@@ -328,7 +337,7 @@ async def ask_code_question(
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "Based on the code context, suggest 2-3 follow-up questions the user might want to ask. Just list the questions, one per line."},
-                    {"role": "user", "content": f"Question: {request.question}\n\nCode context summary: {context[:1000]}"}
+                    {"role": "user", "content": f"Question: {ask_request.question}\n\nCode context summary: {context[:1000]}"}
                 ],
                 temperature=0.5,
                 max_tokens=100

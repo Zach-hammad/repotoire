@@ -193,6 +193,24 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Repotoire RAG API")
 
+    # Initialize singleton CodeEmbedder to prevent per-request model loading (OOM fix)
+    # This loads the embedding model ONCE at startup, not per-request
+    embedder = None
+    try:
+        backend = os.getenv("REPOTOIRE_EMBEDDING_BACKEND", "auto")
+        # Only pre-load if using local backend (which loads heavy models)
+        # API backends (openai, deepinfra) don't need pre-loading
+        if backend in ("local", "auto"):
+            from repotoire.ai.embeddings import CodeEmbedder
+            logger.info(f"Pre-loading CodeEmbedder with backend={backend}")
+            embedder = CodeEmbedder(backend=backend)
+            logger.info(f"CodeEmbedder initialized: {embedder.resolved_backend}, {embedder.dimensions} dims")
+    except Exception as e:
+        logger.warning(f"Failed to pre-load CodeEmbedder (will load on first request): {e}")
+
+    # Store in app state for dependency injection
+    app.state.embedder = embedder
+
     # Setup signal handlers for graceful shutdown
     shutdown_event = _get_shutdown_event()
     loop = asyncio.get_running_loop()
