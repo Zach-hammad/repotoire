@@ -1,10 +1,10 @@
-FROM falkordb/falkordb:latest
+FROM falkordb/falkordb:v4.14.10
 
 # FalkorDB deployment with password authentication for Fly.io
 # Password is passed via FALKOR_PASSWORD environment secret
 
 # Copy startup script that wraps the original run.sh
-COPY start.sh /start.sh
+COPY deploy/falkordb/start.sh /start.sh
 RUN chmod +x /start.sh
 
 EXPOSE 6379

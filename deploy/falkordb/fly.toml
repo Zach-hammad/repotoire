@@ -19,7 +19,10 @@ primary_region = 'iad'
 
 [env]
   # FalkorDB module configuration
-  FALKORDB_ARGS = "THREAD_COUNT 2 CACHE_SIZE 25"
+  # THREAD_COUNT=1 prevents oversubscription on 1 vCPU
+  # TIMEOUT_DEFAULT prevents hung queries
+  # QUERY_MEM_CAPACITY limits memory per query (100MB)
+  FALKORDB_ARGS = "THREAD_COUNT 1 OMP_THREAD_COUNT 1 CACHE_SIZE 25 MAX_QUEUED_QUERIES 50 QUERY_MEM_CAPACITY 104857600 TIMEOUT_DEFAULT 60000"
 
 # TCP service for Redis protocol connections
 [[services]]
@@ -38,6 +41,6 @@ primary_region = 'iad'
     timeout = "5s"
 
 [[vm]]
-  memory = '1gb'
-  cpu_kind = 'shared'
+  memory = '4gb'
+  cpu_kind = 'performance'
   cpus = 1
