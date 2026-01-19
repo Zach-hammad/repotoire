@@ -351,12 +351,10 @@ class GodClassDetector(CodeSmellDetector):
         if lcom >= 0.4:
             return False  # Not cohesive enough to be a legitimate pattern
 
-        # Query graph for method names - do pattern checks in Python (FalkorDB any() returns String not Boolean)
+        # Query graph for method names - use direct CONTAINS relationship
         query = """
         MATCH (c:Class {qualifiedName: $qualified_name})
-        MATCH (file:File)-[:CONTAINS]->(c)
-        MATCH (file)-[:CONTAINS]->(m:Function)
-        WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
+        MATCH (c)-[:CONTAINS]->(m:Function)
         WITH c, collect(DISTINCT toLower(m.name)) AS method_names
         RETURN method_names, size(method_names) AS method_count
         """
@@ -734,13 +732,10 @@ class GodClassDetector(CodeSmellDetector):
         Returns:
             LCOM score between 0 (cohesive) and 1 (scattered)
         """
-        # Query to get method-field usage patterns
-        # Collect all entities that methods use - label filtering removed for FalkorDB compatibility
+        # Query to get method-field usage patterns - use direct CONTAINS relationship
         query = """
         MATCH (c:Class {qualifiedName: $qualified_name})
-        MATCH (file:File)-[:CONTAINS]->(c)
-        MATCH (file)-[:CONTAINS]->(m:Function)
-        WHERE m.qualifiedName STARTS WITH c.qualifiedName + '.'
+        MATCH (c)-[:CONTAINS]->(m:Function)
         OPTIONAL MATCH (m)-[:USES]->(field)
         WITH m, collect(DISTINCT field.name) AS fields
         RETURN collect({method: m.name, fields: fields}) AS method_field_pairs,
