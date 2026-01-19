@@ -28,6 +28,13 @@ class IngestionResult:
     files_unchanged: int = 0
 
 
+# Try to import Rust string operations for performance
+try:
+    from repotoire_fast import strip_line_numbers as _rust_strip_line_numbers
+    _HAS_RUST_STRING_OPS = True
+except ImportError:
+    _HAS_RUST_STRING_OPS = False
+
 # Memoized helper functions for string parsing - avoid repeated splits
 @functools.lru_cache(maxsize=10000)
 def _parse_qualified_name(qn: str) -> Tuple[str, str, str]:
@@ -42,7 +49,11 @@ def _parse_qualified_name(qn: str) -> Tuple[str, str, str]:
     # Entity part is like "ClassName:140.method_name:177" - strip line number at end
     entity_part = rest.rsplit(":", 1)[0] if ":" in rest else rest
     # Remove line numbers embedded in class names (e.g., "ClassName:140.method" -> "ClassName.method")
-    entity_part = re.sub(r":(\d+)", "", entity_part)
+    # Use Rust implementation when available for 2x+ speedup
+    if _HAS_RUST_STRING_OPS:
+        entity_part = _rust_strip_line_numbers(entity_part)
+    else:
+        entity_part = re.sub(r":(\d+)", "", entity_part)
     return (file_part, entity_part, "")
 
 

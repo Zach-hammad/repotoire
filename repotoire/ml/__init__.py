@@ -53,7 +53,7 @@ except ImportError:
 def batch_cosine_similarity(query, matrix):
     """Calculate cosine similarity between query and all rows in matrix.
 
-    Uses Rust parallel implementation for ~2.5x speedup over NumPy.
+    Uses Rust SIMD-optimized parallel implementation for maximum throughput.
 
     Args:
         query: 1D numpy array (e.g., embedding vector)
@@ -63,11 +63,12 @@ def batch_cosine_similarity(query, matrix):
         List of similarity scores
     """
     try:
-        from repotoire_fast import batch_cosine_similarity_fast
+        # Use SIMD-optimized version for better performance
+        from repotoire_fast import batch_cosine_similarity_simd
         import numpy as np
         q = np.asarray(query, dtype=np.float32)
         m = np.asarray(matrix, dtype=np.float32)
-        return batch_cosine_similarity_fast(q, m)
+        return batch_cosine_similarity_simd(q, m)
     except ImportError:
         import numpy as np
         q = np.asarray(query)
