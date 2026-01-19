@@ -47,7 +47,7 @@ except ImportError:
     PyPathCache = None  # type: ignore
 
 # Memoized helper functions for string parsing - avoid repeated splits
-@functools.lru_cache(maxsize=10000)
+@functools.lru_cache(maxsize=50000)
 def _parse_qualified_name(qn: str) -> Tuple[str, str, str]:
     """Parse qualified name into (file_path, entity_part, line).
 
@@ -68,7 +68,7 @@ def _parse_qualified_name(qn: str) -> Tuple[str, str, str]:
     return (file_part, entity_part, "")
 
 
-@functools.lru_cache(maxsize=10000)
+@functools.lru_cache(maxsize=50000)
 def _get_module_prefix(qn: str) -> str:
     """Extract module prefix (everything except last component).
 
@@ -79,7 +79,7 @@ def _get_module_prefix(qn: str) -> str:
     return ""
 
 
-@functools.lru_cache(maxsize=10000)
+@functools.lru_cache(maxsize=50000)
 def _split_path_components(path: str, sep: str = os.sep) -> Tuple[str, ...]:
     """Split path into components (cached for repeated use)."""
     return tuple(path.split(sep))

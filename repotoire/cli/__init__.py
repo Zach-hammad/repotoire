@@ -4,9 +4,21 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import os
 import click
 from dataclasses import asdict
 from pathlib import Path
+
+
+def _get_optimal_workers() -> int:
+    """Get optimal number of workers based on available CPU cores.
+
+    Returns:
+        Number of workers (capped at 8 to avoid oversubscription)
+    """
+    cpu_count = os.cpu_count() or 4
+    # Use all available cores up to 8 (diminishing returns beyond that for I/O bound work)
+    return min(cpu_count, 8)
 from typing import Optional
 from rich.console import Console
 from rich.table import Table
@@ -888,7 +900,7 @@ def ingest(
                         repository_path=str(validated_repo_path),
                         repo_id=repo_id,
                         parallel=True,
-                        max_workers=4,
+                        max_workers=_get_optimal_workers(),
                     )
 
                     # Run analysis with progress indication
@@ -985,8 +997,8 @@ def ingest(
 @click.option(
     "--workers",
     type=int,
-    default=4,
-    help="Number of parallel workers for detector execution (default: 4)",
+    default=_get_optimal_workers(),
+    help=f"Number of parallel workers for detector execution (default: {_get_optimal_workers()}, based on CPU cores)",
 )
 @click.option(
     "--offline",
@@ -1566,8 +1578,8 @@ def _print_validation_summary(results: list, all_passed: bool) -> None:
     help="Use parallel scanning for multiple files (default: enabled)",
 )
 @click.option(
-    "--workers", "-w", type=int, default=4,
-    help="Number of parallel workers (default: 4)",
+    "--workers", "-w", type=int, default=_get_optimal_workers(),
+    help=f"Number of parallel workers (default: {_get_optimal_workers()}, based on CPU cores)",
 )
 @click.option(
     "--min-risk",
