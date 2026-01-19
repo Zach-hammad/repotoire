@@ -5,6 +5,13 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import hashlib
 
+# Try to import Rust accelerated call resolution (REPO-406)
+try:
+    from repotoire_fast import resolve_calls_indexed
+    _HAS_RUST_RESOLVER = True
+except ImportError:
+    _HAS_RUST_RESOLVER = False
+
 from repotoire.parsers.base import CodeParser
 from repotoire.models import (
     Entity,
@@ -1102,71 +1109,11 @@ class PythonParser(CodeParser):
         visitor = CallVisitor(file_path)
         visitor.visit(tree)
 
-        # Create CALLS relationships
-        for caller, callee, line, is_self_call in visitor.calls:
-            # Try to resolve callee to a qualified name in our entity map
-            callee_qualified = None
-
-            if is_self_call:
-                # For self.method() calls, resolve to the method in the current class
-                # Extract class from caller: "file.py::ClassName:123.method_name:456"
-                if "::" in caller and "." in caller:
-                    # Get the part between :: and the first .
-                    parts = caller.split("::")
-                    if len(parts) > 1:
-                        class_part = parts[1].split(".")[0]  # "ClassName:123"
-                        # Look for method in this class
-                        method_pattern = f"::{class_part}.{callee}:"
-                        for qname in entity_map.keys():
-                            if method_pattern in qname:
-                                callee_qualified = qname
-                                break
-
-            if not callee_qualified:
-                # Try different matching strategies
-                # 1. Exact name match - prioritize classes for capitalized names
-                is_likely_class = callee and callee[0].isupper()
-
-                if is_likely_class:
-                    # First try to match a Class entity
-                    for qname, entity in entity_map.items():
-                        if entity.node_type == NodeType.CLASS and entity.name == callee:
-                            callee_qualified = qname
-                            break
-
-                if not callee_qualified:
-                    # Then try any entity with matching name
-                    for qname, entity in entity_map.items():
-                        if entity.name == callee:
-                            callee_qualified = qname
-                            break
-
-            if not callee_qualified:
-                # 2. Check if callee ends with the qualified name pattern
-                for qname in entity_map.keys():
-                    if qname.endswith(f"::{callee}:") or qname.endswith(f".{callee}:"):
-                        callee_qualified = qname
-                        break
-
-            if not callee_qualified:
-                # 3. For simple function names, check if it's in the same file
-                for qname, entity in entity_map.items():
-                    if qname.startswith(file_path) and entity.name == callee:
-                        callee_qualified = qname
-                        break
-
-            # If not found, use the callee name as-is (might be external)
-            if not callee_qualified:
-                callee_qualified = callee
-
-            relationships.append(
-                Relationship(
-                    source_id=caller,
-                    target_id=callee_qualified,
-                    rel_type=RelationshipType.CALLS,
-                    properties={"line": line, "call_name": callee, "is_self_call": is_self_call},
-                )
-            )
+        # Use Rust batch resolution for large call sets (REPO-406)
+        if _HAS_RUST_RESOLVER and len(visitor.calls) >= 20:
+            self._resolve_calls_rust(visitor.calls, entity_map, file_path, relationships)
+        else:
+            self._resolve_calls_python(visitor.calls, entity_map, file_path, relationships)
 
         # Create USES relationships for function references (not calls)
         for user, used_func_name, line in visitor.uses:
@@ -1344,3 +1291,138 @@ class PythonParser(CodeParser):
                                     exports.append(elt.s)
 
         return exports
+
+    def _resolve_calls_rust(
+        self,
+        calls: List[Tuple[str, str, int, bool]],
+        entity_map: Dict[str, Entity],
+        file_path: str,
+        relationships: List[Relationship],
+    ) -> None:
+        """Resolve function calls using Rust indexed resolver (REPO-406).
+
+        Args:
+            calls: List of (caller, callee, line, is_self_call) tuples
+            entity_map: Map of qualified_name to Entity
+            file_path: Current file path
+            relationships: List to append relationships to
+        """
+        # Convert entity_map to Rust format: [(qname, name, type, file_path)]
+        entities_list = [
+            (qname, entity.name, entity.node_type.value, entity.file_path)
+            for qname, entity in entity_map.items()
+            if entity.node_type in (NodeType.FUNCTION, NodeType.CLASS)
+        ]
+
+        # Convert calls to Rust format: [(callee_name, caller_file, is_self_call, caller_class)]
+        # We need to extract caller_class from the caller qualified name
+        rust_calls = []
+        call_metadata = {}  # Map (callee, caller_file, is_self_call) -> (caller, line)
+
+        for caller, callee, line, is_self_call in calls:
+            # Extract caller_class from caller qualified name
+            # Format: "file.py::ClassName:line.method:line" -> "ClassName"
+            caller_class = None
+            if "::" in caller and "." in caller.split("::", 1)[1]:
+                class_part = caller.split("::", 1)[1].split(".")[0]
+                if ":" in class_part:
+                    caller_class = class_part.split(":")[0]
+
+            rust_calls.append((callee, file_path, is_self_call, caller_class))
+            # Store metadata for creating relationships
+            key = (callee, file_path, is_self_call, caller_class or "")
+            call_metadata[key] = (caller, line)
+
+        # Call Rust resolver
+        results = resolve_calls_indexed(entities_list, rust_calls)
+
+        # Create relationships from results
+        for caller_qname, target_qname, confidence in results:
+            # Find the line number from metadata
+            line = 0
+            for (callee, cfile, is_self, cclass), (stored_caller, stored_line) in call_metadata.items():
+                if stored_caller == caller_qname:
+                    line = stored_line
+                    break
+
+            relationships.append(
+                Relationship(
+                    source_id=caller_qname,
+                    target_id=target_qname,
+                    rel_type=RelationshipType.CALLS,
+                    properties={
+                        "line": line,
+                        "confidence": confidence,
+                        "resolved_by": "rust_indexed",
+                    },
+                )
+            )
+
+    def _resolve_calls_python(
+        self,
+        calls: List[Tuple[str, str, int, bool]],
+        entity_map: Dict[str, Entity],
+        file_path: str,
+        relationships: List[Relationship],
+    ) -> None:
+        """Resolve function calls using Python implementation (fallback).
+
+        Args:
+            calls: List of (caller, callee, line, is_self_call) tuples
+            entity_map: Map of qualified_name to Entity
+            file_path: Current file path
+            relationships: List to append relationships to
+        """
+        for caller, callee, line, is_self_call in calls:
+            # Try to resolve callee to an entity
+            target_qualified = None
+
+            if is_self_call:
+                # self.method() call - look for method in caller's class
+                # Extract class name from caller: "file.py::ClassName:line.method:line"
+                if "::" in caller and "." in caller.split("::", 1)[1]:
+                    class_part = caller.split("::", 1)[1].split(".")[0]
+                    # Find methods in this class
+                    for qname, entity in entity_map.items():
+                        if (
+                            entity.node_type == NodeType.FUNCTION
+                            and entity.name == callee
+                            and class_part in qname
+                        ):
+                            target_qualified = qname
+                            break
+            else:
+                # Regular call - search by name
+                # First try exact match in same file
+                for qname, entity in entity_map.items():
+                    if entity.node_type == NodeType.FUNCTION and entity.name == callee:
+                        if qname.startswith(file_path):
+                            target_qualified = qname
+                            break
+
+                # If not found in same file, try any file
+                if not target_qualified:
+                    for qname, entity in entity_map.items():
+                        if entity.node_type == NodeType.FUNCTION and entity.name == callee:
+                            target_qualified = qname
+                            break
+
+                # Also try class constructors (ClassName())
+                if not target_qualified:
+                    for qname, entity in entity_map.items():
+                        if entity.node_type == NodeType.CLASS and entity.name == callee:
+                            target_qualified = qname
+                            break
+
+            if target_qualified:
+                relationships.append(
+                    Relationship(
+                        source_id=caller,
+                        target_id=target_qualified,
+                        rel_type=RelationshipType.CALLS,
+                        properties={
+                            "line": line,
+                            "resolved_by": "python_fallback",
+                        },
+                    )
+                )

@@ -20,6 +20,13 @@ from enum import Enum
 from typing import List, Dict, Optional, Tuple
 from collections import defaultdict
 
+# Try to import Rust accelerated version (REPO-405)
+try:
+    from repotoire_fast import calculate_consensus_batch as _rust_consensus_batch
+    _HAS_RUST = True
+except ImportError:
+    _HAS_RUST = False
+
 from repotoire.models import Finding, Severity
 from repotoire.logging_config import get_logger
 from repotoire.detectors.grouping import get_finding_group_key, get_issue_category
@@ -156,7 +163,12 @@ class VotingEngine:
         # Group findings by entity
         groups = self._group_by_entity(findings)
 
-        # Apply voting to each group
+        # Use Rust batch processing for large groups (REPO-405)
+        multi_detector_groups = {k: v for k, v in groups.items() if len(v) > 1}
+        if _HAS_RUST and len(multi_detector_groups) >= 10:
+            return self._vote_rust(findings, groups)
+
+        # Apply voting to each group (Python fallback)
         consensus_findings = []
         rejected_count = 0
         boosted_count = 0
@@ -202,6 +214,138 @@ class VotingEngine:
         )
 
         return consensus_findings, self.stats
+
+    def _vote_rust(
+        self,
+        findings: List[Finding],
+        groups: Dict[str, List[Finding]]
+    ) -> Tuple[List[Finding], Dict]:
+        """Apply voting using Rust batch processing (REPO-405).
+
+        Args:
+            findings: All findings from detectors
+            groups: Pre-grouped findings by entity
+
+        Returns:
+            Tuple of (consensus findings, voting statistics)
+        """
+        # Prepare batch input for Rust: List of (group_key, findings_data)
+        # findings_data = [(id, detector, severity, confidence, entity_key)]
+        rust_input = []
+        group_findings_map = {}  # group_key -> findings list
+
+        for group_key, group_findings in groups.items():
+            if len(group_findings) == 1:
+                continue  # Skip single-detector groups, handle separately
+
+            findings_data = []
+            for f in group_findings:
+                finding_id = f.id
+                detector = f.detector
+                severity = f.severity.value  # e.g., "high", "medium"
+                confidence = self._get_finding_confidence(f)
+                # Rust expects (id, detector, severity, confidence, entity_key)
+                findings_data.append((finding_id, detector, severity, confidence, group_key))
+
+            rust_input.append((group_key, findings_data))
+            group_findings_map[group_key] = group_findings
+
+        # Build detector weights dict for Rust
+        detector_weights = {
+            name: dw.weight for name, dw in self.detector_weights.items()
+        }
+
+        # Convert method and resolution to string for Rust
+        confidence_method_str = self.confidence_method.value
+        severity_resolution_str = self.severity_resolution.value
+
+        # Call Rust batch consensus calculation
+        # Returns: Vec<(entity_key, has_consensus, confidence, severity, vote_count, detectors)>
+        rust_results = _rust_consensus_batch(
+            rust_input,
+            detector_weights,
+            confidence_method_str,
+            severity_resolution_str,
+            self.min_detectors_for_boost,
+            self.confidence_threshold,
+        )
+
+        # Process Rust results and create consensus findings
+        consensus_findings = []
+        boosted_count = 0
+        rejected_count = 0
+
+        # Handle single-detector groups first
+        for group_key, group_findings in groups.items():
+            if len(group_findings) == 1:
+                finding = group_findings[0]
+                confidence = self._get_finding_confidence(finding)
+                if confidence >= self.confidence_threshold:
+                    consensus_findings.append(finding)
+                else:
+                    rejected_count += 1
+
+        # Process Rust results for multi-detector groups
+        # Rust returns: (entity_key, has_consensus, confidence, severity_str, vote_count, finding_ids)
+        for group_key, has_consensus, confidence, severity_str, vote_count, _finding_ids in rust_results:
+            if group_key not in group_findings_map:
+                continue
+
+            group_findings = group_findings_map[group_key]
+
+            if has_consensus and confidence >= self.confidence_threshold:
+                # Convert severity string back to Severity enum (Rust returns uppercase)
+                severity = Severity(severity_str.lower())
+                detectors = list(set(f.detector for f in group_findings))
+
+                consensus = ConsensusResult(
+                    has_consensus=True,
+                    confidence=confidence,
+                    severity=severity,
+                    contributing_detectors=detectors,
+                    vote_count=vote_count,
+                    total_detectors=len(group_findings),
+                    agreement_ratio=vote_count / max(len(group_findings), 1),
+                )
+
+                merged = self._create_consensus_finding(group_findings, consensus)
+                consensus_findings.append(merged)
+                boosted_count += 1
+            else:
+                rejected_count += 1
+
+        # Calculate statistics
+        self.stats = {
+            "total_input": len(findings),
+            "total_output": len(consensus_findings),
+            "groups_analyzed": len(groups),
+            "single_detector_findings": sum(1 for g in groups.values() if len(g) == 1),
+            "multi_detector_findings": sum(1 for g in groups.values() if len(g) > 1),
+            "boosted_by_consensus": boosted_count,
+            "rejected_low_confidence": rejected_count,
+            "strategy": self.strategy.value,
+            "confidence_method": self.confidence_method.value,
+            "threshold": self.confidence_threshold,
+            "rust_accelerated": True,
+        }
+
+        logger.info(
+            f"VotingEngine (Rust): {len(findings)} -> {len(consensus_findings)} findings "
+            f"({boosted_count} boosted, {rejected_count} rejected)"
+        )
+
+        return consensus_findings, self.stats
+
+    def _rank_to_severity(self, rank: int) -> Severity:
+        """Convert severity rank back to Severity enum."""
+        rank_to_severity = {
+            5: Severity.CRITICAL,
+            4: Severity.HIGH,
+            3: Severity.MEDIUM,
+            2: Severity.LOW,
+            1: Severity.INFO,
+        }
+        return rank_to_severity.get(rank, Severity.MEDIUM)
 
     def _group_by_entity(self, findings: List[Finding]) -> Dict[str, List[Finding]]:
         """Group findings by the entity they target.

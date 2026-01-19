@@ -15,6 +15,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# Try to import Rust accelerated findings serialization (REPO-408)
+try:
+    from repotoire_fast import serialize_findings_batch as _rust_serialize_findings
+    _HAS_RUST_SERIALIZE = True
+except ImportError:
+    _HAS_RUST_SERIALIZE = False
+
 
 # Language detection mapping
 EXTENSION_TO_LANGUAGE = {
@@ -1494,6 +1501,9 @@ class CodebaseHealth:
         Returns:
             Dictionary representation suitable for JSON export
         """
+        # Use Rust batch serialization for large finding sets (REPO-408)
+        findings_serialized = self._serialize_findings()
+
         return {
             "grade": self.grade,
             "overall_score": self.overall_score,
@@ -1508,20 +1518,88 @@ class CodebaseHealth:
                 "low": self.findings_summary.low,
                 "total": self.findings_summary.total,
             },
-            "findings": [
-                {
-                    "id": f.id,
-                    "detector": f.detector,
-                    "severity": f.severity.value,
-                    "title": f.title,
-                    "description": f.description,
-                    "affected_files": f.affected_files,
-                    "affected_nodes": f.affected_nodes,
-                    "graph_context": f.graph_context,
-                    "suggested_fix": f.suggested_fix,
-                    "estimated_effort": f.estimated_effort,
-                }
-                for f in self.findings
-            ],
+            "findings": findings_serialized,
             "analyzed_at": self.analyzed_at.isoformat(),
         }
+
+    def _serialize_findings(self) -> List[Dict]:
+        """Serialize findings to list of dicts, using Rust when available (REPO-408).
+
+        Uses Rust parallel serialization for 50+ findings for better performance.
+
+        Returns:
+            List of finding dictionaries
+        """
+        if not self.findings:
+            return []
+
+        # Use Rust for batch serialization with 50+ findings
+        if _HAS_RUST_SERIALIZE and len(self.findings) >= 50:
+            return self._serialize_findings_rust()
+
+        # Python fallback
+        return self._serialize_findings_python()
+
+    def _serialize_findings_rust(self) -> List[Dict]:
+        """Rust-accelerated batch findings serialization."""
+        import json
+        from types import SimpleNamespace
+
+        # Convert findings to Rust input format using SimpleNamespace
+        # (Rust #[derive(FromPyObject)] expects objects with attributes, not dicts)
+        rust_input = []
+        for f in self.findings:
+            obj = SimpleNamespace(
+                detector=f.detector,
+                severity=f.severity.value,
+                title=f.title,
+                description=f.description or "",
+                affected_files=f.affected_files,
+                affected_nodes=f.affected_nodes,
+                line_start=f.line_start,
+                line_end=f.line_end,
+                suggested_fix=f.suggested_fix,
+                estimated_effort=f.estimated_effort,
+                graph_context=json.dumps(f.graph_context) if f.graph_context else None,
+            )
+            rust_input.append(obj)
+
+        # Call Rust batch serialization
+        rust_results = _rust_serialize_findings(rust_input)
+
+        # Convert Rust output to expected format
+        findings_out = []
+        for i, result in enumerate(rust_results):
+            finding_dict = {
+                "id": self.findings[i].id,  # Preserve original ID
+                "detector": result["detector"],
+                "severity": result["severity"],
+                "title": result["title"],
+                "description": self.findings[i].description,  # Use original
+                "affected_files": result["affected_files"],
+                "affected_nodes": result["affected_nodes"],
+                "graph_context": self.findings[i].graph_context,  # Use original
+                "suggested_fix": result["suggested_fix"],
+                "estimated_effort": result["estimated_effort"],
+            }
+            findings_out.append(finding_dict)
+
+        return findings_out
+
+    def _serialize_findings_python(self) -> List[Dict]:
+        """Python fallback for findings serialization."""
+        return [
+            {
+                "id": f.id,
+                "detector": f.detector,
+                "severity": f.severity.value,
+                "title": f.title,
+                "description": f.description,
+                "affected_files": f.affected_files,
+                "affected_nodes": f.affected_nodes,
+                "graph_context": f.graph_context,
+                "suggested_fix": f.suggested_fix,
+                "estimated_effort": f.estimated_effort,
+            }
+            for f in self.findings
+        ]

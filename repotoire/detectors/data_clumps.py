@@ -11,6 +11,13 @@ from datetime import datetime
 from itertools import combinations
 from typing import Dict, FrozenSet, List, Optional, Set, Tuple
 
+# Try to import Rust accelerated version (REPO-404)
+try:
+    from repotoire_fast import find_clumps_fast
+    _HAS_RUST = True
+except ImportError:
+    _HAS_RUST = False
+
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph.base import DatabaseClient
 from repotoire.graph.enricher import GraphEnricher
@@ -183,6 +190,39 @@ class DataClumpsDetector(CodeSmellDetector):
         Returns:
             List of (parameter_set, function_names) tuples meeting threshold
         """
+        # Use Rust implementation for parallel processing (REPO-404)
+        if _HAS_RUST and len(functions_params) >= 10:
+            return self._find_clumps_rust(functions_params)
+
+        return self._find_clumps_python(functions_params)
+
+    def _find_clumps_rust(
+        self,
+        functions_params: List[Tuple[str, Set[str], Optional[str]]]
+    ) -> List[Tuple[Set[str], Set[str]]]:
+        """Rust-accelerated clump detection using parallel combination generation."""
+        # Convert to Rust-compatible format: [(func_name, [params])]
+        rust_input = [
+            (func_name, list(params))
+            for func_name, params, _ in functions_params
+        ]
+
+        # Call Rust function (parallel combination + subset removal)
+        rust_result = find_clumps_fast(rust_input, self.min_params, self.min_occurrences)
+
+        # Convert back to Python sets
+        clumps = [(set(param_set), set(func_set)) for param_set, func_set in rust_result]
+
+        # Sort by function count (descending), then by param count (descending)
+        clumps.sort(key=lambda x: (len(x[1]), len(x[0])), reverse=True)
+
+        return clumps
+
+    def _find_clumps_python(
+        self,
+        functions_params: List[Tuple[str, Set[str], Optional[str]]]
+    ) -> List[Tuple[Set[str], Set[str]]]:
+        """Python fallback for clump detection."""
         # Count occurrences of each parameter combination
         param_to_functions: Dict[FrozenSet[str], Set[str]] = {}
 
