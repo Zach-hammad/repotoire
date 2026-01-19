@@ -8,12 +8,20 @@ from typing import Dict, List, Optional, Any
 from repotoire.graph import DatabaseClient
 
 # Try to import Rust path cache for O(1) reachability queries (REPO-416)
+# REPO-416 DEBUG: Add verbose logging to diagnose import issues
+import sys
 try:
     from repotoire_fast import PyPathCache
     _HAS_PATH_CACHE = True
-except ImportError:
+    print(f"[REPO-416 DEBUG] repotoire_fast imported successfully, _HAS_PATH_CACHE=True", file=sys.stderr, flush=True)
+except ImportError as e:
     _HAS_PATH_CACHE = False
     PyPathCache = None  # type: ignore
+    print(f"[REPO-416 DEBUG] repotoire_fast import FAILED: {e}, _HAS_PATH_CACHE=False", file=sys.stderr, flush=True)
+except Exception as e:
+    _HAS_PATH_CACHE = False
+    PyPathCache = None  # type: ignore
+    print(f"[REPO-416 DEBUG] repotoire_fast import ERROR: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.models import (
     Finding,
@@ -155,6 +163,9 @@ class AnalysisEngine:
             changed_files: List of relative file paths that changed (for incremental hybrid detector analysis)
             path_cache: Optional prebuilt path expression cache for O(1) reachability queries (REPO-416)
         """
+        # REPO-416 DEBUG: Verify engine creation and path_cache status
+        print(f"[REPO-416 DEBUG] AnalysisEngine.__init__ called, _HAS_PATH_CACHE={_HAS_PATH_CACHE}, path_cache={path_cache}", file=sys.stderr, flush=True)
+
         self.db = graph_client
         self.repository_path = repository_path
         self.repo_id = repo_id
@@ -393,6 +404,9 @@ class AnalysisEngine:
         Returns:
             PyPathCache instance with precomputed caches, or None if building fails.
         """
+        # REPO-416 DEBUG: Confirm _build_path_cache is called
+        print(f"[REPO-416 DEBUG] _build_path_cache() called, _HAS_PATH_CACHE={_HAS_PATH_CACHE}", file=sys.stderr, flush=True)
+
         import time as time_module
         start_time = time_module.time()
         logger.info("Building path cache for O(1) reachability queries...")
