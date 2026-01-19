@@ -112,6 +112,18 @@ from .repotoire_fast import (
     parse_files_parallel_auto,        # Parse files with auto language detection
     parse_file_tree_sitter,           # Parse single file with tree-sitter
     get_supported_languages,          # Get list of supported languages
+    # Data clump detection (REPO-404)
+    find_clumps_fast,                 # Parallel data clump detection
+    # Voting consensus (REPO-405)
+    calculate_consensus_batch,        # Parallel voting consensus
+    # Indexed call resolution (REPO-406)
+    resolve_calls_indexed,            # O(1) call resolution
+    # Batch graph traversal (REPO-407)
+    batch_traverse_bfs,               # Batch BFS traversal
+    batch_traverse_dfs,               # Batch DFS traversal
+    extract_subgraph_parallel,        # Parallel subgraph extraction
+    # Findings serialization (REPO-408)
+    serialize_findings_batch,         # Parallel findings serialization
 )
 
 __all__ = [
@@ -227,4 +239,16 @@ __all__ = [
     "parse_files_parallel_auto",        # Parse files with auto language detection
     "parse_file_tree_sitter",           # Parse single file with tree-sitter
     "get_supported_languages",          # Get list of supported languages
+    # Data clump detection (REPO-404)
+    "find_clumps_fast",                 # Parallel data clump detection
+    # Voting consensus (REPO-405)
+    "calculate_consensus_batch",        # Parallel voting consensus
+    # Indexed call resolution (REPO-406)
+    "resolve_calls_indexed",            # O(1) call resolution
+    # Batch graph traversal (REPO-407)
+    "batch_traverse_bfs",               # Batch BFS traversal
+    "batch_traverse_dfs",               # Batch DFS traversal
+    "extract_subgraph_parallel",        # Parallel subgraph extraction
+    # Findings serialization (REPO-408)
+    "serialize_findings_batch",         # Parallel findings serialization
 ]

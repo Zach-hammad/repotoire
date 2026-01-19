@@ -570,14 +570,14 @@ class PythonASTVisitor(ast.NodeVisitor):
         if isinstance(decorator, ast.Name):
             return decorator.id
         elif isinstance(decorator, ast.Attribute):
-            parts = []
+            parts: list[str] = []
             node = decorator
             while isinstance(node, ast.Attribute):
-                parts.append(node.attr)  # O(1) append instead of O(n) insert(0)
+                parts.insert(0, node.attr)  # insert(0) faster for shallow depths (<=2)
                 node = node.value
             if isinstance(node, ast.Name):
-                parts.append(node.id)
-            return ".".join(reversed(parts)) if parts else None
+                parts.insert(0, node.id)
+            return ".".join(parts) if parts else None
         elif isinstance(decorator, ast.Call):
             return self._resolve_decorator_name(decorator.func)
         return None
@@ -587,14 +587,14 @@ class PythonASTVisitor(ast.NodeVisitor):
         if isinstance(node, ast.Name):
             return node.id
         elif isinstance(node, ast.Attribute):
-            parts = []
+            parts: list[str] = []
             current = node
             while isinstance(current, ast.Attribute):
-                parts.append(current.attr)
+                parts.insert(0, current.attr)  # insert(0) faster for shallow depths
                 current = current.value
             if isinstance(current, ast.Name):
-                parts.append(current.id)
-            return ".".join(reversed(parts))
+                parts.insert(0, current.id)
+            return ".".join(parts)
         elif isinstance(node, ast.Subscript):
             return self._get_base_class_name(node.value)
         return None

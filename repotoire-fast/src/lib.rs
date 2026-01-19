@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
-use pyo3::conversion::IntoPyObject;
+use pyo3::conversion::{IntoPyObject, FromPyObject};
 use walkdir::WalkDir;
 use globset::{Glob, GlobSetBuilder};
 use rayon::prelude::*;
@@ -24,6 +24,11 @@ pub mod incremental_scc;
 pub mod cfg;
 pub mod tree_sitter_parser;
 pub mod graph_detectors;
+pub mod data_clumps;
+pub mod voting;
+pub mod call_resolver;
+pub mod traversal;
+pub mod findings_serde;
 
 // Convert GraphError to Python ValueError (REPO-227)
 impl From<errors::GraphError> for PyErr {
@@ -4138,6 +4143,270 @@ fn get_supported_languages() -> Vec<String> {
     ]
 }
 
+// =============================================================================
+// REPO-404: Data Clump Detection
+// =============================================================================
+
+/// Find data clumps in function parameters using parallel processing (REPO-404)
+///
+/// A data clump is a set of parameters that appear together in multiple functions,
+/// suggesting they should be grouped into a class/struct.
+///
+/// Args:
+///     functions_params: List of (function_name, [param_names])
+///     min_params: Minimum number of parameters to consider a clump (typically 3)
+///     min_occurrences: Minimum number of functions sharing the clump (typically 2)
+///
+/// Returns:
+///     List of (param_set, function_set) tuples representing detected clumps
+#[pyfunction]
+fn find_clumps_fast(
+    py: Python<'_>,
+    functions_params: Vec<(String, Vec<String>)>,
+    min_params: usize,
+    min_occurrences: usize,
+) -> PyResult<Vec<(std::collections::HashSet<String>, std::collections::HashSet<String>)>> {
+    let result = py.detach(|| {
+        data_clumps::find_clumps_py(functions_params, min_params, min_occurrences)
+    });
+    Ok(result)
+}
+
+// =============================================================================
+// REPO-405: Voting Consensus
+// =============================================================================
+
+/// Calculate voting consensus for finding groups in parallel (REPO-405)
+///
+/// Args:
+///     groups: List of (entity_key, findings) where findings is list of
+///             (id, detector, severity, confidence, entity_key) tuples
+///     detector_weights: Dict of detector name to weight
+///     confidence_method: "AVERAGE", "WEIGHTED", "MAX", "MIN", or "BAYESIAN"
+///     severity_resolution: "HIGHEST", "MAJORITY", or "WEIGHTED"
+///     min_detectors_for_boost: Minimum detectors for consensus boost
+///     confidence_threshold: Minimum confidence for consensus
+///
+/// Returns:
+///     List of (entity_key, has_consensus, confidence, severity, detector_count, finding_ids)
+#[pyfunction]
+fn calculate_consensus_batch(
+    py: Python<'_>,
+    groups: Vec<(String, Vec<(String, String, String, f64, String)>)>,
+    detector_weights: HashMap<String, f64>,
+    confidence_method: String,
+    severity_resolution: String,
+    min_detectors_for_boost: usize,
+    confidence_threshold: f64,
+) -> PyResult<Vec<(String, bool, f64, String, usize, Vec<String>)>> {
+    let result = py.detach(|| {
+        voting::calculate_consensus_batch_py(
+            groups,
+            detector_weights,
+            &confidence_method,
+            &severity_resolution,
+            min_detectors_for_boost,
+            confidence_threshold,
+        )
+    });
+    Ok(result)
+}
+
+// =============================================================================
+// REPO-406: Call Resolution
+// =============================================================================
+
+/// Resolve function calls using O(1) indexed lookups (REPO-406)
+///
+/// Args:
+///     entities: List of (qualified_name, name, node_type, file_path)
+///     calls: List of (callee, caller_file, is_self_call, caller_class)
+///
+/// Returns:
+///     List of resolved qualified names (None if not found)
+#[pyfunction]
+fn resolve_calls_indexed(
+    py: Python<'_>,
+    entities: Vec<(String, String, String, String)>,
+    calls: Vec<(String, String, bool, Option<String>)>,
+) -> PyResult<Vec<Option<String>>> {
+    let result = py.detach(|| {
+        call_resolver::resolve_calls_indexed(entities, calls)
+    });
+    Ok(result)
+}
+
+// =============================================================================
+// REPO-407: Batch Graph Traversal
+// =============================================================================
+
+/// Perform BFS traversal on pre-loaded graph data (REPO-407)
+///
+/// Eliminates N+1 queries by doing in-memory traversal on pre-fetched data.
+///
+/// Args:
+///     nodes: List of (node_id, labels, properties)
+///     edges: List of (source_id, target_id, rel_type)
+///     starts: Starting node IDs
+///     max_depth: Maximum traversal depth (0 = unlimited)
+///     direction: "OUTGOING", "INCOMING", or "BOTH"
+///     rel_type_filter: Optional relationship type filter
+///
+/// Returns:
+///     Tuple of (visited_nodes, node_properties, edges, depths)
+#[pyfunction]
+fn batch_traverse_bfs(
+    py: Python<'_>,
+    nodes: Vec<(String, Vec<String>, HashMap<String, String>)>,
+    edges: Vec<(String, String, String)>,
+    starts: Vec<String>,
+    max_depth: usize,
+    direction: String,
+    rel_type_filter: Option<String>,
+) -> PyResult<(
+    Vec<String>,
+    HashMap<String, HashMap<String, String>>,
+    Vec<(String, String, String)>,
+    HashMap<String, usize>,
+)> {
+    let result = py.detach(|| {
+        traversal::batch_traverse_bfs(nodes, edges, starts, max_depth, &direction, rel_type_filter)
+    });
+    Ok(result)
+}
+
+/// Perform DFS traversal on pre-loaded graph data (REPO-407)
+#[pyfunction]
+fn batch_traverse_dfs(
+    py: Python<'_>,
+    nodes: Vec<(String, Vec<String>, HashMap<String, String>)>,
+    edges: Vec<(String, String, String)>,
+    starts: Vec<String>,
+    max_depth: usize,
+    direction: String,
+    rel_type_filter: Option<String>,
+) -> PyResult<(
+    Vec<String>,
+    HashMap<String, HashMap<String, String>>,
+    Vec<(String, String, String)>,
+    HashMap<String, usize>,
+)> {
+    let result = py.detach(|| {
+        traversal::batch_traverse_dfs(nodes, edges, starts, max_depth, &direction, rel_type_filter)
+    });
+    Ok(result)
+}
+
+/// Extract a subgraph around given nodes using parallel BFS (REPO-407)
+#[pyfunction]
+fn extract_subgraph_parallel(
+    py: Python<'_>,
+    nodes: Vec<(String, Vec<String>, HashMap<String, String>)>,
+    edges: Vec<(String, String, String)>,
+    starts: Vec<String>,
+    max_depth: usize,
+) -> PyResult<(Vec<String>, Vec<(String, String, String)>)> {
+    let result = py.detach(|| {
+        traversal::extract_subgraph_parallel(nodes, edges, starts, max_depth)
+    });
+    Ok(result)
+}
+
+// =============================================================================
+// REPO-408: Findings Serialization
+// =============================================================================
+
+/// Serialize findings for database insertion in parallel (REPO-408)
+///
+/// Args:
+///     findings: List of finding dicts with keys:
+///               detector, severity, title, description, affected_files,
+///               affected_nodes, line_start, line_end, suggested_fix,
+///               estimated_effort, graph_context
+///
+/// Returns:
+///     List of serialized finding dicts ready for bulk_insert_mappings
+/// Python-facing struct for input findings
+#[derive(FromPyObject)]
+struct PyInputFinding {
+    detector: String,
+    severity: String,
+    title: String,
+    description: Option<String>,
+    affected_files: Vec<String>,
+    affected_nodes: Vec<String>,
+    line_start: Option<i32>,
+    line_end: Option<i32>,
+    suggested_fix: Option<String>,
+    estimated_effort: Option<String>,
+    graph_context: Option<String>,
+}
+
+/// Python-facing struct for output findings
+#[derive(IntoPyObject)]
+struct PyOutputFinding {
+    detector: String,
+    severity: u8,
+    title: String,
+    description: Option<String>,
+    affected_files: Vec<String>,
+    affected_nodes: Vec<String>,
+    line_start: Option<i32>,
+    line_end: Option<i32>,
+    suggested_fix: Option<String>,
+    estimated_effort: Option<String>,
+    graph_context: Option<String>,
+}
+
+#[pyfunction]
+fn serialize_findings_batch(
+    py: Python<'_>,
+    findings: Vec<PyInputFinding>,
+) -> PyResult<Vec<PyOutputFinding>> {
+    // Convert to internal format
+    let input_findings: Vec<findings_serde::InputFinding> = findings
+        .into_iter()
+        .map(|f| findings_serde::InputFinding {
+            detector: f.detector,
+            severity: f.severity,
+            title: f.title,
+            description: f.description,
+            affected_files: f.affected_files,
+            affected_nodes: f.affected_nodes,
+            line_start: f.line_start,
+            line_end: f.line_end,
+            suggested_fix: f.suggested_fix,
+            estimated_effort: f.estimated_effort,
+            graph_context: f.graph_context,
+        })
+        .collect();
+
+    // Process in parallel (release GIL)
+    let output = py.detach(|| {
+        findings_serde::serialize_findings_batch(input_findings)
+    });
+
+    // Convert back to Python format
+    let result: Vec<PyOutputFinding> = output
+        .into_iter()
+        .map(|f| PyOutputFinding {
+            detector: f.detector,
+            severity: f.severity,
+            title: f.title,
+            description: f.description,
+            affected_files: f.affected_files,
+            affected_nodes: f.affected_nodes,
+            line_start: f.line_start,
+            line_end: f.line_end,
+            suggested_fix: f.suggested_fix,
+            estimated_effort: f.estimated_effort,
+            graph_context: f.graph_context,
+        })
+        .collect();
+
+    Ok(result)
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -4256,6 +4525,18 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(parse_files_parallel_auto, n)?)?;
     n.add_function(wrap_pyfunction!(parse_file_tree_sitter, n)?)?;
     n.add_function(wrap_pyfunction!(get_supported_languages, n)?)?;
+    // Data clump detection (REPO-404)
+    n.add_function(wrap_pyfunction!(find_clumps_fast, n)?)?;
+    // Voting consensus (REPO-405)
+    n.add_function(wrap_pyfunction!(calculate_consensus_batch, n)?)?;
+    // Indexed call resolution (REPO-406)
+    n.add_function(wrap_pyfunction!(resolve_calls_indexed, n)?)?;
+    // Batch graph traversal (REPO-407)
+    n.add_function(wrap_pyfunction!(batch_traverse_bfs, n)?)?;
+    n.add_function(wrap_pyfunction!(batch_traverse_dfs, n)?)?;
+    n.add_function(wrap_pyfunction!(extract_subgraph_parallel, n)?)?;
+    // Findings serialization (REPO-408)
+    n.add_function(wrap_pyfunction!(serialize_findings_batch, n)?)?;
     Ok(())
 }
 
