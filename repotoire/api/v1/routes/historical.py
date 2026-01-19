@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from repotoire.api.shared.auth import ClerkUser, get_current_user
-from repotoire.api.v1.routes.graph import APIKeyUser, get_current_api_key_user
+from repotoire.api.v1.routes.graph import GraphUser, get_graph_user
 from repotoire.db.session import get_db
 from repotoire.db.models import Repository, Finding
 from repotoire.logging_config import get_logger
@@ -1245,14 +1245,14 @@ class NLQStatusResponse(BaseModel):
     message: str = Field(default="", description="Status message")
 
 
-def _get_git_history_rag(repo_id: str, user: Optional[APIKeyUser] = None):
+def _get_git_history_rag(repo_id: str, user: Optional[GraphUser] = None):
     """Get GitHistoryRAG instance for a repository.
 
     Uses local embeddings (FREE) instead of Graphiti's LLM approach ($0.01+/commit).
 
     Args:
         repo_id: Repository UUID for multi-tenant isolation
-        user: Optional APIKeyUser for tenant-scoped graph access
+        user: Optional GraphUser for tenant-scoped graph access
 
     Returns:
         GitHistoryRAG instance
@@ -1534,7 +1534,7 @@ async def get_nlq_status(
 # instead of Clerk session auth. This allows the CLI to use these endpoints.
 
 
-async def _handle_nlq_query(request: NLQRequest, user: Optional[APIKeyUser] = None) -> NLQResponse:
+async def _handle_nlq_query(request: NLQRequest, user: Optional[GraphUser] = None) -> NLQResponse:
     """Shared handler for NLQ queries (used by both auth methods)."""
     try:
         rag = _get_git_history_rag(request.repo_id, user=user)
@@ -1585,7 +1585,7 @@ async def _handle_nlq_query(request: NLQRequest, user: Optional[APIKeyUser] = No
         )
 
 
-async def _handle_nlq_search(request: NLQRequest, user: Optional[APIKeyUser] = None) -> NLQSearchResponse:
+async def _handle_nlq_search(request: NLQRequest, user: Optional[GraphUser] = None) -> NLQSearchResponse:
     """Shared handler for NLQ search (used by both auth methods)."""
     import time
 
@@ -1643,7 +1643,7 @@ async def _handle_nlq_search(request: NLQRequest, user: Optional[APIKeyUser] = N
 @router.post("/nlq-api", response_model=NLQResponse)
 async def natural_language_query_api(
     request: NLQRequest,
-    user: APIKeyUser = Depends(get_current_api_key_user),
+    user: GraphUser = Depends(get_graph_user),
 ) -> NLQResponse:
     """Query git history using natural language with RAG (API key auth).
 
@@ -1659,7 +1659,7 @@ async def natural_language_query_api(
 @router.post("/nlq-api/search", response_model=NLQSearchResponse)
 async def nlq_search_api(
     request: NLQRequest,
-    user: APIKeyUser = Depends(get_current_api_key_user),
+    user: GraphUser = Depends(get_graph_user),
 ) -> NLQSearchResponse:
     """Semantic search over git history (API key auth).
 
@@ -1675,7 +1675,7 @@ async def nlq_search_api(
 @router.get("/nlq-api/status/{repository_id}", response_model=NLQStatusResponse)
 async def get_nlq_status_api(
     repository_id: str,
-    user: APIKeyUser = Depends(get_current_api_key_user),
+    user: GraphUser = Depends(get_graph_user),
 ) -> NLQStatusResponse:
     """Get status of git history RAG for a repository (API key auth).
 
