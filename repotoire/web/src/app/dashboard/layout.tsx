@@ -18,6 +18,7 @@ import {
   ShieldAlert,
   Boxes,
   GitBranch,
+  Database,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
@@ -42,6 +43,7 @@ const sidebarSections = [
       { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
       { name: 'Repositories', href: '/dashboard/repos', icon: FolderGit2 },
       { name: 'Findings', href: '/dashboard/findings', icon: AlertCircle },
+      { name: 'Graph Explorer', href: '/dashboard/graph', icon: Database },
     ],
   },
   {
