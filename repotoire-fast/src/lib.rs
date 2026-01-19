@@ -29,6 +29,7 @@ pub mod voting;
 pub mod call_resolver;
 pub mod traversal;
 pub mod findings_serde;
+pub mod string_ops;
 
 // Convert GraphError to Python ValueError (REPO-227)
 impl From<errors::GraphError> for PyErr {
@@ -183,6 +184,200 @@ pub fn find_top_k_similar<'py>(
         let row_slices: Vec<&[f32]> = rows.iter().map(|r| r.as_slice()).collect();
         similarity::find_top_k(&query_vec, &row_slices, k)
     }))
+}
+
+/// SIMD-optimized cosine similarity for a single pair of vectors.
+/// Uses loop unrolling to enable LLVM auto-vectorization.
+#[pyfunction]
+pub fn cosine_similarity_simd<'py>(
+    a: PyReadonlyArray1<'py, f32>,
+    b: PyReadonlyArray1<'py, f32>,
+) -> PyResult<f32> {
+    let a_slice = a.as_slice()?;
+    let b_slice = b.as_slice()?;
+    if a_slice.len() != b_slice.len() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "Vectors must have same length"
+        ));
+    }
+    Ok(similarity::cosine_similarity_simd(a_slice, b_slice))
+}
+
+/// SIMD-optimized batch cosine similarity with parallel processing.
+/// Combines Rayon parallelism with SIMD-friendly loop unrolling.
+#[pyfunction]
+pub fn batch_cosine_similarity_simd<'py>(
+    py: Python<'py>,
+    query: PyReadonlyArray1<'py, f32>,
+    matrix: PyReadonlyArray2<'py, f32>,
+) -> PyResult<Vec<f32>> {
+    let query_slice = query.as_slice()?;
+    let matrix_view = matrix.as_array();
+
+    // Copy data to owned vectors so we can release GIL
+    let query_vec: Vec<f32> = query_slice.to_vec();
+    let rows: Vec<Vec<f32>> = matrix_view.rows().into_iter().map(|r| r.to_vec()).collect();
+
+    // Detach Python thread state during parallel computation
+    Ok(py.detach(|| {
+        let row_slices: Vec<&[f32]> = rows.iter().map(|r| r.as_slice()).collect();
+        similarity::batch_cosine_similarity_simd(&query_vec, &row_slices)
+    }))
+}
+
+/// SIMD-optimized batch similarity with flat matrix format.
+/// Takes a flat 1D array representing a row-major matrix for better cache locality.
+#[pyfunction]
+pub fn batch_cosine_similarity_simd_flat<'py>(
+    py: Python<'py>,
+    query: PyReadonlyArray1<'py, f32>,
+    matrix: PyReadonlyArray1<'py, f32>,
+    num_rows: usize,
+    dim: usize,
+) -> PyResult<Vec<f32>> {
+    let query_slice = query.as_slice()?;
+    let matrix_slice = matrix.as_slice()?;
+
+    if query_slice.len() != dim {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            format!("Query length {} != dim {}", query_slice.len(), dim)
+        ));
+    }
+    if matrix_slice.len() != num_rows * dim {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            format!("Matrix length {} != num_rows * dim ({})", matrix_slice.len(), num_rows * dim)
+        ));
+    }
+
+    // Copy data for GIL release
+    let query_vec: Vec<f32> = query_slice.to_vec();
+    let matrix_vec: Vec<f32> = matrix_slice.to_vec();
+
+    Ok(py.detach(|| {
+        similarity::batch_cosine_similarity_simd_flat(&query_vec, &matrix_vec, num_rows, dim)
+    }))
+}
+
+/// SIMD-optimized find top-k with flat matrix format.
+#[pyfunction]
+pub fn find_top_k_simd<'py>(
+    py: Python<'py>,
+    query: PyReadonlyArray1<'py, f32>,
+    matrix: PyReadonlyArray1<'py, f32>,
+    num_rows: usize,
+    dim: usize,
+    k: usize,
+) -> PyResult<Vec<(usize, f32)>> {
+    let query_slice = query.as_slice()?;
+    let matrix_slice = matrix.as_slice()?;
+
+    // Copy data for GIL release
+    let query_vec: Vec<f32> = query_slice.to_vec();
+    let matrix_vec: Vec<f32> = matrix_slice.to_vec();
+
+    Ok(py.detach(|| {
+        similarity::find_top_k_simd(&query_vec, &matrix_vec, num_rows, dim, k)
+    }))
+}
+
+// ============================================================
+// String Operations (REPO-403)
+// ============================================================
+
+/// Strip line numbers (`:N` patterns) from a string.
+/// Example: "ClassName:140.method_name:177" -> "ClassName.method_name"
+#[pyfunction]
+pub fn strip_line_numbers(s: String) -> String {
+    string_ops::strip_line_numbers(&s)
+}
+
+/// Batch strip line numbers from multiple strings in parallel.
+#[pyfunction]
+pub fn batch_strip_line_numbers(py: Python<'_>, strings: Vec<String>) -> Vec<String> {
+    py.detach(|| {
+        let str_refs: Vec<&str> = strings.iter().map(|s| s.as_str()).collect();
+        string_ops::batch_strip_line_numbers(&str_refs)
+    })
+}
+
+/// Parsed qualified name result for Python.
+#[pyclass]
+#[derive(Clone)]
+pub struct PyParsedQualifiedName {
+    #[pyo3(get)]
+    pub file_path: String,
+    #[pyo3(get)]
+    pub entity_path: Vec<String>,
+    #[pyo3(get)]
+    pub line_numbers: Vec<Option<u32>>,
+    #[pyo3(get)]
+    pub original: String,
+}
+
+/// Parse a qualified name into components.
+/// Format: "file.py::ClassName:140.method_name:177"
+#[pyfunction]
+pub fn parse_qualified_name(qn: String) -> PyParsedQualifiedName {
+    let parsed = string_ops::parse_qualified_name(&qn);
+    PyParsedQualifiedName {
+        file_path: parsed.file_path,
+        entity_path: parsed.entity_path,
+        line_numbers: parsed.line_numbers,
+        original: parsed.original,
+    }
+}
+
+/// Batch parse qualified names in parallel.
+#[pyfunction]
+pub fn batch_parse_qualified_names(py: Python<'_>, names: Vec<String>) -> Vec<PyParsedQualifiedName> {
+    py.detach(|| {
+        let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+        string_ops::batch_parse_qualified_names(&name_refs)
+            .into_iter()
+            .map(|p| PyParsedQualifiedName {
+                file_path: p.file_path,
+                entity_path: p.entity_path,
+                line_numbers: p.line_numbers,
+                original: p.original,
+            })
+            .collect()
+    })
+}
+
+/// Check if a path ends with a given suffix.
+#[pyfunction]
+pub fn path_ends_with_suffix(path: String, suffix: String) -> bool {
+    string_ops::path_ends_with_suffix(&path, &suffix)
+}
+
+/// Find all paths that match each suffix.
+/// Returns a list of lists, where each inner list contains indices of matching paths.
+#[pyfunction]
+pub fn batch_find_suffix_matches(
+    py: Python<'_>,
+    paths: Vec<String>,
+    suffixes: Vec<String>,
+) -> Vec<Vec<usize>> {
+    py.detach(|| {
+        let path_refs: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();
+        let suffix_refs: Vec<&str> = suffixes.iter().map(|s| s.as_str()).collect();
+        string_ops::batch_find_suffix_matches(&path_refs, &suffix_refs)
+    })
+}
+
+/// Find the first path matching each suffix.
+/// Returns a list of optional indices (None if no match).
+#[pyfunction]
+pub fn batch_find_first_suffix_matches(
+    py: Python<'_>,
+    paths: Vec<String>,
+    suffixes: Vec<String>,
+) -> Vec<Option<usize>> {
+    py.detach(|| {
+        let path_refs: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();
+        let suffix_refs: Vec<&str> = suffixes.iter().map(|s| s.as_str()).collect();
+        string_ops::batch_find_first_suffix_matches(&path_refs, &suffix_refs)
+    })
 }
 
 /// Check for too-many-instance-attributes (R0902)
@@ -4420,6 +4615,20 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(cosine_similarity_fast, n)?)?;
     n.add_function(wrap_pyfunction!(batch_cosine_similarity_fast, n)?)?;
     n.add_function(wrap_pyfunction!(find_top_k_similar, n)?)?;
+    // SIMD-optimized similarity (REPO-403)
+    n.add_function(wrap_pyfunction!(cosine_similarity_simd, n)?)?;
+    n.add_function(wrap_pyfunction!(batch_cosine_similarity_simd, n)?)?;
+    n.add_function(wrap_pyfunction!(batch_cosine_similarity_simd_flat, n)?)?;
+    n.add_function(wrap_pyfunction!(find_top_k_simd, n)?)?;
+    // String operations (REPO-403)
+    n.add_function(wrap_pyfunction!(strip_line_numbers, n)?)?;
+    n.add_function(wrap_pyfunction!(batch_strip_line_numbers, n)?)?;
+    n.add_class::<PyParsedQualifiedName>()?;
+    n.add_function(wrap_pyfunction!(parse_qualified_name, n)?)?;
+    n.add_function(wrap_pyfunction!(batch_parse_qualified_names, n)?)?;
+    n.add_function(wrap_pyfunction!(path_ends_with_suffix, n)?)?;
+    n.add_function(wrap_pyfunction!(batch_find_suffix_matches, n)?)?;
+    n.add_function(wrap_pyfunction!(batch_find_first_suffix_matches, n)?)?;
     // Pylint rules not covered by Ruff
     n.add_function(wrap_pyfunction!(check_too_many_attributes, n)?)?;        // R0902
     n.add_function(wrap_pyfunction!(check_too_few_public_methods, n)?)?;     // R0903

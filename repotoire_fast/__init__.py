@@ -114,6 +114,20 @@ from .repotoire_fast import (
     get_supported_languages,          # Get list of supported languages
     # Data clump detection (REPO-404)
     find_clumps_fast,                 # Parallel data clump detection
+    # SIMD-optimized similarity (REPO-403)
+    cosine_similarity_simd,           # Single SIMD cosine similarity
+    batch_cosine_similarity_simd,     # Batch SIMD cosine similarity
+    batch_cosine_similarity_simd_flat, # Flat matrix SIMD similarity
+    find_top_k_simd,                  # SIMD top-k similarity search
+    # String operations (REPO-403)
+    strip_line_numbers,               # Strip :N line number patterns
+    batch_strip_line_numbers,         # Batch strip line numbers
+    PyParsedQualifiedName,            # Parsed qualified name class
+    parse_qualified_name,             # Parse qualified name
+    batch_parse_qualified_names,      # Batch parse qualified names
+    path_ends_with_suffix,            # Check path suffix match
+    batch_find_suffix_matches,        # Batch suffix matching
+    batch_find_first_suffix_matches,  # Batch first suffix matching
     # Voting consensus (REPO-405)
     calculate_consensus_batch,        # Parallel voting consensus
     # Indexed call resolution (REPO-406)
@@ -241,6 +255,20 @@ __all__ = [
     "get_supported_languages",          # Get list of supported languages
     # Data clump detection (REPO-404)
     "find_clumps_fast",                 # Parallel data clump detection
+    # SIMD-optimized similarity (REPO-403)
+    "cosine_similarity_simd",           # Single SIMD cosine similarity
+    "batch_cosine_similarity_simd",     # Batch SIMD cosine similarity
+    "batch_cosine_similarity_simd_flat", # Flat matrix SIMD similarity
+    "find_top_k_simd",                  # SIMD top-k similarity search
+    # String operations (REPO-403)
+    "strip_line_numbers",               # Strip :N line number patterns
+    "batch_strip_line_numbers",         # Batch strip line numbers
+    "PyParsedQualifiedName",            # Parsed qualified name class
+    "parse_qualified_name",             # Parse qualified name
+    "batch_parse_qualified_names",      # Batch parse qualified names
+    "path_ends_with_suffix",            # Check path suffix match
+    "batch_find_suffix_matches",        # Batch suffix matching
+    "batch_find_first_suffix_matches",  # Batch first suffix matching
     # Voting consensus (REPO-405)
     "calculate_consensus_batch",        # Parallel voting consensus
     # Indexed call resolution (REPO-406)
