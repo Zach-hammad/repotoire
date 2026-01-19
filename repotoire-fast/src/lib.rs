@@ -30,6 +30,7 @@ pub mod call_resolver;
 pub mod traversal;
 pub mod findings_serde;
 pub mod string_ops;
+pub mod path_cache;
 
 // Convert GraphError to Python ValueError (REPO-227)
 impl From<errors::GraphError> for PyErr {
@@ -4602,6 +4603,207 @@ fn serialize_findings_batch(
     Ok(result)
 }
 
+// ============================================================================
+// PATH EXPRESSION CACHE (REPO-416)
+// Transitive closure caching for 100-1000x faster reachability queries
+// ============================================================================
+
+/// Python wrapper for cache statistics
+#[pyclass]
+#[derive(Clone)]
+pub struct PyCacheStats {
+    #[pyo3(get)]
+    pub num_nodes: u32,
+    #[pyo3(get)]
+    pub num_edges: u32,
+    #[pyo3(get)]
+    pub num_reachable_pairs: usize,
+    #[pyo3(get)]
+    pub avg_reachable: f64,
+    #[pyo3(get)]
+    pub memory_bytes: usize,
+}
+
+/// Python wrapper for the path expression cache
+#[pyclass]
+pub struct PyPathCache {
+    inner: std::sync::RwLock<path_cache::PathExpressionCache>,
+}
+
+#[pymethods]
+impl PyPathCache {
+    /// Create a new empty cache
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: std::sync::RwLock::new(path_cache::PathExpressionCache::new()),
+        }
+    }
+
+    /// Register a node with its qualified name
+    fn register_node(&self, id: u32, name: String) -> PyResult<()> {
+        self.inner
+            .write()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Lock error: {}", e)))?
+            .register_node(id, name);
+        Ok(())
+    }
+
+    /// Register multiple nodes at once (more efficient)
+    fn register_nodes(&self, nodes: Vec<(u32, String)>) -> PyResult<()> {
+        let mut cache = self.inner
+            .write()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Lock error: {}", e)))?;
+        for (id, name) in nodes {
+            cache.register_node(id, name);
+        }
+        Ok(())
+    }
+
+    /// Build cache for a relationship type from edges
+    fn build_cache(&self, rel_type: &str, edges: Vec<(u32, u32)>, num_nodes: u32) -> PyResult<()> {
+        self.inner
+            .write()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Lock error: {}", e)))?
+            .build_cache(rel_type, &edges, num_nodes);
+        Ok(())
+    }
+
+    /// Check if src can reach dst through the given relationship type
+    fn can_reach(&self, rel_type: &str, src: u32, dst: u32) -> PyResult<bool> {
+        Ok(self.inner
+            .read()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Lock error: {}", e)))?
+            .can_reach(rel_type, src, dst))
+    }
+
+    /// Get all nodes reachable from src
+    fn reachable_from(&self, rel_type: &str, src: u32) -> PyResult<Vec<u32>> {
+        Ok(self.inner
+            .read()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Lock error: {}", e)))?
+            .reachable_from(rel_type, src))
+    }
+
+    /// Find all cycles in the graph for a relationship type
+    fn find_cycles(&self, rel_type: &str) -> PyResult<Vec<Vec<u32>>> {
+        Ok(self.inner
+            .read()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Lock error: {}", e)))?
+            .find_cycles(rel_type))
+    }
+
+    /// Add an edge incrementally (efficient O(reach * reach) update)
+    fn add_edge(&self, rel_type: &str, src: u32, dst: u32) -> PyResult<()> {
+        self.inner
+            .write()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Lock error: {}", e)))?
+            .add_edge(rel_type, src, dst);
+        Ok(())
+    }
+
+    /// Get cache statistics for a relationship type
+    fn stats(&self, rel_type: &str) -> PyResult<Option<PyCacheStats>> {
+        Ok(self.inner
+            .read()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Lock error: {}", e)))?
+            .stats(rel_type)
+            .map(|s| PyCacheStats {
+                num_nodes: s.num_nodes,
+                num_edges: s.num_edges,
+                num_reachable_pairs: s.num_reachable_pairs,
+                avg_reachable: s.avg_reachable,
+                memory_bytes: s.memory_bytes,
+            }))
+    }
+
+    /// Get node name from ID
+    fn get_name(&self, id: u32) -> PyResult<Option<String>> {
+        Ok(self.inner
+            .read()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Lock error: {}", e)))?
+            .get_name(id)
+            .cloned())
+    }
+
+    /// Get node ID from name
+    fn get_id(&self, name: &str) -> PyResult<Option<u32>> {
+        Ok(self.inner
+            .read()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Lock error: {}", e)))?
+            .get_id(name))
+    }
+}
+
+/// Build a transitive closure cache for a single relationship type.
+/// Returns a cache that can be queried for O(1) reachability.
+#[pyfunction]
+fn build_transitive_closure(
+    py: Python<'_>,
+    edges: Vec<(u32, u32)>,
+    num_nodes: u32,
+) -> PyResult<PyPathCache> {
+    let cache = py.detach(|| {
+        let mut path_cache = path_cache::PathExpressionCache::new();
+        path_cache.build_cache("default", &edges, num_nodes);
+        path_cache
+    });
+    Ok(PyPathCache {
+        inner: std::sync::RwLock::new(cache),
+    })
+}
+
+/// Find all cycles using transitive closure (much faster than recursive queries).
+/// Returns list of cycles, each cycle is a list of node IDs.
+#[pyfunction]
+fn find_cycles_cached(
+    py: Python<'_>,
+    edges: Vec<(u32, u32)>,
+    num_nodes: u32,
+) -> PyResult<Vec<Vec<u32>>> {
+    Ok(py.detach(|| {
+        let cache = path_cache::TransitiveClosureCache::build(&edges, num_nodes);
+        cache.find_cycles()
+    }))
+}
+
+/// Check reachability for multiple pairs efficiently.
+/// Returns list of booleans indicating reachability for each pair.
+#[pyfunction]
+fn batch_can_reach(
+    py: Python<'_>,
+    edges: Vec<(u32, u32)>,
+    num_nodes: u32,
+    pairs: Vec<(u32, u32)>,
+) -> PyResult<Vec<bool>> {
+    Ok(py.detach(|| {
+        let cache = path_cache::TransitiveClosureCache::build(&edges, num_nodes);
+        pairs.iter().map(|&(src, dst)| cache.can_reach(src, dst)).collect()
+    }))
+}
+
+/// Get all nodes reachable from each source node.
+/// Returns list of (source, [reachable_nodes]) tuples.
+#[pyfunction]
+fn batch_reachable_from(
+    py: Python<'_>,
+    edges: Vec<(u32, u32)>,
+    num_nodes: u32,
+    sources: Vec<u32>,
+) -> PyResult<Vec<(u32, Vec<u32>)>> {
+    Ok(py.detach(|| {
+        let cache = path_cache::TransitiveClosureCache::build(&edges, num_nodes);
+        sources.into_iter()
+            .map(|src| {
+                let reachable = cache.reachable_from(src)
+                    .map(|s| s.iter().copied().collect())
+                    .unwrap_or_default();
+                (src, reachable)
+            })
+            .collect()
+    }))
+}
+
 #[pymodule]
 fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(scan_files, n)?)?;
@@ -4746,6 +4948,13 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(extract_subgraph_parallel, n)?)?;
     // Findings serialization (REPO-408)
     n.add_function(wrap_pyfunction!(serialize_findings_batch, n)?)?;
+    // Path expression cache (REPO-416)
+    n.add_class::<PyCacheStats>()?;
+    n.add_class::<PyPathCache>()?;
+    n.add_function(wrap_pyfunction!(build_transitive_closure, n)?)?;
+    n.add_function(wrap_pyfunction!(find_cycles_cached, n)?)?;
+    n.add_function(wrap_pyfunction!(batch_can_reach, n)?)?;
+    n.add_function(wrap_pyfunction!(batch_reachable_from, n)?)?;
     Ok(())
 }
 

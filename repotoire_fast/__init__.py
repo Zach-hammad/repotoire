@@ -138,6 +138,13 @@ from .repotoire_fast import (
     extract_subgraph_parallel,        # Parallel subgraph extraction
     # Findings serialization (REPO-408)
     serialize_findings_batch,         # Parallel findings serialization
+    # Path expression cache (REPO-416)
+    PyCacheStats,                     # Cache statistics class
+    PyPathCache,                      # Path expression cache class
+    build_transitive_closure,         # Build transitive closure cache
+    find_cycles_cached,               # Find cycles using cache (100-1000x faster)
+    batch_can_reach,                  # Batch reachability queries
+    batch_reachable_from,             # Batch reachable-from queries
 )
 
 __all__ = [
@@ -279,4 +286,11 @@ __all__ = [
     "extract_subgraph_parallel",        # Parallel subgraph extraction
     # Findings serialization (REPO-408)
     "serialize_findings_batch",         # Parallel findings serialization
+    # Path expression cache (REPO-416)
+    "PyCacheStats",                     # Cache statistics class
+    "PyPathCache",                      # Path expression cache class
+    "build_transitive_closure",         # Build transitive closure cache
+    "find_cycles_cached",               # Find cycles using cache (100-1000x faster)
+    "batch_can_reach",                  # Batch reachability queries
+    "batch_reachable_from",             # Batch reachable-from queries
 ]
