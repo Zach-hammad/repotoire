@@ -113,6 +113,11 @@ try:
 except ImportError:
     _HAS_GO_PARSER = False
 from repotoire.logging_config import get_logger, LogContext, log_operation
+from repotoire.ai.vector_store import (
+    VectorStore,
+    VectorStoreConfig,
+    create_vector_store,
+)
 
 logger = get_logger(__name__)
 
@@ -149,6 +154,7 @@ class IngestionPipeline:
         repo_slug: Optional[str] = None,
         compress_embeddings: bool = True,
         embedding_target_dims: int = 1024,
+        vector_store_config: Optional[VectorStoreConfig] = None,
     ):
         """Initialize ingestion pipeline with security validation.
 
@@ -174,6 +180,9 @@ class IngestionPipeline:
                 Reduces 4096-dim embeddings to target_dims for memory savings.
             embedding_target_dims: Target dimensions after PCA compression (default: 1024).
                 Only used if compress_embeddings is True.
+            vector_store_config: Optional external vector store config (LanceDB).
+                When configured, embeddings are stored disk-backed instead of in-memory.
+                This significantly reduces RAM usage for large codebases.
 
         Raises:
             ValueError: If repository path is invalid
@@ -323,6 +332,34 @@ class IngestionPipeline:
                 logger.warning(f"Could not initialize context generator: {e}")
                 logger.warning("Continuing without context generation")
                 self.generate_contexts = False
+
+        # Initialize external vector store for memory-optimized embedding storage
+        # Auto-enable LanceDB when generating embeddings (moves vectors to disk)
+        self.vector_store: Optional[VectorStore] = None
+        if self.generate_embeddings:
+            # Use provided config or auto-create LanceDB config
+            if vector_store_config is not None:
+                self.vector_store_config = vector_store_config
+            else:
+                # Auto-enable LanceDB for disk-backed storage (0 RAM for vectors)
+                vector_path = str(Path(repo_path) / ".repotoire" / "vectors")
+                self.vector_store_config = VectorStoreConfig(
+                    backend="lancedb",
+                    path=vector_path,
+                )
+
+            try:
+                self.vector_store = create_vector_store(config=self.vector_store_config)
+                logger.info(
+                    f"External vector store auto-enabled: {self.vector_store_config.backend} "
+                    f"(path={self.vector_store_config.path})"
+                )
+            except ImportError as e:
+                logger.debug(f"LanceDB not available, using graph-native storage: {e}")
+                self.vector_store = None
+                self.vector_store_config = None
+        else:
+            self.vector_store_config = vector_store_config
 
         # Register default parsers with secrets policy
         self.register_parser("python", PythonParser(secrets_policy=secrets_policy))
@@ -918,6 +955,34 @@ class IngestionPipeline:
                                     "dims": embedding_dims,
                                     "compressed": is_compressed,
                                 },
+                            )
+
+                    # Also index to external vector store if configured
+                    # This moves embeddings from in-memory graph to disk-backed storage
+                    if self.vector_store is not None:
+                        try:
+                            entity_ids = [e["qualified_name"] for e in batch]
+                            entity_types_list = [entity_type] * len(batch)
+                            metadata = [
+                                {
+                                    "file_path": e.get("file_path", ""),
+                                    "line_start": e.get("line_start", 0),
+                                    "name": e.get("name", ""),
+                                }
+                                for e in batch
+                            ]
+                            indexed = self.vector_store.bulk_index(
+                                entity_ids=entity_ids,
+                                embeddings=embeddings,
+                                entity_types=entity_types_list,
+                                metadata=metadata,
+                            )
+                            logger.debug(
+                                f"Indexed {indexed} embeddings to external vector store"
+                            )
+                        except Exception as vs_error:
+                            logger.warning(
+                                f"Failed to index to vector store (continuing with graph storage): {vs_error}"
                             )
 
                     entities_embedded += len(batch)

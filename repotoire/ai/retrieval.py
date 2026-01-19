@@ -8,6 +8,7 @@ Features (REPO-220, REPO-240, REPO-241, REPO-243):
 - Query result caching with TTL and LRU eviction
 - Configurable retrieval pipeline stages
 - LLM-powered answer generation (OpenAI GPT-4o or Anthropic Claude)
+- External vector store support (LanceDB) for memory optimization
 """
 
 import asyncio
@@ -24,6 +25,12 @@ from repotoire.ai.embeddings import CodeEmbedder
 from repotoire.ai.llm import LLMClient, LLMConfig
 from repotoire.ai.hybrid import HybridSearchConfig, fuse_results
 from repotoire.ai.reranker import RerankerConfig, Reranker, create_reranker
+from repotoire.ai.vector_store import (
+    VectorStore,
+    VectorStoreConfig,
+    VectorSearchResult,
+    create_vector_store,
+)
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -244,13 +251,14 @@ class RetrievalResult:
 class RetrieverConfig:
     """Configuration for GraphRAGRetriever.
 
-    Combines hybrid search and reranking configuration into a single
-    config object for easy instantiation and serialization.
+    Combines hybrid search, reranking, and vector store configuration
+    into a single config object for easy instantiation and serialization.
 
     Attributes:
         top_k: Final number of results to return
         hybrid: Hybrid search configuration (dense + BM25)
         reranker: Reranking configuration
+        vector_store: External vector store configuration (for memory optimization)
         context_lines: Lines of context around code snippets
         cache_enabled: Whether to enable query result caching
         cache_ttl: Cache time-to-live in seconds
@@ -260,6 +268,7 @@ class RetrieverConfig:
     top_k: int = 10
     hybrid: HybridSearchConfig = field(default_factory=HybridSearchConfig)
     reranker: RerankerConfig = field(default_factory=RerankerConfig)
+    vector_store: Optional[VectorStoreConfig] = None  # None = use graph-native storage
     context_lines: int = 5
     cache_enabled: bool = True
     cache_ttl: int = 3600
@@ -428,6 +437,25 @@ Format code snippets using markdown code blocks with appropriate language tags."
             except Exception as e:
                 logger.warning(f"Failed to initialize LLM client: {e}")
 
+        # Initialize external vector store for memory optimization
+        # When configured, uses LanceDB (disk-backed) instead of FalkorDB (in-memory)
+        self._vector_store: Optional[VectorStore] = None
+        if config is not None and config.vector_store is not None:
+            try:
+                self._vector_store = create_vector_store(config=config.vector_store)
+                logger.info(
+                    f"Initialized external vector store: {config.vector_store.backend} "
+                    f"at {config.vector_store.path}"
+                )
+            except ImportError as e:
+                logger.warning(
+                    f"External vector store not available: {e}. "
+                    "Falling back to graph-native storage. "
+                    "Install with: pip install repotoire[lancedb]"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to initialize vector store: {e}")
+
         # Build status string
         hybrid_status = "enabled" if self.config.hybrid.enabled else "disabled"
         reranker_status = (
@@ -435,12 +463,18 @@ Format code snippets using markdown code blocks with appropriate language tags."
             if self._reranker_new
             else ("legacy" if self._enable_reranking else "disabled")
         )
+        vector_store_status = (
+            f"{self.config.vector_store.backend}"
+            if self._vector_store and self.config.vector_store
+            else "graph"
+        )
 
         logger.info(
             f"Initialized GraphRAGRetriever (backend: {'FalkorDB' if self.is_falkordb else 'Neo4j'}, "
             f"cache: {'enabled' if cache_enabled else 'disabled'}, "
             f"hybrid: {hybrid_status}, "
             f"reranker: {reranker_status}, "
+            f"vector_store: {vector_store_status}, "
             f"llm: {llm_config.backend if llm_config else 'disabled'})"
         )
 
@@ -982,6 +1016,9 @@ Format code snippets using markdown code blocks with appropriate language tags."
     ) -> List[Dict[str, Any]]:
         """Perform vector similarity search across entity types.
 
+        Uses external vector store (LanceDB) if configured, otherwise
+        falls back to graph-native vector search (FalkorDB/Neo4j).
+
         Args:
             query_embedding: Query vector
             top_k: Number of results
@@ -990,7 +1027,19 @@ Format code snippets using markdown code blocks with appropriate language tags."
         Returns:
             List of matching entities with scores
         """
-        # Search across all entity types or filtered subset
+        # Try external vector store first (memory-optimized path)
+        if self._vector_store is not None:
+            results = self._vector_store.search(
+                query_embedding=query_embedding,
+                top_k=top_k,
+                entity_types=entity_types,
+            )
+            # External store returns results, convert to dict format expected by caller
+            if results:
+                return self._convert_vector_store_results(results)
+            # If empty, might be that store has no data, fall through to graph search
+
+        # Fallback: Graph-native vector search
         search_types = entity_types or ["Function", "Class", "File"]
         all_results = []
 
@@ -1059,6 +1108,87 @@ Format code snippets using markdown code blocks with appropriate language tags."
         # Sort by score and return top_k
         all_results.sort(key=lambda x: x["score"], reverse=True)
         return all_results[:top_k]
+
+    def _convert_vector_store_results(
+        self,
+        results: List[VectorSearchResult]
+    ) -> List[Dict[str, Any]]:
+        """Convert external vector store results to graph-compatible format.
+
+        When using LanceDB, we need to fetch additional node details from the
+        graph to get file_path, line numbers, etc.
+
+        Args:
+            results: Results from external vector store
+
+        Returns:
+            Dict format compatible with graph search results
+        """
+        if not results:
+            return []
+
+        converted = []
+        for result in results:
+            # Basic fields from vector store
+            entry = {
+                "qualified_name": result.entity_id,
+                "name": result.entity_id.split(".")[-1] if "." in result.entity_id else result.entity_id,
+                "entity_type": result.entity_type,
+                "score": result.score,
+                "metadata": result.metadata,
+            }
+
+            # Try to fetch additional details from graph if not in metadata
+            if "file_path" not in result.metadata:
+                # Fetch node details from graph
+                node_details = self._fetch_node_details(result.entity_id)
+                if node_details:
+                    entry.update(node_details)
+                else:
+                    # Use metadata if available
+                    entry["file_path"] = result.metadata.get("file_path", "")
+                    entry["line_start"] = result.metadata.get("line_start", 0)
+                    entry["line_end"] = result.metadata.get("line_end", 0)
+                    entry["docstring"] = result.metadata.get("docstring", "")
+            else:
+                entry["file_path"] = result.metadata.get("file_path", "")
+                entry["line_start"] = result.metadata.get("line_start", 0)
+                entry["line_end"] = result.metadata.get("line_end", 0)
+                entry["docstring"] = result.metadata.get("docstring", "")
+
+            converted.append(entry)
+
+        return converted
+
+    def _fetch_node_details(self, qualified_name: str) -> Optional[Dict[str, Any]]:
+        """Fetch node details from graph by qualified name.
+
+        Used when external vector store doesn't have all metadata.
+
+        Args:
+            qualified_name: Entity's qualified name
+
+        Returns:
+            Dict with node details or None if not found
+        """
+        try:
+            query = """
+            MATCH (n {qualifiedName: $qname})
+            RETURN
+                n.filePath as file_path,
+                n.lineStart as line_start,
+                n.lineEnd as line_end,
+                n.docstring as docstring,
+                n.name as name,
+                labels(n)[0] as entity_type
+            LIMIT 1
+            """
+            results = self.client.execute_query(query, {"qname": qualified_name})
+            if results:
+                return results[0]
+        except Exception as e:
+            logger.debug(f"Could not fetch node details for {qualified_name}: {e}")
+        return None
 
     def _get_related_entities(
         self,

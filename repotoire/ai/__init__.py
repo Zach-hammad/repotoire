@@ -6,6 +6,11 @@ from repotoire.ai.embeddings import (
     EmbeddingConfig,
     EmbeddingBackend,
     create_embedder,
+    # Int8 quantization for memory-efficient storage
+    quantize_embedding,
+    dequantize_embedding,
+    quantize_embeddings_batch,
+    compute_cosine_similarity_quantized,
 )
 from repotoire.ai.retrieval import (
     GraphRAGRetriever,
@@ -59,6 +64,11 @@ __all__ = [
     "EmbeddingConfig",
     "EmbeddingBackend",
     "create_embedder",
+    # Int8 quantization (4x memory reduction)
+    "quantize_embedding",
+    "dequantize_embedding",
+    "quantize_embeddings_batch",
+    "compute_cosine_similarity_quantized",
     # Retrieval
     "GraphRAGRetriever",
     "RetrievalResult",

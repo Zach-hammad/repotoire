@@ -153,6 +153,11 @@ sandbox = [
     "e2b-code-interpreter>=1.0.0",  # E2B cloud sandbox for secure code execution
 ]
 
+lancedb = [
+    "lancedb>=0.4.0",  # Disk-backed vector DB (zero-copy via Apache Arrow)
+    "pyarrow>=14.0.0",  # Arrow for efficient data transfer
+]
+
 voyage = [
     "voyageai>=0.3.0",  # Voyage AI embeddings (code-optimized, Anthropic-recommended)
 ]

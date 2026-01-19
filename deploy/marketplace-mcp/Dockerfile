@@ -39,7 +39,7 @@ ENV VIRTUAL_ENV="/opt/venv"
 RUN uv pip install maturin --no-cache-dir
 RUN maturin build --release --out dist
 RUN uv pip install dist/*.whl --no-cache-dir
-RUN uv pip install . --no-cache-dir --no-build-isolation
+RUN uv pip install ".[lancedb]" --no-cache-dir --no-build-isolation
 
 # Runtime stage
 FROM python:3.12-slim AS runtime

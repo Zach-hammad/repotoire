@@ -111,6 +111,12 @@ class GraphSchema:
         ("Commit", "commit_embeddings", "c"),  # Git history RAG
     ]
 
+    # HNSW index tuning parameters for memory optimization
+    # Reducing M from 16 to 12 saves ~25% memory with minimal accuracy loss
+    # Reducing efConstruction from 200 to 150 speeds up index building
+    HNSW_M = 12  # Number of neighbors (default: 16, memory-optimized: 12)
+    HNSW_EF_CONSTRUCTION = 150  # Construction quality (default: 200)
+
     # Full-text index definitions for BM25 hybrid search (REPO-243)
     # These combine multiple fields for comprehensive keyword matching
     FULLTEXT_INDEX_DEFS = [
@@ -158,15 +164,22 @@ class GraphSchema:
 
     @staticmethod
     def _neo4j_vector_index_query(
-        label: str, index_name: str, alias: str, dimensions: int
+        label: str,
+        index_name: str,
+        alias: str,
+        dimensions: int,
+        m: int = 12,
+        ef_construction: int = 150
     ) -> str:
-        """Generate Neo4j vector index creation query.
+        """Generate Neo4j vector index creation query with HNSW tuning.
 
         Args:
             label: Node label (e.g., "Function")
             index_name: Index name (e.g., "function_embeddings")
             alias: Query alias (e.g., "f")
             dimensions: Vector dimensions (384 for local, 1536 for OpenAI)
+            m: HNSW M parameter (neighbors per node, default: 12 for memory optimization)
+            ef_construction: HNSW efConstruction (build quality, default: 150)
 
         Returns:
             Cypher query string
@@ -178,19 +191,33 @@ class GraphSchema:
         OPTIONS {{
             indexConfig: {{
                 `vector.dimensions`: {dimensions},
-                `vector.similarity_function`: 'cosine'
+                `vector.similarity_function`: 'cosine',
+                `vector.hnsw.m`: {m},
+                `vector.hnsw.efConstruction`: {ef_construction}
             }}
         }}
         """
 
     @staticmethod
-    def _falkordb_vector_index_query(label: str, alias: str, dimensions: int) -> str:
-        """Generate FalkorDB vector index creation query.
+    def _falkordb_vector_index_query(
+        label: str,
+        alias: str,
+        dimensions: int,
+        m: int = 12,
+        ef_construction: int = 150
+    ) -> str:
+        """Generate FalkorDB vector index creation query with HNSW tuning.
+
+        Memory-optimized HNSW parameters:
+        - M=12 (down from 16): ~25% memory savings per index
+        - efConstruction=150 (down from 200): Faster index builds
 
         Args:
             label: Node label (e.g., "Function")
             alias: Query alias (e.g., "f")
             dimensions: Vector dimensions (384 for local, 1536 for OpenAI)
+            m: HNSW M parameter (neighbors per node, default: 12)
+            ef_construction: HNSW efConstruction (build quality, default: 150)
 
         Returns:
             Cypher query string
@@ -198,7 +225,7 @@ class GraphSchema:
         return f"""
         CREATE VECTOR INDEX FOR ({alias}:{label})
         ON ({alias}.embedding)
-        OPTIONS {{dimension: {dimensions}, similarityFunction: 'cosine'}}
+        OPTIONS {{dimension: {dimensions}, similarityFunction: 'cosine', M: {m}, efConstruction: {ef_construction}}}
         """
 
     def __init__(self, client):
@@ -350,11 +377,18 @@ class GraphSchema:
             if skipped > 0:
                 print(f"Skipping {skipped} existing vector indexes")
 
-            print(f"Creating {len(indexes_to_create)} vector indexes with {dimensions} dimensions...")
+            print(
+                f"Creating {len(indexes_to_create)} vector indexes with {dimensions} dimensions "
+                f"(HNSW M={self.HNSW_M}, efConstruction={self.HNSW_EF_CONSTRUCTION})..."
+            )
             for i, (label, index_name, alias) in enumerate(indexes_to_create):
                 start = time.time()
                 try:
-                    query = self._falkordb_vector_index_query(label, alias, dimensions)
+                    query = self._falkordb_vector_index_query(
+                        label, alias, dimensions,
+                        m=self.HNSW_M,
+                        ef_construction=self.HNSW_EF_CONSTRUCTION
+                    )
                     self.client.execute_query(query)
                     print(f"  [{i+1}/{len(indexes_to_create)}] Created vector index for {label} in {time.time()-start:.1f}s")
                 except Exception as e:
@@ -362,12 +396,17 @@ class GraphSchema:
             return
 
         # Neo4j path
-        print(f"Creating {len(self.VECTOR_INDEX_DEFS)} vector indexes with {dimensions} dimensions...")
+        print(
+            f"Creating {len(self.VECTOR_INDEX_DEFS)} vector indexes with {dimensions} dimensions "
+            f"(HNSW M={self.HNSW_M}, efConstruction={self.HNSW_EF_CONSTRUCTION})..."
+        )
         for i, (label, index_name, alias) in enumerate(self.VECTOR_INDEX_DEFS):
             start = time.time()
             try:
                 query = self._neo4j_vector_index_query(
-                    label, index_name, alias, dimensions
+                    label, index_name, alias, dimensions,
+                    m=self.HNSW_M,
+                    ef_construction=self.HNSW_EF_CONSTRUCTION
                 )
                 self.client.execute_query(query)
                 print(f"  [{i+1}/{len(self.VECTOR_INDEX_DEFS)}] Created vector index for {label} in {time.time()-start:.1f}s")

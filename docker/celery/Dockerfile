@@ -20,10 +20,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 # Copy only dependency files first (for caching)
 COPY pyproject.toml uv.lock ./
 
-# Create virtual environment and install dependencies
+# Create virtual environment and install dependencies (including lancedb for vector storage)
 RUN uv venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN uv pip install -e ".[worker]" --no-cache-dir
+RUN uv pip install -e ".[worker,lancedb]" --no-cache-dir
 
 # =============================================================================
 # Stage 2: Runtime

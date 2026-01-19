@@ -44,8 +44,8 @@ RUN uv pip install maturin --no-cache-dir
 RUN maturin build --release --out dist
 RUN uv pip install dist/*.whl --no-cache-dir
 
-# Install remaining dependencies (saas + sandbox extras for production)
-RUN uv pip install ".[saas,sandbox]" --no-cache-dir --no-build-isolation
+# Install remaining dependencies (saas + sandbox + lancedb extras for production)
+RUN uv pip install ".[saas,sandbox,lancedb]" --no-cache-dir --no-build-isolation
 
 # =============================================================================
 # Stage 2: Runtime
