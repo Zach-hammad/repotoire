@@ -42,6 +42,16 @@ from repotoire.detectors.tsc_detector import TscDetector
 from repotoire.detectors.npm_audit_detector import NpmAuditDetector
 from repotoire.detectors.infinite_loop_detector import InfiniteLoopDetector
 
+# Rust-based graph detectors (REPO-433)
+from repotoire.detectors.rust_graph_detectors import (
+    PackageStabilityDetector,
+    TechnicalDebtHotspotDetector,
+    LayeredArchitectureDetector,
+    CallChainDepthDetector,
+    HubDependencyDetector,
+    ChangeCouplingDetector,
+)
+
 __all__ = [
     "AnalysisEngine",
     "CodeSmellDetector",

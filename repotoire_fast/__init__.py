@@ -42,6 +42,15 @@ from .repotoire_fast import (
     graph_validate_calls,             # Validate calls by community
     graph_rank_call_candidates,       # Rank call candidates
     graph_batch_jaccard,              # Batch Jaccard similarity
+    # Graph-based code smell detectors (REPO-433)
+    graph_package_stability,          # Package stability metrics (Martin's metrics)
+    detect_unstable_packages,         # Detect packages far from main sequence
+    detect_hotspots,                  # Technical debt hotspot detection
+    detect_layer_violations,          # Layered architecture violations
+    detect_deep_call_chains,          # Deep call chain detection
+    find_bottleneck_functions,        # Find bottleneck functions in call graph
+    detect_hub_dependencies,          # Detect architectural hubs
+    detect_change_coupling,           # Change coupling detection
     # Node2Vec random walks for graph embedding (REPO-247)
     node2vec_random_walks,            # Biased random walks for Node2Vec
     # Word2Vec skip-gram training (REPO-249)
@@ -148,6 +157,15 @@ __all__ = [
     "graph_validate_calls",             # Validate calls by community
     "graph_rank_call_candidates",       # Rank call candidates
     "graph_batch_jaccard",              # Batch Jaccard similarity
+    # Graph-based code smell detectors (REPO-433)
+    "graph_package_stability",          # Package stability metrics (Martin's metrics)
+    "detect_unstable_packages",         # Detect packages far from main sequence
+    "detect_hotspots",                  # Technical debt hotspot detection
+    "detect_layer_violations",          # Layered architecture violations
+    "detect_deep_call_chains",          # Deep call chain detection
+    "find_bottleneck_functions",        # Find bottleneck functions in call graph
+    "detect_hub_dependencies",          # Detect architectural hubs
+    "detect_change_coupling",           # Change coupling detection
     # Node2Vec random walks for graph embedding (REPO-247)
     "node2vec_random_walks",            # Biased random walks for Node2Vec
     # Word2Vec skip-gram training (REPO-249)

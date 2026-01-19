@@ -283,7 +283,87 @@ def _convert_parsed_file(
                 rel_type=RelationshipType.IMPORTS,
             ))
 
+    # Build a mapping from simple function names to qualified names
+    # This helps resolve calls like "self.method()" to actual function entities
+    func_qn_by_name: Dict[str, List[str]] = defaultdict(list)
+    for ent in entities:
+        if isinstance(ent, FunctionEntity):
+            func_qn_by_name[ent.name].append(ent.qualified_name)
+
+    # Convert calls to relationships (if calls are available)
+    if hasattr(parsed, 'calls'):
+        for call in parsed.calls:
+            # Find the caller function's qualified name
+            # The caller_qualified_name from Rust is in module.ClassName.method format
+            # We need to map it to our qualified_name format
+            caller_qn = _resolve_caller_qn(
+                call.caller_qualified_name,
+                rel_path,
+                class_qn_map,
+                func_qn_by_name,
+            )
+
+            if caller_qn:
+                # Determine the target (callee)
+                # For method calls like self.method(), try to resolve within the class
+                callee = call.callee
+
+                # Create CALLS relationship
+                relationships.append(Relationship(
+                    source_id=caller_qn,
+                    target_id=callee,
+                    rel_type=RelationshipType.CALLS,
+                    properties={
+                        'line': call.line,
+                        'is_method_call': call.is_method_call,
+                        'receiver': call.receiver,
+                    },
+                ))
+
     return entities, relationships
+
+
+def _resolve_caller_qn(
+    rust_caller_qn: str,
+    rel_path: str,
+    class_qn_map: Dict[str, str],
+    func_qn_by_name: Dict[str, List[str]],
+) -> Optional[str]:
+    """Resolve a Rust caller qualified name to our qualified name format.
+
+    Args:
+        rust_caller_qn: Caller qualified name from Rust (e.g., "module.ClassName.method")
+        rel_path: Relative file path
+        class_qn_map: Mapping of class names to their qualified names
+        func_qn_by_name: Mapping of function names to their qualified names
+
+    Returns:
+        The resolved qualified name or None if not found
+    """
+    parts = rust_caller_qn.split('.')
+
+    if len(parts) >= 3:
+        # Method: module.ClassName.method
+        class_name = parts[-2]
+        method_name = parts[-1]
+        if class_name in class_qn_map:
+            # Find the method in our function entities
+            for qn in func_qn_by_name.get(method_name, []):
+                if class_name in qn:
+                    return qn
+
+    if len(parts) >= 2:
+        # Top-level function: module.function
+        func_name = parts[-1]
+        candidates = func_qn_by_name.get(func_name, [])
+        if candidates:
+            # Prefer functions in this file
+            for qn in candidates:
+                if rel_path in qn:
+                    return qn
+            return candidates[0]
+
+    return None
 
 
 def _get_relative_path(file_path: str, repo_path: str) -> str:

@@ -50,6 +50,16 @@ from repotoire.detectors.generator_misuse import GeneratorMisuseDetector
 from repotoire.detectors.lazy_class import LazyClassDetector
 from repotoire.detectors.refused_bequest import RefusedBequestDetector
 
+# Rust-based graph detectors (REPO-433)
+from repotoire.detectors.rust_graph_detectors import (
+    PackageStabilityDetector,
+    TechnicalDebtHotspotDetector,
+    LayeredArchitectureDetector,
+    CallChainDepthDetector,
+    HubDependencyDetector,
+    ChangeCouplingDetector,
+)
+
 # Hybrid detectors (external tool + graph)
 from repotoire.detectors.ruff_import_detector import RuffImportDetector
 from repotoire.detectors.ruff_lint_detector import RuffLintDetector
@@ -216,6 +226,13 @@ class AnalysisEngine:
             # Design smell detectors (REPO-222, REPO-230)
             LazyClassDetector(graph_client, detector_config=with_repo_id(config.get("lazy_class")), enricher=self.enricher),
             RefusedBequestDetector(graph_client, detector_config=with_repo_id(config.get("refused_bequest")), enricher=self.enricher),
+            # Rust-based graph detectors (REPO-433) - high-performance Rust implementations
+            PackageStabilityDetector(graph_client, detector_config=with_repo_id(config.get("package_stability")), enricher=self.enricher),
+            TechnicalDebtHotspotDetector(graph_client, detector_config=with_repo_id(config.get("technical_debt_hotspot")), enricher=self.enricher),
+            LayeredArchitectureDetector(graph_client, detector_config=with_repo_id(config.get("layered_architecture")), enricher=self.enricher),
+            CallChainDepthDetector(graph_client, detector_config=with_repo_id(config.get("call_chain_depth")), enricher=self.enricher),
+            HubDependencyDetector(graph_client, detector_config=with_repo_id(config.get("hub_dependency")), enricher=self.enricher),
+            ChangeCouplingDetector(graph_client, detector_config=with_repo_id(config.get("change_coupling")), enricher=self.enricher),
             # TrulyUnusedImportsDetector has high false positive rate - replaced by RuffImportDetector
             # TrulyUnusedImportsDetector(graph_client, detector_config=config.get("truly_unused_imports")),
             # Hybrid detectors (external tool + graph)

@@ -129,6 +129,21 @@ pub struct ExtractedImport {
     pub line: usize,
 }
 
+/// Extracted function call from AST
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedCall {
+    /// Name of the function being called (e.g., "foo", "self.method", "module.func")
+    pub callee: String,
+    /// Qualified name of the caller function (e.g., "module.MyClass.method")
+    pub caller_qualified_name: String,
+    /// Line number where the call occurs
+    pub line: usize,
+    /// Whether this is a method call (obj.method())
+    pub is_method_call: bool,
+    /// The object/receiver if method call (e.g., "self", "obj")
+    pub receiver: Option<String>,
+}
+
 /// Result of parsing a single file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParsedFile {
@@ -137,6 +152,7 @@ pub struct ParsedFile {
     pub functions: Vec<ExtractedFunction>,
     pub classes: Vec<ExtractedClass>,
     pub imports: Vec<ExtractedImport>,
+    pub calls: Vec<ExtractedCall>,
     pub parse_error: Option<String>,
 }
 
@@ -179,6 +195,7 @@ impl TreeSitterParser {
                     functions: vec![],
                     classes: vec![],
                     imports: vec![],
+                    calls: vec![],
                     parse_error: Some("Language not supported".to_string()),
                 }
             }
@@ -193,6 +210,7 @@ impl TreeSitterParser {
                     functions: vec![],
                     classes: vec![],
                     imports: vec![],
+                    calls: vec![],
                     parse_error: Some("Failed to parse file".to_string()),
                 }
             }
@@ -201,7 +219,7 @@ impl TreeSitterParser {
         let root = tree.root_node();
 
         // Extract entities based on language
-        let (functions, classes, imports) = match language {
+        let (functions, classes, imports, calls) = match language {
             SupportedLanguage::Python => extract_python_entities(&root, source, path),
             SupportedLanguage::TypeScript | SupportedLanguage::JavaScript => {
                 extract_js_ts_entities(&root, source, path)
@@ -217,6 +235,7 @@ impl TreeSitterParser {
             functions,
             classes,
             imports,
+            calls,
             parse_error: if root.has_error() {
                 Some("Parse tree contains errors".to_string())
             } else {
@@ -236,24 +255,25 @@ impl Default for TreeSitterParser {
 // Language-specific entity extraction
 // ============================================================================
 
-/// Extract Python entities (functions, classes, imports)
+/// Extract Python entities (functions, classes, imports, calls)
 fn extract_python_entities(
     root: &Node,
     source: &str,
     file_path: &str,
-) -> (Vec<ExtractedFunction>, Vec<ExtractedClass>, Vec<ExtractedImport>) {
+) -> (Vec<ExtractedFunction>, Vec<ExtractedClass>, Vec<ExtractedImport>, Vec<ExtractedCall>) {
     let mut functions = Vec::new();
     let mut classes = Vec::new();
     let mut imports = Vec::new();
+    let mut calls = Vec::new();
 
     let module_name = std::path::Path::new(file_path)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
 
-    extract_python_node(root, source, module_name, None, &mut functions, &mut classes, &mut imports);
+    extract_python_node(root, source, module_name, None, &mut functions, &mut classes, &mut imports, &mut calls);
 
-    (functions, classes, imports)
+    (functions, classes, imports, calls)
 }
 
 fn extract_python_node(
@@ -264,18 +284,19 @@ fn extract_python_node(
     functions: &mut Vec<ExtractedFunction>,
     classes: &mut Vec<ExtractedClass>,
     imports: &mut Vec<ExtractedImport>,
+    calls: &mut Vec<ExtractedCall>,
 ) {
     let mut cursor = node.walk();
 
     for child in node.children(&mut cursor) {
         match child.kind() {
             "function_definition" | "async_function_definition" => {
-                if let Some(func) = extract_python_function(&child, source, module_name, parent_class) {
+                if let Some(func) = extract_python_function(&child, source, module_name, parent_class, calls) {
                     functions.push(func);
                 }
             }
             "class_definition" => {
-                if let Some(class) = extract_python_class(&child, source, module_name, functions) {
+                if let Some(class) = extract_python_class(&child, source, module_name, functions, calls) {
                     classes.push(class);
                 }
             }
@@ -291,7 +312,7 @@ fn extract_python_node(
             }
             _ => {
                 // Recurse into other nodes
-                extract_python_node(&child, source, module_name, parent_class, functions, classes, imports);
+                extract_python_node(&child, source, module_name, parent_class, functions, classes, imports, calls);
             }
         }
     }
@@ -302,6 +323,7 @@ fn extract_python_function(
     source: &str,
     module_name: &str,
     parent_class: Option<&str>,
+    calls: &mut Vec<ExtractedCall>,
 ) -> Option<ExtractedFunction> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source.as_bytes()).ok()?.to_string();
@@ -362,6 +384,11 @@ fn extract_python_function(
         }
     }
 
+    // Extract function calls from body
+    if let Some(body) = node.child_by_field_name("body") {
+        extract_python_calls(&body, source, &qualified_name, calls);
+    }
+
     Some(ExtractedFunction {
         name,
         qualified_name,
@@ -379,11 +406,88 @@ fn extract_python_function(
     })
 }
 
+/// Recursively extract function calls from a Python AST node
+fn extract_python_calls(
+    node: &Node,
+    source: &str,
+    caller_qualified_name: &str,
+    calls: &mut Vec<ExtractedCall>,
+) {
+    let mut cursor = node.walk();
+
+    for child in node.children(&mut cursor) {
+        if child.kind() == "call" {
+            // Extract the callee (what's being called)
+            if let Some(callee_node) = child.child_by_field_name("function") {
+                let (callee, is_method_call, receiver) = extract_python_callee(&callee_node, source);
+
+                if !callee.is_empty() {
+                    calls.push(ExtractedCall {
+                        callee,
+                        caller_qualified_name: caller_qualified_name.to_string(),
+                        line: child.start_position().row + 1,
+                        is_method_call,
+                        receiver,
+                    });
+                }
+            }
+        }
+
+        // Don't recurse into nested function definitions - those have their own scope
+        if child.kind() != "function_definition" && child.kind() != "async_function_definition" {
+            extract_python_calls(&child, source, caller_qualified_name, calls);
+        }
+    }
+}
+
+/// Extract callee information from a call expression
+fn extract_python_callee(node: &Node, source: &str) -> (String, bool, Option<String>) {
+    match node.kind() {
+        "identifier" => {
+            // Simple call: foo()
+            let callee = node.utf8_text(source.as_bytes())
+                .ok()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            (callee, false, None)
+        }
+        "attribute" => {
+            // Method call: obj.method() or self.method() or module.func()
+            let full_text = node.utf8_text(source.as_bytes())
+                .ok()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+
+            // Get the object (receiver) and attribute (method name)
+            let receiver = node.child_by_field_name("object")
+                .and_then(|n| n.utf8_text(source.as_bytes()).ok())
+                .map(|s| s.to_string());
+
+            let method = node.child_by_field_name("attribute")
+                .and_then(|n| n.utf8_text(source.as_bytes()).ok())
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+
+            // Use the full dotted name as callee (e.g., "self.method" or "module.func")
+            (full_text, true, receiver)
+        }
+        _ => {
+            // Complex expression (e.g., func()(), arr[0]())
+            let callee = node.utf8_text(source.as_bytes())
+                .ok()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            (callee, false, None)
+        }
+    }
+}
+
 fn extract_python_class(
     node: &Node,
     source: &str,
     module_name: &str,
     functions: &mut Vec<ExtractedFunction>,
+    calls: &mut Vec<ExtractedCall>,
 ) -> Option<ExtractedClass> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source.as_bytes()).ok()?.to_string();
@@ -437,7 +541,7 @@ fn extract_python_class(
             if let Some(child) = body.child(i) {
                 match child.kind() {
                     "function_definition" | "async_function_definition" => {
-                        if let Some(func) = extract_python_function(&child, source, module_name, Some(&name)) {
+                        if let Some(func) = extract_python_function(&child, source, module_name, Some(&name), calls) {
                             methods.push(func.name.clone());
                             functions.push(func);
                         }
@@ -556,10 +660,11 @@ fn extract_js_ts_entities(
     root: &Node,
     source: &str,
     file_path: &str,
-) -> (Vec<ExtractedFunction>, Vec<ExtractedClass>, Vec<ExtractedImport>) {
+) -> (Vec<ExtractedFunction>, Vec<ExtractedClass>, Vec<ExtractedImport>, Vec<ExtractedCall>) {
     let mut functions = Vec::new();
     let mut classes = Vec::new();
     let mut imports = Vec::new();
+    let calls = Vec::new(); // TODO: Implement JS/TS call extraction
 
     let module_name = std::path::Path::new(file_path)
         .file_stem()
@@ -568,7 +673,7 @@ fn extract_js_ts_entities(
 
     extract_js_ts_node(root, source, module_name, None, &mut functions, &mut classes, &mut imports);
 
-    (functions, classes, imports)
+    (functions, classes, imports, calls)
 }
 
 fn extract_js_ts_node(
@@ -748,10 +853,11 @@ fn extract_java_entities(
     root: &Node,
     source: &str,
     file_path: &str,
-) -> (Vec<ExtractedFunction>, Vec<ExtractedClass>, Vec<ExtractedImport>) {
+) -> (Vec<ExtractedFunction>, Vec<ExtractedClass>, Vec<ExtractedImport>, Vec<ExtractedCall>) {
     let mut functions = Vec::new();
     let mut classes = Vec::new();
     let mut imports = Vec::new();
+    let calls = Vec::new(); // TODO: Implement Java call extraction
 
     let module_name = std::path::Path::new(file_path)
         .file_stem()
@@ -760,7 +866,7 @@ fn extract_java_entities(
 
     extract_java_node(root, source, module_name, None, &mut functions, &mut classes, &mut imports);
 
-    (functions, classes, imports)
+    (functions, classes, imports, calls)
 }
 
 fn extract_java_node(
@@ -861,10 +967,11 @@ fn extract_go_entities(
     root: &Node,
     source: &str,
     file_path: &str,
-) -> (Vec<ExtractedFunction>, Vec<ExtractedClass>, Vec<ExtractedImport>) {
+) -> (Vec<ExtractedFunction>, Vec<ExtractedClass>, Vec<ExtractedImport>, Vec<ExtractedCall>) {
     let mut functions = Vec::new();
     let mut classes = Vec::new();
     let mut imports = Vec::new();
+    let calls = Vec::new(); // TODO: Implement Go call extraction
 
     let module_name = std::path::Path::new(file_path)
         .file_stem()
@@ -873,7 +980,7 @@ fn extract_go_entities(
 
     extract_go_node(root, source, module_name, &mut functions, &mut classes, &mut imports);
 
-    (functions, classes, imports)
+    (functions, classes, imports, calls)
 }
 
 fn extract_go_node(
@@ -966,10 +1073,11 @@ fn extract_rust_entities(
     root: &Node,
     source: &str,
     file_path: &str,
-) -> (Vec<ExtractedFunction>, Vec<ExtractedClass>, Vec<ExtractedImport>) {
+) -> (Vec<ExtractedFunction>, Vec<ExtractedClass>, Vec<ExtractedImport>, Vec<ExtractedCall>) {
     let mut functions = Vec::new();
     let mut classes = Vec::new();
     let mut imports = Vec::new();
+    let calls = Vec::new(); // TODO: Implement Rust call extraction
 
     let module_name = std::path::Path::new(file_path)
         .file_stem()
@@ -978,7 +1086,7 @@ fn extract_rust_entities(
 
     extract_rust_node(root, source, module_name, None, &mut functions, &mut classes, &mut imports);
 
-    (functions, classes, imports)
+    (functions, classes, imports, calls)
 }
 
 fn extract_rust_node(

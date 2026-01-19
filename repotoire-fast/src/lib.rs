@@ -23,6 +23,7 @@ pub mod taint;
 pub mod incremental_scc;
 pub mod cfg;
 pub mod tree_sitter_parser;
+pub mod graph_detectors;
 
 // Convert GraphError to Python ValueError (REPO-227)
 impl From<errors::GraphError> for PyErr {
@@ -865,6 +866,243 @@ fn graph_batch_jaccard(
 ) -> PyResult<Vec<(u32, u32, f64)>> {
     py.detach(|| graph_algo::batch_jaccard_similarity(&edges, num_nodes, threshold))
         .map_err(|e| e.into())
+}
+
+// ============================================================================
+// GRAPH-BASED CODE SMELL DETECTORS (REPO-433)
+// High-performance Rust implementations of code smell detection algorithms
+// ============================================================================
+
+/// Calculate package stability metrics (Robert Martin's metrics).
+///
+/// Returns for each package: (id, ca, ce, instability, abstractness, distance)
+/// where:
+/// - ca = afferent coupling (incoming dependencies)
+/// - ce = efferent coupling (outgoing dependencies)
+/// - instability = Ce / (Ca + Ce)
+/// - abstractness = num_abstract / num_total classes
+/// - distance = |A + I - 1| (distance from main sequence)
+///
+/// # Arguments
+/// * `edges` - Import edges as (source_package, target_package)
+/// * `num_packages` - Total number of packages
+/// * `abstract_counts` - For each package: (num_abstract, num_total) classes
+#[pyfunction]
+#[pyo3(signature = (edges, num_packages, abstract_counts))]
+fn graph_package_stability(
+    py: Python<'_>,
+    edges: Vec<(u32, u32)>,
+    num_packages: usize,
+    abstract_counts: Vec<(u32, u32)>,
+) -> PyResult<Vec<(u32, u32, u32, f64, f64, f64)>> {
+    let metrics = py.detach(|| {
+        graph_detectors::calculate_package_stability(&edges, num_packages, &abstract_counts)
+    })?;
+
+    Ok(metrics.into_iter().map(|m| {
+        (m.package_id, m.ca, m.ce, m.instability, m.abstractness, m.distance)
+    }).collect())
+}
+
+/// Detect packages with poor stability (far from main sequence).
+///
+/// Returns list of findings: (detector, severity, message, affected_nodes, metadata)
+///
+/// # Arguments
+/// * `edges` - Import edges as (source_package, target_package)
+/// * `num_packages` - Total number of packages
+/// * `abstract_counts` - For each package: (num_abstract, num_total) classes
+/// * `distance_threshold` - Minimum distance to report (default: 0.3)
+#[pyfunction]
+#[pyo3(signature = (edges, num_packages, abstract_counts, distance_threshold=0.3))]
+fn detect_unstable_packages(
+    py: Python<'_>,
+    edges: Vec<(u32, u32)>,
+    num_packages: usize,
+    abstract_counts: Vec<(u32, u32)>,
+    distance_threshold: f64,
+) -> PyResult<Vec<(String, String, String, Vec<u32>, HashMap<String, f64>)>> {
+    let findings = py.detach(|| {
+        let metrics = graph_detectors::calculate_package_stability(&edges, num_packages, &abstract_counts)?;
+        Ok::<_, errors::GraphError>(graph_detectors::detect_unstable_packages(&metrics, distance_threshold))
+    })?;
+
+    Ok(findings.into_iter().map(|f| {
+        let metadata: HashMap<String, f64> = f.metadata.into_iter().collect();
+        (f.detector, f.severity, f.message, f.affected_nodes, metadata)
+    }).collect())
+}
+
+/// Detect technical debt hotspots.
+///
+/// Returns list of hotspots: (file_id, score, churn, complexity, health, percentile)
+///
+/// # Arguments
+/// * `files` - File metrics: (file_id, churn_count, complexity, code_health, lines_of_code)
+/// * `min_churn` - Minimum churn count to consider (default: 5)
+/// * `min_complexity` - Minimum complexity to consider (default: 5.0)
+#[pyfunction]
+#[pyo3(signature = (files, min_churn=5, min_complexity=5.0))]
+fn detect_hotspots(
+    py: Python<'_>,
+    files: Vec<(u32, u32, f64, f64, u32)>,
+    min_churn: u32,
+    min_complexity: f64,
+) -> Vec<(u32, f64, u32, f64, f64, f64)> {
+    let file_metrics: Vec<graph_detectors::FileMetrics> = files.into_iter().map(|(id, churn, complexity, health, loc)| {
+        graph_detectors::FileMetrics {
+            file_id: id,
+            churn_count: churn,
+            complexity,
+            code_health: health,
+            lines_of_code: loc,
+        }
+    }).collect();
+
+    let hotspots = py.detach(|| graph_detectors::detect_hotspots(&file_metrics, min_churn, min_complexity));
+
+    hotspots.into_iter().map(|h| {
+        (h.file_id, h.score, h.churn_count, h.complexity, h.code_health, h.percentile)
+    }).collect()
+}
+
+/// Detect layered architecture violations (back-calls and skip-calls).
+///
+/// Returns list of violations: (type, source_layer, target_layer, source_file, target_file)
+///
+/// # Arguments
+/// * `edges` - Import edges as (source_file, target_file)
+/// * `file_layers` - Mapping of file_id -> layer_id
+/// * `layers` - Layer definitions: (layer_id, name, level)
+#[pyfunction]
+fn detect_layer_violations(
+    py: Python<'_>,
+    edges: Vec<(u32, u32)>,
+    file_layers: HashMap<u32, u32>,
+    layers: Vec<(u32, String, u32)>,
+) -> Vec<(String, u32, u32, u32, u32)> {
+    let layer_defs: Vec<graph_detectors::Layer> = layers.into_iter().map(|(id, name, level)| {
+        graph_detectors::Layer { layer_id: id, name, level }
+    }).collect();
+
+    let file_layer_map: rustc_hash::FxHashMap<u32, u32> = file_layers.into_iter().collect();
+
+    let violations = py.detach(|| {
+        graph_detectors::detect_layer_violations(&edges, &file_layer_map, &layer_defs)
+    });
+
+    violations.into_iter().map(|v| {
+        (v.violation_type, v.source_layer, v.target_layer, v.source_file, v.target_file)
+    }).collect()
+}
+
+/// Detect deep call chains in the call graph.
+///
+/// Returns list of chains: (start_function, depth, path)
+///
+/// # Arguments
+/// * `call_edges` - CALLS edges as (caller, callee)
+/// * `num_functions` - Total number of function nodes
+/// * `max_depth` - Maximum depth to search (default: 20)
+#[pyfunction]
+#[pyo3(signature = (call_edges, num_functions, max_depth=20))]
+fn detect_deep_call_chains(
+    py: Python<'_>,
+    call_edges: Vec<(u32, u32)>,
+    num_functions: usize,
+    max_depth: u32,
+) -> PyResult<Vec<(u32, u32, Vec<u32>)>> {
+    let chains = py.detach(|| {
+        graph_detectors::detect_deep_call_chains(&call_edges, num_functions, max_depth)
+    })?;
+
+    Ok(chains.into_iter().map(|c| (c.start_function, c.depth, c.path)).collect())
+}
+
+/// Find bottleneck functions that appear on many long call chains.
+///
+/// Returns list of (function_id, appearance_count) sorted by count descending.
+///
+/// # Arguments
+/// * `call_edges` - CALLS edges as (caller, callee)
+/// * `num_functions` - Total number of function nodes
+/// * `min_chain_depth` - Minimum chain depth to consider (default: 7)
+/// * `min_appearances` - Minimum appearances to report (default: 3)
+/// * `max_depth` - Maximum depth to search (default: 20)
+#[pyfunction]
+#[pyo3(signature = (call_edges, num_functions, min_chain_depth=7, min_appearances=3, max_depth=20))]
+fn find_bottleneck_functions(
+    py: Python<'_>,
+    call_edges: Vec<(u32, u32)>,
+    num_functions: usize,
+    min_chain_depth: u32,
+    min_appearances: usize,
+    max_depth: u32,
+) -> PyResult<Vec<(u32, usize)>> {
+    let chains = py.detach(|| {
+        graph_detectors::detect_deep_call_chains(&call_edges, num_functions, max_depth)
+    })?;
+
+    Ok(graph_detectors::find_bottleneck_functions(&chains, min_chain_depth, min_appearances))
+}
+
+/// Detect hub nodes in the dependency graph (architectural bottlenecks).
+///
+/// Returns list of hubs: (node_id, hub_score, betweenness, pagerank, in_degree, out_degree, percentile)
+///
+/// # Arguments
+/// * `edges` - Dependency edges as (source, target)
+/// * `num_nodes` - Total number of nodes
+/// * `betweenness_weight` - Weight for betweenness centrality (default: 0.6)
+/// * `pagerank_weight` - Weight for PageRank (default: 0.4)
+#[pyfunction]
+#[pyo3(signature = (edges, num_nodes, betweenness_weight=0.6, pagerank_weight=0.4))]
+fn detect_hub_dependencies(
+    py: Python<'_>,
+    edges: Vec<(u32, u32)>,
+    num_nodes: usize,
+    betweenness_weight: f64,
+    pagerank_weight: f64,
+) -> PyResult<Vec<(u32, f64, f64, f64, u32, u32, f64)>> {
+    let hubs = py.detach(|| {
+        graph_detectors::detect_hub_dependencies(&edges, num_nodes, betweenness_weight, pagerank_weight)
+    })?;
+
+    Ok(hubs.into_iter().map(|h| {
+        (h.node_id, h.hub_score, h.betweenness, h.pagerank, h.in_degree, h.out_degree, h.percentile)
+    }).collect())
+}
+
+/// Detect change coupling (files that frequently change together).
+///
+/// Returns list of couplings: (file_a, file_b, co_changes, support, confidence_a_b, confidence_b_a)
+///
+/// # Arguments
+/// * `commit_files` - For each commit: list of modified file IDs
+/// * `explicit_deps` - Known explicit dependencies to exclude
+/// * `min_support` - Minimum support threshold (default: 0.05)
+/// * `min_confidence` - Minimum confidence threshold (default: 0.5)
+#[pyfunction]
+#[pyo3(signature = (commit_files, explicit_deps=None, min_support=0.05, min_confidence=0.5))]
+fn detect_change_coupling(
+    py: Python<'_>,
+    commit_files: Vec<Vec<u32>>,
+    explicit_deps: Option<Vec<(u32, u32)>>,
+    min_support: f64,
+    min_confidence: f64,
+) -> Vec<(u32, u32, u32, f64, f64, f64)> {
+    let deps: rustc_hash::FxHashSet<(u32, u32)> = explicit_deps
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+
+    let couplings = py.detach(|| {
+        graph_detectors::detect_change_coupling(&commit_files, &deps, min_support, min_confidence)
+    });
+
+    couplings.into_iter().map(|c| {
+        (c.file_a, c.file_b, c.co_changes, c.support, c.confidence_a_b, c.confidence_b_a)
+    }).collect()
 }
 
 /// Generate biased random walks for Node2Vec graph embedding (REPO-247)
@@ -3659,6 +3897,8 @@ pub struct PyParsedFile {
     #[pyo3(get)]
     pub imports: Vec<PyExtractedImport>,
     #[pyo3(get)]
+    pub calls: Vec<PyExtractedCall>,
+    #[pyo3(get)]
     pub parse_error: Option<String>,
 }
 
@@ -3738,6 +3978,22 @@ pub struct PyExtractedImport {
     pub line: usize,
 }
 
+/// PyO3 wrapper for extracted function call
+#[pyclass]
+#[derive(Clone)]
+pub struct PyExtractedCall {
+    #[pyo3(get)]
+    pub callee: String,
+    #[pyo3(get)]
+    pub caller_qualified_name: String,
+    #[pyo3(get)]
+    pub line: usize,
+    #[pyo3(get)]
+    pub is_method_call: bool,
+    #[pyo3(get)]
+    pub receiver: Option<String>,
+}
+
 impl From<tree_sitter_parser::ExtractedFunction> for PyExtractedFunction {
     fn from(f: tree_sitter_parser::ExtractedFunction) -> Self {
         Self {
@@ -3788,6 +4044,18 @@ impl From<tree_sitter_parser::ExtractedImport> for PyExtractedImport {
     }
 }
 
+impl From<tree_sitter_parser::ExtractedCall> for PyExtractedCall {
+    fn from(c: tree_sitter_parser::ExtractedCall) -> Self {
+        Self {
+            callee: c.callee,
+            caller_qualified_name: c.caller_qualified_name,
+            line: c.line,
+            is_method_call: c.is_method_call,
+            receiver: c.receiver,
+        }
+    }
+}
+
 impl From<tree_sitter_parser::ParsedFile> for PyParsedFile {
     fn from(p: tree_sitter_parser::ParsedFile) -> Self {
         Self {
@@ -3796,6 +4064,7 @@ impl From<tree_sitter_parser::ParsedFile> for PyParsedFile {
             functions: p.functions.into_iter().map(Into::into).collect(),
             classes: p.classes.into_iter().map(Into::into).collect(),
             imports: p.imports.into_iter().map(Into::into).collect(),
+            calls: p.calls.into_iter().map(Into::into).collect(),
             parse_error: p.parse_error,
         }
     }
@@ -3911,6 +4180,15 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(graph_validate_calls, n)?)?;
     n.add_function(wrap_pyfunction!(graph_rank_call_candidates, n)?)?;
     n.add_function(wrap_pyfunction!(graph_batch_jaccard, n)?)?;
+    // Graph-based code smell detectors (REPO-433)
+    n.add_function(wrap_pyfunction!(graph_package_stability, n)?)?;
+    n.add_function(wrap_pyfunction!(detect_unstable_packages, n)?)?;
+    n.add_function(wrap_pyfunction!(detect_hotspots, n)?)?;
+    n.add_function(wrap_pyfunction!(detect_layer_violations, n)?)?;
+    n.add_function(wrap_pyfunction!(detect_deep_call_chains, n)?)?;
+    n.add_function(wrap_pyfunction!(find_bottleneck_functions, n)?)?;
+    n.add_function(wrap_pyfunction!(detect_hub_dependencies, n)?)?;
+    n.add_function(wrap_pyfunction!(detect_change_coupling, n)?)?;
     // Node2Vec random walks for graph embedding (REPO-247)
     n.add_function(wrap_pyfunction!(node2vec_random_walks, n)?)?;
     // Word2Vec skip-gram training (REPO-249)
@@ -3973,6 +4251,7 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_class::<PyExtractedFunction>()?;
     n.add_class::<PyExtractedClass>()?;
     n.add_class::<PyExtractedImport>()?;
+    n.add_class::<PyExtractedCall>()?;
     n.add_function(wrap_pyfunction!(parse_files_parallel, n)?)?;
     n.add_function(wrap_pyfunction!(parse_files_parallel_auto, n)?)?;
     n.add_function(wrap_pyfunction!(parse_file_tree_sitter, n)?)?;

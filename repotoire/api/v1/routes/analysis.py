@@ -857,6 +857,7 @@ class ReportFormat(str, Enum):
 
 @router.get(
     "/{analysis_run_id}/report",
+    response_model=None,  # Returns StreamingResponse or JSONResponse directly
     summary="Download analysis report",
     description="""
 Download the analysis report in HTML or JSON format.

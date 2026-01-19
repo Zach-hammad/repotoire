@@ -571,13 +571,15 @@ def ingest(
     context_model: str,
     max_context_cost: float | None,
 ) -> None:
-    """Ingest a codebase into the knowledge graph.
+    """Ingest a codebase and run health analysis.
 
     \b
-    Parses source code and builds a knowledge graph containing:
-    - Files, modules, classes, functions, and variables
-    - Relationships: IMPORTS, CALLS, CONTAINS, INHERITS, USES
-    - Optional: AI-powered semantic clues and vector embeddings
+    This is the main command for analyzing a codebase. It:
+    1. Parses source code and builds a knowledge graph
+    2. Extracts git history for temporal analysis
+    3. Generates graph embeddings (Node2Vec)
+    4. Runs 40+ detectors for code health analysis
+    5. Displays health report with grade and findings
 
     \b
     PREREQUISITES:
@@ -585,7 +587,7 @@ def ingest(
 
     \b
     EXAMPLES:
-      # Basic ingestion
+      # Basic analysis
       $ repotoire ingest ./my-project
 
       # With embeddings for RAG search
@@ -875,6 +877,55 @@ def ingest(
                         # Non-fatal - graph embeddings are enhancement, not required
                         logger.warning(f"Graph embedding generation failed: {e}")
                         console.print(f"[yellow]⚠️  Graph embeddings skipped: {e}[/yellow]")
+
+                # Run analysis automatically after ingestion
+                console.print("\n[bold cyan]🔍 Running code health analysis...[/bold cyan]")
+                try:
+                    detector_config_dict = asdict(config.detectors)
+                    engine = AnalysisEngine(
+                        db,
+                        detector_config=detector_config_dict,
+                        repository_path=str(validated_repo_path),
+                        repo_id=repo_id,
+                        parallel=True,
+                        max_workers=4,
+                    )
+
+                    # Run analysis with progress indication
+                    if not quiet:
+                        total_detectors = len(engine.detectors)
+                        with Progress(
+                            SpinnerColumn(),
+                            TextColumn("[progress.description]{task.description}"),
+                            BarColumn(),
+                            TaskProgressColumn(),
+                            console=console,
+                            transient=True,
+                        ) as progress:
+                            task_id = progress.add_task(
+                                "[cyan]Running detectors...",
+                                total=total_detectors
+                            )
+
+                            def detector_progress(detector_name: str, current: int, total: int, status: str) -> None:
+                                if status == "starting":
+                                    progress.update(task_id, description=f"[cyan]Running:[/cyan] {detector_name}")
+                                elif status == "completed":
+                                    progress.update(task_id, completed=current, description=f"[green]✓[/green] {detector_name}")
+                                elif status == "failed":
+                                    progress.update(task_id, completed=current, description=f"[red]✗[/red] {detector_name}")
+
+                            health = engine.analyze(progress_callback=detector_progress)
+                        console.print(f"[green]✓ Ran {total_detectors} detectors[/green]")
+                    else:
+                        health = engine.analyze()
+
+                    # Display health summary
+                    _display_health_report(health)
+
+                except Exception as e:
+                    logger.warning(f"Analysis failed: {e}")
+                    console.print(f"[yellow]⚠️  Analysis skipped: {e}[/yellow]")
 
                 # Show security info if files were skipped
                 if pipeline.skipped_files:
