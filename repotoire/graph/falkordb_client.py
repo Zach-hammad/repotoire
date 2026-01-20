@@ -1,10 +1,18 @@
 """FalkorDB database client.
 
 Drop-in replacement for Neo4jClient using FalkorDB (Redis-based graph database).
+
+Stability fixes (REPO-500):
+- Default socket timeouts to prevent indefinite hangs
+- Increased retries with jitter for Redis loading states
+- Error categorization (transient vs permanent)
+- Connection health checks and automatic reconnection
+- Circuit breaker pattern for cascading failure prevention
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 import logging
+import random
 import time
 
 from repotoire.graph.base import DatabaseClient
@@ -12,6 +20,34 @@ from repotoire.models import Entity, Relationship, NodeType, RelationshipType
 from repotoire.validation import validate_identifier
 
 logger = logging.getLogger(__name__)
+
+# Transient error patterns that should be retried
+TRANSIENT_ERROR_PATTERNS: Set[str] = {
+    "LOADING",  # Redis is loading the dataset
+    "BUSY",  # Redis is busy
+    "CLUSTERDOWN",  # Cluster is down
+    "TRYAGAIN",  # Retry later
+    "MOVED",  # Cluster slot moved
+    "ASK",  # Cluster redirect
+    "connection",  # Connection errors
+    "timeout",  # Timeout errors
+    "reset",  # Connection reset
+    "refused",  # Connection refused
+    "Broken pipe",  # Broken pipe
+    "No route to host",  # Network unreachable
+    "Name or service not known",  # DNS resolution
+    "No address associated",  # DNS resolution
+}
+
+# Permanent error patterns that should NOT be retried
+PERMANENT_ERROR_PATTERNS: Set[str] = {
+    "NOAUTH",  # Authentication required
+    "WRONGPASS",  # Wrong password
+    "NOPERM",  # No permission
+    "syntax error",  # Query syntax error
+    "Invalid",  # Invalid query/parameters
+    "unknown command",  # Unknown command
+}
 
 
 class FalkorDBClient(DatabaseClient):
@@ -36,13 +72,17 @@ class FalkorDBClient(DatabaseClient):
         graph_name: str = "repotoire",
         password: Optional[str] = None,
         ssl: bool = False,
-        socket_timeout: Optional[float] = None,
-        socket_connect_timeout: Optional[float] = None,
+        socket_timeout: Optional[float] = 30.0,  # REPO-500: Default 30s to prevent hangs
+        socket_connect_timeout: Optional[float] = 10.0,  # REPO-500: Default 10s connect timeout
         max_connections: Optional[int] = None,
-        max_retries: int = 3,
-        retry_base_delay: float = 1.0,
+        max_retries: int = 5,  # REPO-500: Increased from 3 for Redis loading states
+        retry_base_delay: float = 2.0,  # REPO-500: Increased from 1.0
         retry_backoff_factor: float = 2.0,
+        retry_jitter: float = 0.5,  # REPO-500: Jitter to prevent thundering herd
+        retry_max_delay: float = 60.0,  # REPO-500: Cap maximum delay
         default_query_timeout: float = 30.0,  # Default timeout for queries in seconds
+        circuit_breaker_threshold: int = 5,  # REPO-500: Failures before opening circuit
+        circuit_breaker_timeout: float = 30.0,  # REPO-500: Time before half-open
         **kwargs,  # Accept but ignore Neo4j-specific params
     ):
         """Initialize FalkorDB client.
@@ -53,13 +93,17 @@ class FalkorDBClient(DatabaseClient):
             graph_name: Name of the graph to use
             password: Optional Redis password
             ssl: Enable TLS/SSL connection (required for Fly.io external access)
-            socket_timeout: Socket timeout in seconds
-            socket_connect_timeout: Connection timeout in seconds
-            max_connections: Maximum connection pool size (default: 50)
-            max_retries: Maximum retry attempts
-            retry_base_delay: Base delay between retries
-            retry_backoff_factor: Backoff multiplier
-            default_query_timeout: Default timeout for queries (seconds)
+            socket_timeout: Socket timeout in seconds (default 30s)
+            socket_connect_timeout: Connection timeout in seconds (default 10s)
+            max_connections: Maximum connection pool size (default: 100)
+            max_retries: Maximum retry attempts (default 5 for Redis loading states)
+            retry_base_delay: Base delay between retries (default 2s)
+            retry_backoff_factor: Backoff multiplier (default 2.0)
+            retry_jitter: Random jitter factor 0-1 to prevent thundering herd (default 0.5)
+            retry_max_delay: Maximum delay cap in seconds (default 60s)
+            default_query_timeout: Default timeout for queries in seconds (default 30s)
+            circuit_breaker_threshold: Consecutive failures before opening circuit (default 5)
+            circuit_breaker_timeout: Seconds before trying again after circuit opens (default 30s)
         """
         self.host = host
         self.port = port
@@ -72,7 +116,17 @@ class FalkorDBClient(DatabaseClient):
         self.max_retries = max_retries
         self.retry_base_delay = retry_base_delay
         self.retry_backoff_factor = retry_backoff_factor
+        self.retry_jitter = retry_jitter
+        self.retry_max_delay = retry_max_delay
         self.default_query_timeout = default_query_timeout
+
+        # REPO-500: Circuit breaker state
+        self.circuit_breaker_threshold = circuit_breaker_threshold
+        self.circuit_breaker_timeout = circuit_breaker_timeout
+        self._circuit_failures = 0
+        self._circuit_open_time: Optional[float] = None
+        self._last_health_check: float = 0.0
+        self._health_check_interval: float = 60.0  # Check health every 60s
 
         # Connect to FalkorDB
         self._connect()
@@ -92,6 +146,7 @@ class FalkorDBClient(DatabaseClient):
             "password": self.password,
             "ssl": self.ssl,
         }
+        # REPO-500: Always set socket timeouts to prevent indefinite hangs
         if self.socket_timeout is not None:
             conn_kwargs["socket_timeout"] = self.socket_timeout
         if self.socket_connect_timeout is not None:
@@ -103,9 +158,145 @@ class FalkorDBClient(DatabaseClient):
         self.db = FalkorDB(**conn_kwargs)
         self.graph = self.db.select_graph(self.graph_name)
 
+        # REPO-500: Reset circuit breaker on successful connection
+        self._circuit_failures = 0
+        self._circuit_open_time = None
+
+    def _reconnect(self) -> bool:
+        """Attempt to reconnect to FalkorDB.
+
+        REPO-500: Called when connection appears stale or after failures.
+
+        Returns:
+            True if reconnection successful, False otherwise
+        """
+        logger.info(f"Attempting to reconnect to FalkorDB at {self.host}:{self.port}")
+        try:
+            self._connect()
+            logger.info("Reconnection successful")
+            return True
+        except Exception as e:
+            logger.warning(f"Reconnection failed: {e}")
+            return False
+
+    def _check_health(self) -> bool:
+        """Check connection health with PING.
+
+        REPO-500: Periodic health check to detect stale connections.
+
+        Returns:
+            True if healthy, False otherwise
+        """
+        try:
+            # Access the underlying Redis connection for PING
+            if hasattr(self.db, '_client') and self.db._client:
+                self.db._client.ping()
+            elif hasattr(self.db, 'connection') and self.db.connection:
+                self.db.connection.ping()
+            else:
+                # Fallback: execute a simple query
+                self.graph.query("RETURN 1", timeout=5000)
+            return True
+        except Exception as e:
+            logger.warning(f"Health check failed: {e}")
+            return False
+
+    def _is_circuit_open(self) -> bool:
+        """Check if circuit breaker is open.
+
+        REPO-500: Circuit breaker pattern to prevent cascading failures.
+
+        Returns:
+            True if circuit is open (should fail fast), False otherwise
+        """
+        if self._circuit_open_time is None:
+            return False
+
+        # Check if we should try again (half-open state)
+        elapsed = time.time() - self._circuit_open_time
+        if elapsed >= self.circuit_breaker_timeout:
+            logger.info("Circuit breaker entering half-open state, allowing test request")
+            return False
+
+        return True
+
+    def _record_success(self) -> None:
+        """Record successful operation for circuit breaker."""
+        self._circuit_failures = 0
+        self._circuit_open_time = None
+
+    def _record_failure(self) -> None:
+        """Record failed operation for circuit breaker."""
+        self._circuit_failures += 1
+        if self._circuit_failures >= self.circuit_breaker_threshold:
+            if self._circuit_open_time is None:
+                logger.warning(
+                    f"Circuit breaker OPEN after {self._circuit_failures} consecutive failures. "
+                    f"Will retry in {self.circuit_breaker_timeout}s"
+                )
+                self._circuit_open_time = time.time()
+
+    def _is_transient_error(self, error: Exception) -> bool:
+        """Check if error is transient and should be retried.
+
+        REPO-500: Categorize errors to avoid wasting time on permanent failures.
+
+        Args:
+            error: The exception to check
+
+        Returns:
+            True if transient (retry), False if permanent (fail fast)
+        """
+        error_str = str(error).upper()
+
+        # Check for permanent errors first (fail fast)
+        for pattern in PERMANENT_ERROR_PATTERNS:
+            if pattern.upper() in error_str:
+                logger.debug(f"Permanent error detected (no retry): {pattern}")
+                return False
+
+        # Check for known transient errors
+        for pattern in TRANSIENT_ERROR_PATTERNS:
+            if pattern.upper() in error_str:
+                logger.debug(f"Transient error detected (will retry): {pattern}")
+                return True
+
+        # Default: treat as transient for safety
+        return True
+
+    def _calculate_retry_delay(self, attempt: int) -> float:
+        """Calculate retry delay with jitter.
+
+        REPO-500: Exponential backoff with jitter to prevent thundering herd.
+
+        Args:
+            attempt: Current attempt number (1-based)
+
+        Returns:
+            Delay in seconds
+        """
+        # Exponential backoff
+        delay = self.retry_base_delay * (self.retry_backoff_factor ** (attempt - 1))
+
+        # Add jitter (random factor)
+        jitter = delay * self.retry_jitter * random.random()
+        delay = delay + jitter
+
+        # Cap at maximum
+        delay = min(delay, self.retry_max_delay)
+
+        return delay
+
     def close(self) -> None:
         """Close database connection."""
-        # FalkorDB uses Redis connection which auto-closes
+        # REPO-500: Proper cleanup of connection pool
+        try:
+            if hasattr(self.db, '_client') and self.db._client:
+                self.db._client.close()
+            elif hasattr(self.db, 'connection') and self.db.connection:
+                self.db.connection.close()
+        except Exception as e:
+            logger.debug(f"Error during connection close: {e}")
         logger.info("Closed FalkorDB connection")
 
     def __enter__(self) -> "FalkorDBClient":
@@ -122,6 +313,8 @@ class FalkorDBClient(DatabaseClient):
     ) -> List[Dict]:
         """Execute a Cypher query and return results.
 
+        REPO-500: Enhanced with circuit breaker, error categorization, and reconnection.
+
         Args:
             query: Cypher query string
             parameters: Query parameters
@@ -129,18 +322,39 @@ class FalkorDBClient(DatabaseClient):
 
         Returns:
             List of result records as dictionaries
+
+        Raises:
+            Exception: If query fails after all retries or circuit is open
         """
         params = parameters or {}
         query_timeout = timeout if timeout is not None else self.default_query_timeout
 
-        # FalkorDB uses $param syntax like Neo4j
+        # REPO-500: Check circuit breaker
+        if self._is_circuit_open():
+            raise ConnectionError(
+                f"Circuit breaker is OPEN. FalkorDB at {self.host}:{self.port} has "
+                f"{self._circuit_failures} consecutive failures. "
+                f"Will retry in {self.circuit_breaker_timeout - (time.time() - (self._circuit_open_time or 0)):.1f}s"
+            )
+
+        # REPO-500: Periodic health check
+        now = time.time()
+        if now - self._last_health_check > self._health_check_interval:
+            self._last_health_check = now
+            if not self._check_health():
+                logger.warning("Health check failed, attempting reconnection")
+                self._reconnect()
+
         attempt = 0
-        last_exception = None
+        last_exception: Optional[Exception] = None
 
         while attempt <= self.max_retries:
             try:
                 # FalkorDB supports timeout parameter in query()
                 result = self.graph.query(query, params, timeout=int(query_timeout * 1000))
+
+                # REPO-500: Record success for circuit breaker
+                self._record_success()
 
                 # Convert FalkorDB result to list of dicts
                 if not result.result_set:
@@ -165,13 +379,37 @@ class FalkorDBClient(DatabaseClient):
             except Exception as e:
                 last_exception = e
                 attempt += 1
+
+                # REPO-500: Check if error is permanent (don't retry)
+                if not self._is_transient_error(e):
+                    logger.error(f"Permanent error (not retrying): {e}")
+                    logger.error(f"Failed query: {query}")
+                    self._record_failure()
+                    raise
+
+                # REPO-500: Record failure for circuit breaker
+                self._record_failure()
+
                 if attempt > self.max_retries:
                     logger.error(f"Query failed after {self.max_retries} retries: {e}")
-                    logger.error(f"Failed query: {query}")  # Log full query
-                    logger.error(f"Failed params: {params}")  # Log params
+                    logger.error(f"Failed query: {query}")
+                    # Don't log params in production - may contain sensitive data
+                    logger.debug(f"Failed params: {params}")
                     raise
-                delay = self.retry_base_delay * (self.retry_backoff_factor ** (attempt - 1))
-                logger.warning(f"Query attempt {attempt} failed: {e}. Retrying in {delay:.1f}s...")
+
+                # REPO-500: Calculate delay with jitter
+                delay = self._calculate_retry_delay(attempt)
+                logger.warning(
+                    f"Query attempt {attempt}/{self.max_retries} failed: {e}. "
+                    f"Retrying in {delay:.1f}s..."
+                )
+
+                # REPO-500: Try reconnection on connection errors
+                error_str = str(e).lower()
+                if "connection" in error_str or "reset" in error_str or "refused" in error_str:
+                    logger.info("Connection error detected, attempting reconnection before retry")
+                    self._reconnect()
+
                 time.sleep(delay)
 
         raise last_exception or Exception("Query failed")
@@ -324,12 +562,14 @@ class FalkorDBClient(DatabaseClient):
 
             # Use UNWIND to batch all nodes in a single query
             # File nodes use filePath as unique key, all others use qualifiedName
+            # REPO-500: Use n = node instead of n += node to fully replace properties
+            # This prevents stale hash/lastModified from persisting after updates
             if node_type == "File":
                 query = f"""
                 UNWIND $nodes AS node
                 MERGE (n:{validated_node_type} {{filePath: node.filePath}})
                 ON CREATE SET n = node
-                ON MATCH SET n += node
+                ON MATCH SET n = node
                 RETURN n.qualifiedName as qualifiedName
                 """
             else:
@@ -337,7 +577,7 @@ class FalkorDBClient(DatabaseClient):
                 UNWIND $nodes AS node
                 MERGE (n:{validated_node_type} {{qualifiedName: node.qualifiedName}})
                 ON CREATE SET n = node
-                ON MATCH SET n += node
+                ON MATCH SET n = node
                 RETURN n.qualifiedName as qualifiedName
                 """
 
@@ -352,11 +592,12 @@ class FalkorDBClient(DatabaseClient):
                 logger.warning(f"Batch UNWIND failed, falling back to individual queries: {e}")
                 for e_data in nodes_data:
                     try:
+                        # REPO-500: Use n = $props instead of n += $props to fully replace
                         if node_type == "File":
                             fallback_query = f"""
                             MERGE (n:{validated_node_type} {{filePath: $filePath}})
                             ON CREATE SET n = $props
-                            ON MATCH SET n += $props
+                            ON MATCH SET n = $props
                             RETURN n.qualifiedName as qualifiedName
                             """
                             params = {"filePath": e_data["filePath"], "props": e_data}
@@ -364,7 +605,7 @@ class FalkorDBClient(DatabaseClient):
                             fallback_query = f"""
                             MERGE (n:{validated_node_type} {{qualifiedName: $qualifiedName}})
                             ON CREATE SET n = $props
-                            ON MATCH SET n += $props
+                            ON MATCH SET n = $props
                             RETURN n.qualifiedName as qualifiedName
                             """
                             params = {"qualifiedName": e_data["qualifiedName"], "props": e_data}

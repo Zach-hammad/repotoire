@@ -390,6 +390,8 @@ class AnalysisEngine:
         This cache precomputes all reachability relationships for CALLS, IMPORTS,
         and INHERITS edges, enabling O(1) lookup instead of O(V+E) traversal.
 
+        REPO-500: Added query timeouts, memory limits, and repo_id filtering.
+
         Returns:
             PyPathCache instance with precomputed caches, or None if building fails.
         """
@@ -401,20 +403,33 @@ class AnalysisEngine:
             logger.warning("Path cache not available (repotoire_fast not installed)")
             return None
 
+        # REPO-500: Memory limit - skip path cache for very large graphs
+        MAX_PATH_CACHE_NODES = 100000  # 100k nodes max to prevent OOM
+
         try:
             from repotoire_fast import PyPathCache
 
             cache = PyPathCache()
 
+            # REPO-500: Build repo_id filter for multi-tenant isolation
+            repo_filter = ""
+            repo_params: Dict[str, Any] = {}
+            if self.repo_id:
+                repo_filter = "AND n.repoId = $repo_id"
+                repo_params["repo_id"] = self.repo_id
+                logger.info(f"Path cache filtering by repo_id: {self.repo_id}")
+
             # Query all nodes with qualified names
-            nodes_query = """
+            # REPO-500: Added repo_id filter and explicit timeout (120s)
+            nodes_query = f"""
             MATCH (n)
-            WHERE n.qualifiedName IS NOT NULL
+            WHERE n.qualifiedName IS NOT NULL {repo_filter}
             RETURN n.qualifiedName AS name
             ORDER BY name
             """
             query_start = time_module.time()
-            nodes_result = self.db.execute_query(nodes_query)
+            # REPO-500: Explicit 120s timeout for nodes query (large graphs)
+            nodes_result = self.db.execute_query(nodes_query, repo_params, timeout=120.0)
             query_time = time_module.time() - query_start
             node_names = [r["name"] for r in nodes_result if r.get("name")]
 
@@ -422,6 +437,14 @@ class AnalysisEngine:
 
             if not node_names:
                 logger.warning("No nodes found for path cache - graph may be empty")
+                return None
+
+            # REPO-500: Memory limit check
+            if len(node_names) > MAX_PATH_CACHE_NODES:
+                logger.warning(
+                    f"Path cache skipped: {len(node_names)} nodes exceeds limit of {MAX_PATH_CACHE_NODES}. "
+                    f"Using Cypher queries instead to prevent OOM."
+                )
                 return None
 
             # Register nodes (assigns integer IDs)
@@ -433,13 +456,16 @@ class AnalysisEngine:
             # Build cache for each relationship type
             total_edges = 0
             for rel_type in ["CALLS", "IMPORTS", "INHERITS"]:
+                # REPO-500: Added repo_id filter for edges
                 edges_query = f"""
                 MATCH (a)-[:{rel_type}]->(b)
                 WHERE a.qualifiedName IS NOT NULL AND b.qualifiedName IS NOT NULL
+                {repo_filter.replace('n.', 'a.')}
                 RETURN a.qualifiedName AS src, b.qualifiedName AS dst
                 """
                 rel_start = time_module.time()
-                edges_result = self.db.execute_query(edges_query)
+                # REPO-500: Explicit 300s timeout for edges query (IMPORTS can be dense)
+                edges_result = self.db.execute_query(edges_query, repo_params, timeout=300.0)
                 rel_query_time = time_module.time() - rel_start
 
                 # Convert to (src_id, dst_id) pairs
@@ -468,10 +494,25 @@ class AnalysisEngine:
             logger.info(f"Path cache complete: {num_nodes} nodes, {total_edges} edges in {total_time:.2f}s")
             return cache
 
+        except TimeoutError as e:
+            # REPO-500: Specific handling for timeout errors
+            logger.warning(f"Path cache query timed out: {e}. Falling back to Cypher queries.")
+            return None
+        except MemoryError as e:
+            # REPO-500: Specific handling for memory errors
+            logger.warning(f"Path cache ran out of memory: {e}. Falling back to Cypher queries.")
+            return None
         except Exception as e:
             import traceback
-            logger.warning(f"Failed to build path cache: {e}")
-            logger.warning(f"Path cache traceback: {traceback.format_exc()}")
+            error_str = str(e).lower()
+            # REPO-500: Categorize error types for better diagnostics
+            if "timeout" in error_str:
+                logger.warning(f"Path cache query timed out: {e}. Falling back to Cypher queries.")
+            elif "memory" in error_str or "oom" in error_str:
+                logger.warning(f"Path cache ran out of memory: {e}. Falling back to Cypher queries.")
+            else:
+                logger.warning(f"Failed to build path cache: {e}")
+                logger.debug(f"Path cache traceback: {traceback.format_exc()}")
             return None
 
     def analyze(self, progress_callback=None) -> CodebaseHealth:

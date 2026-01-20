@@ -7,6 +7,7 @@ import re
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Tuple
 
@@ -225,9 +226,10 @@ class IngestionPipeline:
         # Track skipped files for reporting
         self.skipped_files: List[Dict[str, str]] = []
 
-        # Cache for file content and hash to avoid redundant reads
-        # Key: Path, Value: (content_bytes, md5_hash)
-        self._file_cache: Dict[Path, Tuple[bytes, str]] = {}
+        # Cache for file content, hash, and last_modified to avoid redundant reads
+        # REPO-500: Now includes last_modified to fix TOCTOU race condition
+        # Key: Path, Value: (content_bytes, md5_hash, last_modified)
+        self._file_cache: Dict[Path, Tuple[bytes, str, datetime]] = {}
 
         # Hash-only cache populated by Rust batch hashing (used during incremental analysis)
         # Key: str (path), Value: str (md5_hash)
@@ -416,10 +418,15 @@ class IngestionPipeline:
 
         logger.info(f"Repository path validated: {self.repo_path}")
 
-    def _get_file_content_and_hash(self, file_path: Path) -> Tuple[bytes, str]:
-        """Read file once, cache content and hash.
+    def _get_file_content_and_hash(self, file_path: Path) -> Tuple[bytes, str, datetime]:
+        """Read file once, cache content, hash, and last_modified.
 
-        Reads the file in binary mode, computes MD5 hash, and caches both.
+        REPO-500: Fixed TOCTOU race condition. Now captures st_mtime atomically
+        with file read to ensure hash matches the modification time. Previously,
+        stat() was called separately in the parser, which could see a different
+        modification time if the file was modified between read and stat.
+
+        Reads the file in binary mode, computes MD5 hash, captures mtime, and caches all.
         Subsequent calls for the same path return cached values.
 
         If hash was pre-computed by Rust batch hashing, reuses that hash.
@@ -428,7 +435,7 @@ class IngestionPipeline:
             file_path: Path to the file to read
 
         Returns:
-            Tuple of (content_bytes, md5_hash)
+            Tuple of (content_bytes, md5_hash, last_modified)
 
         Raises:
             OSError: If file cannot be read
@@ -438,6 +445,12 @@ class IngestionPipeline:
 
         if normalized_path in self._file_cache:
             return self._file_cache[normalized_path]
+
+        # REPO-500: Capture stat BEFORE reading to get consistent mtime
+        # Even if file changes during read, we'll have the pre-read mtime
+        # which will trigger re-analysis on next run
+        stat_result = normalized_path.stat()
+        last_modified = datetime.fromtimestamp(stat_result.st_mtime)
 
         with open(normalized_path, "rb") as f:
             content = f.read()
@@ -449,8 +462,8 @@ class IngestionPipeline:
         else:
             file_hash = hashlib.md5(content).hexdigest()
 
-        self._file_cache[normalized_path] = (content, file_hash)
-        return content, file_hash
+        self._file_cache[normalized_path] = (content, file_hash, last_modified)
+        return content, file_hash, last_modified
 
     def _clear_file_cache(self) -> None:
         """Clear the file content cache to free memory.
@@ -714,11 +727,13 @@ class IngestionPipeline:
         try:
             # Populate file cache if not already cached (for new files)
             # This ensures each file is read at most once during ingestion
-            content, file_hash = self._get_file_content_and_hash(file_path)
+            # REPO-500: Now returns last_modified to fix TOCTOU race condition
+            content, file_hash, last_modified = self._get_file_content_and_hash(file_path)
 
             # Inject cached content into parser to avoid redundant reads
+            # REPO-500: Also pass last_modified to avoid separate stat() call
             if hasattr(parser, 'set_cached_content'):
-                parser.set_cached_content(str(file_path), content, file_hash)
+                parser.set_cached_content(str(file_path), content, file_hash, last_modified)
 
             entities, relationships = parser.process_file(str(file_path))
 

@@ -653,12 +653,23 @@ class PythonParser(CodeParser):
         self.secrets_policy = secrets_policy
         self.secrets_scanner = SecretsScanner() if secrets_policy != SecretsPolicy.WARN else None
         # Cached content from pipeline (avoids redundant file reads)
-        self._cached_content: Optional[Tuple[str, bytes, str]] = None  # (path, content_bytes, hash)
+        # REPO-500: Now includes last_modified to fix TOCTOU race condition
+        self._cached_content: Optional[Tuple[str, bytes, str, "datetime"]] = None  # (path, content_bytes, hash, last_modified)
         # Relationships extracted by visitor (used by extract_relationships)
         self._visitor_relationships: List[Relationship] = []
 
-    def set_cached_content(self, file_path: str, content: bytes, file_hash: str) -> None:
+    def set_cached_content(
+        self,
+        file_path: str,
+        content: bytes,
+        file_hash: str,
+        last_modified: Optional["datetime"] = None,
+    ) -> None:
         """Set cached content for next file processing.
+
+        REPO-500: Now accepts last_modified to fix TOCTOU race condition.
+        Previously, stat() was called separately in _create_file_entity(),
+        which could see a different modification time if file changed.
 
         When set, the parser will use this cached content instead of reading
         from disk. The cache is automatically cleared after processing.
@@ -667,8 +678,9 @@ class PythonParser(CodeParser):
             file_path: Path to the file (for validation)
             content: Raw file content as bytes
             file_hash: Pre-computed MD5 hash of the content
+            last_modified: Pre-captured modification time (from stat())
         """
-        self._cached_content = (file_path, content, file_hash)
+        self._cached_content = (file_path, content, file_hash, last_modified)
 
     def _clear_cached_content(self) -> None:
         """Clear the cached content after use."""
@@ -903,7 +915,10 @@ class PythonParser(CodeParser):
     def _create_file_entity(self, file_path: str, tree: ast.AST) -> FileEntity:
         """Create file entity.
 
-        Uses cached content/hash if available (set via set_cached_content),
+        REPO-500: Fixed TOCTOU race condition. Now uses cached last_modified
+        from ingestion pipeline instead of calling stat() separately.
+
+        Uses cached content/hash/last_modified if available (set via set_cached_content),
         otherwise reads from disk. Clears the cache after creating the entity.
 
         Args:
@@ -913,12 +928,17 @@ class PythonParser(CodeParser):
         Returns:
             FileEntity
         """
-        path_obj = Path(file_path)
+        from datetime import datetime
 
-        # Use cached content/hash if available and matches this file
+        path_obj = Path(file_path)
+        last_modified: Optional[datetime] = None
+
+        # Use cached content/hash/last_modified if available and matches this file
         if self._cached_content and self._cached_content[0] == file_path:
             content_bytes = self._cached_content[1]
             file_hash = self._cached_content[2]
+            # REPO-500: Use cached last_modified to fix TOCTOU race
+            last_modified = self._cached_content[3] if len(self._cached_content) > 3 else None
             # Decode for LOC counting
             content_text = content_bytes.decode("utf-8")
             loc = len([line for line in content_text.split("\n") if line.strip()])
@@ -936,9 +956,10 @@ class PythonParser(CodeParser):
         # Extract __all__ exports
         exports = self._extract_exports(tree)
 
-        # Get last modification time
-        from datetime import datetime
-        last_modified = datetime.fromtimestamp(path_obj.stat().st_mtime)
+        # REPO-500: Only call stat() if last_modified wasn't cached
+        # This is the fallback for non-pipeline usage (e.g., direct parser testing)
+        if last_modified is None:
+            last_modified = datetime.fromtimestamp(path_obj.stat().st_mtime)
 
         return FileEntity(
             name=path_obj.name,

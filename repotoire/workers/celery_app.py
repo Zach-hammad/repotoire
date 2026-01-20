@@ -87,6 +87,12 @@ celery_app.conf.update(
     # Each analysis can use 500MB+ memory, so limit concurrent tasks
     worker_concurrency=int(os.environ.get("CELERY_WORKER_CONCURRENCY", "2")),
     worker_prefetch_multiplier=1,  # Only prefetch 1 task per worker
+    # REPO-500: Memory leak prevention - restart workers periodically
+    # Critical for long-running workers with ML model loading
+    worker_max_tasks_per_child=int(os.environ.get("CELERY_MAX_TASKS_PER_CHILD", "50")),
+    # REPO-500: Memory limit per worker child (in KB) - 3.5GB default
+    # Workers exceeding this will be replaced to prevent OOM
+    worker_max_memory_per_child=int(os.environ.get("CELERY_MAX_MEMORY_PER_CHILD", "3500000")),
     # Task time limits - increased for large repos with embedding generation
     task_soft_time_limit=2700,  # 45 minutes soft limit (raises SoftTimeLimitExceeded)
     task_time_limit=3000,  # 50 minutes hard limit (SIGKILL)

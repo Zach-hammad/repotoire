@@ -3,6 +3,11 @@
 This module provides a client for GitHub App API calls, including
 JWT generation for app authentication and installation token management.
 Includes Redis-based token caching for performance.
+
+REPO-500: Now uses shared HTTP client pool for connection reuse.
+Previously, every method created `async with httpx.AsyncClient() as client:`
+which opened a new TCP+TLS connection per request. Now uses centralized
+client pool from repotoire.http_client for ~100-300ms savings per request.
 """
 
 import os
@@ -13,6 +18,7 @@ from typing import Any, Optional
 import httpx
 import jwt
 
+from repotoire.http_client import get_github_async_client
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -99,6 +105,15 @@ class GitHubAppClient:
         if "\\n" in self.private_key:
             self.private_key = self.private_key.replace("\\n", "\n")
 
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get the shared HTTP client for GitHub API calls.
+
+        REPO-500: Uses centralized client pool for connection reuse.
+        Returns the shared GitHub-specific client with proper base URL
+        and default headers already configured.
+        """
+        return await get_github_async_client()
+
     def generate_jwt(self) -> str:
         """Generate a JWT for GitHub App authentication.
 
@@ -156,44 +171,45 @@ class GitHubAppClient:
         # Fetch new token from GitHub
         jwt_token = self.generate_jwt()
 
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.post(
-                f"{GITHUB_API_BASE}/app/installations/{installation_id}/access_tokens",
-                headers={
-                    "Authorization": f"Bearer {jwt_token}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-            )
-            response.raise_for_status()
+        # REPO-500: Using shared client pool for connection reuse
+        client = await self._get_client()
+        response = await client.post(
+            f"{GITHUB_API_BASE}/app/installations/{installation_id}/access_tokens",
+            headers={
+                "Authorization": f"Bearer {jwt_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        response.raise_for_status()
 
-            data = response.json()
-            token = data["token"]
-            # Parse ISO 8601 datetime
-            expires_at = datetime.fromisoformat(
-                data["expires_at"].replace("Z", "+00:00")
-            )
+        data = response.json()
+        token = data["token"]
+        # Parse ISO 8601 datetime
+        expires_at = datetime.fromisoformat(
+            data["expires_at"].replace("Z", "+00:00")
+        )
 
-            # Cache the token
-            if use_cache:
-                redis = _get_redis_client()
-                if redis:
-                    cache_key = _cache_key(installation_id)
-                    try:
-                        # Calculate TTL (token valid for ~1 hour, we cache for 55 min)
-                        ttl_seconds = int((expires_at - datetime.now(timezone.utc)).total_seconds()) - 300
-                        if ttl_seconds > 0:
-                            redis.hset(cache_key, mapping={
-                                "token": token,
-                                "expires_at": expires_at.isoformat(),
-                            })
-                            redis.expire(cache_key, ttl_seconds)
-                            logger.debug(f"Cached token for installation {installation_id} (TTL: {ttl_seconds}s)")
-                    except Exception as e:
-                        logger.warning(f"Cache write failed: {e}")
+        # Cache the token
+        if use_cache:
+            redis = _get_redis_client()
+            if redis:
+                cache_key = _cache_key(installation_id)
+                try:
+                    # Calculate TTL (token valid for ~1 hour, we cache for 55 min)
+                    ttl_seconds = int((expires_at - datetime.now(timezone.utc)).total_seconds()) - 300
+                    if ttl_seconds > 0:
+                        redis.hset(cache_key, mapping={
+                            "token": token,
+                            "expires_at": expires_at.isoformat(),
+                        })
+                        redis.expire(cache_key, ttl_seconds)
+                        logger.debug(f"Cached token for installation {installation_id} (TTL: {ttl_seconds}s)")
+                except Exception as e:
+                    logger.warning(f"Cache write failed: {e}")
 
-            logger.info(f"Obtained installation token for {installation_id}")
-            return token, expires_at
+        logger.info(f"Obtained installation token for {installation_id}")
+        return token, expires_at
 
     async def get_installation(self, installation_id: int) -> dict[str, Any]:
         """Get information about a GitHub App installation.
@@ -209,17 +225,18 @@ class GitHubAppClient:
         """
         jwt_token = self.generate_jwt()
 
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.get(
-                f"{GITHUB_API_BASE}/app/installations/{installation_id}",
-                headers={
-                    "Authorization": f"Bearer {jwt_token}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-            )
-            response.raise_for_status()
-            return response.json()
+        # REPO-500: Using shared client pool for connection reuse
+        client = await self._get_client()
+        response = await client.get(
+            f"{GITHUB_API_BASE}/app/installations/{installation_id}",
+            headers={
+                "Authorization": f"Bearer {jwt_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        response.raise_for_status()
+        return response.json()
 
     async def list_installation_repos(
         self,
@@ -240,20 +257,21 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.get(
-                f"{GITHUB_API_BASE}/installation/repositories",
-                params={"per_page": per_page, "page": page},
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-            )
-            response.raise_for_status()
+        # REPO-500: Using shared client pool for connection reuse
+        client = await self._get_client()
+        response = await client.get(
+            f"{GITHUB_API_BASE}/installation/repositories",
+            params={"per_page": per_page, "page": page},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        response.raise_for_status()
 
-            data = response.json()
-            return data.get("repositories", [])
+        data = response.json()
+        return data.get("repositories", [])
 
     async def list_all_installation_repos(
         self, access_token: str
@@ -306,17 +324,18 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.get(
-                f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-            )
-            response.raise_for_status()
-            return response.json()
+        # REPO-500: Using shared client pool for connection reuse
+        client = await self._get_client()
+        response = await client.get(
+            f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        response.raise_for_status()
+        return response.json()
 
     async def get_repo(
         self,
@@ -337,17 +356,18 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.get(
-                f"{GITHUB_API_BASE}/repos/{owner}/{repo}",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-            )
-            response.raise_for_status()
-            return response.json()
+        # REPO-500: Using shared client pool for connection reuse
+        client = await self._get_client()
+        response = await client.get(
+            f"{GITHUB_API_BASE}/repos/{owner}/{repo}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        response.raise_for_status()
+        return response.json()
 
     def verify_webhook_signature(self, payload: bytes, signature: str) -> bool:
         """Verify a GitHub webhook signature.
@@ -423,17 +443,18 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.get(
-                f"{GITHUB_API_BASE}/repos/{owner}/{repo}/git/ref/{ref}",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-            )
-            response.raise_for_status()
-            return response.json()
+        # REPO-500: Using shared client pool for connection reuse
+        client = await self._get_client()
+        response = await client.get(
+            f"{GITHUB_API_BASE}/repos/{owner}/{repo}/git/ref/{ref}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        response.raise_for_status()
+        return response.json()
 
     async def create_ref(
         self,
@@ -458,21 +479,22 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.post(
-                f"{GITHUB_API_BASE}/repos/{owner}/{repo}/git/refs",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-                json={
-                    "ref": ref,
-                    "sha": sha,
-                },
-            )
-            response.raise_for_status()
-            return response.json()
+        # REPO-500: Using shared client pool for connection reuse
+        client = await self._get_client()
+        response = await client.post(
+            f"{GITHUB_API_BASE}/repos/{owner}/{repo}/git/refs",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            json={
+                "ref": ref,
+                "sha": sha,
+            },
+        )
+        response.raise_for_status()
+        return response.json()
 
     async def get_file_sha(
         self,
@@ -495,21 +517,22 @@ class GitHubAppClient:
             File SHA if exists, None if file doesn't exist.
         """
         try:
-            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-                params = {"ref": ref} if ref else {}
-                response = await client.get(
-                    f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
-                    params=params,
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "Accept": "application/vnd.github+json",
-                        "X-GitHub-Api-Version": "2022-11-28",
-                    },
-                )
-                if response.status_code == 404:
-                    return None
-                response.raise_for_status()
-                return response.json().get("sha")
+            # REPO-500: Using shared client pool for connection reuse
+            client = await self._get_client()
+            params = {"ref": ref} if ref else {}
+            response = await client.get(
+                f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
+                params=params,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            return response.json().get("sha")
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 return None
@@ -538,25 +561,26 @@ class GitHubAppClient:
         import base64
 
         try:
-            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-                params = {"ref": ref} if ref else {}
-                response = await client.get(
-                    f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
-                    params=params,
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "Accept": "application/vnd.github+json",
-                        "X-GitHub-Api-Version": "2022-11-28",
-                    },
-                )
-                if response.status_code == 404:
-                    return None
-                response.raise_for_status()
-                data = response.json()
-                content_b64 = data.get("content", "")
-                # GitHub returns content with newlines, remove them before decoding
-                content_b64 = content_b64.replace("\n", "")
-                return base64.b64decode(content_b64).decode("utf-8")
+            # REPO-500: Using shared client pool for connection reuse
+            client = await self._get_client()
+            params = {"ref": ref} if ref else {}
+            response = await client.get(
+                f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
+                params=params,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            data = response.json()
+            content_b64 = data.get("content", "")
+            # GitHub returns content with newlines, remove them before decoding
+            content_b64 = content_b64.replace("\n", "")
+            return base64.b64decode(content_b64).decode("utf-8")
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 return None
@@ -601,18 +625,19 @@ class GitHubAppClient:
         if file_sha:
             payload["sha"] = file_sha
 
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.put(
-                f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-                json=payload,
-            )
-            response.raise_for_status()
-            return response.json()
+        # REPO-500: Using shared client pool for connection reuse
+        client = await self._get_client()
+        response = await client.put(
+            f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
 
     async def create_pull_request(
         self,
@@ -643,24 +668,25 @@ class GitHubAppClient:
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.post(
-                f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-                json={
-                    "title": title,
-                    "body": body,
-                    "head": head,
-                    "base": base,
-                    "draft": draft,
-                },
-            )
-            response.raise_for_status()
-            return response.json()
+        # REPO-500: Using shared client pool for connection reuse
+        client = await self._get_client()
+        response = await client.post(
+            f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            json={
+                "title": title,
+                "body": body,
+                "head": head,
+                "base": base,
+                "draft": draft,
+            },
+        )
+        response.raise_for_status()
+        return response.json()
 
     async def create_fix_pr(
         self,
@@ -831,22 +857,23 @@ class GitHubAppClient:
         if output:
             payload["output"] = output
 
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.post(
-                f"{GITHUB_API_BASE}/repos/{owner}/{repo}/check-runs",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-            logger.info(
-                f"Created check run {data['id']} for {owner}/{repo}@{head_sha[:7]}"
-            )
-            return data
+        # REPO-500: Using shared client pool for connection reuse
+        client = await self._get_client()
+        response = await client.post(
+            f"{GITHUB_API_BASE}/repos/{owner}/{repo}/check-runs",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+        logger.info(
+            f"Created check run {data['id']} for {owner}/{repo}@{head_sha[:7]}"
+        )
+        return data
 
     async def update_check_run(
         self,
@@ -897,23 +924,24 @@ class GitHubAppClient:
         if output:
             payload["output"] = output
 
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.patch(
-                f"{GITHUB_API_BASE}/repos/{owner}/{repo}/check-runs/{check_run_id}",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-            logger.info(
-                f"Updated check run {check_run_id} for {owner}/{repo} "
-                f"(status={status}, conclusion={conclusion})"
-            )
-            return data
+        # REPO-500: Using shared client pool for connection reuse
+        client = await self._get_client()
+        response = await client.patch(
+            f"{GITHUB_API_BASE}/repos/{owner}/{repo}/check-runs/{check_run_id}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+        logger.info(
+            f"Updated check run {check_run_id} for {owner}/{repo} "
+            f"(status={status}, conclusion={conclusion})"
+        )
+        return data
 
     async def create_check_run_for_analysis(
         self,

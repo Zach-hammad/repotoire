@@ -261,6 +261,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Error closing database connections: {e}")
 
+    # REPO-500: Close shared HTTP clients to release connection pools
+    try:
+        from repotoire.http_client import close_clients
+        await close_clients()
+    except Exception as e:
+        logger.warning(f"Error closing HTTP clients: {e}")
+
     logger.info("Repotoire RAG API shutdown complete")
 
 
