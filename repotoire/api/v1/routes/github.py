@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Optional
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -383,7 +384,21 @@ async def complete_installation(
     await db.refresh(installation)
 
     # Sync repositories
-    repos = await github.list_all_installation_repos(access_token)
+    try:
+        repos = await github.list_all_installation_repos(access_token)
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"Failed to sync repos during installation {installation_id}: {e.response.status_code}"
+        )
+        # Installation succeeded but repo sync failed - return partial success
+        return {
+            "status": "partial",
+            "action": setup_action,
+            "installation_id": installation_id,
+            "account": account.get("login"),
+            "repos_synced": 0,
+            "error": f"GitHub API error while syncing repos: {e.response.status_code}",
+        }
     for repo_data in repos:
         result = await db.execute(
             select(GitHubRepository).where(
@@ -965,10 +980,43 @@ async def list_repos(
         )
 
     # Ensure token is fresh
-    access_token = await ensure_token_fresh(db, installation, github, encryption)
+    try:
+        access_token = await ensure_token_fresh(db, installation, github, encryption)
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"Failed to refresh GitHub token for installation {installation.installation_id}: {e.response.status_code}"
+        )
+        if e.response.status_code == 401:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="GitHub token refresh failed. Please reinstall the GitHub App.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"GitHub API error during token refresh: {e.response.status_code}",
+        )
 
     # Sync repos from GitHub
-    github_repos = await github.list_all_installation_repos(access_token)
+    try:
+        github_repos = await github.list_all_installation_repos(access_token)
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"Failed to list repos from GitHub for installation {installation.installation_id}: {e.response.status_code}"
+        )
+        if e.response.status_code == 401:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="GitHub access token is invalid. Please reinstall the GitHub App.",
+            )
+        elif e.response.status_code == 403:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="GitHub rate limit exceeded or insufficient permissions.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"GitHub API error: {e.response.status_code}",
+        )
     github_repo_ids = {repo["id"] for repo in github_repos}
 
     # Add new repos
@@ -1177,7 +1225,25 @@ async def analyze_repo_by_id(
     await db.refresh(analysis_run)
 
     # Get access token
-    access_token = await ensure_token_fresh(db, repo.installation, github, encryption)
+    try:
+        access_token = await ensure_token_fresh(db, repo.installation, github, encryption)
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"Failed to get token for analysis of {repo.full_name}: {e.response.status_code}"
+        )
+        # Update analysis run to failed
+        analysis_run.status = AnalysisStatus.FAILED
+        analysis_run.error_message = f"GitHub token error: {e.response.status_code}"
+        await db.commit()
+        if e.response.status_code == 401:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="GitHub token refresh failed. Please reinstall the GitHub App.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"GitHub API error: {e.response.status_code}",
+        )
 
     # Queue the analysis
     analyze_repository.delay(
@@ -1422,10 +1488,43 @@ async def sync_repos(
         )
 
     # Get fresh token
-    access_token = await ensure_token_fresh(db, installation, github, encryption)
+    try:
+        access_token = await ensure_token_fresh(db, installation, github, encryption)
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"Failed to refresh token for installation {installation.installation_id}: {e.response.status_code}"
+        )
+        if e.response.status_code == 401:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="GitHub token refresh failed. Please reinstall the GitHub App.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"GitHub API error: {e.response.status_code}",
+        )
 
     # Fetch repos from GitHub
-    github_repos = await github.list_all_installation_repos(access_token)
+    try:
+        github_repos = await github.list_all_installation_repos(access_token)
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"Failed to list repos for installation {installation.installation_id}: {e.response.status_code}"
+        )
+        if e.response.status_code == 401:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="GitHub access token is invalid. Please reinstall the GitHub App.",
+            )
+        elif e.response.status_code == 403:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="GitHub rate limit exceeded or insufficient permissions.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"GitHub API error: {e.response.status_code}",
+        )
     github_repo_ids = {repo["id"] for repo in github_repos}
     existing_repo_ids = {repo.repo_id for repo in installation.repositories}
 
