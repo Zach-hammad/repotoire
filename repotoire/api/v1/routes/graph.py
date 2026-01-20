@@ -224,17 +224,36 @@ async def execute_query(
     request: QueryRequest,
     user: GraphUser = Depends(get_graph_user),
 ) -> QueryResponse:
-    """Execute a Cypher query on the organization's graph."""
+    """Execute a Cypher query on the organization's graph.
+
+    REPO-500: Only read-only queries are allowed for security.
+    Destructive operations (CREATE, DELETE, SET, etc.) are blocked.
+    """
+    # REPO-500: Validate query is read-only before execution
+    from repotoire.validation import validate_cypher_query_readonly, ValidationError as ValError
+
+    try:
+        validated_query = validate_cypher_query_readonly(request.query)
+    except ValError as e:
+        logger.warning(
+            f"Rejected unsafe query from user",
+            extra={"org_id": user.org_id, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
     client = _get_client_for_user(user)
     try:
         results = client.execute_query(
-            request.query,
+            validated_query,
             parameters=request.parameters,
             timeout=request.timeout,
         )
         return QueryResponse(results=results, count=len(results))
     except Exception as e:
-        logger.error(f"Query failed: {e}", org_id=user.org_id)
+        logger.error(f"Query failed: {e}", extra={"org_id": user.org_id})
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Query execution failed. Please check your query syntax.",

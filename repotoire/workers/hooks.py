@@ -50,7 +50,11 @@ logger = get_logger(__name__)
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://app.repotoire.io")
 
 
-@celery_app.task(name="repotoire.workers.hooks.on_analysis_complete")
+@celery_app.task(
+    name="repotoire.workers.hooks.on_analysis_complete",
+    soft_time_limit=120,  # REPO-500: 2 minutes soft limit
+    time_limit=180,  # REPO-500: 3 minutes hard limit
+)
 def on_analysis_complete(analysis_run_id: str) -> dict:
     """Post-analysis hooks for successful completion.
 
@@ -151,7 +155,11 @@ def on_analysis_complete(analysis_run_id: str) -> dict:
         return {"status": "error", "error": str(e)}
 
 
-@celery_app.task(name="repotoire.workers.hooks.on_analysis_failed")
+@celery_app.task(
+    name="repotoire.workers.hooks.on_analysis_failed",
+    soft_time_limit=60,  # REPO-500: 1 minute soft limit
+    time_limit=90,  # REPO-500: 1.5 minutes hard limit
+)
 def on_analysis_failed(analysis_run_id: str, error_message: str) -> dict:
     """Post-analysis hooks for failures.
 
@@ -207,7 +215,11 @@ def on_analysis_failed(analysis_run_id: str, error_message: str) -> dict:
         return {"status": "error", "error": str(e)}
 
 
-@celery_app.task(name="repotoire.workers.hooks.post_pr_comment")
+@celery_app.task(
+    name="repotoire.workers.hooks.post_pr_comment",
+    soft_time_limit=60,  # REPO-500: 1 minute soft limit
+    time_limit=90,  # REPO-500: 1.5 minutes hard limit
+)
 def post_pr_comment(
     repo_id: str,
     pr_number: int,
@@ -339,7 +351,11 @@ def post_pr_comment(
 # =============================================================================
 
 
-@celery_app.task(name="repotoire.workers.hooks.set_commit_status_pending")
+@celery_app.task(
+    name="repotoire.workers.hooks.set_commit_status_pending",
+    soft_time_limit=30,  # REPO-500: 30 seconds soft limit
+    time_limit=60,  # REPO-500: 1 minute hard limit
+)
 def set_commit_status_pending(
     repo_id: str,
     commit_sha: str,
@@ -404,7 +420,11 @@ def set_commit_status_pending(
         return {"status": "error", "error": str(e)}
 
 
-@celery_app.task(name="repotoire.workers.hooks.set_commit_status_result")
+@celery_app.task(
+    name="repotoire.workers.hooks.set_commit_status_result",
+    soft_time_limit=60,  # REPO-500: 1 minute soft limit
+    time_limit=90,  # REPO-500: 1.5 minutes hard limit
+)
 def set_commit_status_result(
     repo_id: str,
     commit_sha: str,
@@ -538,7 +558,11 @@ def set_commit_status_result(
 # =============================================================================
 
 
-@celery_app.task(name="repotoire.workers.hooks.post_check_run")
+@celery_app.task(
+    name="repotoire.workers.hooks.post_check_run",
+    soft_time_limit=120,  # REPO-500: 2 minutes soft limit
+    time_limit=180,  # REPO-500: 3 minutes hard limit
+)
 def post_check_run(
     repo_id: str,
     analysis_run_id: str,

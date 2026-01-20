@@ -662,3 +662,180 @@ def validate_identifier(name: str, context: str = "identifier") -> str:
         )
 
     return name
+
+
+# =============================================================================
+# REPO-500: Cypher Query Security Validation
+# =============================================================================
+
+
+# Destructive Cypher clauses that should be blocked for read-only queries
+DESTRUCTIVE_CYPHER_CLAUSES = frozenset([
+    "CREATE",
+    "MERGE",
+    "DELETE",
+    "DETACH",
+    "SET",
+    "REMOVE",
+    "DROP",
+    "CALL",  # Can execute procedures with side effects
+])
+
+# Allowed read-only clauses
+READONLY_CYPHER_CLAUSES = frozenset([
+    "MATCH",
+    "OPTIONAL",
+    "WHERE",
+    "WITH",
+    "RETURN",
+    "ORDER",
+    "BY",
+    "SKIP",
+    "LIMIT",
+    "UNION",
+    "UNWIND",
+    "AS",
+    "AND",
+    "OR",
+    "NOT",
+    "IN",
+    "IS",
+    "NULL",
+    "TRUE",
+    "FALSE",
+    "DISTINCT",
+    "COUNT",
+    "SUM",
+    "AVG",
+    "MIN",
+    "MAX",
+    "COLLECT",
+    "CASE",
+    "WHEN",
+    "THEN",
+    "ELSE",
+    "END",
+    "STARTS",
+    "ENDS",
+    "CONTAINS",
+    "EXISTS",
+    "SIZE",
+    "LABELS",
+    "TYPE",
+    "KEYS",
+    "PROPERTIES",
+    "ID",
+    "ELEMENTID",
+    "COALESCE",
+    "HEAD",
+    "TAIL",
+    "RANGE",
+    "REDUCE",
+    "ALL",
+    "ANY",
+    "NONE",
+    "SINGLE",
+    "DESC",
+    "ASC",
+])
+
+
+def validate_cypher_query(
+    query: str,
+    allow_write: bool = False,
+    max_length: int = 10000,
+) -> str:
+    """Validate a Cypher query for security.
+
+    REPO-500: Prevents destructive operations unless explicitly allowed.
+    This is critical for user-provided queries via API endpoints.
+
+    Args:
+        query: The Cypher query to validate
+        allow_write: If True, allow write operations (CREATE, MERGE, etc.)
+        max_length: Maximum allowed query length (DoS prevention)
+
+    Returns:
+        The validated query string
+
+    Raises:
+        ValidationError: If query contains forbidden operations
+
+    Examples:
+        >>> validate_cypher_query("MATCH (n) RETURN n")
+        'MATCH (n) RETURN n'
+        >>> validate_cypher_query("MATCH (n) DELETE n")
+        ValidationError: Query contains forbidden operation: DELETE
+    """
+    if not query or not query.strip():
+        raise ValidationError(
+            "Query cannot be empty",
+            "Provide a valid Cypher query"
+        )
+
+    query = query.strip()
+
+    # DoS prevention: limit query length
+    if len(query) > max_length:
+        raise ValidationError(
+            f"Query too long: {len(query)} characters (max {max_length})",
+            "Simplify your query or break it into smaller parts"
+        )
+
+    # Check for comment injection (could hide malicious code)
+    if "/*" in query or "//" in query:
+        raise ValidationError(
+            "Query contains comments which are not allowed",
+            "Remove comments from your query"
+        )
+
+    # Normalize query for checking (uppercase, collapse whitespace)
+    normalized = " ".join(query.upper().split())
+
+    # Check for destructive operations if write not allowed
+    if not allow_write:
+        for clause in DESTRUCTIVE_CYPHER_CLAUSES:
+            # Check for clause as a word boundary (not part of a property name)
+            # Use word boundaries to avoid false positives like "DELETED" property
+            import re
+            pattern = rf'\b{clause}\b'
+            if re.search(pattern, normalized):
+                raise ValidationError(
+                    f"Query contains forbidden operation: {clause}",
+                    f"This endpoint only allows read-only queries.\n"
+                    f"Forbidden operations: {', '.join(sorted(DESTRUCTIVE_CYPHER_CLAUSES))}\n"
+                    f"Use MATCH, WHERE, RETURN, etc. for queries."
+                )
+
+    # Additional security: check for potential injection patterns
+    injection_patterns = [
+        r";\s*(MATCH|CREATE|DELETE|DROP)",  # Multi-statement injection
+        r"\}\s*\)\s*\{",  # Property injection attempt
+        r"'\s*\+\s*'",  # String concatenation (potential injection)
+    ]
+
+    for pattern in injection_patterns:
+        if re.search(pattern, normalized, re.IGNORECASE):
+            raise ValidationError(
+                "Query contains potentially unsafe patterns",
+                "Avoid using semicolons, string concatenation, or unusual syntax"
+            )
+
+    return query
+
+
+def validate_cypher_query_readonly(query: str) -> str:
+    """Validate a Cypher query is read-only.
+
+    Convenience function that calls validate_cypher_query with allow_write=False.
+
+    Args:
+        query: The Cypher query to validate
+
+    Returns:
+        The validated query string
+
+    Raises:
+        ValidationError: If query contains write operations
+    """
+    return validate_cypher_query(query, allow_write=False)

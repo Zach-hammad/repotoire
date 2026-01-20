@@ -13,6 +13,7 @@ Stability fixes (REPO-500):
 from typing import Any, Dict, List, Optional, Set
 import logging
 import random
+import threading
 import time
 
 from repotoire.graph.base import DatabaseClient
@@ -120,11 +121,12 @@ class FalkorDBClient(DatabaseClient):
         self.retry_max_delay = retry_max_delay
         self.default_query_timeout = default_query_timeout
 
-        # REPO-500: Circuit breaker state
+        # REPO-500: Circuit breaker state with thread-safe access
         self.circuit_breaker_threshold = circuit_breaker_threshold
         self.circuit_breaker_timeout = circuit_breaker_timeout
         self._circuit_failures = 0
         self._circuit_open_time: Optional[float] = None
+        self._circuit_lock = threading.Lock()  # REPO-500: Protect circuit breaker state
         self._last_health_check: float = 0.0
         self._health_check_interval: float = 60.0  # Check health every 60s
 
@@ -158,9 +160,10 @@ class FalkorDBClient(DatabaseClient):
         self.db = FalkorDB(**conn_kwargs)
         self.graph = self.db.select_graph(self.graph_name)
 
-        # REPO-500: Reset circuit breaker on successful connection
-        self._circuit_failures = 0
-        self._circuit_open_time = None
+        # REPO-500: Reset circuit breaker on successful connection (thread-safe)
+        with self._circuit_lock:
+            self._circuit_failures = 0
+            self._circuit_open_time = None
 
     def _reconnect(self) -> bool:
         """Attempt to reconnect to FalkorDB.
@@ -205,36 +208,40 @@ class FalkorDBClient(DatabaseClient):
         """Check if circuit breaker is open.
 
         REPO-500: Circuit breaker pattern to prevent cascading failures.
+        Thread-safe via _circuit_lock.
 
         Returns:
             True if circuit is open (should fail fast), False otherwise
         """
-        if self._circuit_open_time is None:
-            return False
+        with self._circuit_lock:
+            if self._circuit_open_time is None:
+                return False
 
-        # Check if we should try again (half-open state)
-        elapsed = time.time() - self._circuit_open_time
-        if elapsed >= self.circuit_breaker_timeout:
-            logger.info("Circuit breaker entering half-open state, allowing test request")
-            return False
+            # Check if we should try again (half-open state)
+            elapsed = time.time() - self._circuit_open_time
+            if elapsed >= self.circuit_breaker_timeout:
+                logger.info("Circuit breaker entering half-open state, allowing test request")
+                return False
 
-        return True
+            return True
 
     def _record_success(self) -> None:
-        """Record successful operation for circuit breaker."""
-        self._circuit_failures = 0
-        self._circuit_open_time = None
+        """Record successful operation for circuit breaker. Thread-safe."""
+        with self._circuit_lock:
+            self._circuit_failures = 0
+            self._circuit_open_time = None
 
     def _record_failure(self) -> None:
-        """Record failed operation for circuit breaker."""
-        self._circuit_failures += 1
-        if self._circuit_failures >= self.circuit_breaker_threshold:
-            if self._circuit_open_time is None:
-                logger.warning(
-                    f"Circuit breaker OPEN after {self._circuit_failures} consecutive failures. "
-                    f"Will retry in {self.circuit_breaker_timeout}s"
-                )
-                self._circuit_open_time = time.time()
+        """Record failed operation for circuit breaker. Thread-safe."""
+        with self._circuit_lock:
+            self._circuit_failures += 1
+            if self._circuit_failures >= self.circuit_breaker_threshold:
+                if self._circuit_open_time is None:
+                    logger.warning(
+                        f"Circuit breaker OPEN after {self._circuit_failures} consecutive failures. "
+                        f"Will retry in {self.circuit_breaker_timeout}s"
+                    )
+                    self._circuit_open_time = time.time()
 
     def _is_transient_error(self, error: Exception) -> bool:
         """Check if error is transient and should be retried.

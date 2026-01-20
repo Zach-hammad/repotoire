@@ -10,6 +10,7 @@ This module provides S3/R2-compatible storage for marketplace assets with:
 from __future__ import annotations
 
 import asyncio
+import atexit
 import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -35,6 +36,18 @@ ICON_CACHE_CONTROL = "public, max-age=31536000, immutable"
 
 # Thread pool for async execution of boto3 sync calls
 _executor = ThreadPoolExecutor(max_workers=4)
+
+
+def _shutdown_executor() -> None:
+    """REPO-500: Shutdown executor on process exit to prevent resource leaks."""
+    try:
+        _executor.shutdown(wait=False)
+    except Exception:
+        pass  # Ignore errors during shutdown
+
+
+# REPO-500: Register cleanup handler
+atexit.register(_shutdown_executor)
 
 
 @dataclass
@@ -187,7 +200,7 @@ class AssetStorageService:
             return key
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(_executor, _upload)
 
             logger.info(
@@ -228,7 +241,7 @@ class AssetStorageService:
             return response["Body"].read()
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             data = await loop.run_in_executor(_executor, _download)
 
             logger.info(f"Downloaded asset version: {key}")
@@ -278,7 +291,7 @@ class AssetStorageService:
             )
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             url = await loop.run_in_executor(_executor, _generate_url)
 
             logger.info(f"Generated presigned URL for {key} (expires in {expires_in}s)")
@@ -310,7 +323,7 @@ class AssetStorageService:
             self.client.delete_object(Bucket=R2_BUCKET, Key=key)
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(_executor, _delete)
 
             logger.info(f"Deleted asset version: {key}")
@@ -351,7 +364,7 @@ class AssetStorageService:
             return key
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(_executor, _upload)
 
             logger.info(f"Uploaded icon: {key}")
@@ -378,7 +391,7 @@ class AssetStorageService:
             self.client.delete_object(Bucket=R2_BUCKET, Key=key)
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(_executor, _delete)
 
             logger.info(f"Deleted icon: {key}")
@@ -413,7 +426,7 @@ class AssetStorageService:
                 return False
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             return await loop.run_in_executor(_executor, _head)
 
         except Exception:
@@ -451,7 +464,7 @@ class AssetStorageService:
             }
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             return await loop.run_in_executor(_executor, _head)
 
         except Exception as e:

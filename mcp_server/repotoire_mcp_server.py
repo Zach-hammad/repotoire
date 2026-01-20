@@ -388,16 +388,40 @@ async def _handle_analyze_codebase(arguments: dict) -> list[types.TextContent]:
 
 
 async def _handle_query_graph(arguments: dict) -> list[types.TextContent]:
-    """Execute Cypher query."""
+    """Execute Cypher query.
+
+    REPO-500: Only read-only queries are allowed for security.
+    """
     if not _local_available:
         return [types.TextContent(type="text", text=f"Local features unavailable: {_import_error}")]
 
     cypher = arguments["cypher"]
     params = arguments.get("params", {})
 
+    # REPO-500: Validate query is read-only before execution
+    try:
+        from repotoire.validation import validate_cypher_query_readonly, ValidationError
+        validated_cypher = validate_cypher_query_readonly(cypher)
+    except ValidationError as e:
+        return [types.TextContent(
+            type="text",
+            text=f"Query rejected for security:\n{e}\n\nOnly read-only queries are allowed."
+        )]
+    except ImportError:
+        # Fallback: basic check if validation module not available
+        forbidden = ["DELETE", "CREATE", "MERGE", "SET", "REMOVE", "DROP", "DETACH"]
+        cypher_upper = cypher.upper()
+        for op in forbidden:
+            if op in cypher_upper:
+                return [types.TextContent(
+                    type="text",
+                    text=f"Query rejected: {op} operations not allowed. Only read-only queries permitted."
+                )]
+        validated_cypher = cypher
+
     try:
         client = _get_graph_client()
-        results = client.execute_query(cypher, params)
+        results = client.execute_query(validated_cypher, params)
         client.close()
 
         if not results:

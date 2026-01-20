@@ -108,6 +108,12 @@ except ImportError:
     FINDINGS_TOTAL = None  # type: ignore
 
 
+# REPO-500: Global max findings limit to prevent memory exhaustion
+# Very large codebases could generate 100k+ findings, consuming GBs of RAM
+# Priority-sorted findings are kept up to this limit
+MAX_FINDINGS_LIMIT = int(os.environ.get("REPOTOIRE_MAX_FINDINGS", "10000"))
+
+
 class AnalysisEngine:
     """Orchestrates code smell detection and health scoring."""
 
@@ -583,6 +589,25 @@ class AnalysisEngine:
                     logger.debug(
                         f"Processed {original_count} findings to {deduplicated_count} "
                         f"({original_count - deduplicated_count} filtered/merged)"
+                    )
+
+                # REPO-500: Apply global findings limit to prevent memory exhaustion
+                if len(findings) > MAX_FINDINGS_LIMIT:
+                    # Sort by severity (highest first) before truncation
+                    severity_order = {
+                        Severity.CRITICAL: 0,
+                        Severity.HIGH: 1,
+                        Severity.MEDIUM: 2,
+                        Severity.LOW: 3,
+                        Severity.INFO: 4,
+                    }
+                    findings = sorted(
+                        findings,
+                        key=lambda f: severity_order.get(f.severity, 5)
+                    )[:MAX_FINDINGS_LIMIT]
+                    logger.warning(
+                        f"Truncated findings from {deduplicated_count} to {MAX_FINDINGS_LIMIT} "
+                        f"(prioritized by severity)"
                     )
 
                 # Calculate metrics (incorporating detector findings)

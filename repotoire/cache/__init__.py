@@ -159,6 +159,21 @@ class CacheManager:
 # Singleton instances
 _redis_client: Optional["Redis"] = None
 _cache_manager: Optional[CacheManager] = None
+# REPO-500: Async lock for cache manager initialization (created lazily)
+_cache_manager_lock: Optional[asyncio.Lock] = None
+_cache_manager_init_lock = __import__("threading").Lock()
+
+
+def _get_cache_manager_lock() -> asyncio.Lock:
+    """Get or create the cache manager async lock safely."""
+    global _cache_manager_lock
+    if _cache_manager_lock is not None:
+        return _cache_manager_lock
+
+    with _cache_manager_init_lock:
+        if _cache_manager_lock is None:
+            _cache_manager_lock = asyncio.Lock()
+    return _cache_manager_lock
 
 
 async def get_redis_client() -> Optional["Redis"]:
@@ -184,6 +199,8 @@ async def get_redis_client() -> Optional["Redis"]:
             redis_url,
             encoding="utf-8",
             decode_responses=True,
+            socket_timeout=5.0,  # REPO-500: Add socket timeout
+            socket_connect_timeout=5.0,
         )
         await _redis_client.ping()
         logger.info("Redis client connected for caching")
@@ -211,18 +228,27 @@ async def close_redis_client() -> None:
 async def get_cache_manager() -> CacheManager:
     """Get or create the cache manager.
 
+    REPO-500: Thread-safe singleton initialization using async lock.
+
     Returns:
         CacheManager instance with all caches initialized
     """
     global _cache_manager
 
-    if _cache_manager is None:
-        redis = await get_redis_client()
-        _cache_manager = CacheManager(redis)
-        logger.info(
-            "Cache manager initialized",
-            extra={"redis_connected": redis is not None},
-        )
+    # Fast path: already initialized
+    if _cache_manager is not None:
+        return _cache_manager
+
+    # Slow path: acquire lock and initialize
+    async with _get_cache_manager_lock():
+        # Double-check after acquiring lock
+        if _cache_manager is None:
+            redis = await get_redis_client()
+            _cache_manager = CacheManager(redis)
+            logger.info(
+                "Cache manager initialized",
+                extra={"redis_connected": redis is not None},
+            )
 
     return _cache_manager
 

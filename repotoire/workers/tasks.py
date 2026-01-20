@@ -680,6 +680,7 @@ def _clone_repository_by_values(
             cwd=clone_dir,
             check=True,
             capture_output=True,
+            timeout=60,  # REPO-500: Prevent hanging on checkout
         )
         return clone_dir
 
@@ -703,6 +704,7 @@ def _clone_repository_by_values(
         ],
         check=True,
         capture_output=True,
+        timeout=300,  # REPO-500: 5 minute timeout for clone
     )
 
     # Fetch the specific commit
@@ -711,6 +713,7 @@ def _clone_repository_by_values(
         cwd=clone_dir,
         check=True,
         capture_output=True,
+        timeout=120,  # REPO-500: 2 minute timeout for fetch
     )
 
     subprocess.run(
@@ -718,6 +721,7 @@ def _clone_repository_by_values(
         cwd=clone_dir,
         check=True,
         capture_output=True,
+        timeout=60,  # REPO-500: 1 minute timeout for checkout
     )
 
     # Enable commit-graph for faster git operations (5-10x speedup)
@@ -890,6 +894,7 @@ def _get_changed_files(
         cwd=repo_path,
         check=True,
         capture_output=True,
+        timeout=120,  # REPO-500: 2 minute timeout for fetch
     )
 
     result = subprocess.run(
@@ -898,6 +903,7 @@ def _get_changed_files(
         capture_output=True,
         text=True,
         check=True,
+        timeout=60,  # REPO-500: 1 minute timeout for diff
     )
 
     files = []

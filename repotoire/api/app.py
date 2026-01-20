@@ -13,6 +13,7 @@ Each version has its own OpenAPI documentation:
 import asyncio
 import os
 import signal
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any
@@ -148,6 +149,8 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
 _shutdown_event: asyncio.Event | None = None
 _active_requests: int = 0
 _active_requests_lock: asyncio.Lock | None = None
+# REPO-500: Sync lock to protect async lock initialization (prevents double-init race)
+_active_requests_init_lock = threading.Lock()
 
 
 def _get_shutdown_event() -> asyncio.Event:
@@ -159,10 +162,21 @@ def _get_shutdown_event() -> asyncio.Event:
 
 
 def _get_requests_lock() -> asyncio.Lock:
-    """Get or create the active requests lock."""
+    """Get or create the active requests lock.
+
+    REPO-500: Uses double-checked locking with a sync lock to prevent
+    the race condition where multiple coroutines create separate locks.
+    """
     global _active_requests_lock
-    if _active_requests_lock is None:
-        _active_requests_lock = asyncio.Lock()
+    # Fast path: already initialized
+    if _active_requests_lock is not None:
+        return _active_requests_lock
+
+    # Slow path: acquire sync lock to safely initialize
+    with _active_requests_init_lock:
+        # Double-check after acquiring lock
+        if _active_requests_lock is None:
+            _active_requests_lock = asyncio.Lock()
     return _active_requests_lock
 
 
@@ -263,8 +277,9 @@ async def lifespan(app: FastAPI):
 
     # REPO-500: Close shared HTTP clients to release connection pools
     try:
-        from repotoire.http_client import close_clients
+        from repotoire.http_client import close_clients, close_clients_sync
         await close_clients()
+        close_clients_sync()  # REPO-500: Also close sync clients
     except Exception as e:
         logger.warning(f"Error closing HTTP clients: {e}")
 

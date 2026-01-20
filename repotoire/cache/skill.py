@@ -10,6 +10,9 @@ Skills are cached by ID with 1-hour TTL since:
 - Skills change infrequently during runtime
 - Loading from disk is relatively slow
 - Memory footprint is reasonable for typical skill counts
+
+REPO-500: L1 cache has max size limit and periodic eviction of stale entries
+to prevent unbounded memory growth.
 """
 
 from __future__ import annotations
@@ -29,6 +32,9 @@ logger = get_logger(__name__)
 
 # Default TTL: 1 hour
 DEFAULT_SKILL_TTL_SECONDS = 3600
+
+# REPO-500: Default max L1 cache size (prevents unbounded memory growth)
+DEFAULT_MAX_L1_SIZE = 1000
 
 
 class CachedSkill(BaseModel):
@@ -72,16 +78,19 @@ class TwoTierSkillCache:
         self,
         redis: Optional["Redis"],
         ttl_seconds: int = DEFAULT_SKILL_TTL_SECONDS,
+        max_l1_size: int = DEFAULT_MAX_L1_SIZE,
     ):
         """Initialize the two-tier skill cache.
 
         Args:
             redis: Async Redis client (can be None for L1-only mode)
             ttl_seconds: TTL for L2 (Redis) entries (default: 3600 = 1 hour)
+            max_l1_size: Maximum entries in L1 cache (default: 1000)
         """
         self.redis = redis
         self.prefix = "skill:"
         self.ttl = ttl_seconds
+        self.max_l1_size = max_l1_size
         self._local: Dict[str, CachedSkill] = {}
         self._local_timestamps: Dict[str, float] = {}  # Track when items were added
         self.metrics = CacheMetrics("skill")
@@ -112,6 +121,62 @@ class TwoTierSkillCache:
             return False
         age = time.time() - self._local_timestamps[skill_id]
         return age < self.ttl
+
+    def _evict_stale_entries(self) -> int:
+        """REPO-500: Evict stale entries from L1 cache.
+
+        Called periodically to prevent memory growth from expired entries.
+
+        Returns:
+            Number of entries evicted
+        """
+        now = time.time()
+        stale_keys = [
+            key for key, ts in self._local_timestamps.items()
+            if now - ts >= self.ttl
+        ]
+        for key in stale_keys:
+            self._local.pop(key, None)
+            self._local_timestamps.pop(key, None)
+
+        if stale_keys:
+            logger.debug(f"Evicted {len(stale_keys)} stale L1 cache entries")
+        return len(stale_keys)
+
+    def _evict_lru_if_needed(self) -> int:
+        """REPO-500: Evict least recently used entries if L1 is at max size.
+
+        Evicts oldest entries (by timestamp) to make room for new entries.
+
+        Returns:
+            Number of entries evicted
+        """
+        if len(self._local) < self.max_l1_size:
+            return 0
+
+        # First try to evict stale entries
+        evicted = self._evict_stale_entries()
+        if len(self._local) < self.max_l1_size:
+            return evicted
+
+        # Still too full - evict oldest entries until we're at 80% capacity
+        target_size = int(self.max_l1_size * 0.8)
+        to_evict = len(self._local) - target_size
+
+        if to_evict > 0:
+            # Sort by timestamp (oldest first)
+            sorted_keys = sorted(
+                self._local_timestamps.items(),
+                key=lambda x: x[1]
+            )
+            for key, _ in sorted_keys[:to_evict]:
+                self._local.pop(key, None)
+                self._local_timestamps.pop(key, None)
+                evicted += 1
+
+            logger.debug(f"Evicted {evicted} L1 cache entries (LRU)")
+
+        return evicted
 
     async def get(self, skill_id: str) -> Optional[CachedSkill]:
         """Get skill, checking L1 then L2.
@@ -172,6 +237,9 @@ class TwoTierSkillCache:
         Returns:
             True if successfully cached (L1 always succeeds)
         """
+        # REPO-500: Evict entries if needed before adding new one
+        self._evict_lru_if_needed()
+
         # Always update L1
         self._local[skill_id] = skill
         self._local_timestamps[skill_id] = time.time()

@@ -29,6 +29,14 @@ connection pooling. They are thread-safe and can be used across the application.
 For cleanup on shutdown:
     from repotoire.http_client import close_clients
     await close_clients()  # or close_clients_sync()
+
+For retry-enabled requests (rate limits, transient errors):
+    from repotoire.http_client import request_with_retry
+
+    response = await request_with_retry(
+        client, "GET", "/api/data",
+        max_retries=3, retry_on=[429, 500, 502, 503, 504]
+    )
 """
 
 import asyncio
@@ -77,7 +85,10 @@ def _create_limits() -> httpx.Limits:
 # Shared client instances (lazily initialized)
 _async_client: Optional[httpx.AsyncClient] = None
 _sync_client: Optional[httpx.Client] = None
-_async_lock = asyncio.Lock()
+# REPO-500: Don't create asyncio.Lock at import time - it requires a running event loop
+# Use a threading.Lock to protect initialization of the asyncio.Lock
+_async_lock: Optional[asyncio.Lock] = None
+_async_lock_init = threading.Lock()  # Sync lock to protect async lock creation
 _sync_lock = threading.Lock()
 
 # Separate clients for specific services (e.g., GitHub has different rate limits)
@@ -85,11 +96,28 @@ _github_async_client: Optional[httpx.AsyncClient] = None
 _github_sync_client: Optional[httpx.Client] = None
 
 
+def _get_async_lock() -> asyncio.Lock:
+    """Get or create the async lock safely.
+
+    REPO-500: Cannot create asyncio.Lock() at module import time because
+    there may not be a running event loop. This uses double-checked locking
+    with a sync lock to safely create the async lock on first use.
+    """
+    global _async_lock
+    if _async_lock is not None:
+        return _async_lock
+
+    with _async_lock_init:
+        if _async_lock is None:
+            _async_lock = asyncio.Lock()
+    return _async_lock
+
+
 async def get_async_client() -> httpx.AsyncClient:
     """Get the shared async HTTP client.
 
     Lazily initializes a shared AsyncClient with connection pooling.
-    Thread-safe via asyncio.Lock.
+    Thread-safe via asyncio.Lock (created on first use).
 
     Returns:
         Shared httpx.AsyncClient instance
@@ -102,7 +130,7 @@ async def get_async_client() -> httpx.AsyncClient:
     if _async_client is not None and not _async_client.is_closed:
         return _async_client
 
-    async with _async_lock:
+    async with _get_async_lock():
         # Double-check after acquiring lock
         if _async_client is not None and not _async_client.is_closed:
             return _async_client
@@ -170,7 +198,7 @@ async def get_github_async_client() -> httpx.AsyncClient:
     if _github_async_client is not None and not _github_async_client.is_closed:
         return _github_async_client
 
-    async with _async_lock:
+    async with _get_async_lock():
         if _github_async_client is not None and not _github_async_client.is_closed:
             return _github_async_client
 
@@ -296,3 +324,209 @@ def reset_clients() -> None:
     # Note: async clients should be closed with close_clients() in async context
     _async_client = None
     _github_async_client = None
+
+
+# =============================================================================
+# REPO-500: Retry utilities for transient errors
+# =============================================================================
+
+# Default retry-able status codes
+RETRYABLE_STATUS_CODES = frozenset([
+    429,  # Rate limited
+    500,  # Internal server error
+    502,  # Bad gateway
+    503,  # Service unavailable
+    504,  # Gateway timeout
+])
+
+# Default retry configuration
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_RETRY_DELAY = 1.0  # Base delay in seconds
+DEFAULT_RETRY_BACKOFF = 2.0  # Exponential backoff multiplier
+DEFAULT_RETRY_MAX_DELAY = 30.0  # Maximum delay between retries
+
+
+async def request_with_retry(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    retry_on: frozenset[int] = RETRYABLE_STATUS_CODES,
+    retry_delay: float = DEFAULT_RETRY_DELAY,
+    retry_backoff: float = DEFAULT_RETRY_BACKOFF,
+    retry_max_delay: float = DEFAULT_RETRY_MAX_DELAY,
+    **kwargs,
+) -> httpx.Response:
+    """Make an HTTP request with automatic retry for transient errors.
+
+    REPO-500: Implements exponential backoff retry for rate limits (429)
+    and server errors (5xx). Respects Retry-After headers when present.
+
+    Args:
+        client: The httpx.AsyncClient to use.
+        method: HTTP method (GET, POST, etc.).
+        url: Request URL.
+        max_retries: Maximum number of retry attempts (default: 3).
+        retry_on: Set of HTTP status codes to retry on.
+        retry_delay: Initial delay between retries in seconds.
+        retry_backoff: Multiplier for exponential backoff.
+        retry_max_delay: Maximum delay between retries.
+        **kwargs: Additional arguments passed to client.request().
+
+    Returns:
+        httpx.Response from successful request.
+
+    Raises:
+        httpx.HTTPStatusError: If all retries exhausted or non-retryable error.
+
+    Example:
+        client = await get_github_async_client()
+        response = await request_with_retry(
+            client, "GET", "/repos/owner/repo",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+    """
+    import random
+
+    last_response: Optional[httpx.Response] = None
+    delay = retry_delay
+
+    for attempt in range(max_retries + 1):
+        try:
+            response = await client.request(method, url, **kwargs)
+
+            # Success - return immediately
+            if response.status_code < 400:
+                return response
+
+            # Check if we should retry this status code
+            if response.status_code not in retry_on:
+                response.raise_for_status()
+                return response
+
+            last_response = response
+
+            # Check if we have retries left
+            if attempt >= max_retries:
+                response.raise_for_status()
+                return response
+
+            # Calculate delay, respecting Retry-After header if present
+            retry_after = response.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    wait_time = float(retry_after)
+                except ValueError:
+                    # Retry-After might be a date string, use default delay
+                    wait_time = delay
+            else:
+                # Add jitter (10-25% random variation) to avoid thundering herd
+                jitter = random.uniform(0.1, 0.25)
+                wait_time = delay * (1 + jitter)
+
+            wait_time = min(wait_time, retry_max_delay)
+
+            logger.warning(
+                f"Request {method} {url} returned {response.status_code}, "
+                f"retrying in {wait_time:.1f}s (attempt {attempt + 1}/{max_retries + 1})"
+            )
+
+            await asyncio.sleep(wait_time)
+            delay = min(delay * retry_backoff, retry_max_delay)
+
+        except httpx.RequestError as e:
+            # Network errors - retry if we have attempts left
+            if attempt >= max_retries:
+                raise
+
+            logger.warning(
+                f"Request {method} {url} failed with {type(e).__name__}: {e}, "
+                f"retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries + 1})"
+            )
+
+            await asyncio.sleep(delay)
+            delay = min(delay * retry_backoff, retry_max_delay)
+
+    # Should not reach here, but just in case
+    if last_response is not None:
+        last_response.raise_for_status()
+        return last_response
+    raise httpx.RequestError(f"All {max_retries + 1} attempts failed for {method} {url}")
+
+
+def request_with_retry_sync(
+    client: httpx.Client,
+    method: str,
+    url: str,
+    *,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    retry_on: frozenset[int] = RETRYABLE_STATUS_CODES,
+    retry_delay: float = DEFAULT_RETRY_DELAY,
+    retry_backoff: float = DEFAULT_RETRY_BACKOFF,
+    retry_max_delay: float = DEFAULT_RETRY_MAX_DELAY,
+    **kwargs,
+) -> httpx.Response:
+    """Sync version of request_with_retry.
+
+    See request_with_retry for full documentation.
+    """
+    import random
+    import time
+
+    last_response: Optional[httpx.Response] = None
+    delay = retry_delay
+
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.request(method, url, **kwargs)
+
+            if response.status_code < 400:
+                return response
+
+            if response.status_code not in retry_on:
+                response.raise_for_status()
+                return response
+
+            last_response = response
+
+            if attempt >= max_retries:
+                response.raise_for_status()
+                return response
+
+            retry_after = response.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    wait_time = float(retry_after)
+                except ValueError:
+                    wait_time = delay
+            else:
+                jitter = random.uniform(0.1, 0.25)
+                wait_time = delay * (1 + jitter)
+
+            wait_time = min(wait_time, retry_max_delay)
+
+            logger.warning(
+                f"Request {method} {url} returned {response.status_code}, "
+                f"retrying in {wait_time:.1f}s (attempt {attempt + 1}/{max_retries + 1})"
+            )
+
+            time.sleep(wait_time)
+            delay = min(delay * retry_backoff, retry_max_delay)
+
+        except httpx.RequestError as e:
+            if attempt >= max_retries:
+                raise
+
+            logger.warning(
+                f"Request {method} {url} failed with {type(e).__name__}: {e}, "
+                f"retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries + 1})"
+            )
+
+            time.sleep(delay)
+            delay = min(delay * retry_backoff, retry_max_delay)
+
+    if last_response is not None:
+        last_response.raise_for_status()
+        return last_response
+    raise httpx.RequestError(f"All {max_retries + 1} attempts failed for {method} {url}")

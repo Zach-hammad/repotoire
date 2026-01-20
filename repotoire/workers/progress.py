@@ -44,6 +44,9 @@ class ProgressTracker:
         )
     """
 
+    # REPO-500: Class-level lock for thread-safe Redis initialization
+    _redis_init_lock = __import__("threading").Lock()
+
     def __init__(self, task: "Task | None", analysis_run_id: str) -> None:
         """Initialize the progress tracker.
 
@@ -59,9 +62,19 @@ class ProgressTracker:
 
     @property
     def redis(self) -> redis.Redis:
-        """Lazy initialization of Redis connection."""
+        """Lazy initialization of Redis connection.
+
+        REPO-500: Thread-safe via class-level lock.
+        """
         if self._redis is None:
-            self._redis = redis.from_url(REDIS_URL)
+            with ProgressTracker._redis_init_lock:
+                # Double-check after acquiring lock
+                if self._redis is None:
+                    self._redis = redis.from_url(
+                        REDIS_URL,
+                        socket_timeout=5.0,  # REPO-500: Add timeout
+                        socket_connect_timeout=5.0,
+                    )
         return self._redis
 
     def update(
