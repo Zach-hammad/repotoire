@@ -41,6 +41,7 @@ class CachedSkill(BaseModel):
     """Cached representation of a loaded skill.
 
     Contains the skill code and metadata needed for execution.
+    The version field enables L1/L2 cache coherence checking.
     """
 
     skill_id: str = Field(..., description="Unique skill identifier")
@@ -49,6 +50,7 @@ class CachedSkill(BaseModel):
     code_hash: str = Field(..., description="Hash of skill code for change detection")
     loaded_at: str = Field(..., description="ISO timestamp when skill was loaded")
     source_path: Optional[str] = Field(None, description="Path to skill source file")
+    version: int = Field(default=1, description="Version number for L1/L2 cache coherence")
 
 
 class TwoTierSkillCache:
@@ -178,8 +180,35 @@ class TwoTierSkillCache:
 
         return evicted
 
+    async def _get_l2_version(self, skill_id: str) -> Optional[int]:
+        """Get the version of a skill from L2 cache.
+
+        Used for L1/L2 coherence checking to detect stale L1 entries.
+
+        Args:
+            skill_id: Skill identifier
+
+        Returns:
+            Version number from L2, or None if not found/error
+        """
+        if self.redis is None:
+            return None
+
+        try:
+            redis_key = self._make_key(skill_id)
+            data = await self.redis.get(redis_key)
+            if data:
+                skill = CachedSkill.model_validate_json(data)
+                return skill.version
+        except Exception:
+            pass  # Silently fail for version check
+        return None
+
     async def get(self, skill_id: str) -> Optional[CachedSkill]:
         """Get skill, checking L1 then L2.
+
+        Includes L1/L2 version coherence checking - if L2 has a newer version
+        than L1, the stale L1 entry is invalidated.
 
         Args:
             skill_id: Skill identifier
@@ -189,12 +218,29 @@ class TwoTierSkillCache:
         """
         # L1: Local cache (fastest)
         if skill_id in self._local and self._is_local_fresh(skill_id):
-            self.metrics.record_hit(tier="local")
-            logger.debug(
-                "L1 skill cache hit",
-                extra={"skill_id": skill_id},
-            )
-            return self._local[skill_id]
+            local_skill = self._local[skill_id]
+
+            # Check L2 version for coherence (if Redis available)
+            l2_version = await self._get_l2_version(skill_id)
+            if l2_version is not None and l2_version > local_skill.version:
+                # L1 is stale - invalidate it and fall through to L2 fetch
+                logger.debug(
+                    "L1 skill cache stale (L2 has newer version), invalidating",
+                    extra={
+                        "skill_id": skill_id,
+                        "l1_version": local_skill.version,
+                        "l2_version": l2_version,
+                    },
+                )
+                self._local.pop(skill_id, None)
+                self._local_timestamps.pop(skill_id, None)
+            else:
+                self.metrics.record_hit(tier="local")
+                logger.debug(
+                    "L1 skill cache hit",
+                    extra={"skill_id": skill_id},
+                )
+                return local_skill
 
         # L2: Redis cache
         if self.redis is not None:

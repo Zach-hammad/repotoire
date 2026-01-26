@@ -9,6 +9,7 @@ Provides secure, atomic state token management for OAuth flows with:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import secrets
@@ -219,10 +220,24 @@ class StateTokenStore:
 
 # Dependency injection for FastAPI
 _redis_client: "Redis | None" = None
+_redis_lock: asyncio.Lock | None = None
+
+
+def _get_redis_lock() -> asyncio.Lock:
+    """Get or create the Redis client lock.
+
+    Creates the lock lazily to avoid event loop issues at module import time.
+    """
+    global _redis_lock
+    if _redis_lock is None:
+        _redis_lock = asyncio.Lock()
+    return _redis_lock
 
 
 async def get_redis_client() -> "Redis":
     """Get or create the shared async Redis client.
+
+    Thread-safe implementation using async lock with double-checked pattern.
 
     Returns:
         Async Redis client instance.
@@ -232,19 +247,25 @@ async def get_redis_client() -> "Redis":
     """
     global _redis_client
 
-    if _redis_client is None:
-        try:
-            _redis_client = aioredis.from_url(
-                REDIS_URL,
-                encoding="utf-8",
-                decode_responses=True,
-            )
-            # Test connection
-            await _redis_client.ping()
-        except aioredis.RedisError as e:
-            logger.error(f"Failed to connect to Redis: {e}")
-            _redis_client = None
-            raise StateStoreUnavailableError("Redis connection failed") from e
+    # Fast path: return existing client without lock
+    if _redis_client is not None:
+        return _redis_client
+
+    # Slow path: acquire lock and check again
+    async with _get_redis_lock():
+        if _redis_client is None:
+            try:
+                client = aioredis.from_url(
+                    REDIS_URL,
+                    encoding="utf-8",
+                    decode_responses=True,
+                )
+                # Test connection before assigning to global
+                await client.ping()
+                _redis_client = client
+            except aioredis.RedisError as e:
+                logger.error(f"Failed to connect to Redis: {e}")
+                raise StateStoreUnavailableError("Redis connection failed") from e
 
     return _redis_client
 

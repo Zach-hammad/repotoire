@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum
@@ -630,13 +631,22 @@ class QuotaEnforcer:
         return self._overrides.get(customer_id)
 
 
-# Global enforcer instance (lazy initialization)
+# Global enforcer instance (lazy initialization with thread-safe singleton)
 _global_enforcer: Optional[QuotaEnforcer] = None
+_enforcer_lock = threading.Lock()
 
 
 def get_quota_enforcer() -> QuotaEnforcer:
-    """Get or create global quota enforcer instance."""
+    """Get or create global quota enforcer instance.
+
+    Thread-safe implementation using double-checked locking pattern.
+    """
     global _global_enforcer
-    if _global_enforcer is None:
-        _global_enforcer = QuotaEnforcer()
+    # Fast path: return existing enforcer without lock
+    if _global_enforcer is not None:
+        return _global_enforcer
+    # Slow path: acquire lock and check again
+    with _enforcer_lock:
+        if _global_enforcer is None:
+            _global_enforcer = QuotaEnforcer()
     return _global_enforcer

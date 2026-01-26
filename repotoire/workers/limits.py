@@ -11,11 +11,13 @@ Uses Redis for distributed locking across worker nodes.
 from __future__ import annotations
 
 import os
+import threading
 from functools import wraps
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Optional
 from uuid import UUID
 
 import redis
+from redis import ConnectionPool
 
 from repotoire.db.models import Organization, PlanTier, Repository
 from repotoire.db.session import get_sync_session
@@ -27,6 +29,31 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+
+# Shared Redis connection pool for efficient resource usage
+_redis_pool: Optional[ConnectionPool] = None
+_pool_lock = threading.Lock()
+
+
+def _get_redis_pool() -> ConnectionPool:
+    """Get or create the shared Redis connection pool.
+
+    Thread-safe singleton implementation using double-checked locking.
+    """
+    global _redis_pool
+    if _redis_pool is not None:
+        return _redis_pool
+
+    with _pool_lock:
+        if _redis_pool is None:
+            _redis_pool = ConnectionPool.from_url(
+                REDIS_URL,
+                max_connections=20,
+                socket_timeout=5.0,
+                socket_connect_timeout=5.0,
+            )
+            logger.debug("Created shared Redis connection pool for limiters")
+    return _redis_pool
 
 # Concurrent analysis limits by subscription tier
 TIER_LIMITS = {
@@ -59,14 +86,14 @@ class ConcurrencyLimiter:
     """
 
     def __init__(self) -> None:
-        """Initialize the limiter with Redis connection."""
+        """Initialize the limiter with Redis connection from shared pool."""
         self._redis: redis.Redis | None = None
 
     @property
     def redis(self) -> redis.Redis:
-        """Lazy initialization of Redis connection."""
+        """Lazy initialization of Redis connection from shared pool."""
         if self._redis is None:
-            self._redis = redis.from_url(REDIS_URL)
+            self._redis = redis.Redis(connection_pool=_get_redis_pool())
         return self._redis
 
     def acquire(self, org_id: UUID, tier: PlanTier) -> bool:
@@ -238,9 +265,9 @@ class RateLimiter:
 
     @property
     def redis(self) -> redis.Redis:
-        """Lazy initialization of Redis connection."""
+        """Lazy initialization of Redis connection from shared pool."""
         if self._redis is None:
-            self._redis = redis.from_url(REDIS_URL)
+            self._redis = redis.Redis(connection_pool=_get_redis_pool())
         return self._redis
 
     def is_allowed(self, org_id: UUID) -> bool:

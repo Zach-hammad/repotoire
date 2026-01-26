@@ -38,7 +38,9 @@ FastAPI Dependency Injection:
 
 from __future__ import annotations
 
+import asyncio
 import os
+import threading
 from typing import TYPE_CHECKING, Optional
 
 import redis.asyncio as aioredis
@@ -159,13 +161,34 @@ class CacheManager:
 # Singleton instances
 _redis_client: Optional["Redis"] = None
 _cache_manager: Optional[CacheManager] = None
-# REPO-500: Async lock for cache manager initialization (created lazily)
+# REPO-500: Async locks for singleton initialization (created lazily)
+# The threading lock protects the async lock creation to ensure event-loop safety
+_redis_lock: Optional[asyncio.Lock] = None
+_redis_init_lock = threading.Lock()
 _cache_manager_lock: Optional[asyncio.Lock] = None
-_cache_manager_init_lock = __import__("threading").Lock()
+_cache_manager_init_lock = threading.Lock()
+
+
+def _get_redis_lock() -> asyncio.Lock:
+    """Get or create the Redis client async lock safely.
+
+    Uses threading lock to protect async lock creation for event-loop safety.
+    """
+    global _redis_lock
+    if _redis_lock is not None:
+        return _redis_lock
+
+    with _redis_init_lock:
+        if _redis_lock is None:
+            _redis_lock = asyncio.Lock()
+    return _redis_lock
 
 
 def _get_cache_manager_lock() -> asyncio.Lock:
-    """Get or create the cache manager async lock safely."""
+    """Get or create the cache manager async lock safely.
+
+    Uses threading lock to protect async lock creation for event-loop safety.
+    """
     global _cache_manager_lock
     if _cache_manager_lock is not None:
         return _cache_manager_lock
@@ -179,6 +202,7 @@ def _get_cache_manager_lock() -> asyncio.Lock:
 async def get_redis_client() -> Optional["Redis"]:
     """Get or create shared Redis client for caching.
 
+    Thread-safe implementation using async lock with double-checked pattern.
     Uses REDIS_URL environment variable.
 
     Returns:
@@ -186,6 +210,7 @@ async def get_redis_client() -> Optional["Redis"]:
     """
     global _redis_client
 
+    # Fast path: return existing client without lock
     if _redis_client is not None:
         return _redis_client
 
@@ -194,22 +219,27 @@ async def get_redis_client() -> Optional["Redis"]:
         logger.debug("REDIS_URL not set, caching disabled")
         return None
 
-    try:
-        _redis_client = aioredis.from_url(
-            redis_url,
-            encoding="utf-8",
-            decode_responses=True,
-            socket_timeout=5.0,  # REPO-500: Add socket timeout
-            socket_connect_timeout=5.0,
-        )
-        await _redis_client.ping()
-        logger.info("Redis client connected for caching")
-        return _redis_client
+    # Slow path: acquire lock and check again
+    async with _get_redis_lock():
+        if _redis_client is not None:
+            return _redis_client
 
-    except Exception as e:
-        logger.warning(f"Failed to connect to Redis for caching: {e}")
-        _redis_client = None
-        return None
+        try:
+            client = aioredis.from_url(
+                redis_url,
+                encoding="utf-8",
+                decode_responses=True,
+                socket_timeout=5.0,  # REPO-500: Add socket timeout
+                socket_connect_timeout=5.0,
+            )
+            await client.ping()
+            _redis_client = client
+            logger.info("Redis client connected for caching")
+            return _redis_client
+
+        except Exception as e:
+            logger.warning(f"Failed to connect to Redis for caching: {e}")
+            return None
 
 
 async def close_redis_client() -> None:

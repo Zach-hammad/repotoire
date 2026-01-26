@@ -33,6 +33,7 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from dataclasses import dataclass
@@ -417,10 +418,36 @@ class DistributedSessionTracker:
 # Dependency injection for FastAPI
 _redis_client: "Redis | None" = None
 _session_tracker: DistributedSessionTracker | None = None
+_redis_lock: asyncio.Lock | None = None
+_tracker_lock: asyncio.Lock | None = None
+
+
+def _get_redis_lock() -> asyncio.Lock:
+    """Get or create the Redis client lock.
+
+    Creates the lock lazily to avoid event loop issues at module import time.
+    """
+    global _redis_lock
+    if _redis_lock is None:
+        _redis_lock = asyncio.Lock()
+    return _redis_lock
+
+
+def _get_tracker_lock() -> asyncio.Lock:
+    """Get or create the session tracker lock.
+
+    Creates the lock lazily to avoid event loop issues at module import time.
+    """
+    global _tracker_lock
+    if _tracker_lock is None:
+        _tracker_lock = asyncio.Lock()
+    return _tracker_lock
 
 
 async def get_redis_client() -> "Redis":
     """Get or create the shared async Redis client.
+
+    Thread-safe implementation using async lock with double-checked pattern.
 
     Returns:
         Async Redis client instance.
@@ -430,26 +457,34 @@ async def get_redis_client() -> "Redis":
     """
     global _redis_client
 
-    if _redis_client is None:
-        try:
-            _redis_client = aioredis.from_url(
-                REDIS_URL,
-                encoding="utf-8",
-                decode_responses=True,
-            )
-            # Test connection
-            await _redis_client.ping()
-            logger.debug("Redis client connected for session tracking")
-        except aioredis.RedisError as e:
-            logger.error(f"Failed to connect to Redis: {e}")
-            _redis_client = None
-            raise SessionTrackerUnavailableError(f"Redis connection failed: {e}") from e
+    # Fast path: return existing client without lock
+    if _redis_client is not None:
+        return _redis_client
+
+    # Slow path: acquire lock and check again
+    async with _get_redis_lock():
+        if _redis_client is None:
+            try:
+                client = aioredis.from_url(
+                    REDIS_URL,
+                    encoding="utf-8",
+                    decode_responses=True,
+                )
+                # Test connection before assigning to global
+                await client.ping()
+                _redis_client = client
+                logger.debug("Redis client connected for session tracking")
+            except aioredis.RedisError as e:
+                logger.error(f"Failed to connect to Redis: {e}")
+                raise SessionTrackerUnavailableError(f"Redis connection failed: {e}") from e
 
     return _redis_client
 
 
 async def get_session_tracker() -> DistributedSessionTracker:
     """FastAPI dependency for DistributedSessionTracker.
+
+    Thread-safe implementation using async lock with double-checked pattern.
 
     Usage:
         @router.post("/sandbox")
@@ -470,9 +505,15 @@ async def get_session_tracker() -> DistributedSessionTracker:
     """
     global _session_tracker
 
-    if _session_tracker is None:
-        redis = await get_redis_client()
-        _session_tracker = DistributedSessionTracker(redis)
+    # Fast path: return existing tracker without lock
+    if _session_tracker is not None:
+        return _session_tracker
+
+    # Slow path: acquire lock and check again
+    async with _get_tracker_lock():
+        if _session_tracker is None:
+            redis = await get_redis_client()
+            _session_tracker = DistributedSessionTracker(redis)
 
     return _session_tracker
 

@@ -28,6 +28,7 @@ import asyncio
 import json
 import os
 import sys
+import threading
 from typing import Any
 
 import httpx
@@ -337,12 +338,15 @@ class RepotoireAPIClient:
 # MCP Server
 # =============================================================================
 
-# Lazy-initialized API client
+# Lazy-initialized API client with thread-safe singleton pattern
 _api_client: RepotoireAPIClient | None = None
+_api_client_lock = threading.Lock()
 
 
 def get_api_client() -> RepotoireAPIClient:
     """Get or create the API client singleton.
+
+    Thread-safe implementation using double-checked locking pattern.
 
     Returns:
         RepotoireAPIClient instance
@@ -351,14 +355,19 @@ def get_api_client() -> RepotoireAPIClient:
         RuntimeError: If API key is not configured
     """
     global _api_client
-    if _api_client is None:
-        if not API_KEY:
-            raise RuntimeError(
-                "REPOTOIRE_API_KEY environment variable not set.\n\n"
-                "Get your API key at: https://repotoire.com/settings/api-keys\n"
-                "Then set: export REPOTOIRE_API_KEY=your_key"
-            )
-        _api_client = RepotoireAPIClient(API_KEY, API_BASE_URL)
+    # Fast path: return existing client without lock
+    if _api_client is not None:
+        return _api_client
+    # Slow path: acquire lock and check again
+    with _api_client_lock:
+        if _api_client is None:
+            if not API_KEY:
+                raise RuntimeError(
+                    "REPOTOIRE_API_KEY environment variable not set.\n\n"
+                    "Get your API key at: https://repotoire.com/settings/api-keys\n"
+                    "Then set: export REPOTOIRE_API_KEY=your_key"
+                )
+            _api_client = RepotoireAPIClient(API_KEY, API_BASE_URL)
     return _api_client
 
 

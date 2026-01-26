@@ -7,6 +7,7 @@ REPO-152: Added community detection (Louvain) and PageRank for pattern recogniti
 REPO-192: Replaced GDS with Rust implementations (10-100x faster, database-agnostic).
 """
 
+import threading
 from typing import Dict, Any, Optional, List
 from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
@@ -25,8 +26,10 @@ from repotoire_fast import (
 logger = get_logger(__name__)
 
 # Cache for community assignments to avoid recalculation
+# Protected by _cache_lock for thread safety
 _community_cache: Dict[str, int] = {}
 _pagerank_cache: Dict[str, float] = {}
+_cache_lock = threading.Lock()
 
 
 class GraphAlgorithms:
@@ -711,8 +714,9 @@ class GraphAlgorithms:
 
             elapsed_ms = int((time.time() - start_time) * 1000)
 
-            # Clear cache since we've recalculated
-            _community_cache.clear()
+            # Clear cache since we've recalculated (thread-safe)
+            with _cache_lock:
+                _community_cache.clear()
 
             logger.info(
                 f"Leiden community detection complete (Rust): "
@@ -811,13 +815,17 @@ class GraphAlgorithms:
     def get_all_community_assignments(self) -> Dict[str, int]:
         """Get community assignments for all functions.
 
+        Thread-safe implementation that returns a copy of the cache.
+
         Returns:
             Dictionary mapping qualified names to community IDs
         """
         global _community_cache
 
-        if _community_cache:
-            return _community_cache
+        # Fast path: return copy of existing cache (thread-safe read)
+        with _cache_lock:
+            if _community_cache:
+                return _community_cache.copy()
 
         try:
             # Filter by repoId for multi-tenant isolation
@@ -829,13 +837,15 @@ class GraphAlgorithms:
             """
             result = self.client.execute_query(query, self._get_query_params())
 
-            if result:
-                _community_cache = {
-                    r["qualified_name"]: r["community_id"]
-                    for r in result
-                }
-
-            return _community_cache
+            # Thread-safe cache update
+            with _cache_lock:
+                if result:
+                    _community_cache.clear()
+                    _community_cache.update({
+                        r["qualified_name"]: r["community_id"]
+                        for r in result
+                    })
+                return _community_cache.copy()
 
         except Exception as e:
             logger.debug(f"Failed to get community assignments: {e}")
@@ -893,8 +903,9 @@ class GraphAlgorithms:
 
             elapsed_ms = int((time.time() - start_time) * 1000)
 
-            # Clear cache since we've recalculated
-            _pagerank_cache.clear()
+            # Clear cache since we've recalculated (thread-safe)
+            with _cache_lock:
+                _pagerank_cache.clear()
 
             logger.info(
                 f"PageRank calculation complete (Rust): "
@@ -1055,10 +1066,14 @@ class GraphAlgorithms:
         return results
 
     def clear_caches(self) -> None:
-        """Clear all cached algorithm results."""
+        """Clear all cached algorithm results.
+
+        Thread-safe cache clearing.
+        """
         global _community_cache, _pagerank_cache
-        _community_cache.clear()
-        _pagerank_cache.clear()
+        with _cache_lock:
+            _community_cache.clear()
+            _pagerank_cache.clear()
         logger.debug("Cleared graph algorithm caches")
 
     # -------------------------------------------------------------------------

@@ -4,6 +4,7 @@ import functools
 import hashlib
 import os
 import re
+import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -235,6 +236,12 @@ class IngestionPipeline:
         # Key: str (path), Value: str (md5_hash)
         self._hash_cache: Dict[str, str] = {}
 
+        # Lock for thread-safe cache access
+        self._cache_lock = threading.Lock()
+
+        # Lock for thread-safe PCA model fitting
+        self._pca_fit_lock = threading.Lock()
+
         # Callbacks to run after ingestion completes (e.g., cache invalidation)
         self._on_ingest_complete_callbacks: List[Callable[[], None]] = []
 
@@ -443,8 +450,10 @@ class IngestionPipeline:
         # Normalize path for consistent cache keys
         normalized_path = file_path.resolve()
 
-        if normalized_path in self._file_cache:
-            return self._file_cache[normalized_path]
+        # Thread-safe cache lookup
+        with self._cache_lock:
+            if normalized_path in self._file_cache:
+                return self._file_cache[normalized_path]
 
         # REPO-500: Capture stat BEFORE reading to get consistent mtime
         # Even if file changes during read, we'll have the pre-read mtime
@@ -455,25 +464,29 @@ class IngestionPipeline:
         with open(normalized_path, "rb") as f:
             content = f.read()
 
-        # Check if hash was pre-computed by Rust batch hashing
+        # Check if hash was pre-computed by Rust batch hashing (thread-safe)
         path_str = str(normalized_path)
-        if path_str in self._hash_cache:
-            file_hash = self._hash_cache[path_str]
-        else:
-            file_hash = hashlib.md5(content).hexdigest()
+        with self._cache_lock:
+            if path_str in self._hash_cache:
+                file_hash = self._hash_cache[path_str]
+            else:
+                file_hash = hashlib.md5(content).hexdigest()
 
-        self._file_cache[normalized_path] = (content, file_hash, last_modified)
-        return content, file_hash, last_modified
+            result = (content, file_hash, last_modified)
+            self._file_cache[normalized_path] = result
+        return result
 
     def _clear_file_cache(self) -> None:
         """Clear the file content cache to free memory.
 
+        Thread-safe cache clearing.
         Should be called after ingestion batch completes to prevent memory bloat.
         """
-        cache_size = len(self._file_cache)
-        hash_cache_size = len(self._hash_cache)
-        self._file_cache.clear()
-        self._hash_cache.clear()
+        with self._cache_lock:
+            cache_size = len(self._file_cache)
+            hash_cache_size = len(self._hash_cache)
+            self._file_cache.clear()
+            self._hash_cache.clear()
         if cache_size > 0 or hash_cache_size > 0:
             logger.debug(f"Cleared file cache ({cache_size} entries) and hash cache ({hash_cache_size} entries)")
 
@@ -501,11 +514,13 @@ class IngestionPipeline:
         results = rust_batch_hash_files(path_strings)
         elapsed = time.perf_counter() - start
 
-        # Convert to dictionary and cache
+        # Convert to dictionary and cache (thread-safe)
         hash_dict = {}
         for path_str, file_hash in results:
             hash_dict[path_str] = file_hash
-            self._hash_cache[path_str] = file_hash
+
+        with self._cache_lock:
+            self._hash_cache.update(hash_dict)
 
         logger.debug(f"Rust batch hashed {len(results)} files in {elapsed:.3f}s ({len(results)/elapsed:.0f} files/sec)")
         return hash_dict
@@ -916,12 +931,15 @@ class IngestionPipeline:
 
                     embeddings = self.embedder.embed_batch(texts)
 
-                    # Apply PCA compression if configured
+                    # Apply PCA compression if configured (thread-safe fitting)
                     if self.embedding_compressor:
+                        # Thread-safe PCA fitting with double-checked locking
                         if not self.embedding_compressor.is_fitted:
-                            # Fit on first batch (need enough samples)
-                            logger.info("Fitting PCA compressor on embedding batch...")
-                            self.embedding_compressor.fit(embeddings, save=True)
+                            with self._pca_fit_lock:
+                                if not self.embedding_compressor.is_fitted:
+                                    # Fit on first batch (need enough samples)
+                                    logger.info("Fitting PCA compressor on embedding batch...")
+                                    self.embedding_compressor.fit(embeddings, save=True)
                         embeddings = self.embedding_compressor.get_reduced_embeddings_batch(embeddings)
                         embedding_dims = self.embedding_target_dims
                     else:
@@ -1298,7 +1316,7 @@ class IngestionPipeline:
 
                     if current_hash is None:
                         # Fallback to Python if Rust hash not available
-                        _, current_hash = self._get_file_content_and_hash(file_path)
+                        _, current_hash, _ = self._get_file_content_and_hash(file_path)
 
                     if current_hash == metadata["hash"]:
                         # File unchanged, skip
@@ -2569,7 +2587,7 @@ class IngestionPipeline:
         for file_path in files:
             try:
                 # Use cached content if available
-                content, _ = self._get_file_content_and_hash(file_path)
+                content, _, _ = self._get_file_content_and_hash(file_path)
                 # Decode bytes to string for parser
                 text = content.decode("utf-8", errors="replace")
                 files_with_content.append((str(file_path), text))
