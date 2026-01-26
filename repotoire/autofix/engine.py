@@ -3,6 +3,7 @@
 import hashlib
 import os
 import re
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Literal
@@ -40,6 +41,8 @@ logger = get_logger(__name__)
 
 # Cache for style profiles (keyed by repository path)
 _style_profile_cache: Dict[str, StyleProfile] = {}
+# REPO-500: Lock for thread-safe style profile cache access
+_style_cache_lock = threading.Lock()
 
 # Patterns that could be used for prompt injection attacks
 _PROMPT_INJECTION_PATTERNS = [
@@ -251,6 +254,7 @@ class AutoFixEngine:
         """Get or analyze style profile for a repository.
 
         Results are cached per repository path.
+        Thread-safe via double-checked locking pattern.
 
         Args:
             repository_path: Path to repository
@@ -261,14 +265,21 @@ class AutoFixEngine:
         """
         repo_key = str(repository_path.resolve())
 
-        if not force_refresh and repo_key in _style_profile_cache:
-            logger.debug(f"Using cached style profile for {repository_path}")
-            return _style_profile_cache[repo_key]
+        # First check without lock (fast path)
+        if not force_refresh:
+            with _style_cache_lock:
+                if repo_key in _style_profile_cache:
+                    logger.debug(f"Using cached style profile for {repository_path}")
+                    return _style_profile_cache[repo_key]
 
+        # Analyze outside lock (slow operation)
         logger.info(f"Analyzing style conventions for {repository_path}")
         analyzer = StyleAnalyzer(repository_path)
         profile = analyzer.analyze()
-        _style_profile_cache[repo_key] = profile
+
+        # Store result under lock
+        with _style_cache_lock:
+            _style_profile_cache[repo_key] = profile
 
         return profile
 

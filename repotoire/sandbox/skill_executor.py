@@ -21,6 +21,7 @@ import asyncio
 import hashlib
 import json
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -149,7 +150,9 @@ class SkillExecutor:
     """
 
     # Cache for compiled skills by content hash
+    # REPO-500: Class-level cache with lock for thread safety
     _skill_cache: Dict[str, str] = {}
+    _skill_cache_lock = threading.Lock()
 
     def __init__(
         self,

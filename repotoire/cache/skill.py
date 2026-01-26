@@ -17,6 +17,7 @@ to prevent unbounded memory growth.
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import TYPE_CHECKING, Dict, Optional
 
@@ -95,6 +96,7 @@ class TwoTierSkillCache:
         self.max_l1_size = max_l1_size
         self._local: Dict[str, CachedSkill] = {}
         self._local_timestamps: Dict[str, float] = {}  # Track when items were added
+        self._local_lock = threading.Lock()  # REPO-500: Thread-safety for L1 cache
         self.metrics = CacheMetrics("skill")
 
     def _make_key(self, skill_id: str) -> str:
@@ -112,6 +114,7 @@ class TwoTierSkillCache:
         """Check if local cache entry is still fresh.
 
         Local cache entries expire after TTL to stay in sync with Redis.
+        Must be called with _local_lock held.
 
         Args:
             skill_id: Skill identifier
@@ -128,6 +131,7 @@ class TwoTierSkillCache:
         """REPO-500: Evict stale entries from L1 cache.
 
         Called periodically to prevent memory growth from expired entries.
+        Must be called with _local_lock held.
 
         Returns:
             Number of entries evicted
@@ -149,6 +153,7 @@ class TwoTierSkillCache:
         """REPO-500: Evict least recently used entries if L1 is at max size.
 
         Evicts oldest entries (by timestamp) to make room for new entries.
+        Must be called with _local_lock held.
 
         Returns:
             Number of entries evicted
@@ -216,24 +221,31 @@ class TwoTierSkillCache:
         Returns:
             Cached skill or None
         """
-        # L1: Local cache (fastest)
-        if skill_id in self._local and self._is_local_fresh(skill_id):
-            local_skill = self._local[skill_id]
+        # L1: Local cache (fastest) - check with lock held
+        with self._local_lock:
+            if skill_id in self._local and self._is_local_fresh(skill_id):
+                local_skill = self._local[skill_id]
+                local_version = local_skill.version
+            else:
+                local_skill = None
+                local_version = None
 
-            # Check L2 version for coherence (if Redis available)
+        # Check L2 version coherence outside lock (async operation)
+        if local_skill is not None:
             l2_version = await self._get_l2_version(skill_id)
-            if l2_version is not None and l2_version > local_skill.version:
+            if l2_version is not None and l2_version > local_version:
                 # L1 is stale - invalidate it and fall through to L2 fetch
                 logger.debug(
                     "L1 skill cache stale (L2 has newer version), invalidating",
                     extra={
                         "skill_id": skill_id,
-                        "l1_version": local_skill.version,
+                        "l1_version": local_version,
                         "l2_version": l2_version,
                     },
                 )
-                self._local.pop(skill_id, None)
-                self._local_timestamps.pop(skill_id, None)
+                with self._local_lock:
+                    self._local.pop(skill_id, None)
+                    self._local_timestamps.pop(skill_id, None)
             else:
                 self.metrics.record_hit(tier="local")
                 logger.debug(
@@ -255,8 +267,9 @@ class TwoTierSkillCache:
                     try:
                         skill = CachedSkill.model_validate_json(data)
                         # Populate L1 for next access
-                        self._local[skill_id] = skill
-                        self._local_timestamps[skill_id] = time.time()
+                        with self._local_lock:
+                            self._local[skill_id] = skill
+                            self._local_timestamps[skill_id] = time.time()
                         self.metrics.record_hit(tier="redis")
                         logger.debug(
                             "L2 skill cache hit, promoted to L1",
@@ -283,12 +296,12 @@ class TwoTierSkillCache:
         Returns:
             True if successfully cached (L1 always succeeds)
         """
-        # REPO-500: Evict entries if needed before adding new one
-        self._evict_lru_if_needed()
-
-        # Always update L1
-        self._local[skill_id] = skill
-        self._local_timestamps[skill_id] = time.time()
+        # REPO-500: Evict entries if needed before adding new one (with lock)
+        with self._local_lock:
+            self._evict_lru_if_needed()
+            # Always update L1
+            self._local[skill_id] = skill
+            self._local_timestamps[skill_id] = time.time()
 
         # Try to update L2
         l2_success = True
@@ -331,8 +344,9 @@ class TwoTierSkillCache:
         Returns:
             Cached skill or None
         """
-        if skill_id in self._local and self._is_local_fresh(skill_id):
-            return self._local[skill_id]
+        with self._local_lock:
+            if skill_id in self._local and self._is_local_fresh(skill_id):
+                return self._local[skill_id]
         return None
 
     def invalidate_local(self, skill_id: Optional[str] = None) -> int:
@@ -344,19 +358,20 @@ class TwoTierSkillCache:
         Returns:
             Number of entries cleared
         """
-        if skill_id:
-            if skill_id in self._local:
-                del self._local[skill_id]
-                self._local_timestamps.pop(skill_id, None)
-                logger.debug("Invalidated L1 cache", extra={"skill_id": skill_id})
-                return 1
-            return 0
-        else:
-            count = len(self._local)
-            self._local.clear()
-            self._local_timestamps.clear()
-            logger.debug("Cleared all L1 cache", extra={"count": count})
-            return count
+        with self._local_lock:
+            if skill_id:
+                if skill_id in self._local:
+                    del self._local[skill_id]
+                    self._local_timestamps.pop(skill_id, None)
+                    logger.debug("Invalidated L1 cache", extra={"skill_id": skill_id})
+                    return 1
+                return 0
+            else:
+                count = len(self._local)
+                self._local.clear()
+                self._local_timestamps.clear()
+                logger.debug("Cleared all L1 cache", extra={"count": count})
+                return count
 
     async def invalidate(self, skill_id: str) -> bool:
         """Invalidate both L1 and L2.
@@ -368,8 +383,9 @@ class TwoTierSkillCache:
             True if L2 invalidation succeeded
         """
         # Clear L1
-        self._local.pop(skill_id, None)
-        self._local_timestamps.pop(skill_id, None)
+        with self._local_lock:
+            self._local.pop(skill_id, None)
+            self._local_timestamps.pop(skill_id, None)
 
         # Clear L2
         if self.redis is not None:
@@ -397,9 +413,10 @@ class TwoTierSkillCache:
             Number of L2 entries cleared
         """
         # Clear L1
-        l1_count = len(self._local)
-        self._local.clear()
-        self._local_timestamps.clear()
+        with self._local_lock:
+            l1_count = len(self._local)
+            self._local.clear()
+            self._local_timestamps.clear()
 
         # Clear L2
         l2_count = 0
@@ -427,7 +444,8 @@ class TwoTierSkillCache:
     @property
     def local_size(self) -> int:
         """Get number of entries in L1 cache."""
-        return len(self._local)
+        with self._local_lock:
+            return len(self._local)
 
     def get_stats(self) -> dict:
         """Get cache statistics.

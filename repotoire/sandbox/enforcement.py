@@ -225,6 +225,8 @@ class QuotaEnforcer:
         self._upgrade_url = upgrade_url
         self._fail_open = fail_open
         self._overrides: dict[str, QuotaOverride] = {}
+        # REPO-500: Lock for thread-safe overrides access
+        self._overrides_lock = threading.Lock()
         self._conn = None
         self._connected = False
 
@@ -280,8 +282,10 @@ class QuotaEnforcer:
 
         try:
             rows = await loop.run_in_executor(None, _query)
+            # Build overrides dict, then update under lock
+            loaded_overrides = {}
             for row in rows:
-                self._overrides[row[0]] = QuotaOverride(
+                loaded_overrides[row[0]] = QuotaOverride(
                     customer_id=row[0],
                     max_concurrent_sandboxes=row[1],
                     max_daily_sandbox_minutes=row[2],
@@ -289,7 +293,9 @@ class QuotaEnforcer:
                     override_reason=row[4],
                     created_by=row[5],
                 )
-            logger.debug(f"Loaded {len(self._overrides)} quota overrides")
+            with self._overrides_lock:
+                self._overrides = loaded_overrides
+            logger.debug(f"Loaded {len(loaded_overrides)} quota overrides")
         except Exception as e:
             logger.warning(f"Failed to load quota overrides: {e}")
 
@@ -300,11 +306,14 @@ class QuotaEnforcer:
     ) -> tuple[SandboxQuota, bool]:
         """Get effective quota for a customer with any overrides applied.
 
+        Thread-safe: uses lock to protect overrides access.
+
         Returns:
             Tuple of (effective quota, has_override)
         """
         base_quota = get_quota_for_tier(tier)
-        override = self._overrides.get(customer_id)
+        with self._overrides_lock:
+            override = self._overrides.get(customer_id)
         effective = apply_override(base_quota, override)
         return effective, override is not None
 
@@ -535,10 +544,13 @@ class QuotaEnforcer:
     ) -> None:
         """Set an admin override for a customer's quota.
 
+        Thread-safe: uses lock to protect overrides access.
+
         Args:
             override: Override to apply
         """
-        self._overrides[override.customer_id] = override
+        with self._overrides_lock:
+            self._overrides[override.customer_id] = override
 
         # Persist to database if connected
         if self.usage_tracker._connected:
@@ -587,16 +599,19 @@ class QuotaEnforcer:
     async def remove_override(self, customer_id: str) -> bool:
         """Remove an admin override for a customer.
 
+        Thread-safe: uses lock to protect overrides access.
+
         Args:
             customer_id: Customer to remove override for
 
         Returns:
             True if override was removed, False if not found
         """
-        if customer_id not in self._overrides:
-            return False
+        with self._overrides_lock:
+            if customer_id not in self._overrides:
+                return False
 
-        del self._overrides[customer_id]
+            del self._overrides[customer_id]
 
         # Remove from database if connected
         if self.usage_tracker._connected:
@@ -622,13 +637,16 @@ class QuotaEnforcer:
     async def get_override(self, customer_id: str) -> Optional[QuotaOverride]:
         """Get the admin override for a customer.
 
+        Thread-safe: uses lock to protect overrides access.
+
         Args:
             customer_id: Customer identifier
 
         Returns:
             QuotaOverride if one exists, None otherwise
         """
-        return self._overrides.get(customer_id)
+        with self._overrides_lock:
+            return self._overrides.get(customer_id)
 
 
 # Global enforcer instance (lazy initialization with thread-safe singleton)

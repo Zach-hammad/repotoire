@@ -762,6 +762,9 @@ class SecretFileFilter:
         Uses regex patterns to detect API keys, passwords, tokens, private keys,
         and other sensitive values in file contents.
 
+        Note: For thread-safe usage, use filter_files() which uses local state.
+        This method uses instance cache which is fine for single-threaded use.
+
         Args:
             path: Path to file to scan
 
@@ -770,70 +773,12 @@ class SecretFileFilter:
         """
         path_str = str(path)
 
-        # Check cache first
+        # Check instance cache first
         if path_str in self._content_scan_cache:
             return self._content_scan_cache[path_str]
 
-        # Skip files that are too large
-        try:
-            file_size = path.stat().st_size
-            if file_size > MAX_CONTENT_SCAN_SIZE_BYTES:
-                result = SecretScanResult(
-                    has_secrets=False, secrets_found=[], file_path=path_str
-                )
-                self._content_scan_cache[path_str] = result
-                return result
-        except OSError:
-            result = SecretScanResult(
-                has_secrets=False, secrets_found=[], file_path=path_str
-            )
-            self._content_scan_cache[path_str] = result
-            return result
-
-        # Skip non-scannable file types
-        suffix = path.suffix.lower()
-        if suffix not in SCANNABLE_EXTENSIONS:
-            result = SecretScanResult(
-                has_secrets=False, secrets_found=[], file_path=path_str
-            )
-            self._content_scan_cache[path_str] = result
-            return result
-
-        # Read and scan file contents
-        secrets_found: List[Tuple[str, int, str]] = []
-
-        try:
-            content = path.read_text(encoding="utf-8", errors="replace")
-            lines = content.splitlines()
-
-            for line_num, line in enumerate(lines, start=1):
-                # Skip comments (basic heuristic to reduce false positives)
-                stripped = line.strip()
-                if stripped.startswith("#") or stripped.startswith("//"):
-                    # Still scan for high-confidence patterns even in comments
-                    # (real secrets in comments are still secrets!)
-                    pass
-
-                for pattern_name, pattern, description in self.content_patterns:
-                    if pattern.search(line):
-                        # Avoid duplicate detections on same line
-                        existing = [s for s in secrets_found if s[1] == line_num and s[0] == pattern_name]
-                        if not existing:
-                            secrets_found.append((pattern_name, line_num, description))
-
-        except (OSError, UnicodeDecodeError) as e:
-            logger.debug(f"Could not scan {path_str} for secrets: {e}")
-            result = SecretScanResult(
-                has_secrets=False, secrets_found=[], file_path=path_str
-            )
-            self._content_scan_cache[path_str] = result
-            return result
-
-        result = SecretScanResult(
-            has_secrets=len(secrets_found) > 0,
-            secrets_found=secrets_found,
-            file_path=path_str,
-        )
+        # Perform scan and cache result
+        result = self._perform_content_scan(path)
         self._content_scan_cache[path_str] = result
         return result
 
@@ -881,6 +826,9 @@ class SecretFileFilter:
     def filter_files(self, repo_path: Path) -> tuple[List[Path], List[str]]:
         """Get list of files to upload and patterns that caused exclusions.
 
+        Thread-safe: Uses local state to avoid race conditions with concurrent calls.
+        Note: Updates instance state atomically at the end for stats/details access.
+
         Args:
             repo_path: Path to repository root
 
@@ -889,25 +837,195 @@ class SecretFileFilter:
         """
         files = []
         repo_path = repo_path.resolve()
-        self._excluded_by_pattern = {}
-        self._excluded_by_content = {}
-        self._content_scan_cache = {}
+
+        # Use local state during filtering to avoid race conditions
+        local_excluded_by_pattern: Dict[str, int] = {}
+        local_excluded_by_content: Dict[str, List[Tuple[str, int, str]]] = {}
+        local_content_scan_cache: Dict[str, SecretScanResult] = {}
 
         for path in repo_path.rglob("*"):
-            if path.is_file() and self.should_include(path, repo_path):
-                files.append(path)
+            if path.is_file():
+                if self._should_include_with_local_state(
+                    path, repo_path,
+                    local_excluded_by_pattern,
+                    local_excluded_by_content,
+                    local_content_scan_cache,
+                ):
+                    files.append(path)
 
         # Get unique patterns that caused exclusions (both filename and content)
-        matched_patterns = list(self._excluded_by_pattern.keys())
+        matched_patterns = list(local_excluded_by_pattern.keys())
 
         # Add content-based exclusion reasons
-        for rel_path, secrets in self._excluded_by_content.items():
+        for rel_path, secrets in local_excluded_by_content.items():
             for secret_type, _, desc in secrets:
                 pattern_key = f"content:{secret_type}"
                 if pattern_key not in matched_patterns:
                     matched_patterns.append(pattern_key)
 
+        # Atomically update instance state for stats/details access
+        self._excluded_by_pattern = local_excluded_by_pattern
+        self._excluded_by_content = local_excluded_by_content
+        self._content_scan_cache = local_content_scan_cache
+
         return files, matched_patterns
+
+    def _should_include_with_local_state(
+        self,
+        path: Path,
+        relative_to: Path,
+        excluded_by_pattern: Dict[str, int],
+        excluded_by_content: Dict[str, List[Tuple[str, int, str]]],
+        content_scan_cache: Dict[str, SecretScanResult],
+    ) -> bool:
+        """Check if file should be included, using provided local state dicts.
+
+        This is the thread-safe version of should_include that uses caller-provided
+        state dicts instead of instance state.
+
+        Args:
+            path: Absolute path to file
+            relative_to: Repository root to make relative paths
+            excluded_by_pattern: Dict to track pattern-based exclusions
+            excluded_by_content: Dict to track content-based exclusions
+            content_scan_cache: Dict to cache content scan results
+
+        Returns:
+            True if file should be uploaded, False to exclude
+        """
+        try:
+            relative_path = path.relative_to(relative_to)
+            rel_str = str(relative_path)
+            rel_parts = relative_path.parts
+        except ValueError:
+            return False
+
+        # Check if file matches include patterns (always upload these)
+        # NOTE: Even included files get content-scanned for secrets
+        is_include_pattern_match = False
+        for pattern in self.include_patterns:
+            if self._matches_pattern(rel_str, path.name, rel_parts, pattern):
+                is_include_pattern_match = True
+                break
+
+        # Check if file matches sensitive patterns (security exclusion)
+        for pattern in self.sensitive_patterns:
+            if self._matches_pattern(rel_str, path.name, rel_parts, pattern):
+                excluded_by_pattern[pattern] = (
+                    excluded_by_pattern.get(pattern, 0) + 1
+                )
+                return False
+
+        # Check if file matches non-source patterns (performance exclusion)
+        for pattern in self.exclude_non_source:
+            if self._matches_pattern(rel_str, path.name, rel_parts, pattern):
+                return False
+
+        # Content-based secret scanning (even for include-pattern matches)
+        if self.enable_content_scanning and path.is_file():
+            scan_result = self._scan_content_with_cache(path, content_scan_cache)
+            if scan_result.has_secrets:
+                # Log the secrets found
+                excluded_by_content[rel_str] = scan_result.secrets_found
+                logger.warning(
+                    f"Excluding file with embedded secrets: {rel_str}",
+                    extra={
+                        "secrets_found": [
+                            {"type": s[0], "line": s[1], "desc": s[2]}
+                            for s in scan_result.secrets_found
+                        ]
+                    },
+                )
+                return False
+
+        return True
+
+    def _scan_content_with_cache(
+        self, path: Path, cache: Dict[str, SecretScanResult]
+    ) -> SecretScanResult:
+        """Scan file contents using provided cache dict.
+
+        Args:
+            path: Path to file to scan
+            cache: Cache dict to use for memoization
+
+        Returns:
+            SecretScanResult with detection results
+        """
+        path_str = str(path)
+
+        # Check cache first
+        if path_str in cache:
+            return cache[path_str]
+
+        # Perform the actual scan (reuse existing logic)
+        result = self._perform_content_scan(path)
+        cache[path_str] = result
+        return result
+
+    def _perform_content_scan(self, path: Path) -> SecretScanResult:
+        """Perform the actual content scan for secrets.
+
+        Args:
+            path: Path to file to scan
+
+        Returns:
+            SecretScanResult with detection results
+        """
+        path_str = str(path)
+
+        # Skip files that are too large
+        try:
+            file_size = path.stat().st_size
+            if file_size > MAX_CONTENT_SCAN_SIZE_BYTES:
+                return SecretScanResult(
+                    has_secrets=False, secrets_found=[], file_path=path_str
+                )
+        except OSError:
+            return SecretScanResult(
+                has_secrets=False, secrets_found=[], file_path=path_str
+            )
+
+        # Skip non-scannable file types
+        suffix = path.suffix.lower()
+        if suffix not in SCANNABLE_EXTENSIONS:
+            return SecretScanResult(
+                has_secrets=False, secrets_found=[], file_path=path_str
+            )
+
+        # Read and scan file contents
+        secrets_found: List[Tuple[str, int, str]] = []
+
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+            lines = content.splitlines()
+
+            for line_num, line in enumerate(lines, start=1):
+                # Skip comments (basic heuristic to reduce false positives)
+                stripped = line.strip()
+                if stripped.startswith("#") or stripped.startswith("//"):
+                    # Still scan for high-confidence patterns even in comments
+                    # (real secrets in comments are still secrets!)
+                    pass
+
+                for pattern_name, pattern, description in self.content_patterns:
+                    if pattern.search(line):
+                        # Avoid duplicate detections on same line
+                        existing = [s for s in secrets_found if s[1] == line_num and s[0] == pattern_name]
+                        if not existing:
+                            secrets_found.append((pattern_name, line_num, description))
+
+        except (OSError, UnicodeDecodeError) as e:
+            logger.debug(f"Could not scan {path_str} for secrets: {e}")
+            return SecretScanResult(
+                has_secrets=False, secrets_found=[], file_path=path_str
+            )
+
+        return SecretScanResult(
+            has_secrets=len(secrets_found) > 0,
+            secrets_found=secrets_found,
+            file_path=path_str,
+        )
 
     def get_exclusion_stats(self) -> Dict[str, int]:
         """Get statistics on which patterns caused exclusions.

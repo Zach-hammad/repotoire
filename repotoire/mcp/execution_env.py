@@ -1835,19 +1835,24 @@ class MCPSkillRunner:
 
 # Global runner instance for convenience
 _global_skill_runner: Optional[MCPSkillRunner] = None
+_skill_runner_lock = threading.Lock()
 
 
 def get_skill_runner() -> MCPSkillRunner:
     """Get the global MCPSkillRunner instance.
 
     Creates a new instance if one doesn't exist.
+    Thread-safe via double-checked locking pattern.
 
     Returns:
         Global MCPSkillRunner instance
     """
     global _global_skill_runner
-    if _global_skill_runner is None:
-        _global_skill_runner = MCPSkillRunner()
+    if _global_skill_runner is not None:
+        return _global_skill_runner
+    with _skill_runner_lock:
+        if _global_skill_runner is None:
+            _global_skill_runner = MCPSkillRunner()
     return _global_skill_runner
 
 

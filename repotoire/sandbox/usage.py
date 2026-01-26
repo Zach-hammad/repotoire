@@ -136,6 +136,8 @@ class SandboxUsageTracker:
         self._session_tracker_initialized = False
         # Fallback in-memory concurrent session tracking when Redis unavailable
         self._concurrent_sessions: dict[str, list[ConcurrentSession]] = {}
+        # REPO-500: Lock for thread-safe fallback session tracking
+        self._fallback_lock = asyncio.Lock()
 
     async def connect(self) -> None:
         """Connect to TimescaleDB and initialize distributed session tracker.
@@ -411,9 +413,10 @@ class SandboxUsageTracker:
                     f"Distributed session tracker failed, using in-memory: {e}"
                 )
 
-        # Fallback to in-memory tracking
-        sessions = self._concurrent_sessions.get(customer_id, [])
-        return len(sessions)
+        # Fallback to in-memory tracking (with lock for thread safety)
+        async with self._fallback_lock:
+            sessions = self._concurrent_sessions.get(customer_id, [])
+            return len(sessions)
 
     async def increment_concurrent(
         self,
@@ -450,18 +453,19 @@ class SandboxUsageTracker:
                     f"Distributed session tracker failed, using in-memory: {e}"
                 )
 
-        # Fallback to in-memory tracking
+        # Fallback to in-memory tracking (with lock for thread safety)
         session = ConcurrentSession(
             customer_id=customer_id,
             sandbox_id=sandbox_id,
             operation_type=operation_type,
         )
 
-        if customer_id not in self._concurrent_sessions:
-            self._concurrent_sessions[customer_id] = []
+        async with self._fallback_lock:
+            if customer_id not in self._concurrent_sessions:
+                self._concurrent_sessions[customer_id] = []
 
-        self._concurrent_sessions[customer_id].append(session)
-        count = len(self._concurrent_sessions[customer_id])
+            self._concurrent_sessions[customer_id].append(session)
+            count = len(self._concurrent_sessions[customer_id])
 
         logger.debug(
             f"Incremented concurrent for {customer_id}: {count} active (in-memory)",
@@ -503,15 +507,16 @@ class SandboxUsageTracker:
                     f"Distributed session tracker failed, using in-memory: {e}"
                 )
 
-        # Fallback to in-memory tracking
-        sessions = self._concurrent_sessions.get(customer_id, [])
+        # Fallback to in-memory tracking (with lock for thread safety)
+        async with self._fallback_lock:
+            sessions = self._concurrent_sessions.get(customer_id, [])
 
-        # Remove the session with matching sandbox_id
-        self._concurrent_sessions[customer_id] = [
-            s for s in sessions if s.sandbox_id != sandbox_id
-        ]
+            # Remove the session with matching sandbox_id
+            self._concurrent_sessions[customer_id] = [
+                s for s in sessions if s.sandbox_id != sandbox_id
+            ]
 
-        count = len(self._concurrent_sessions.get(customer_id, []))
+            count = len(self._concurrent_sessions.get(customer_id, []))
 
         logger.debug(
             f"Decremented concurrent for {customer_id}: {count} active (in-memory)",
@@ -556,8 +561,9 @@ class SandboxUsageTracker:
                     f"Distributed session tracker failed, using in-memory: {e}"
                 )
 
-        # Fallback to in-memory tracking
-        return self._concurrent_sessions.get(customer_id, []).copy()
+        # Fallback to in-memory tracking (with lock for thread safety)
+        async with self._fallback_lock:
+            return self._concurrent_sessions.get(customer_id, []).copy()
 
     async def heartbeat_session(
         self,

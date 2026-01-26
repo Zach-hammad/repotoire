@@ -226,6 +226,8 @@ class IngestionPipeline:
 
         # Track skipped files for reporting
         self.skipped_files: List[Dict[str, str]] = []
+        # REPO-500: Lock for thread-safe skipped files access
+        self._skipped_lock = threading.Lock()
 
         # Cache for file content, hash, and last_modified to avoid redundant reads
         # REPO-500: Now includes last_modified to fix TOCTOU race condition
@@ -244,6 +246,8 @@ class IngestionPipeline:
 
         # Callbacks to run after ingestion completes (e.g., cache invalidation)
         self._on_ingest_complete_callbacks: List[Callable[[], None]] = []
+        # REPO-500: Lock for thread-safe callbacks access
+        self._callbacks_lock = threading.Lock()
 
         # Optional RAG retriever for automatic cache invalidation
         self._rag_retriever = None
@@ -539,6 +543,7 @@ class IngestionPipeline:
         """Register a callback to run after ingestion completes.
 
         Use this to register cache invalidation or other cleanup functions.
+        Thread-safe: uses lock to protect callback list.
 
         Args:
             callback: Zero-argument callable to execute after ingestion
@@ -546,7 +551,8 @@ class IngestionPipeline:
         Example:
             >>> pipeline.register_on_ingest_complete(retriever.invalidate_cache)
         """
-        self._on_ingest_complete_callbacks.append(callback)
+        with self._callbacks_lock:
+            self._on_ingest_complete_callbacks.append(callback)
         logger.debug(f"Registered on_ingest_complete callback: {callback.__name__}")
 
     def set_rag_retriever(self, retriever) -> None:
@@ -562,7 +568,10 @@ class IngestionPipeline:
         logger.info("RAG retriever registered for automatic cache invalidation")
 
     def _run_on_ingest_complete_callbacks(self) -> None:
-        """Execute all registered on_ingest_complete callbacks."""
+        """Execute all registered on_ingest_complete callbacks.
+
+        Thread-safe: takes snapshot of callbacks under lock before iteration.
+        """
         # Invalidate RAG cache if retriever is set
         if self._rag_retriever is not None:
             try:
@@ -570,8 +579,12 @@ class IngestionPipeline:
             except Exception as e:
                 logger.warning(f"Failed to invalidate RAG cache: {e}")
 
-        # Run other registered callbacks
-        for callback in self._on_ingest_complete_callbacks:
+        # Take snapshot of callbacks under lock
+        with self._callbacks_lock:
+            callbacks = list(self._on_ingest_complete_callbacks)
+
+        # Run callbacks outside lock to avoid blocking registrations
+        for callback in callbacks:
             try:
                 callback()
             except Exception as e:
@@ -600,6 +613,16 @@ class IngestionPipeline:
                 f"This could be a path traversal attack."
             )
 
+    def _record_skipped_file(self, file_path: str, reason: str) -> None:
+        """Record a skipped file with thread-safe access.
+
+        Args:
+            file_path: Path to the skipped file
+            reason: Reason for skipping
+        """
+        with self._skipped_lock:
+            self.skipped_files.append({"file": file_path, "reason": reason})
+
     def _validate_file_size(self, file_path: Path) -> bool:
         """Validate file size is within limits.
 
@@ -615,10 +638,10 @@ class IngestionPipeline:
                 logger.warning(
                     f"Skipping file {file_path}: size {size_mb:.1f}MB exceeds limit of {self.max_file_size_mb}MB"
                 )
-                self.skipped_files.append({
-                    "file": str(file_path),
-                    "reason": f"File too large: {size_mb:.1f}MB > {self.max_file_size_mb}MB"
-                })
+                self._record_skipped_file(
+                    str(file_path),
+                    f"File too large: {size_mb:.1f}MB > {self.max_file_size_mb}MB"
+                )
                 return False
             return True
         except Exception as e:
@@ -637,10 +660,7 @@ class IngestionPipeline:
         # Skip symlinks by default (security)
         if file_path.is_symlink() and not self.follow_symlinks:
             logger.warning(f"Skipping symlink: {file_path} (use --follow-symlinks to include)")
-            self.skipped_files.append({
-                "file": str(file_path),
-                "reason": "Symbolic link (security)"
-            })
+            self._record_skipped_file(str(file_path), "Symbolic link (security)")
             return True
 
         # Validate file size
@@ -652,10 +672,7 @@ class IngestionPipeline:
             self._validate_file_path(file_path)
         except SecurityError as e:
             logger.error(f"Security check failed for {file_path}: {e}")
-            self.skipped_files.append({
-                "file": str(file_path),
-                "reason": "Outside repository boundary"
-            })
+            self._record_skipped_file(str(file_path), "Outside repository boundary")
             return True
 
         return False
@@ -724,10 +741,7 @@ class IngestionPipeline:
             self._validate_file_path(file_path)
         except SecurityError as e:
             logger.error(f"Security validation failed: {e}")
-            self.skipped_files.append({
-                "file": str(file_path),
-                "reason": "Security validation failed"
-            })
+            self._record_skipped_file(str(file_path), "Security validation failed")
             return [], []
 
         # Determine language from extension
@@ -776,10 +790,7 @@ class IngestionPipeline:
             return entities, relationships
         except Exception as e:
             logger.error(f"Failed to parse {file_path}: {e}")
-            self.skipped_files.append({
-                "file": str(file_path),
-                "reason": f"Parse error: {str(e)}"
-            })
+            self._record_skipped_file(str(file_path), f"Parse error: {str(e)}")
             return [], []
 
     def _generate_clues_for_entities(

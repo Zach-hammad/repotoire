@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import secrets
+import threading
 import time
 from typing import TYPE_CHECKING
 
@@ -221,16 +222,21 @@ class StateTokenStore:
 # Dependency injection for FastAPI
 _redis_client: "Redis | None" = None
 _redis_lock: asyncio.Lock | None = None
+_redis_init_lock = threading.Lock()  # REPO-500: Protect asyncio.Lock creation
 
 
 def _get_redis_lock() -> asyncio.Lock:
     """Get or create the Redis client lock.
 
     Creates the lock lazily to avoid event loop issues at module import time.
+    Thread-safe via double-checked locking pattern.
     """
     global _redis_lock
-    if _redis_lock is None:
-        _redis_lock = asyncio.Lock()
+    if _redis_lock is not None:
+        return _redis_lock
+    with _redis_init_lock:
+        if _redis_lock is None:
+            _redis_lock = asyncio.Lock()
     return _redis_lock
 
 

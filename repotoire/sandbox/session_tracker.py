@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -420,16 +421,23 @@ _redis_client: "Redis | None" = None
 _session_tracker: DistributedSessionTracker | None = None
 _redis_lock: asyncio.Lock | None = None
 _tracker_lock: asyncio.Lock | None = None
+# REPO-500: Protect asyncio.Lock creation with threading locks
+_redis_init_lock = threading.Lock()
+_tracker_init_lock = threading.Lock()
 
 
 def _get_redis_lock() -> asyncio.Lock:
     """Get or create the Redis client lock.
 
     Creates the lock lazily to avoid event loop issues at module import time.
+    Thread-safe via double-checked locking pattern.
     """
     global _redis_lock
-    if _redis_lock is None:
-        _redis_lock = asyncio.Lock()
+    if _redis_lock is not None:
+        return _redis_lock
+    with _redis_init_lock:
+        if _redis_lock is None:
+            _redis_lock = asyncio.Lock()
     return _redis_lock
 
 
@@ -437,10 +445,14 @@ def _get_tracker_lock() -> asyncio.Lock:
     """Get or create the session tracker lock.
 
     Creates the lock lazily to avoid event loop issues at module import time.
+    Thread-safe via double-checked locking pattern.
     """
     global _tracker_lock
-    if _tracker_lock is None:
-        _tracker_lock = asyncio.Lock()
+    if _tracker_lock is not None:
+        return _tracker_lock
+    with _tracker_init_lock:
+        if _tracker_lock is None:
+            _tracker_lock = asyncio.Lock()
     return _tracker_lock
 
 

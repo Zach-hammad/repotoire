@@ -344,10 +344,15 @@ class FalkorDBClient(DatabaseClient):
                 f"Will retry in {self.circuit_breaker_timeout - (time.time() - (self._circuit_open_time or 0)):.1f}s"
             )
 
-        # REPO-500: Periodic health check
-        now = time.time()
-        if now - self._last_health_check > self._health_check_interval:
-            self._last_health_check = now
+        # REPO-500: Periodic health check (thread-safe timestamp check)
+        needs_health_check = False
+        with self._circuit_lock:
+            now = time.time()
+            if now - self._last_health_check > self._health_check_interval:
+                self._last_health_check = now
+                needs_health_check = True
+
+        if needs_health_check:
             if not self._check_health():
                 logger.warning("Health check failed, attempting reconnection")
                 self._reconnect()

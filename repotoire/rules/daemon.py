@@ -57,15 +57,21 @@ class RuleRefreshDaemon:
         self._is_falkordb = getattr(client, 'is_falkordb', False)
 
         self._task: Optional[asyncio.Task] = None
-        self._running = False
+        # REPO-500: Use Event for thread-safe running flag
+        self._stop_event: Optional[asyncio.Event] = None
+
+    @property
+    def _running(self) -> bool:
+        """Check if daemon is running."""
+        return self._stop_event is not None and not self._stop_event.is_set()
 
     async def start(self) -> None:
         """Start the background daemon."""
-        if self._running:
+        if self._stop_event is not None and not self._stop_event.is_set():
             logger.warning("Daemon already running")
             return
 
-        self._running = True
+        self._stop_event = asyncio.Event()
         self._task = asyncio.create_task(self._run_loop())
         logger.info(
             f"Rule refresh daemon started "
@@ -74,10 +80,10 @@ class RuleRefreshDaemon:
 
     async def stop(self) -> None:
         """Stop the background daemon."""
-        if not self._running:
+        if self._stop_event is None or self._stop_event.is_set():
             return
 
-        self._running = False
+        self._stop_event.set()
         if self._task:
             self._task.cancel()
             try:
@@ -89,7 +95,7 @@ class RuleRefreshDaemon:
 
     async def _run_loop(self) -> None:
         """Main daemon loop."""
-        while self._running:
+        while self._stop_event is not None and not self._stop_event.is_set():
             try:
                 await self._refresh_cycle()
             except Exception as e:

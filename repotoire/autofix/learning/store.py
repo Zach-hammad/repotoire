@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict
 import os
+import threading
 import time
 
 from repotoire.logging_config import get_logger
@@ -39,17 +40,22 @@ class DecisionStore:
         """
         self.storage_path = storage_path or DEFAULT_STORAGE_PATH
         self._cache: List[FixDecision] = []
+        # REPO-500: Lock for thread-safe cache access
+        self._cache_lock = threading.Lock()
         self._load_cache()
 
     def _load_cache(self) -> None:
-        """Load existing decisions into memory cache."""
-        self._cache = []
+        """Load existing decisions into memory cache.
 
+        Thread-safe: uses lock to protect cache writes.
+        """
         if not self.storage_path.exists():
             logger.debug(f"Decision store not found at {self.storage_path}")
             return
 
         try:
+            # Read file first, then update cache under lock
+            loaded_decisions: List[FixDecision] = []
             with open(self.storage_path, "r", encoding="utf-8") as f:
                 for line_num, line in enumerate(f, 1):
                     line = line.strip()
@@ -57,13 +63,16 @@ class DecisionStore:
                         continue
                     try:
                         decision = FixDecision.from_jsonl(line)
-                        self._cache.append(decision)
+                        loaded_decisions.append(decision)
                     except Exception as e:
                         logger.warning(
                             f"Failed to parse decision on line {line_num}: {e}"
                         )
 
-            logger.info(f"Loaded {len(self._cache)} decisions from {self.storage_path}")
+            with self._cache_lock:
+                self._cache = loaded_decisions
+
+            logger.info(f"Loaded {len(loaded_decisions)} decisions from {self.storage_path}")
 
         except Exception as e:
             logger.error(f"Failed to load decision store: {e}")
@@ -72,6 +81,7 @@ class DecisionStore:
         """Record a new decision.
 
         Appends to file AND adds to memory cache.
+        Thread-safe: uses lock to protect cache writes.
 
         Args:
             decision: The fix decision to record
@@ -84,8 +94,9 @@ class DecisionStore:
             with open(self.storage_path, "a", encoding="utf-8") as f:
                 f.write(decision.to_jsonl() + "\n")
 
-            # Add to cache
-            self._cache.append(decision)
+            # Add to cache (thread-safe)
+            with self._cache_lock:
+                self._cache.append(decision)
             logger.debug(f"Recorded decision {decision.id} for fix {decision.fix_id}")
 
         except Exception as e:
@@ -99,6 +110,8 @@ class DecisionStore:
     ) -> List[FixDecision]:
         """Get all decisions, optionally filtered.
 
+        Thread-safe: takes snapshot of cache under lock.
+
         Args:
             repository: Filter by repository path
             since: Filter by timestamp (decisions after this time)
@@ -106,7 +119,8 @@ class DecisionStore:
         Returns:
             List of matching decisions
         """
-        decisions = self._cache
+        with self._cache_lock:
+            decisions = list(self._cache)
 
         if repository:
             # Normalize paths for comparison

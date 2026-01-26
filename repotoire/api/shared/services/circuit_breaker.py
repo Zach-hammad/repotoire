@@ -27,6 +27,7 @@ Usage:
 """
 
 import asyncio
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -81,21 +82,27 @@ class CircuitBreaker:
     _success_count: int = field(default=0, init=False)
     _last_failure_time: Optional[float] = field(default=None, init=False)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False)
+    # REPO-500: Sync lock for state property access
+    _state_lock: threading.Lock = field(default_factory=threading.Lock, init=False)
 
     @property
     def state(self) -> CircuitState:
-        """Get current circuit state, checking for recovery timeout."""
-        if self._state == CircuitState.OPEN:
-            if self._last_failure_time is not None:
-                elapsed = time.monotonic() - self._last_failure_time
-                if elapsed >= self.recovery_timeout:
-                    self._state = CircuitState.HALF_OPEN
-                    self._success_count = 0
-                    logger.info(
-                        f"Circuit breaker {self.name} transitioning to HALF_OPEN",
-                        extra={"service": self.name, "elapsed": elapsed}
-                    )
-        return self._state
+        """Get current circuit state, checking for recovery timeout.
+
+        Thread-safe: uses lock to protect state reads and transitions.
+        """
+        with self._state_lock:
+            if self._state == CircuitState.OPEN:
+                if self._last_failure_time is not None:
+                    elapsed = time.monotonic() - self._last_failure_time
+                    if elapsed >= self.recovery_timeout:
+                        self._state = CircuitState.HALF_OPEN
+                        self._success_count = 0
+                        logger.info(
+                            f"Circuit breaker {self.name} transitioning to HALF_OPEN",
+                            extra={"service": self.name, "elapsed": elapsed}
+                        )
+            return self._state
 
     @property
     def is_closed(self) -> bool:
@@ -109,11 +116,15 @@ class CircuitBreaker:
 
     @property
     def time_until_retry(self) -> float:
-        """Get seconds until circuit may transition to half-open."""
-        if self._state != CircuitState.OPEN or self._last_failure_time is None:
-            return 0.0
-        elapsed = time.monotonic() - self._last_failure_time
-        return max(0.0, self.recovery_timeout - elapsed)
+        """Get seconds until circuit may transition to half-open.
+
+        Thread-safe: uses lock to protect state reads.
+        """
+        with self._state_lock:
+            if self._state != CircuitState.OPEN or self._last_failure_time is None:
+                return 0.0
+            elapsed = time.monotonic() - self._last_failure_time
+            return max(0.0, self.recovery_timeout - elapsed)
 
     async def __aenter__(self) -> "CircuitBreaker":
         """Enter the circuit breaker context."""
@@ -175,11 +186,15 @@ class CircuitBreaker:
                 )
 
     def reset(self) -> None:
-        """Reset the circuit breaker to closed state."""
-        self._state = CircuitState.CLOSED
-        self._failure_count = 0
-        self._success_count = 0
-        self._last_failure_time = None
+        """Reset the circuit breaker to closed state.
+
+        Thread-safe: uses lock to protect state modifications.
+        """
+        with self._state_lock:
+            self._state = CircuitState.CLOSED
+            self._failure_count = 0
+            self._success_count = 0
+            self._last_failure_time = None
         logger.info(f"Circuit breaker {self.name} manually reset")
 
 

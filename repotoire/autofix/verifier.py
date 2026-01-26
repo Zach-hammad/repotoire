@@ -129,6 +129,7 @@ class ParallelVerifier:
 
         self._semaphore: Optional[asyncio.Semaphore] = None
         self._total_cost: float = 0.0
+        self._cost_lock = asyncio.Lock()  # REPO-500: Thread-safe cost accumulation
 
     async def __aenter__(self) -> "ParallelVerifier":
         """Enter async context."""
@@ -275,7 +276,9 @@ class ParallelVerifier:
                     cpu_count=self.sandbox_config.cpu_count,
                     memory_gb=self.sandbox_config.memory_mb / 1024,
                 )
-                self._total_cost += cost
+                # REPO-500: Thread-safe cost accumulation
+                async with self._cost_lock:
+                    self._total_cost += cost
 
                 return VerificationResult(
                     fix_id=fix.id,
