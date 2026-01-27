@@ -19,6 +19,7 @@ Environment variables:
 """
 
 import os
+import threading
 from typing import List, Optional, Literal, Tuple, Union
 from dataclasses import dataclass
 import numpy as np
@@ -494,6 +495,10 @@ class CodeEmbedder:
         self.config = config
         self._api_key = api_key
 
+        # Thread-safe lock for model/client initialization and access
+        # Uses RLock to allow recursive locking (e.g., init methods calling helpers)
+        self._init_lock = threading.RLock()
+
         # Resolve auto backend
         self.resolved_backend, self.backend_reason = config.resolve_backend()
         logger.info(f"Embedding backend: {self.backend_reason}")
@@ -704,13 +709,16 @@ class CodeEmbedder:
     def _embed_local(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings using local sentence-transformers model.
 
+        Thread-safe: Uses lock for model access since local models may not be thread-safe.
+
         Args:
             texts: List of texts to embed
 
         Returns:
             List of embedding vectors
         """
-        embeddings = self._model.encode(texts, show_progress_bar=False)
+        with self._init_lock:
+            embeddings = self._model.encode(texts, show_progress_bar=False)
         return embeddings.tolist()
 
     def _embed_openai(self, texts: List[str]) -> List[List[float]]:

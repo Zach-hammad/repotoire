@@ -35,17 +35,18 @@ import asyncio
 import fnmatch
 import os
 import re
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from repotoire.logging_config import get_logger
-from repotoire.sandbox.client import SandboxExecutor, CommandResult
+from repotoire.sandbox.client import CommandResult, SandboxExecutor
 from repotoire.sandbox.config import SandboxConfig
 from repotoire.sandbox.exceptions import (
     SandboxConfigurationError,
-    SandboxTimeoutError,
     SandboxExecutionError,
+    SandboxTimeoutError,
 )
 
 logger = get_logger(__name__)
@@ -693,6 +694,8 @@ class SecretFileFilter:
         self.exclude_non_source = exclude_non_source
         self.enable_content_scanning = enable_content_scanning
         self.content_patterns = content_patterns or SECRET_CONTENT_PATTERNS
+        # Thread-safe lock for atomic state updates
+        self._state_lock = threading.Lock()
         self._excluded_by_pattern: Dict[str, int] = {}
         self._excluded_by_content: Dict[str, List[Tuple[str, int, str]]] = {}
         self._content_scan_cache: Dict[str, SecretScanResult] = {}
@@ -727,9 +730,10 @@ class SecretFileFilter:
         # Check if file matches sensitive patterns (security exclusion)
         for pattern in self.sensitive_patterns:
             if self._matches_pattern(rel_str, path.name, rel_parts, pattern):
-                self._excluded_by_pattern[pattern] = (
-                    self._excluded_by_pattern.get(pattern, 0) + 1
-                )
+                with self._state_lock:
+                    self._excluded_by_pattern[pattern] = (
+                        self._excluded_by_pattern.get(pattern, 0) + 1
+                    )
                 return False
 
         # Check if file matches non-source patterns (performance exclusion)
@@ -742,7 +746,8 @@ class SecretFileFilter:
             scan_result = self.scan_content_for_secrets(path)
             if scan_result.has_secrets:
                 # Log the secrets found
-                self._excluded_by_content[rel_str] = scan_result.secrets_found
+                with self._state_lock:
+                    self._excluded_by_content[rel_str] = scan_result.secrets_found
                 logger.warning(
                     f"Excluding file with embedded secrets: {rel_str}",
                     extra={
@@ -762,8 +767,7 @@ class SecretFileFilter:
         Uses regex patterns to detect API keys, passwords, tokens, private keys,
         and other sensitive values in file contents.
 
-        Note: For thread-safe usage, use filter_files() which uses local state.
-        This method uses instance cache which is fine for single-threaded use.
+        Thread-safe: Uses lock for cache access.
 
         Args:
             path: Path to file to scan
@@ -773,13 +777,17 @@ class SecretFileFilter:
         """
         path_str = str(path)
 
-        # Check instance cache first
-        if path_str in self._content_scan_cache:
-            return self._content_scan_cache[path_str]
+        # Check instance cache first (with lock for thread-safety)
+        with self._state_lock:
+            if path_str in self._content_scan_cache:
+                return self._content_scan_cache[path_str]
 
-        # Perform scan and cache result
+        # Perform scan outside the lock (expensive operation)
         result = self._perform_content_scan(path)
-        self._content_scan_cache[path_str] = result
+
+        # Cache result with lock
+        with self._state_lock:
+            self._content_scan_cache[path_str] = result
         return result
 
     def _matches_pattern(
@@ -864,9 +872,10 @@ class SecretFileFilter:
                     matched_patterns.append(pattern_key)
 
         # Atomically update instance state for stats/details access
-        self._excluded_by_pattern = local_excluded_by_pattern
-        self._excluded_by_content = local_excluded_by_content
-        self._content_scan_cache = local_content_scan_cache
+        with self._state_lock:
+            self._excluded_by_pattern = local_excluded_by_pattern
+            self._excluded_by_content = local_excluded_by_content
+            self._content_scan_cache = local_content_scan_cache
 
         return files, matched_patterns
 
@@ -1030,15 +1039,19 @@ class SecretFileFilter:
     def get_exclusion_stats(self) -> Dict[str, int]:
         """Get statistics on which patterns caused exclusions.
 
+        Thread-safe: Uses lock to read consistent state.
+
         Returns:
             Dictionary mapping patterns to exclusion counts.
             Content-based patterns are prefixed with 'content:'.
         """
-        stats = dict(self._excluded_by_pattern)
+        with self._state_lock:
+            stats = dict(self._excluded_by_pattern)
+            excluded_by_content_copy = dict(self._excluded_by_content)
 
         # Add content-based exclusion stats
         content_stats: Dict[str, int] = {}
-        for rel_path, secrets in self._excluded_by_content.items():
+        for rel_path, secrets in excluded_by_content_copy.items():
             for secret_type, _, _ in secrets:
                 key = f"content:{secret_type}"
                 content_stats[key] = content_stats.get(key, 0) + 1
@@ -1049,17 +1062,23 @@ class SecretFileFilter:
     def get_content_exclusion_details(self) -> Dict[str, List[Tuple[str, int, str]]]:
         """Get detailed information about content-based exclusions.
 
+        Thread-safe: Uses lock to read consistent state.
+
         Returns:
             Dictionary mapping file paths to list of (secret_type, line_number, description)
         """
-        return dict(self._excluded_by_content)
+        with self._state_lock:
+            return dict(self._excluded_by_content)
 
     def clear_cache(self) -> None:
         """Clear the content scan cache.
 
+        Thread-safe: Uses lock for cache access.
+
         Call this when re-scanning the same repository with potentially changed files.
         """
-        self._content_scan_cache = {}
+        with self._state_lock:
+            self._content_scan_cache = {}
 
 
 # =============================================================================

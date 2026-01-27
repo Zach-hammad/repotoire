@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Literal, Tuple
 import os
+import threading
 
 from repotoire.logging_config import get_logger
 
@@ -168,6 +169,8 @@ class LanceDBVectorStore(VectorStore):
         self._db = None
         self._table = None
         self._dimensions = config.dimensions
+        # Thread-safe lock for dimension detection and table access
+        self._lock = threading.Lock()
 
         # Lazy import to make LanceDB optional
         try:
@@ -223,51 +226,53 @@ class LanceDBVectorStore(VectorStore):
         if not entity_ids:
             return 0
 
-        # Auto-detect dimensions from first embedding
-        if self._dimensions == 0:
-            self._dimensions = len(embeddings[0])
+        # Thread-safe dimension detection and table access
+        with self._lock:
+            # Auto-detect dimensions from first embedding
+            if self._dimensions == 0:
+                self._dimensions = len(embeddings[0])
 
-        # Build data records
-        records = []
-        for i, (eid, emb, etype) in enumerate(zip(entity_ids, embeddings, entity_types)):
-            record = {
-                "entity_id": eid,
-                "vector": emb,
-                "entity_type": etype,
-            }
-            # Add metadata fields
-            if metadata and i < len(metadata):
-                for k, v in metadata[i].items():
-                    # LanceDB handles various types well
-                    record[k] = v
-            records.append(record)
+            # Build data records
+            records = []
+            for i, (eid, emb, etype) in enumerate(zip(entity_ids, embeddings, entity_types)):
+                record = {
+                    "entity_id": eid,
+                    "vector": emb,
+                    "entity_type": etype,
+                }
+                # Add metadata fields
+                if metadata and i < len(metadata):
+                    for k, v in metadata[i].items():
+                        # LanceDB handles various types well
+                        record[k] = v
+                records.append(record)
 
-        # Create or update table
-        if self._table is None:
-            # Create new table
-            self._table = self._db.create_table(
-                self.config.table_name,
-                data=records,
-                mode="overwrite"
-            )
-            logger.info(
-                f"Created LanceDB table: {self.config.table_name} "
-                f"with {len(records)} records"
-            )
-        else:
-            # Append to existing table
-            # First, delete existing records with same entity_ids (upsert)
-            try:
-                existing_ids = set(entity_ids)
-                # LanceDB delete with filter
-                self._table.delete(f"entity_id IN {tuple(existing_ids)}")
-            except Exception as e:
-                logger.debug(f"Delete during upsert: {e}")
+            # Create or update table
+            if self._table is None:
+                # Create new table
+                self._table = self._db.create_table(
+                    self.config.table_name,
+                    data=records,
+                    mode="overwrite"
+                )
+                logger.info(
+                    f"Created LanceDB table: {self.config.table_name} "
+                    f"with {len(records)} records"
+                )
+            else:
+                # Append to existing table
+                # First, delete existing records with same entity_ids (upsert)
+                try:
+                    existing_ids = set(entity_ids)
+                    # LanceDB delete with filter
+                    self._table.delete(f"entity_id IN {tuple(existing_ids)}")
+                except Exception as e:
+                    logger.debug(f"Delete during upsert: {e}")
 
-            self._table.add(records)
-            logger.info(f"Added {len(records)} records to LanceDB table")
+                self._table.add(records)
+                logger.info(f"Added {len(records)} records to LanceDB table")
 
-        return len(records)
+            return len(records)
 
     def search(
         self,
@@ -287,96 +292,113 @@ class LanceDBVectorStore(VectorStore):
         Returns:
             Search results ordered by similarity
         """
-        if self._table is None:
-            logger.warning("LanceDB table not initialized, returning empty results")
-            return []
+        with self._lock:
+            if self._table is None:
+                logger.warning("LanceDB table not initialized, returning empty results")
+                return []
 
-        # Build query
-        query = self._table.search(query_embedding)
+            # Build query
+            query = self._table.search(query_embedding)
 
-        # Apply entity type filter
-        if entity_types:
-            if len(entity_types) == 1:
-                query = query.where(f"entity_type = '{entity_types[0]}'")
-            else:
-                type_list = ", ".join(f"'{t}'" for t in entity_types)
-                query = query.where(f"entity_type IN ({type_list})")
-
-        # Apply metadata filters
-        if filter_metadata:
-            for key, value in filter_metadata.items():
-                if isinstance(value, str):
-                    query = query.where(f"{key} = '{value}'")
+            # Apply entity type filter
+            if entity_types:
+                if len(entity_types) == 1:
+                    query = query.where(f"entity_type = '{entity_types[0]}'")
                 else:
-                    query = query.where(f"{key} = {value}")
+                    type_list = ", ".join(f"'{t}'" for t in entity_types)
+                    query = query.where(f"entity_type IN ({type_list})")
 
-        # Execute search
-        try:
-            results = query.limit(top_k).to_list()
-        except Exception as e:
-            logger.error(f"LanceDB search failed: {e}")
-            return []
+            # Apply metadata filters
+            if filter_metadata:
+                for key, value in filter_metadata.items():
+                    if isinstance(value, str):
+                        query = query.where(f"{key} = '{value}'")
+                    else:
+                        query = query.where(f"{key} = {value}")
 
-        # Convert to VectorSearchResult
-        search_results = []
-        for row in results:
-            # LanceDB returns _distance, convert to similarity score
-            # For cosine, distance is 1 - similarity
-            distance = row.get("_distance", 0)
-            score = 1.0 - distance if self.config.metric == "cosine" else 1.0 / (1.0 + distance)
+            # Execute search
+            try:
+                results = query.limit(top_k).to_list()
+            except Exception as e:
+                logger.error(f"LanceDB search failed: {e}")
+                return []
 
-            # Build metadata from remaining fields
-            metadata = {
-                k: v for k, v in row.items()
-                if k not in ("entity_id", "vector", "entity_type", "_distance")
-            }
+            # Convert to VectorSearchResult
+            search_results = []
+            for row in results:
+                # LanceDB returns _distance, convert to similarity score
+                # For cosine, distance is 1 - similarity
+                distance = row.get("_distance", 0)
+                score = 1.0 - distance if self.config.metric == "cosine" else 1.0 / (1.0 + distance)
 
-            search_results.append(VectorSearchResult(
-                entity_id=row["entity_id"],
-                score=score,
-                entity_type=row.get("entity_type", ""),
-                metadata=metadata,
-            ))
+                # Build metadata from remaining fields
+                metadata = {
+                    k: v for k, v in row.items()
+                    if k not in ("entity_id", "vector", "entity_type", "_distance")
+                }
 
-        return search_results
+                search_results.append(VectorSearchResult(
+                    entity_id=row["entity_id"],
+                    score=score,
+                    entity_type=row.get("entity_type", ""),
+                    metadata=metadata,
+                ))
+
+            return search_results
 
     def delete(self, entity_ids: List[str]) -> int:
-        """Delete embeddings by entity ID."""
-        if self._table is None or not entity_ids:
-            return 0
+        """Delete embeddings by entity ID.
 
-        try:
-            # LanceDB delete with filter
-            id_tuple = tuple(entity_ids) if len(entity_ids) > 1 else f"('{entity_ids[0]}')"
-            self._table.delete(f"entity_id IN {id_tuple}")
-            return len(entity_ids)
-        except Exception as e:
-            logger.error(f"Delete failed: {e}")
-            return 0
+        Thread-safe: Uses lock for table access.
+        """
+        with self._lock:
+            if self._table is None or not entity_ids:
+                return 0
+
+            try:
+                # LanceDB delete with filter
+                id_tuple = tuple(entity_ids) if len(entity_ids) > 1 else f"('{entity_ids[0]}')"
+                self._table.delete(f"entity_id IN {id_tuple}")
+                return len(entity_ids)
+            except Exception as e:
+                logger.error(f"Delete failed: {e}")
+                return 0
 
     def count(self) -> int:
-        """Get total number of indexed embeddings."""
-        if self._table is None:
-            return 0
-        return self._table.count_rows()
+        """Get total number of indexed embeddings.
+
+        Thread-safe: Uses lock for table access.
+        """
+        with self._lock:
+            if self._table is None:
+                return 0
+            return self._table.count_rows()
 
     def exists(self, entity_id: str) -> bool:
-        """Check if entity is indexed."""
-        if self._table is None:
-            return False
+        """Check if entity is indexed.
 
-        try:
-            result = self._table.search([0] * (self._dimensions or 1024)).where(
-                f"entity_id = '{entity_id}'"
-            ).limit(1).to_list()
-            return len(result) > 0
-        except Exception:
-            return False
+        Thread-safe: Uses lock for table access.
+        """
+        with self._lock:
+            if self._table is None:
+                return False
+
+            try:
+                result = self._table.search([0] * (self._dimensions or 1024)).where(
+                    f"entity_id = '{entity_id}'"
+                ).limit(1).to_list()
+                return len(result) > 0
+            except Exception:
+                return False
 
     def close(self) -> None:
-        """Close LanceDB connection."""
-        # LanceDB handles cleanup automatically
-        self._table = None
+        """Close LanceDB connection.
+
+        Thread-safe: Uses lock for table access.
+        """
+        with self._lock:
+            # LanceDB handles cleanup automatically
+            self._table = None
         self._db = None
 
 

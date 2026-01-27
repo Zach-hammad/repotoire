@@ -387,6 +387,10 @@ Format code snippets using markdown code blocks with appropriate language tags."
         # Detect if we're using FalkorDB
         self.is_falkordb = type(client).__name__ == "FalkorDBClient"
 
+        # Thread-safe locks for lazy component initialization
+        self._reranker_lock = threading.Lock()
+        self._llm_lock = threading.Lock()
+
         # Initialize cache
         self._cache_enabled = cache_enabled
         self._cache: Optional[RAGCache] = None
@@ -686,12 +690,15 @@ Format code snippets using markdown code blocks with appropriate language tags."
     def set_llm_config(self, llm_config: LLMConfig) -> None:
         """Set or update the LLM configuration.
 
+        Thread-safe: Uses lock for LLM client initialization.
+
         Args:
             llm_config: New LLM configuration
         """
-        self._llm_config = llm_config
-        self._llm = LLMClient(llm_config)
-        logger.info(f"Updated LLM client: {llm_config.backend}/{llm_config.get_model()}")
+        with self._llm_lock:
+            self._llm_config = llm_config
+            self._llm = LLMClient(llm_config)
+            logger.info(f"Updated LLM client: {llm_config.backend}/{llm_config.get_model()}")
 
     def _execute_retrieval(
         self,

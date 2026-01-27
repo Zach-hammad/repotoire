@@ -19,6 +19,7 @@ Example:
 
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple
+import threading
 import numpy as np
 
 from repotoire.graph import FalkorDBClient
@@ -105,6 +106,8 @@ class FastRPEmbedder:
         """
         self.client = client
         self.config = config or FastRPConfig()
+        # Thread-safe lock for projection lifecycle operations
+        self._projection_lock = threading.Lock()
 
         # Verify GDS is available
         self._verify_gds_available()
@@ -131,8 +134,8 @@ class FastRPEmbedder:
                 "docker run -e NEO4J_PLUGINS='[\"graph-data-science\"]' neo4j:latest"
             ) from e
 
-    def _drop_graph_if_exists(self) -> None:
-        """Drop existing graph projection if it exists."""
+    def _drop_graph_if_exists_unlocked(self) -> None:
+        """Drop existing graph projection if it exists (internal unlocked version)."""
         try:
             self.client.execute_query(
                 f"CALL gds.graph.drop('{self.GRAPH_NAME}', false)"
@@ -142,54 +145,65 @@ class FastRPEmbedder:
             # Graph doesn't exist, ignore
             pass
 
+    def _drop_graph_if_exists(self) -> None:
+        """Drop existing graph projection if it exists.
+
+        Thread-safe: Uses lock for projection lifecycle.
+        """
+        with self._projection_lock:
+            self._drop_graph_if_exists_unlocked()
+
     def _create_graph_projection(self) -> Dict[str, Any]:
         """Create a graph projection for FastRP.
+
+        Thread-safe: Uses lock for projection lifecycle.
 
         Returns:
             Dictionary with projection statistics
         """
-        self._drop_graph_if_exists()
+        with self._projection_lock:
+            self._drop_graph_if_exists_unlocked()
 
-        # Build node projection
-        node_projection = {
-            label: {"properties": self.config.feature_properties}
-            for label in self.config.node_labels
-        }
+            # Build node projection
+            node_projection = {
+                label: {"properties": self.config.feature_properties}
+                for label in self.config.node_labels
+            }
 
-        # Build relationship projection
-        rel_projection = {
-            rel_type: {"orientation": self.config.orientation}
-            for rel_type in self.config.relationship_types
-        }
+            # Build relationship projection
+            rel_projection = {
+                rel_type: {"orientation": self.config.orientation}
+                for rel_type in self.config.relationship_types
+            }
 
-        # Create projection using native projection
-        query = """
-        CALL gds.graph.project(
-            $graph_name,
-            $node_projection,
-            $rel_projection
-        )
-        YIELD graphName, nodeCount, relationshipCount, projectMillis
-        RETURN graphName, nodeCount, relationshipCount, projectMillis
-        """
-
-        result = self.client.execute_query(
-            query,
-            {
-                "graph_name": self.GRAPH_NAME,
-                "node_projection": node_projection,
-                "rel_projection": rel_projection,
-            },
-        )
-
-        if result:
-            stats = result[0]
-            logger.info(
-                f"Created graph projection '{stats['graphName']}': "
-                f"{stats['nodeCount']} nodes, {stats['relationshipCount']} relationships "
-                f"({stats['projectMillis']}ms)"
+            # Create projection using native projection
+            query = """
+            CALL gds.graph.project(
+                $graph_name,
+                $node_projection,
+                $rel_projection
             )
-            return dict(stats)
+            YIELD graphName, nodeCount, relationshipCount, projectMillis
+            RETURN graphName, nodeCount, relationshipCount, projectMillis
+            """
+
+            result = self.client.execute_query(
+                query,
+                {
+                    "graph_name": self.GRAPH_NAME,
+                    "node_projection": node_projection,
+                    "rel_projection": rel_projection,
+                },
+            )
+
+            if result:
+                stats = result[0]
+                logger.info(
+                    f"Created graph projection '{stats['graphName']}': "
+                    f"{stats['nodeCount']} nodes, {stats['relationshipCount']} relationships "
+                    f"({stats['projectMillis']}ms)"
+                )
+                return dict(stats)
 
         return {}
 

@@ -1,6 +1,7 @@
 """Python code parser using AST module."""
 
 import ast
+import threading
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import hashlib
@@ -652,6 +653,8 @@ class PythonParser(CodeParser):
         self.entity_map: Dict[str, str] = {}  # qualified_name -> entity_id
         self.secrets_policy = secrets_policy
         self.secrets_scanner = SecretsScanner() if secrets_policy != SecretsPolicy.WARN else None
+        # Thread-safe lock for cache access
+        self._cache_lock = threading.Lock()
         # Cached content from pipeline (avoids redundant file reads)
         # REPO-500: Now includes last_modified to fix TOCTOU race condition
         self._cached_content: Optional[Tuple[str, bytes, str, "datetime"]] = None  # (path, content_bytes, hash, last_modified)
@@ -667,6 +670,8 @@ class PythonParser(CodeParser):
     ) -> None:
         """Set cached content for next file processing.
 
+        Thread-safe: Uses lock for cache access.
+
         REPO-500: Now accepts last_modified to fix TOCTOU race condition.
         Previously, stat() was called separately in _create_file_entity(),
         which could see a different modification time if file changed.
@@ -680,17 +685,24 @@ class PythonParser(CodeParser):
             file_hash: Pre-computed MD5 hash of the content
             last_modified: Pre-captured modification time (from stat())
         """
-        self._cached_content = (file_path, content, file_hash, last_modified)
+        with self._cache_lock:
+            self._cached_content = (file_path, content, file_hash, last_modified)
 
     def _clear_cached_content(self) -> None:
-        """Clear the cached content after use."""
-        self._cached_content = None
+        """Clear the cached content after use.
+
+        Thread-safe: Uses lock for cache access.
+        """
+        with self._cache_lock:
+            self._cached_content = None
 
     def parse(self, file_path: str) -> ast.AST:
         """Parse Python file into AST.
 
         Uses cached content if available (set via set_cached_content),
         otherwise reads from disk.
+
+        Thread-safe: Uses lock for cache access.
 
         Args:
             file_path: Path to Python file
@@ -699,9 +711,12 @@ class PythonParser(CodeParser):
             Python AST
         """
         # Use cached content if available and matches this file
-        if self._cached_content and self._cached_content[0] == file_path:
+        # Thread-safe read of cache
+        with self._cache_lock:
+            cached = self._cached_content
+        if cached and cached[0] == file_path:
             # Use errors="replace" to handle non-UTF-8 encoded files gracefully
-            source = self._cached_content[1].decode("utf-8", errors="replace")
+            source = cached[1].decode("utf-8", errors="replace")
         else:
             with open(file_path, "r", encoding="utf-8", errors="replace") as f:
                 source = f.read()
@@ -773,7 +788,9 @@ class PythonParser(CodeParser):
         entities.extend(visitor.entities)
 
         # Store visitor relationships for use by extract_relationships()
-        self._visitor_relationships = visitor.relationships
+        # Thread-safe write of visitor relationships
+        with self._cache_lock:
+            self._visitor_relationships = visitor.relationships
 
         # Extract module entities from imports (only tree.body, not ast.walk)
         module_entities = self._extract_modules(tree, file_path)
@@ -873,7 +890,10 @@ class PythonParser(CodeParser):
 
         # Add relationships extracted by visitor (inheritance, overrides, attribute usage, decorates)
         # These were collected during extract_entities() in a single-pass AST traversal
-        relationships.extend(self._visitor_relationships)
+        # Thread-safe read of visitor relationships
+        with self._cache_lock:
+            visitor_rels = self._visitor_relationships
+        relationships.extend(visitor_rels)
 
         # Create CONTAINS relationships (hierarchical: file→top-level, class→members)
         file_qualified_name = file_path
@@ -933,17 +953,22 @@ class PythonParser(CodeParser):
         path_obj = Path(file_path)
         last_modified: Optional[datetime] = None
 
+        # Thread-safe read and clear of cache
+        with self._cache_lock:
+            cached = self._cached_content
+            # Clear cache after extracting (will be set again if needed)
+            if cached and cached[0] == file_path:
+                self._cached_content = None
+
         # Use cached content/hash/last_modified if available and matches this file
-        if self._cached_content and self._cached_content[0] == file_path:
-            content_bytes = self._cached_content[1]
-            file_hash = self._cached_content[2]
+        if cached and cached[0] == file_path:
+            content_bytes = cached[1]
+            file_hash = cached[2]
             # REPO-500: Use cached last_modified to fix TOCTOU race
-            last_modified = self._cached_content[3] if len(self._cached_content) > 3 else None
+            last_modified = cached[3] if len(cached) > 3 else None
             # Decode for LOC counting
             content_text = content_bytes.decode("utf-8")
             loc = len([line for line in content_text.split("\n") if line.strip()])
-            # Clear cache after use
-            self._clear_cached_content()
         else:
             # Fallback: read from disk (for non-pipeline usage)
             with open(file_path, "rb") as f:

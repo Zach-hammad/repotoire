@@ -14,6 +14,7 @@ Multi-tenant mode (SaaS):
 import hashlib
 import json
 import os
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +38,9 @@ CLOUD_CACHE_TTL = 900  # 15 minutes
 
 # Default API URL (Fly.io API server)
 DEFAULT_API_URL = "https://repotoire-api.fly.dev"
+
+# Thread-safe lock for cloud auth cache file I/O
+_cloud_cache_lock = threading.Lock()
 
 
 def get_api_key() -> Optional[str]:
@@ -211,89 +215,98 @@ def _get_cache_key(api_key: str) -> str:
 def _get_cached_auth(api_key: str) -> Optional[CloudAuthInfo]:
     """Get cached auth info if valid.
 
+    Thread-safe: Uses lock for file I/O.
+
     Args:
         api_key: The API key to look up cache for
 
     Returns:
         CloudAuthInfo if cache exists and is valid, None otherwise
     """
-    if not CLOUD_CACHE_FILE.exists():
-        return None
-
-    try:
-        data = json.loads(CLOUD_CACHE_FILE.read_text())
-        cache_key = _get_cache_key(api_key)
-
-        if cache_key not in data:
+    with _cloud_cache_lock:
+        if not CLOUD_CACHE_FILE.exists():
             return None
 
-        auth_info = CloudAuthInfo.from_dict(data[cache_key])
+        try:
+            data = json.loads(CLOUD_CACHE_FILE.read_text())
+            cache_key = _get_cache_key(api_key)
 
-        if auth_info.is_expired():
-            logger.debug("Cloud auth cache expired")
+            if cache_key not in data:
+                return None
+
+            auth_info = CloudAuthInfo.from_dict(data[cache_key])
+
+            if auth_info.is_expired():
+                logger.debug("Cloud auth cache expired")
+                return None
+
+            logger.debug(f"Using cached cloud auth for org {auth_info.org_slug}")
+            return auth_info
+
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.debug(f"Failed to read cloud auth cache: {e}")
             return None
-
-        logger.debug(f"Using cached cloud auth for org {auth_info.org_slug}")
-        return auth_info
-
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
-        logger.debug(f"Failed to read cloud auth cache: {e}")
-        return None
 
 
 def _cache_auth(api_key: str, auth_info: CloudAuthInfo) -> None:
     """Cache auth info with TTL.
 
+    Thread-safe: Uses lock for file I/O.
+
     Args:
         api_key: The API key to cache auth for
         auth_info: The auth info to cache
     """
-    try:
-        REPOTOIRE_DIR.mkdir(parents=True, exist_ok=True)
+    with _cloud_cache_lock:
+        try:
+            REPOTOIRE_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Load existing cache or create new
-        if CLOUD_CACHE_FILE.exists():
-            try:
-                data = json.loads(CLOUD_CACHE_FILE.read_text())
-            except json.JSONDecodeError:
+            # Load existing cache or create new
+            if CLOUD_CACHE_FILE.exists():
+                try:
+                    data = json.loads(CLOUD_CACHE_FILE.read_text())
+                except json.JSONDecodeError:
+                    data = {}
+            else:
                 data = {}
-        else:
-            data = {}
 
-        # Add/update this key's cache
-        cache_key = _get_cache_key(api_key)
-        data[cache_key] = auth_info.to_dict()
+            # Add/update this key's cache
+            cache_key = _get_cache_key(api_key)
+            data[cache_key] = auth_info.to_dict()
 
-        # Write cache with restricted permissions
-        CLOUD_CACHE_FILE.write_text(json.dumps(data, indent=2))
-        CLOUD_CACHE_FILE.chmod(0o600)
+            # Write cache with restricted permissions
+            CLOUD_CACHE_FILE.write_text(json.dumps(data, indent=2))
+            CLOUD_CACHE_FILE.chmod(0o600)
 
-        logger.debug(f"Cached cloud auth for org {auth_info.org_slug}")
+            logger.debug(f"Cached cloud auth for org {auth_info.org_slug}")
 
-    except Exception as e:
-        logger.debug(f"Failed to cache cloud auth: {e}")
+        except Exception as e:
+            logger.debug(f"Failed to cache cloud auth: {e}")
 
 
 def _invalidate_cache(api_key: str) -> None:
     """Invalidate cache for an API key (e.g., on 401 response).
 
+    Thread-safe: Uses lock for file I/O.
+
     Args:
         api_key: The API key to invalidate cache for
     """
-    if not CLOUD_CACHE_FILE.exists():
-        return
+    with _cloud_cache_lock:
+        if not CLOUD_CACHE_FILE.exists():
+            return
 
-    try:
-        data = json.loads(CLOUD_CACHE_FILE.read_text())
-        cache_key = _get_cache_key(api_key)
+        try:
+            data = json.loads(CLOUD_CACHE_FILE.read_text())
+            cache_key = _get_cache_key(api_key)
 
-        if cache_key in data:
-            del data[cache_key]
-            CLOUD_CACHE_FILE.write_text(json.dumps(data, indent=2))
-            logger.debug("Invalidated cloud auth cache")
+            if cache_key in data:
+                del data[cache_key]
+                CLOUD_CACHE_FILE.write_text(json.dumps(data, indent=2))
+                logger.debug("Invalidated cloud auth cache")
 
-    except Exception as e:
-        logger.debug(f"Failed to invalidate cache: {e}")
+        except Exception as e:
+            logger.debug(f"Failed to invalidate cache: {e}")
 
 
 def create_client(

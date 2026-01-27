@@ -19,6 +19,7 @@ This allows embeddings to capture complex patterns that correlate with defect-pr
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 import logging
+import threading
 
 import numpy as np
 
@@ -109,6 +110,9 @@ class Node2VecEmbedder:
         self._force_rust = force_rust
         self._gds_available: Optional[bool] = None
         self._rust_available = self._check_rust_available()
+        # Thread-safe lock for GDS availability and projection state
+        # Uses RLock to allow recursive locking from projection methods
+        self._state_lock = threading.RLock()
 
     def _check_rust_available(self) -> bool:
         """Check if Rust implementation is available."""
@@ -137,24 +141,33 @@ class Node2VecEmbedder:
     def check_gds_available(self) -> bool:
         """Check if Neo4j GDS library is available.
 
+        Thread-safe: Uses lock for state access with double-checked locking.
+
         Returns:
             True if GDS is installed and available
         """
+        # Fast path: already checked
         if self._gds_available is not None:
             return self._gds_available
 
-        try:
-            result = self.client.execute_query(
-                "RETURN gds.version() AS version"
-            )
-            version = result[0]["version"] if result else None
-            logger.info(f"GDS version: {version}")
-            self._gds_available = version is not None
-        except Exception as e:
-            logger.info(f"GDS not available: {e}")
-            self._gds_available = False
+        # Slow path: check with lock
+        with self._state_lock:
+            # Double-check after acquiring lock
+            if self._gds_available is not None:
+                return self._gds_available
 
-        return self._gds_available
+            try:
+                result = self.client.execute_query(
+                    "RETURN gds.version() AS version"
+                )
+                version = result[0]["version"] if result else None
+                logger.info(f"GDS version: {version}")
+                self._gds_available = version is not None
+            except Exception as e:
+                logger.info(f"GDS not available: {e}")
+                self._gds_available = False
+
+            return self._gds_available
 
     def _should_use_gds(self) -> bool:
         """Determine whether to use GDS or Rust backend."""
@@ -487,7 +500,8 @@ class Node2VecEmbedder:
                 relationship_types=relationship_types,
             )
 
-            self._projection_exists = True
+            with self._state_lock:
+                self._projection_exists = True
             stats = result[0] if result else {}
 
             logger.info(
@@ -503,7 +517,10 @@ class Node2VecEmbedder:
             raise RuntimeError(f"Failed to create GDS projection: {e}")
 
     def _drop_projection_if_exists(self) -> None:
-        """Drop existing graph projection to free memory."""
+        """Drop existing graph projection to free memory.
+
+        Thread-safe: Uses lock for projection state updates.
+        """
         query = """
         CALL gds.graph.exists($graph_name) YIELD exists
         WITH exists WHERE exists
@@ -512,7 +529,8 @@ class Node2VecEmbedder:
         """
         try:
             self.client.execute_query(query, graph_name=self._graph_name)
-            self._projection_exists = False
+            with self._state_lock:
+                self._projection_exists = False
         except Exception:
             # Ignore errors if projection doesn't exist
             pass

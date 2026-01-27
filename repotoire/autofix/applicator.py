@@ -12,6 +12,7 @@ Security:
 import asyncio
 import os
 import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -77,6 +78,11 @@ class FixApplicator:
         self.use_sandbox = use_sandbox
         self.test_timeout = test_timeout
         self.test_env_vars = test_env_vars or {}
+
+        # Thread-safe locks for file I/O and git operations
+        self._file_locks: Dict[Path, threading.Lock] = {}
+        self._file_locks_lock = threading.Lock()
+        self._git_lock = threading.Lock()
 
         # Initialize git repo
         try:
@@ -158,8 +164,32 @@ class FixApplicator:
 
         return successful, failed
 
+    def _get_file_lock(self, file_path: Path) -> threading.Lock:
+        """Get or create a lock for a specific file.
+
+        Thread-safe: Uses double-checked locking to avoid race conditions.
+
+        Args:
+            file_path: Path to the file
+
+        Returns:
+            Lock for the file
+        """
+        # Normalize path for consistent locking
+        normalized = file_path.resolve()
+        # Fast path: lock exists
+        if normalized in self._file_locks:
+            return self._file_locks[normalized]
+        # Slow path: create lock with protection
+        with self._file_locks_lock:
+            if normalized not in self._file_locks:
+                self._file_locks[normalized] = threading.Lock()
+            return self._file_locks[normalized]
+
     def _apply_change(self, change: CodeChange) -> Tuple[bool, Optional[str]]:
         """Apply a single code change to a file.
+
+        Thread-safe: Uses per-file locking to prevent concurrent modifications.
 
         Args:
             change: Code change to apply
@@ -169,28 +199,32 @@ class FixApplicator:
         """
         file_path = self.repository_path / change.file_path
 
+        # Get per-file lock for thread-safe file I/O
+        file_lock = self._get_file_lock(file_path)
+
         try:
-            # Read current file content
-            if not file_path.exists():
-                return False, f"File not found: {file_path}"
+            with file_lock:
+                # Read current file content
+                if not file_path.exists():
+                    return False, f"File not found: {file_path}"
 
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
 
-            # Verify original code exists
-            original = change.original_code.strip()
-            if original not in content:
-                return (
-                    False,
-                    f"Original code not found in {change.file_path}. File may have changed.",
-                )
+                # Verify original code exists
+                original = change.original_code.strip()
+                if original not in content:
+                    return (
+                        False,
+                        f"Original code not found in {change.file_path}. File may have changed.",
+                    )
 
-            # Apply the change
-            new_content = content.replace(original, change.fixed_code.strip(), 1)
+                # Apply the change
+                new_content = content.replace(original, change.fixed_code.strip(), 1)
 
-            # Write back to file
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(new_content)
+                # Write back to file
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(new_content)
 
             logger.debug(f"Applied change to {change.file_path}")
             return True, None
@@ -203,6 +237,8 @@ class FixApplicator:
     def _create_branch(self, fix: FixProposal) -> None:
         """Create git branch for fix.
 
+        Thread-safe: Uses git lock to prevent concurrent git operations.
+
         Args:
             fix: Fix proposal
         """
@@ -212,17 +248,18 @@ class FixApplicator:
         branch_name = fix.branch_name or f"autofix/{fix.fix_type.value}/{fix.id}"
 
         try:
-            # Check if branch exists
-            if branch_name in self.repo.heads:
-                logger.warning(f"Branch {branch_name} already exists, checking out")
-                self.repo.heads[branch_name].checkout()
-            else:
-                # Create new branch
-                new_branch = self.repo.create_head(branch_name)
-                new_branch.checkout()
-                logger.info(f"Created and checked out branch: {branch_name}")
+            with self._git_lock:
+                # Check if branch exists
+                if branch_name in self.repo.heads:
+                    logger.warning(f"Branch {branch_name} already exists, checking out")
+                    self.repo.heads[branch_name].checkout()
+                else:
+                    # Create new branch
+                    new_branch = self.repo.create_head(branch_name)
+                    new_branch.checkout()
+                    logger.info(f"Created and checked out branch: {branch_name}")
 
-            fix.branch_name = branch_name
+                fix.branch_name = branch_name
 
         except Exception as e:
             logger.error(f"Failed to create branch: {e}")
@@ -231,6 +268,8 @@ class FixApplicator:
     def _create_commit(self, fix: FixProposal) -> None:
         """Create git commit for fix.
 
+        Thread-safe: Uses git lock to prevent concurrent git operations.
+
         Args:
             fix: Fix proposal
         """
@@ -238,23 +277,26 @@ class FixApplicator:
             return
 
         try:
-            # Stage all changed files
-            for change in fix.changes:
-                file_path = str(change.file_path)
-                self.repo.index.add([file_path])
+            with self._git_lock:
+                # Stage all changed files
+                for change in fix.changes:
+                    file_path = str(change.file_path)
+                    self.repo.index.add([file_path])
 
-            # Create commit message
-            commit_msg = fix.commit_message or self._generate_commit_message(fix)
+                # Create commit message
+                commit_msg = fix.commit_message or self._generate_commit_message(fix)
 
-            # Commit
-            self.repo.index.commit(commit_msg)
-            logger.info(f"Created commit for fix {fix.id}")
+                # Commit
+                self.repo.index.commit(commit_msg)
+                logger.info(f"Created commit for fix {fix.id}")
 
         except Exception as e:
             logger.error(f"Failed to create commit: {e}")
 
     def _create_batch_commit(self, fixes: List[FixProposal]) -> None:
         """Create single commit for multiple fixes.
+
+        Thread-safe: Uses git lock to prevent concurrent git operations.
 
         Args:
             fixes: List of applied fixes
@@ -263,18 +305,19 @@ class FixApplicator:
             return
 
         try:
-            # Stage all changed files
-            for fix in fixes:
-                for change in fix.changes:
-                    file_path = str(change.file_path)
-                    self.repo.index.add([file_path])
+            with self._git_lock:
+                # Stage all changed files
+                for fix in fixes:
+                    for change in fix.changes:
+                        file_path = str(change.file_path)
+                        self.repo.index.add([file_path])
 
-            # Generate batch commit message
-            commit_msg = self._generate_batch_commit_message(fixes)
+                # Generate batch commit message
+                commit_msg = self._generate_batch_commit_message(fixes)
 
-            # Commit
-            self.repo.index.commit(commit_msg)
-            logger.info(f"Created batch commit for {len(fixes)} fixes")
+                # Commit
+                self.repo.index.commit(commit_msg)
+                logger.info(f"Created batch commit for {len(fixes)} fixes")
 
         except Exception as e:
             logger.error(f"Failed to create batch commit: {e}")

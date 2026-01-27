@@ -25,6 +25,7 @@ Usage:
 
 from typing import Dict, List, Optional, Set, Tuple, Any
 from dataclasses import dataclass
+import threading
 import time
 
 from repotoire.logging_config import get_logger
@@ -93,6 +94,9 @@ class IncrementalSCCManager:
         self.node_label = node_label
         self.rel_type = rel_type
 
+        # Thread-safe lock for cache and mapping state
+        self._lock = threading.Lock()
+
         # Rust cache (if available)
         self._cache: Optional["PyIncrementalSCC"] = None
 
@@ -157,6 +161,8 @@ class IncrementalSCCManager:
     def initialize(self, force_full: bool = False) -> SCCUpdateResult:
         """Initialize or reinitialize the SCC cache.
 
+        Thread-safe: Uses lock for cache and mapping state.
+
         Args:
             force_full: Force full recomputation even if cache exists
 
@@ -166,42 +172,44 @@ class IncrementalSCCManager:
         start = time.time()
 
         edges, num_nodes = self._extract_graph()
-        self._current_edges = set(edges)
 
-        if not RUST_AVAILABLE:
-            # Fallback: use petgraph via Rust, but without caching
-            logger.warning("Rust incremental SCC not available")
-            self._initialized = False
+        with self._lock:
+            self._current_edges = set(edges)
+
+            if not RUST_AVAILABLE:
+                # Fallback: use petgraph via Rust, but without caching
+                logger.warning("Rust incremental SCC not available")
+                self._initialized = False
+                return SCCUpdateResult(
+                    update_type="rust_unavailable",
+                    total_sccs=0,
+                    compute_micros=int((time.time() - start) * 1_000_000),
+                )
+
+            if self._cache is None or force_full:
+                # Create new cache
+                self._cache = PyIncrementalSCC()
+                self._cache.initialize(edges, num_nodes)
+                self._initialized = True
+
+                elapsed_micros = int((time.time() - start) * 1_000_000)
+                logger.info(
+                    f"Initialized SCC cache: {self._cache.scc_count} SCCs, "
+                    f"{len(self._get_cycles_unlocked(2))} cycles in {elapsed_micros}µs"
+                )
+
+                return SCCUpdateResult(
+                    update_type="full_recompute",
+                    total_sccs=self._cache.scc_count,
+                    compute_micros=elapsed_micros,
+                )
+
+            # Already initialized, just return current state
             return SCCUpdateResult(
-                update_type="rust_unavailable",
-                total_sccs=0,
+                update_type="already_initialized",
+                total_sccs=self._cache.scc_count,
                 compute_micros=int((time.time() - start) * 1_000_000),
             )
-
-        if self._cache is None or force_full:
-            # Create new cache
-            self._cache = PyIncrementalSCC()
-            self._cache.initialize(edges, num_nodes)
-            self._initialized = True
-
-            elapsed_micros = int((time.time() - start) * 1_000_000)
-            logger.info(
-                f"Initialized SCC cache: {self._cache.scc_count} SCCs, "
-                f"{len(self.get_cycles(2))} cycles in {elapsed_micros}µs"
-            )
-
-            return SCCUpdateResult(
-                update_type="full_recompute",
-                total_sccs=self._cache.scc_count,
-                compute_micros=elapsed_micros,
-            )
-
-        # Already initialized, just return current state
-        return SCCUpdateResult(
-            update_type="already_initialized",
-            total_sccs=self._cache.scc_count,
-            compute_micros=int((time.time() - start) * 1_000_000),
-        )
 
     def update_edges(
         self,
@@ -270,8 +278,8 @@ class IncrementalSCCManager:
 
         return self.update_edges(added=added, removed=removed)
 
-    def get_cycles(self, min_size: int = 2) -> List[List[int]]:
-        """Get all cycles (SCCs with size >= min_size).
+    def _get_cycles_unlocked(self, min_size: int = 2) -> List[List[int]]:
+        """Get all cycles - internal unlocked version for use within lock.
 
         Args:
             min_size: Minimum SCC size to include
@@ -287,6 +295,20 @@ class IncrementalSCCManager:
             return find_sccs_one_shot(edges, len(self.id_to_name), min_size)
 
         return self._cache.get_cycles(min_size)
+
+    def get_cycles(self, min_size: int = 2) -> List[List[int]]:
+        """Get all cycles (SCCs with size >= min_size).
+
+        Thread-safe: Uses lock for cache access.
+
+        Args:
+            min_size: Minimum SCC size to include
+
+        Returns:
+            List of cycles, where each cycle is a list of node IDs
+        """
+        with self._lock:
+            return self._get_cycles_unlocked(min_size)
 
     def get_cycles_with_names(self, min_size: int = 2) -> List[List[str]]:
         """Get all cycles with qualified names instead of IDs.

@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -685,15 +686,25 @@ class SandboxMetricsCollector:
         return await loop.run_in_executor(None, _query)
 
 
-# Global collector instance (lazy initialization)
+# Global collector instance (lazy initialization with thread-safe double-checked locking)
 _global_collector: Optional[SandboxMetricsCollector] = None
+_global_collector_lock = threading.Lock()
 
 
 def get_metrics_collector() -> SandboxMetricsCollector:
-    """Get or create global metrics collector instance."""
+    """Get or create global metrics collector instance.
+
+    Uses double-checked locking pattern for thread-safe lazy initialization.
+    """
     global _global_collector
-    if _global_collector is None:
-        _global_collector = SandboxMetricsCollector()
+    # Fast path: already initialized
+    if _global_collector is not None:
+        return _global_collector
+    # Slow path: need to initialize with lock
+    with _global_collector_lock:
+        # Double-check after acquiring lock
+        if _global_collector is None:
+            _global_collector = SandboxMetricsCollector()
     return _global_collector
 
 

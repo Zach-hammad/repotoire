@@ -1,36 +1,35 @@
 """Core auto-fix engine for generating code fixes."""
 
+import asyncio
 import hashlib
 import os
 import re
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Literal
+from typing import Any, Dict, List, Optional
 
-from repotoire.logging_config import get_logger
-from repotoire.models import Finding, Severity
-from repotoire.ai.retrieval import GraphRAGRetriever
 from repotoire.ai.embeddings import CodeEmbedder
-from repotoire.ai.llm import LLMClient, LLMConfig, LLMBackend
-from repotoire.graph import FalkorDBClient
-from repotoire.autofix.languages import get_handler, LanguageHandler
+from repotoire.ai.llm import LLMBackend, LLMClient, LLMConfig
+from repotoire.ai.retrieval import GraphRAGRetriever
+from repotoire.autofix.languages import LanguageHandler, get_handler
+from repotoire.autofix.learning import AdaptiveConfidence, DecisionStore
 from repotoire.autofix.models import (
-    FixProposal,
-    FixContext,
     CodeChange,
     Evidence,
-    FixType,
     FixConfidence,
-    FixStatus,
-)
-from repotoire.autofix.templates import (
-    get_registry,
-    TemplateRegistry,
-    TemplateMatch,
+    FixContext,
+    FixProposal,
+    FixType,
 )
 from repotoire.autofix.style import StyleAnalyzer, StyleEnforcer, StyleProfile
-from repotoire.autofix.learning import DecisionStore, AdaptiveConfidence
+from repotoire.autofix.templates import (
+    TemplateMatch,
+    get_registry,
+)
+from repotoire.graph import FalkorDBClient
+from repotoire.logging_config import get_logger
+from repotoire.models import Finding, Severity
 from repotoire.sandbox.code_validator import (
     CodeValidator,
     ValidationConfig,
@@ -164,7 +163,7 @@ def _sanitize_finding_text(text: str) -> str:
         if pattern.search(text):
             # Remove the matched pattern
             text = pattern.sub("[REDACTED]", text)
-            logger.warning(f"Sanitized finding text containing injection pattern")
+            logger.warning("Sanitized finding text containing injection pattern")
 
     # Truncate very long text that could be used for injection
     max_length = 1000
@@ -228,6 +227,8 @@ class AutoFixEngine:
         # Style enforcer (lazily initialized per repository)
         self._style_enforcer: Optional[StyleEnforcer] = None
         self._style_repo_path: Optional[Path] = None
+        # REPO-500: Lock for thread-safe style enforcer lazy initialization
+        self._style_enforcer_lock = threading.Lock()
 
         # Learning feedback system
         self.decision_store = decision_store or DecisionStore()
@@ -242,6 +243,9 @@ class AutoFixEngine:
 
         # Code validator (lazily initialized)
         self._code_validator: Optional[CodeValidator] = None
+        # REPO-500: Async lock with threading.Lock protection for validator initialization
+        self._validator_sync_lock = threading.Lock()
+        self._validator_async_lock: Optional[asyncio.Lock] = None
 
         logger.info(
             f"AutoFixEngine initialized with backend={llm_backend}, model={self.model}, "
@@ -286,22 +290,33 @@ class AutoFixEngine:
     def _get_style_instructions(self, repository_path: Path) -> str:
         """Get style instructions for a repository.
 
+        Thread-safe: Uses lock for style enforcer lazy initialization.
+
         Args:
             repository_path: Path to repository
 
         Returns:
             Markdown formatted style instructions
         """
-        # Check if we need to update the enforcer
+        # Fast path: check without lock if enforcer already initialized for this repo
         if (
-            self._style_enforcer is None
-            or self._style_repo_path != repository_path
+            self._style_enforcer is not None
+            and self._style_repo_path == repository_path
         ):
-            profile = self.get_style_profile(repository_path)
-            self._style_enforcer = StyleEnforcer(profile)
-            self._style_repo_path = repository_path
+            return self._style_enforcer.get_style_instructions()
 
-        return self._style_enforcer.get_style_instructions()
+        # Slow path: need to initialize or update enforcer
+        with self._style_enforcer_lock:
+            # Double-check after acquiring lock
+            if (
+                self._style_enforcer is None
+                or self._style_repo_path != repository_path
+            ):
+                profile = self.get_style_profile(repository_path)
+                self._style_enforcer = StyleEnforcer(profile)
+                self._style_repo_path = repository_path
+
+            return self._style_enforcer.get_style_instructions()
 
     async def generate_fix(
         self,
@@ -377,7 +392,7 @@ class AutoFixEngine:
             # Further reduce confidence if validation failed
             if not is_valid and adjusted_confidence != FixConfidence.LOW:
                 logger.info(
-                    f"Reducing confidence to LOW due to validation errors"
+                    "Reducing confidence to LOW due to validation errors"
                 )
                 adjusted_confidence = FixConfidence.LOW
 
@@ -1000,6 +1015,8 @@ Generate a fix for this issue. Provide your response in the following JSON forma
         """
         from repotoire.sandbox.code_validator import (
             ValidationError as ValError,
+        )
+        from repotoire.sandbox.code_validator import (
             ValidationLevel,
             validate_syntax_only,
         )
@@ -1047,10 +1064,19 @@ Generate a fix for this issue. Provide your response in the following JSON forma
 
         # Full validation with sandbox
         try:
-            # Get or create validator
+            # Get or create validator (REPO-500: async + sync lock pattern)
             if self._code_validator is None:
-                self._code_validator = CodeValidator(self.validation_config)
-                await self._code_validator.__aenter__()
+                # Ensure async lock exists (protected by sync lock)
+                with self._validator_sync_lock:
+                    if self._validator_async_lock is None:
+                        self._validator_async_lock = asyncio.Lock()
+
+                # Acquire async lock for actual initialization
+                async with self._validator_async_lock:
+                    # Double-check after acquiring async lock
+                    if self._code_validator is None:
+                        self._code_validator = CodeValidator(self.validation_config)
+                        await self._code_validator.__aenter__()
 
             # Validate each change
             combined_result = ValidationResult(

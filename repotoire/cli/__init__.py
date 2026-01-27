@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
+import threading
 import click
 from dataclasses import asdict
 from pathlib import Path
@@ -54,7 +55,9 @@ console = Console()
 logger = get_logger(__name__)
 
 # Global config storage (loaded once per CLI invocation)
+# Thread-safe with double-checked locking pattern
 _config: FalkorConfig | None = None
+_config_lock = threading.Lock()
 
 
 def _get_db_client(quiet: bool = False):
@@ -202,10 +205,19 @@ def _record_metrics_to_timescale(
 
 
 def get_config() -> FalkorConfig:
-    """Get loaded configuration."""
+    """Get loaded configuration.
+
+    Uses double-checked locking pattern for thread-safe lazy initialization.
+    """
     global _config
-    if _config is None:
-        _config = FalkorConfig()  # Defaults
+    # Fast path: already initialized
+    if _config is not None:
+        return _config
+    # Slow path: need to initialize with lock
+    with _config_lock:
+        # Double-check after acquiring lock
+        if _config is None:
+            _config = FalkorConfig()  # Defaults
     return _config
 
 
@@ -263,13 +275,14 @@ def cli(ctx: click.Context, config: str | None, log_level: str | None, log_forma
     """
     global _config
 
-    # Load configuration
-    try:
-        _config = load_config(config_file=config)
-    except ConfigError as e:
-        console.print(f"[yellow]⚠️  Config error: {e}[/yellow]")
-        console.print("[dim]Using default configuration[/dim]\n")
-        _config = FalkorConfig()
+    # Load configuration (thread-safe)
+    with _config_lock:
+        try:
+            _config = load_config(config_file=config)
+        except ConfigError as e:
+            console.print(f"[yellow]⚠️  Config error: {e}[/yellow]")
+            console.print("[dim]Using default configuration[/dim]\n")
+            _config = FalkorConfig()
 
     # Configure logging (CLI options override config)
     final_log_level = log_level or _config.logging.level

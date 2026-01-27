@@ -1,6 +1,7 @@
 """Analysis engine that orchestrates all detectors."""
 
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Any
@@ -778,6 +779,8 @@ class AnalysisEngine:
         """
         all_findings: List[Finding] = []
         completed_count = 0
+        # Thread-safe lock for findings aggregation and counter
+        findings_lock = threading.Lock()
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all detectors
@@ -802,25 +805,31 @@ class AnalysisEngine:
 
                 try:
                     findings = future.result()
-                    all_findings.extend(findings)
-                    completed_count += 1
+                    # Thread-safe update of findings and counter
+                    with findings_lock:
+                        all_findings.extend(findings)
+                        completed_count += 1
+                        current_count = completed_count
 
                     if progress_callback:
                         progress_callback(
                             display_name,
-                            start_index + completed_count,
+                            start_index + current_count,
                             total,
                             "completed"
                         )
                 except Exception as e:
-                    completed_count += 1
+                    # Thread-safe update of counter on failure
+                    with findings_lock:
+                        completed_count += 1
+                        current_count = completed_count
                     logger.error(
                         f"Detector failed in parallel execution: {detector_name}",
                         extra={"error": str(e)},
                         exc_info=True
                     )
                     if progress_callback:
-                        progress_callback(display_name, start_index + completed_count, total, "failed")
+                        progress_callback(display_name, start_index + current_count, total, "failed")
 
         return all_findings
 
@@ -849,6 +858,8 @@ class AnalysisEngine:
         """
         all_findings: List[Finding] = []
         completed_count = 0
+        # Thread-safe lock for findings aggregation and counter
+        findings_lock = threading.Lock()
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all detectors with previous_findings
@@ -874,25 +885,31 @@ class AnalysisEngine:
 
                 try:
                     findings = future.result()
-                    all_findings.extend(findings)
-                    completed_count += 1
+                    # Thread-safe update of findings and counter
+                    with findings_lock:
+                        all_findings.extend(findings)
+                        completed_count += 1
+                        current_count = completed_count
 
                     if progress_callback:
                         progress_callback(
                             display_name,
-                            start_index + completed_count,
+                            start_index + current_count,
                             total,
                             "completed"
                         )
                 except Exception as e:
-                    completed_count += 1
+                    # Thread-safe update of counter on failure
+                    with findings_lock:
+                        completed_count += 1
+                        current_count = completed_count
                     logger.error(
                         f"Detector failed in parallel execution: {detector_name}",
                         extra={"error": str(e)},
                         exc_info=True
                     )
                     if progress_callback:
-                        progress_callback(display_name, start_index + completed_count, total, "failed")
+                        progress_callback(display_name, start_index + current_count, total, "failed")
 
         return all_findings
 

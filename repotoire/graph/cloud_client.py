@@ -5,6 +5,7 @@ allowing the CLI to work without direct database access.
 """
 
 import os
+import threading
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -42,11 +43,23 @@ class CloudProxyClient(DatabaseClient):
         self.api_key = api_key
         self.api_url = api_url or os.environ.get("REPOTOIRE_API_URL", DEFAULT_API_URL)
         self.timeout = timeout
-        self._client = httpx.Client(
-            base_url=f"{self.api_url}/api/v1/graph",
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=timeout,
-        )
+        # Thread-local storage for httpx client to avoid sharing across threads
+        self._local = threading.local()
+
+    @property
+    def _client(self) -> httpx.Client:
+        """Get thread-local httpx client.
+
+        Creates a new client for each thread to avoid thread-safety issues
+        with httpx.Client which is not thread-safe.
+        """
+        if not hasattr(self._local, 'client') or self._local.client is None:
+            self._local.client = httpx.Client(
+                base_url=f"{self.api_url}/api/v1/graph",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=self.timeout,
+            )
+        return self._local.client
 
     @property
     def is_falkordb(self) -> bool:
@@ -54,8 +67,10 @@ class CloudProxyClient(DatabaseClient):
         return True
 
     def close(self) -> None:
-        """Close the HTTP client."""
-        self._client.close()
+        """Close the HTTP client for the current thread."""
+        if hasattr(self._local, 'client') and self._local.client is not None:
+            self._local.client.close()
+            self._local.client = None
 
     def _request(
         self,
