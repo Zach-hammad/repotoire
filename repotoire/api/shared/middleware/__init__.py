@@ -2,6 +2,7 @@
 
 This package contains FastAPI middleware and dependencies for
 request processing, including:
+- Tenant context propagation (multi-tenant isolation)
 - Usage enforcement (rate limits, quotas)
 - API versioning (version detection, headers)
 - Deprecation tracking (sunset headers)
@@ -14,6 +15,10 @@ from .csrf import (
     extract_origin,
     get_allowed_origins,
     is_origin_allowed,
+)
+from .tenant import (
+    TenantMiddleware,
+    TenantContextDependency,
 )
 from .security_headers import SecurityHeadersMiddleware
 from .deprecation import (
@@ -55,6 +60,9 @@ from .version import (
 )
 
 __all__ = [
+    # Tenant context
+    "TenantMiddleware",
+    "TenantContextDependency",
     # Usage enforcement
     "enforce_repo_limit",
     "enforce_analysis_limit",

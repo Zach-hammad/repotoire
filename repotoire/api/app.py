@@ -37,6 +37,7 @@ from repotoire.api.shared.middleware import (
     DeprecationMiddleware,
     RateLimitMiddleware,
     SecurityHeadersMiddleware,
+    TenantMiddleware,
     VersionMiddleware,
     get_rate_limit_exceeded_headers,
 )
@@ -385,6 +386,10 @@ app.add_middleware(ActiveRequestsMiddleware)
 
 # Add correlation ID middleware (before CORS)
 app.add_middleware(CorrelationIdMiddleware)
+
+# Add tenant context middleware (REPO-600: multi-tenant isolation)
+# Sets TenantContext from authenticated user for request-scoped isolation
+app.add_middleware(TenantMiddleware)
 
 # Add CSRF protection middleware (validates Origin on state-changing requests)
 from repotoire.api.shared.middleware import CSRFProtectionMiddleware
