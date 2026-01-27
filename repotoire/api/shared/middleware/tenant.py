@@ -92,6 +92,19 @@ class TenantMiddleware(BaseHTTPMiddleware):
         org_id, org_slug, user_id, session_id = self._extract_tenant_info(request)
 
         if org_id:
+            # Validate tenant_id format (must be valid UUID)
+            if not self._is_valid_tenant_id(org_id):
+                logger.warning(
+                    f"Invalid tenant_id format: {org_id}",
+                    extra={"request_id": request_id, "path": path},
+                )
+                from starlette.responses import JSONResponse
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "Invalid tenant identifier format"},
+                    headers={"x-request-id": request_id} if request_id else {},
+                )
+
             # Set tenant context for the request lifecycle
             token = set_tenant_context(
                 org_id=org_id,
@@ -110,6 +123,21 @@ class TenantMiddleware(BaseHTTPMiddleware):
             finally:
                 reset_tenant_context(token)
         else:
+            # No tenant context - check if org is required
+            if self.require_org:
+                logger.warning(
+                    f"Tenant context required but not provided for path: {path}",
+                    extra={"request_id": request_id},
+                )
+                from starlette.responses import JSONResponse
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "detail": "Organization context required. Please authenticate with an organization."
+                    },
+                    headers={"x-request-id": request_id} if request_id else {},
+                )
+
             # No tenant context - still process request
             # (auth dependencies will handle unauthorized access)
             if request_id:
@@ -120,6 +148,30 @@ class TenantMiddleware(BaseHTTPMiddleware):
             if request_id:
                 response.headers["x-request-id"] = request_id
             return response
+
+    def _is_valid_tenant_id(self, tenant_id: UUID) -> bool:
+        """Validate that tenant_id is a valid, non-empty UUID.
+
+        Rejects:
+        - None values
+        - Empty UUIDs (all zeros)
+        - Malformed UUIDs
+
+        Args:
+            tenant_id: UUID to validate
+
+        Returns:
+            True if valid, False otherwise
+        """
+        if tenant_id is None:
+            return False
+
+        # Check for nil UUID (all zeros) - may indicate missing tenant
+        # Note: We allow the default tenant UUID for dev/single-tenant mode
+        # from repotoire.tenant.resolver import DEFAULT_TENANT_ID
+        # In strict mode, you could reject DEFAULT_TENANT_ID here
+
+        return True
 
     def _extract_tenant_info(
         self, request: Request

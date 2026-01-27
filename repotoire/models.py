@@ -262,6 +262,7 @@ class Entity:
         docstring: Extracted docstring or documentation
         metadata: Additional arbitrary metadata
         embedding: Optional vector embedding for semantic search (1536-dim for OpenAI embeddings)
+        tenant_id: Organization UUID for multi-tenant data isolation (from TenantContext.org_id)
         repo_id: Optional repository UUID for multi-tenant isolation (set by IngestionPipeline)
         repo_slug: Optional repository slug for human-readable identification
 
@@ -285,6 +286,7 @@ class Entity:
     docstring: Optional[str] = None
     metadata: Dict = field(default_factory=dict)
     embedding: Optional[List[float]] = None  # Vector embedding for RAG (1536-dim for OpenAI)
+    tenant_id: Optional[str] = None  # Organization UUID for multi-tenant data isolation
     repo_id: Optional[str] = None  # Repository UUID for multi-tenant isolation
     repo_slug: Optional[str] = None  # Repository slug (e.g., "owner/repo-name")
 

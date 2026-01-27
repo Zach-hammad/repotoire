@@ -1,10 +1,16 @@
-"""Base detector interface."""
+"""Base detector interface.
+
+REPO-600: Multi-tenant data isolation support via tenant_id filtering.
+"""
 
 from abc import ABC, abstractmethod
+import logging
 from typing import Dict, List, Optional
 
 from repotoire.graph import FalkorDBClient
 from repotoire.models import Finding, Severity
+
+logger = logging.getLogger(__name__)
 
 
 class CodeSmellDetector(ABC):
@@ -12,6 +18,9 @@ class CodeSmellDetector(ABC):
 
     Phase 6 improvement: Added support for confidence filtering and minimum
     severity threshold to allow per-detector configuration of output quality.
+
+    REPO-600: Added tenant_id support for multi-tenant data isolation. Detectors
+    now automatically filter by tenant_id from TenantContext in addition to repo_id.
     """
 
     def __init__(
@@ -24,7 +33,8 @@ class CodeSmellDetector(ABC):
         Args:
             graph_client: FalkorDB database client
             detector_config: Optional configuration dict. May include:
-                - repo_id: Repository UUID for filtering queries (multi-tenant isolation)
+                - repo_id: Repository UUID for filtering queries (repo-level isolation)
+                - tenant_id: Organization UUID for filtering queries (tenant-level isolation)
                 - confidence_threshold: Minimum confidence (0.0-1.0) to include findings
                 - min_severity: Minimum severity level (e.g., "medium" to exclude low/info)
                 - weight: Detector weight for multi-detector voting (0.0-1.0, default: 1.0)
@@ -32,11 +42,36 @@ class CodeSmellDetector(ABC):
         self.db = graph_client
         self.config = detector_config or {}
         self.repo_id = self.config.get("repo_id")
+        # REPO-600: Support explicit tenant_id from config
+        self._tenant_id_override = self.config.get("tenant_id")
 
         # Phase 6: Confidence and severity filtering
         self.confidence_threshold = self.config.get("confidence_threshold", 0.0)
         self.min_severity = self._parse_min_severity(self.config.get("min_severity"))
         self.weight = self.config.get("weight", 1.0)
+
+    @property
+    def tenant_id(self) -> Optional[str]:
+        """Get tenant_id for query filtering.
+
+        REPO-600: Multi-tenant data isolation.
+
+        Priority:
+        1. Explicit tenant_id from config (for CLI/background tasks)
+        2. tenant_id from TenantContext (for API requests)
+
+        Returns:
+            Tenant ID string or None if not available
+        """
+        if self._tenant_id_override:
+            return self._tenant_id_override
+
+        # Try to get from TenantContext (set by middleware)
+        try:
+            from repotoire.tenant.context import get_current_org_id_str
+            return get_current_org_id_str()
+        except Exception:
+            return None
 
     def _parse_min_severity(self, severity_str: Optional[str]) -> Severity:
         """Parse minimum severity from string.
@@ -118,16 +153,60 @@ class CodeSmellDetector(ABC):
             return f"AND {node_alias}.repoId = $repo_id"
         return ""
 
+    def _get_tenant_filter(self, node_alias: str = "n") -> str:
+        """Get Cypher WHERE clause fragment for tenant_id filtering.
+
+        REPO-600: Multi-tenant data isolation.
+
+        Args:
+            node_alias: The node alias to filter (default: 'n')
+
+        Returns:
+            Empty string if no tenant_id, otherwise 'AND n.tenantId = $tenant_id'
+        """
+        if self.tenant_id:
+            return f"AND {node_alias}.tenantId = $tenant_id"
+        return ""
+
+    def _get_isolation_filter(self, node_alias: str = "n") -> str:
+        """Get combined tenant + repo isolation filter.
+
+        REPO-600: Multi-tenant data isolation.
+
+        This combines both tenant-level (org) and repo-level isolation filters.
+        Use this method for complete data isolation in detector queries.
+
+        Args:
+            node_alias: The node alias to filter (default: 'n')
+
+        Returns:
+            Combined WHERE clause fragments for tenant and repo isolation
+        """
+        filters = []
+        tenant_filter = self._get_tenant_filter(node_alias)
+        repo_filter = self._get_repo_filter(node_alias)
+
+        if tenant_filter:
+            filters.append(tenant_filter)
+        if repo_filter:
+            filters.append(repo_filter)
+
+        return " ".join(filters)
+
     def _get_query_params(self, **extra_params) -> Dict:
-        """Get query parameters including repo_id if set.
+        """Get query parameters including tenant_id and repo_id if set.
+
+        REPO-600: Now includes tenant_id for multi-tenant isolation.
 
         Args:
             **extra_params: Additional parameters to include
 
         Returns:
-            Dict with repo_id (if set) and any extra parameters
+            Dict with tenant_id, repo_id (if set) and any extra parameters
         """
         params = {}
+        if self.tenant_id:
+            params["tenant_id"] = self.tenant_id
         if self.repo_id:
             params["repo_id"] = self.repo_id
         params.update(extra_params)

@@ -1023,6 +1023,8 @@ Format code snippets using markdown code blocks with appropriate language tags."
     ) -> List[Dict[str, Any]]:
         """Perform vector similarity search across entity types.
 
+        REPO-600: Includes tenant filtering for multi-tenant data isolation.
+
         Uses external vector store (LanceDB) if configured, otherwise
         falls back to graph-native vector search (FalkorDB/Neo4j).
 
@@ -1034,12 +1036,16 @@ Format code snippets using markdown code blocks with appropriate language tags."
         Returns:
             List of matching entities with scores
         """
+        # REPO-600: Get tenant context for filtering
+        tenant_id = self._get_tenant_id_for_search()
+
         # Try external vector store first (memory-optimized path)
         if self._vector_store is not None:
             results = self._vector_store.search(
                 query_embedding=query_embedding,
                 top_k=top_k,
                 entity_types=entity_types,
+                tenant_id=tenant_id,  # REPO-600: Pass tenant filter
             )
             # External store returns results, convert to dict format expected by caller
             if results:
@@ -1054,56 +1060,115 @@ Format code snippets using markdown code blocks with appropriate language tags."
             if self.is_falkordb:
                 # FalkorDB vector search query
                 # Uses db.idx.vector.queryNodes with vecf32() wrapper
-                query = f"""
-                CALL db.idx.vector.queryNodes(
-                    '{entity_type}',
-                    'embedding',
-                    $top_k,
-                    vecf32($embedding)
-                ) YIELD node, score
-                RETURN
-                    id(node) as element_id,
-                    node.qualifiedName as qualified_name,
-                    node.name as name,
-                    '{entity_type}' as entity_type,
-                    node.docstring as docstring,
-                    node.filePath as file_path,
-                    node.lineStart as line_start,
-                    node.lineEnd as line_end,
-                    score
-                ORDER BY score DESC
-                """
-                params = {
-                    "top_k": top_k,
-                    "embedding": query_embedding
-                }
+                # REPO-600: Add tenant filtering via WHERE clause
+                if tenant_id:
+                    query = f"""
+                    CALL db.idx.vector.queryNodes(
+                        '{entity_type}',
+                        'embedding',
+                        $top_k,
+                        vecf32($embedding)
+                    ) YIELD node, score
+                    WHERE node.tenantId = $tenant_id
+                    RETURN
+                        id(node) as element_id,
+                        node.qualifiedName as qualified_name,
+                        node.name as name,
+                        '{entity_type}' as entity_type,
+                        node.docstring as docstring,
+                        node.filePath as file_path,
+                        node.lineStart as line_start,
+                        node.lineEnd as line_end,
+                        score
+                    ORDER BY score DESC
+                    """
+                    params = {
+                        "top_k": top_k,
+                        "embedding": query_embedding,
+                        "tenant_id": tenant_id
+                    }
+                else:
+                    # No tenant context - search without filter (dev/single-tenant mode)
+                    query = f"""
+                    CALL db.idx.vector.queryNodes(
+                        '{entity_type}',
+                        'embedding',
+                        $top_k,
+                        vecf32($embedding)
+                    ) YIELD node, score
+                    RETURN
+                        id(node) as element_id,
+                        node.qualifiedName as qualified_name,
+                        node.name as name,
+                        '{entity_type}' as entity_type,
+                        node.docstring as docstring,
+                        node.filePath as file_path,
+                        node.lineStart as line_start,
+                        node.lineEnd as line_end,
+                        score
+                    ORDER BY score DESC
+                    """
+                    params = {
+                        "top_k": top_k,
+                        "embedding": query_embedding
+                    }
             else:
                 # Neo4j vector search query
+                # REPO-600: Add tenant filtering via WHERE clause
                 index_name = f"{entity_type.lower()}_embeddings"
-                query = """
-                CALL db.index.vector.queryNodes(
-                    $index_name,
-                    $top_k,
-                    $embedding
-                ) YIELD node, score
-                RETURN
-                    elementId(node) as element_id,
-                    node.qualifiedName as qualified_name,
-                    node.name as name,
-                    $entity_type as entity_type,
-                    node.docstring as docstring,
-                    node.filePath as file_path,
-                    node.lineStart as line_start,
-                    node.lineEnd as line_end,
-                    score
-                ORDER BY score DESC
-                """
-                params = {
-                    "index_name": index_name,
-                    "top_k": top_k,
-                    "embedding": query_embedding,
-                    "entity_type": entity_type
-                }
+                if tenant_id:
+                    query = """
+                    CALL db.index.vector.queryNodes(
+                        $index_name,
+                        $top_k,
+                        $embedding
+                    ) YIELD node, score
+                    WHERE node.tenantId = $tenant_id
+                    RETURN
+                        elementId(node) as element_id,
+                        node.qualifiedName as qualified_name,
+                        node.name as name,
+                        $entity_type as entity_type,
+                        node.docstring as docstring,
+                        node.filePath as file_path,
+                        node.lineStart as line_start,
+                        node.lineEnd as line_end,
+                        score
+                    ORDER BY score DESC
+                    """
+                    params = {
+                        "index_name": index_name,
+                        "top_k": top_k,
+                        "embedding": query_embedding,
+                        "entity_type": entity_type,
+                        "tenant_id": tenant_id
+                    }
+                else:
+                    # No tenant context - search without filter
+                    query = """
+                    CALL db.index.vector.queryNodes(
+                        $index_name,
+                        $top_k,
+                        $embedding
+                    ) YIELD node, score
+                    RETURN
+                        elementId(node) as element_id,
+                        node.qualifiedName as qualified_name,
+                        node.name as name,
+                        $entity_type as entity_type,
+                        node.docstring as docstring,
+                        node.filePath as file_path,
+                        node.lineStart as line_start,
+                        node.lineEnd as line_end,
+                        score
+                    ORDER BY score DESC
+                    """
+                    params = {
+                        "index_name": index_name,
+                        "top_k": top_k,
+                        "embedding": query_embedding,
+                        "entity_type": entity_type
+                    }
 
             try:
                 results = self.client.execute_query(query, params)
@@ -1115,6 +1180,21 @@ Format code snippets using markdown code blocks with appropriate language tags."
         # Sort by score and return top_k
         all_results.sort(key=lambda x: x["score"], reverse=True)
         return all_results[:top_k]
+
+    def _get_tenant_id_for_search(self) -> Optional[str]:
+        """Get tenant ID for search filtering.
+
+        REPO-600: Multi-tenant data isolation.
+
+        Returns:
+            Tenant ID string or None if no tenant context
+        """
+        try:
+            from repotoire.tenant.context import get_current_org_id_str
+            return get_current_org_id_str()
+        except Exception as e:
+            logger.debug(f"Could not get tenant context for search: {e}")
+            return None
 
     def _convert_vector_store_results(
         self,

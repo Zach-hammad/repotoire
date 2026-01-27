@@ -85,6 +85,44 @@ def _is_cloud_mode() -> bool:
     return get_api_key() is not None
 
 
+def _get_tenant_from_auth() -> tuple[Optional[str], Optional[str]]:
+    """Auto-resolve tenant ID from authenticated user's organization.
+
+    REPO-600: Multi-tenant data isolation - automatic tenant resolution.
+
+    Fetches org info by validating the stored API key against the Repotoire API.
+    This provides seamless multi-tenant isolation without requiring explicit
+    --tenant-id flag for every command.
+
+    Returns:
+        Tuple of (tenant_id, org_slug) or (None, None) if not authenticated
+    """
+    import os
+
+    try:
+        from repotoire.cli.auth import CLIAuth
+
+        cli_auth = CLIAuth()
+        api_key = cli_auth.get_api_key()
+
+        if not api_key:
+            return None, None
+
+        # Fetch org info from API
+        org_info = cli_auth._fetch_org_info(api_key)
+        if org_info:
+            org_id = org_info.get("org_id")
+            org_slug = org_info.get("org_slug")
+            if org_id:
+                logger.debug(f"Auto-resolved tenant from auth: {org_id} ({org_slug})")
+                return org_id, org_slug
+
+    except Exception as e:
+        logger.debug(f"Could not auto-resolve tenant from auth: {e}")
+
+    return None, None
+
+
 def _extract_git_info(repo_path: Path) -> dict[str, str | None]:
     """Extract git branch and commit SHA from repository.
 
@@ -248,8 +286,15 @@ def get_config() -> FalkorConfig:
     default=None,
     help="Write logs to file (overrides config file)",
 )
+@click.option(
+    "--tenant-id",
+    type=str,
+    default=None,
+    envvar="REPOTOIRE_TENANT_ID",
+    help="Tenant ID (org UUID) for multi-tenant data isolation (REPO-600)",
+)
 @click.pass_context
-def cli(ctx: click.Context, config: str | None, log_level: str | None, log_format: str | None, log_file: str | None) -> None:
+def cli(ctx: click.Context, config: str | None, log_level: str | None, log_format: str | None, log_file: str | None, tenant_id: str | None) -> None:
     """Repotoire - Graph-Powered Code Health Platform
 
     \b
@@ -298,6 +343,40 @@ def cli(ctx: click.Context, config: str | None, log_level: str | None, log_forma
     # Store config in context for subcommands
     ctx.ensure_object(dict)
     ctx.obj['config'] = _config
+    ctx.obj['tenant_id'] = tenant_id
+
+    # REPO-600: Auto-resolve tenant from authenticated user if not explicitly set
+    resolved_tenant_id = tenant_id
+    resolved_org_slug = None
+
+    if not resolved_tenant_id:
+        # Try to get tenant from authenticated user's org
+        resolved_tenant_id, resolved_org_slug = _get_tenant_from_auth()
+
+    # Set up tenant context for CLI operations
+    if resolved_tenant_id:
+        try:
+            from uuid import UUID
+            from repotoire.tenant.context import TenantContextManager
+
+            # Validate UUID format
+            tenant_uuid = UUID(resolved_tenant_id)
+            # Store context manager in ctx for cleanup
+            ctx.obj['_tenant_ctx_manager'] = TenantContextManager(
+                org_id=tenant_uuid,
+                org_slug=resolved_org_slug
+            )
+            ctx.obj['_tenant_ctx_manager'].__enter__()
+            ctx.obj['tenant_id'] = resolved_tenant_id
+            ctx.obj['org_slug'] = resolved_org_slug
+            logger.debug(f"CLI tenant context set: {resolved_tenant_id} ({resolved_org_slug})")
+        except ValueError:
+            console.print(f"[red]✗[/red] Invalid tenant-id format: {resolved_tenant_id}")
+            console.print("[dim]Tenant ID must be a valid UUID[/dim]")
+            raise click.Abort()
+        except Exception as e:
+            console.print(f"[yellow]⚠️[/yellow] Could not set tenant context: {e}")
+            logger.warning(f"Failed to set tenant context: {e}")
 
 
 # =============================================================================

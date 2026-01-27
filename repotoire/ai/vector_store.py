@@ -103,14 +103,18 @@ class VectorStore(ABC):
         top_k: int = 10,
         entity_types: Optional[List[str]] = None,
         filter_metadata: Optional[Dict[str, Any]] = None,
+        tenant_id: Optional[str] = None,
     ) -> List[VectorSearchResult]:
         """Search for similar embeddings.
+
+        REPO-600: Supports tenant_id filtering for multi-tenant data isolation.
 
         Args:
             query_embedding: Query vector
             top_k: Number of results to return
             entity_types: Filter by entity types
             filter_metadata: Additional metadata filters
+            tenant_id: Tenant ID for multi-tenant filtering (REPO-600)
 
         Returns:
             List of search results ordered by similarity
@@ -280,14 +284,18 @@ class LanceDBVectorStore(VectorStore):
         top_k: int = 10,
         entity_types: Optional[List[str]] = None,
         filter_metadata: Optional[Dict[str, Any]] = None,
+        tenant_id: Optional[str] = None,
     ) -> List[VectorSearchResult]:
         """Search for similar embeddings using LanceDB ANN search.
+
+        REPO-600: Supports tenant_id filtering for multi-tenant data isolation.
 
         Args:
             query_embedding: Query vector
             top_k: Number of results
             entity_types: Optional type filter
             filter_metadata: Optional metadata filters
+            tenant_id: Tenant ID for multi-tenant filtering (REPO-600)
 
         Returns:
             Search results ordered by similarity
@@ -299,6 +307,10 @@ class LanceDBVectorStore(VectorStore):
 
             # Build query
             query = self._table.search(query_embedding)
+
+            # REPO-600: Apply tenant filter first (most restrictive)
+            if tenant_id:
+                query = query.where(f"tenant_id = '{tenant_id}'")
 
             # Apply entity type filter
             if entity_types:
@@ -439,9 +451,11 @@ class GraphVectorStore(VectorStore):
         top_k: int = 10,
         entity_types: Optional[List[str]] = None,
         filter_metadata: Optional[Dict[str, Any]] = None,
+        tenant_id: Optional[str] = None,
     ) -> List[VectorSearchResult]:
         """No-op - search handled by GraphRAGRetriever's _vector_search."""
         # Return empty to signal retriever should use graph search
+        # tenant_id filtering is handled in GraphRAGRetriever._vector_search
         return []
 
     def delete(self, entity_ids: List[str]) -> int:

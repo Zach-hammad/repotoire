@@ -10,8 +10,11 @@ class GraphSchema:
     """
 
     # Constraint definitions
+    # REPO-600: Updated for multi-tenant isolation
+    # Uniqueness is now scoped by tenant_id for data isolation
     CONSTRAINTS = [
-        # Uniqueness constraints
+        # Legacy single-tenant constraints (kept for backward compatibility in dev/single-tenant mode)
+        # These will be replaced by tenant-scoped constraints in production
         "CREATE CONSTRAINT file_path_unique IF NOT EXISTS FOR (f:File) REQUIRE f.filePath IS UNIQUE",
         "CREATE CONSTRAINT module_qualified_name_unique IF NOT EXISTS FOR (m:Module) REQUIRE m.qualifiedName IS UNIQUE",
         "CREATE CONSTRAINT class_qualified_name_unique IF NOT EXISTS FOR (c:Class) REQUIRE c.qualifiedName IS UNIQUE",
@@ -20,6 +23,17 @@ class GraphSchema:
         "CREATE CONSTRAINT rule_id_unique IF NOT EXISTS FOR (r:Rule) REQUIRE r.id IS UNIQUE",
         # Cross-detector collaboration constraints (REPO-151 Phase 2)
         "CREATE CONSTRAINT detector_metadata_id_unique IF NOT EXISTS FOR (d:DetectorMetadata) REQUIRE d.id IS UNIQUE",
+    ]
+
+    # REPO-600: Multi-tenant composite constraints
+    # These ensure uniqueness within a tenant while allowing same paths across tenants
+    # Note: These are applied separately via initialize() when multi-tenant mode is enabled
+    MULTI_TENANT_CONSTRAINTS = [
+        # Composite uniqueness: (tenant_id, qualified_name) must be unique
+        "CREATE CONSTRAINT file_tenant_path_unique IF NOT EXISTS FOR (f:File) REQUIRE (f.tenantId, f.filePath) IS UNIQUE",
+        "CREATE CONSTRAINT module_tenant_qn_unique IF NOT EXISTS FOR (m:Module) REQUIRE (m.tenantId, m.qualifiedName) IS UNIQUE",
+        "CREATE CONSTRAINT class_tenant_qn_unique IF NOT EXISTS FOR (c:Class) REQUIRE (c.tenantId, c.qualifiedName) IS UNIQUE",
+        "CREATE CONSTRAINT function_tenant_qn_unique IF NOT EXISTS FOR (f:Function) REQUIRE (f.tenantId, f.qualifiedName) IS UNIQUE",
     ]
 
     # Index definitions for performance
@@ -96,6 +110,23 @@ class GraphSchema:
         "CREATE INDEX file_repo_path_idx IF NOT EXISTS FOR (f:File) ON (f.repoId, f.filePath)",
         "CREATE INDEX function_repo_name_idx IF NOT EXISTS FOR (f:Function) ON (f.repoId, f.name)",
         "CREATE INDEX class_repo_name_idx IF NOT EXISTS FOR (c:Class) ON (c.repoId, c.name)",
+        # Multi-tenant organization isolation indexes (REPO-600)
+        # These enable filtering by tenant_id (org_id) for data isolation
+        "CREATE INDEX file_tenant_id_idx IF NOT EXISTS FOR (f:File) ON (f.tenantId)",
+        "CREATE INDEX function_tenant_id_idx IF NOT EXISTS FOR (f:Function) ON (f.tenantId)",
+        "CREATE INDEX class_tenant_id_idx IF NOT EXISTS FOR (c:Class) ON (c.tenantId)",
+        "CREATE INDEX module_tenant_id_idx IF NOT EXISTS FOR (m:Module) ON (m.tenantId)",
+        "CREATE INDEX variable_tenant_id_idx IF NOT EXISTS FOR (v:Variable) ON (v.tenantId)",
+        "CREATE INDEX attribute_tenant_id_idx IF NOT EXISTS FOR (a:Attribute) ON (a.tenantId)",
+        "CREATE INDEX concept_tenant_id_idx IF NOT EXISTS FOR (c:Concept) ON (c.tenantId)",
+        # Composite indexes for efficient tenant + path/name lookups
+        "CREATE INDEX file_tenant_path_idx IF NOT EXISTS FOR (f:File) ON (f.tenantId, f.filePath)",
+        "CREATE INDEX function_tenant_name_idx IF NOT EXISTS FOR (f:Function) ON (f.tenantId, f.name)",
+        "CREATE INDEX class_tenant_name_idx IF NOT EXISTS FOR (c:Class) ON (c.tenantId, c.name)",
+        # Composite tenant + repo indexes for hierarchical filtering
+        "CREATE INDEX file_tenant_repo_idx IF NOT EXISTS FOR (f:File) ON (f.tenantId, f.repoId)",
+        "CREATE INDEX function_tenant_repo_idx IF NOT EXISTS FOR (f:Function) ON (f.tenantId, f.repoId)",
+        "CREATE INDEX class_tenant_repo_idx IF NOT EXISTS FOR (c:Class) ON (c.tenantId, c.repoId)",
         # Data flow graph indexes for taint tracking (REPO-411)
         "CREATE INDEX flows_to_edge_type_idx IF NOT EXISTS FOR ()-[r:FLOWS_TO]-() ON (r.edge_type)",
         "CREATE INDEX flows_to_source_line_idx IF NOT EXISTS FOR ()-[r:FLOWS_TO]-() ON (r.source_line)",
@@ -163,12 +194,22 @@ class GraphSchema:
         "CREATE INDEX ON :Function(repoId)",
         "CREATE INDEX ON :Class(repoId)",
         "CREATE INDEX ON :Module(repoId)",
+        # Multi-tenant organization isolation indexes (REPO-600)
+        # These enable filtering by tenant_id (org_id) for data isolation
+        "CREATE INDEX ON :File(tenantId)",
+        "CREATE INDEX ON :Function(tenantId)",
+        "CREATE INDEX ON :Class(tenantId)",
+        "CREATE INDEX ON :Module(tenantId)",
+        "CREATE INDEX ON :Variable(tenantId)",
+        "CREATE INDEX ON :Attribute(tenantId)",
+        "CREATE INDEX ON :Concept(tenantId)",
         # Commit indexes for git history RAG (replaces Graphiti)
         "CREATE INDEX ON :Commit(sha)",
         "CREATE INDEX ON :Commit(shortSha)",
         "CREATE INDEX ON :Commit(authorEmail)",
         "CREATE INDEX ON :Commit(committedAt)",
         "CREATE INDEX ON :Commit(repoId)",
+        "CREATE INDEX ON :Commit(tenantId)",  # REPO-600: tenant isolation for commits
         # Performance optimization indexes (Phase 2)
         "CREATE INDEX ON :Function(call_count)",
         "CREATE INDEX ON :Function(is_external)",
@@ -433,16 +474,25 @@ class GraphSchema:
         enable_vector_search: bool = False,
         vector_dimensions: int = 1536,
         enable_fulltext_search: bool = False,
+        enable_multi_tenant: bool = False,
     ) -> None:
         """Initialize complete schema.
+
+        REPO-600: Supports multi-tenant mode with composite uniqueness constraints.
 
         Args:
             enable_vector_search: Whether to create vector indexes for RAG (requires Neo4j 5.18+)
             vector_dimensions: Vector dimensions for embeddings (1536 for OpenAI, 384 for local)
             enable_fulltext_search: Whether to create full-text indexes for hybrid BM25 search
+            enable_multi_tenant: Whether to create multi-tenant composite constraints (REPO-600)
         """
         print("Creating graph schema...")
         self.create_constraints()
+
+        # REPO-600: Create multi-tenant constraints if enabled
+        if enable_multi_tenant:
+            self.create_multi_tenant_constraints()
+
         self.create_indexes()
 
         if enable_vector_search:
@@ -452,6 +502,26 @@ class GraphSchema:
             self.create_fulltext_indexes()
 
         print("Schema created successfully!")
+
+    def create_multi_tenant_constraints(self) -> None:
+        """Create multi-tenant composite uniqueness constraints.
+
+        REPO-600: These constraints ensure uniqueness within a tenant while
+        allowing same qualified names across different tenants.
+        """
+        print("Creating multi-tenant constraints...")
+
+        for i, constraint in enumerate(self.MULTI_TENANT_CONSTRAINTS):
+            try:
+                self.client.execute_query(constraint)
+                print(f"  [{i+1}/{len(self.MULTI_TENANT_CONSTRAINTS)}] Created: {constraint[:60]}...")
+            except Exception as e:
+                # Constraint might already exist
+                error_msg = str(e).lower()
+                if "already exists" in error_msg or "duplicate" in error_msg:
+                    print(f"  [{i+1}/{len(self.MULTI_TENANT_CONSTRAINTS)}] Exists: {constraint[:60]}...")
+                else:
+                    print(f"  [{i+1}/{len(self.MULTI_TENANT_CONSTRAINTS)}] Failed: {e}")
 
     def drop_all(self) -> None:
         """Drop all constraints and indexes. Use with caution!"""

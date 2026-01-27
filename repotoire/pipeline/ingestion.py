@@ -768,6 +768,21 @@ class IngestionPipeline:
             logger.warning(f"Could not make path relative: {file_path}")
             return str(file_path)
 
+    def _get_current_tenant_id(self) -> Optional[str]:
+        """Get current tenant ID from TenantContext.
+
+        REPO-600: Multi-tenant data isolation.
+
+        Returns:
+            Tenant ID string or None if no tenant context
+        """
+        try:
+            from repotoire.tenant.context import get_current_org_id_str
+            return get_current_org_id_str()
+        except Exception as e:
+            logger.debug(f"Could not get tenant context: {e}")
+            return None
+
     def parse_and_extract(self, file_path: Path) -> tuple[List[Entity], List[Relationship]]:
         """Parse a file and extract entities/relationships with security validation.
 
@@ -1199,6 +1214,12 @@ class IngestionPipeline:
                 entity.repo_id = self.repo_id
                 entity.repo_slug = self.repo_slug
 
+        # REPO-600: Set tenant_id on all entities for organization-level isolation
+        tenant_id = self._get_current_tenant_id()
+        if tenant_id:
+            for entity in entities:
+                entity.tenant_id = tenant_id
+
         # Batch create nodes
         try:
             id_mapping = self.db.batch_create_nodes(entities)
@@ -1218,6 +1239,8 @@ class IngestionPipeline:
     def _find_dependent_files(self, changed_files: List[str], max_depth: int = 3) -> List[str]:
         """Find files that depend on changed files via import relationships.
 
+        REPO-600: Filters by tenant_id for multi-tenant data isolation.
+
         This enables dependency-aware incremental analysis: when a file changes,
         we also need to re-analyze files that import it.
 
@@ -1233,32 +1256,61 @@ class IngestionPipeline:
 
         logger.debug(f"Finding files dependent on {len(changed_files)} changed files")
 
+        # REPO-600: Get tenant_id for filtering
+        tenant_id = self._get_current_tenant_id()
+
         # Query to find files that import the changed files (bidirectional)
         # Split into two queries to avoid Cypher aggregation issues
-        query = """
-        // Find files that import changed files (downstream impact)
-        MATCH (f1:File)
-        WHERE f1.filePath IN $changed_files
-        OPTIONAL MATCH (f2:File)-[:IMPORTS*1..3]->(f1)
-        WHERE f2.filePath IS NOT NULL
+        # REPO-600: Add tenant filtering to ensure isolation
+        if tenant_id:
+            query = """
+            // Find files that import changed files (downstream impact)
+            MATCH (f1:File)
+            WHERE f1.filePath IN $changed_files AND f1.tenantId = $tenant_id
+            OPTIONAL MATCH (f2:File)-[:IMPORTS*1..3]->(f1)
+            WHERE f2.filePath IS NOT NULL AND f2.tenantId = $tenant_id
 
-        RETURN DISTINCT f2.filePath as filePath
+            RETURN DISTINCT f2.filePath as filePath
 
-        UNION
+            UNION
 
-        // Find files that changed files import (upstream dependencies)
-        MATCH (f1:File)
-        WHERE f1.filePath IN $changed_files
-        OPTIONAL MATCH (f1)-[:IMPORTS*1..3]->(f3:File)
-        WHERE f3.filePath IS NOT NULL
+            // Find files that changed files import (upstream dependencies)
+            MATCH (f1:File)
+            WHERE f1.filePath IN $changed_files AND f1.tenantId = $tenant_id
+            OPTIONAL MATCH (f1)-[:IMPORTS*1..3]->(f3:File)
+            WHERE f3.filePath IS NOT NULL AND f3.tenantId = $tenant_id
 
-        RETURN DISTINCT f3.filePath as filePath
-        """
+            RETURN DISTINCT f3.filePath as filePath
+            """
+            params = {
+                "changed_files": changed_files,
+                "tenant_id": tenant_id,
+            }
+        else:
+            # No tenant context - use original query (single-tenant/dev mode)
+            query = """
+            // Find files that import changed files (downstream impact)
+            MATCH (f1:File)
+            WHERE f1.filePath IN $changed_files
+            OPTIONAL MATCH (f2:File)-[:IMPORTS*1..3]->(f1)
+            WHERE f2.filePath IS NOT NULL
+
+            RETURN DISTINCT f2.filePath as filePath
+
+            UNION
+
+            // Find files that changed files import (upstream dependencies)
+            MATCH (f1:File)
+            WHERE f1.filePath IN $changed_files
+            OPTIONAL MATCH (f1)-[:IMPORTS*1..3]->(f3:File)
+            WHERE f3.filePath IS NOT NULL
+
+            RETURN DISTINCT f3.filePath as filePath
+            """
+            params = {"changed_files": changed_files}
 
         try:
-            result = self.db.execute_query(query, {
-                "changed_files": changed_files
-            })
+            result = self.db.execute_query(query, params)
 
             dependent_files = [record["filePath"] for record in result]
             logger.info(f"Found {len(dependent_files)} dependent files for {len(changed_files)} changed files")
