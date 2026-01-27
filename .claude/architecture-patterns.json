@@ -249,5 +249,76 @@
     ],
     "patterns": ["origin-validation", "middleware"],
     "notes": "CSRF middleware registered at app.py:396. Validates Origin header matches allowed origins for POST/PUT/DELETE requests."
+  },
+  "idempotency-keys": {
+    "description": "Safe request retries via Idempotency-Key header for POST/PUT/PATCH",
+    "implemented_via": [
+      "IdempotencyMiddleware - caches responses by Idempotency-Key header",
+      "IdempotencyStore - TTL-based cache with LRU eviction (24h default, 10k max)",
+      "User/org isolation - cache keys scoped per user_id or org_id",
+      "X-Idempotency-Replayed header on cache hits"
+    ],
+    "key_files": [
+      "repotoire/api/shared/middleware/idempotency.py",
+      "repotoire/api/app.py"
+    ],
+    "patterns": ["middleware-stack", "cache-aside", "user-isolation"],
+    "notes": "Idempotency middleware registered at app.py:395. Only caches 2xx responses. Max key length 64 chars. CORS allows Idempotency-Key header."
+  },
+  "cursor-pagination": {
+    "description": "Cursor-based pagination for search endpoints",
+    "implemented_via": [
+      "CodeSearchRequest.cursor - opaque pagination cursor input",
+      "CodeSearchResponse.next_cursor, has_more - pagination state output",
+      "_encode_cursor/_decode_cursor - base64 JSON encoding",
+      "Fetch N+1 results to determine has_more without COUNT query"
+    ],
+    "key_files": [
+      "repotoire/api/models.py",
+      "repotoire/api/v1/routes/code.py"
+    ],
+    "patterns": ["cursor-pagination", "opaque-cursor", "fetch-plus-one"],
+    "notes": "Cursor format is base64-encoded JSON with offset. Max cursor length 100 chars. Decoding errors return offset 0 (graceful fallback)."
+  },
+  "async-blocking-prevention": {
+    "description": "Prevent event loop blocking with asyncio.to_thread for sync operations",
+    "implemented_via": [
+      "asyncio.to_thread() wrapper for sync retriever.retrieve() calls",
+      "Allows concurrent request handling during I/O operations",
+      "Applied to GraphRAGRetriever which uses sync FalkorDB driver"
+    ],
+    "key_files": [
+      "repotoire/api/v1/routes/code.py"
+    ],
+    "patterns": ["thread-pool-offload", "async-sync-bridge"],
+    "notes": "Any sync I/O in async endpoints MUST use asyncio.to_thread(). The FalkorDB driver is synchronous, so all retriever calls are wrapped."
+  },
+  "response-caching": {
+    "description": "Query result caching via RAGCache",
+    "implemented_via": [
+      "RAGCache - LRU cache for retrieval results",
+      "Cache key includes query, top_k, entity_types, include_related",
+      "TTL-based expiration"
+    ],
+    "key_files": [
+      "repotoire/ai/retrieval.py"
+    ],
+    "patterns": ["lru-cache", "query-caching"],
+    "notes": "RAGCache handles query-level caching. HTTP caching headers (Cache-Control, ETag) not yet implemented."
+  },
+  "pydantic-validation": {
+    "description": "Request/response validation via Pydantic models with Field constraints",
+    "implemented_via": [
+      "Pydantic BaseModel with Field() validators",
+      "ge/le for numeric bounds (e.g., top_k: ge=1, le=50)",
+      "min_length/max_length for strings",
+      "FastAPI automatic 422 responses for validation errors"
+    ],
+    "key_files": [
+      "repotoire/api/models.py",
+      "repotoire/api/schemas/"
+    ],
+    "patterns": ["declarative-validation", "automatic-422"],
+    "notes": "Input validation is AUTOMATIC via Pydantic. Check models.py for Field() constraints. No manual validation needed in route handlers."
   }
 }
