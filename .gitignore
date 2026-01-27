@@ -92,8 +92,9 @@ lean/lake-manifest.json
 benchmarks/
 **/bench_*.py
 
-# Claude Code
-.claude/
+# Claude Code (keep architecture-patterns.json for documentation)
+.claude/*
+!.claude/architecture-patterns.json
 
 # Playwright MCP
 .playwright-mcp/

@@ -1,0 +1,63 @@
+{
+  "multi-tenant-isolation": {
+    "description": "Two-layer isolation: graph-level (physical) + node-level (logical)",
+    "implemented_via": [
+      "GraphClientFactory - separate FalkorDB graph per organization",
+      "TenantMiddleware - sets TenantContext from ClerkUser",
+      "TenantContext - async-safe ContextVar propagation",
+      "QueryBuilder.with_tenant() - automatic tenant filtering in Cypher",
+      "BaseDetector._get_repo_filter() - repo_id filtering for detectors"
+    ],
+    "key_files": [
+      "repotoire/graph/tenant_factory.py",
+      "repotoire/api/shared/middleware/tenant.py",
+      "repotoire/tenant/context.py",
+      "repotoire/graph/queries/builders.py",
+      "repotoire/detectors/base.py"
+    ],
+    "property_names": ["tenant_id", "tenantId", "org_id", "repo_id", "repoId"],
+    "patterns": ["graph-level-isolation", "middleware-context", "factory-pattern", "contextvar-propagation"],
+    "notes": "Primary isolation is at graph level (each org has separate FalkorDB graph). Node-level tenantId is secondary layer."
+  },
+  "authentication": {
+    "description": "Clerk-based authentication with JWT and API key support",
+    "implemented_via": [
+      "ClerkMiddleware - JWT validation",
+      "get_current_user_or_api_key - flexible auth dependency",
+      "enforce_feature_for_api - feature gating + org lookup"
+    ],
+    "key_files": [
+      "repotoire/api/shared/auth/clerk.py",
+      "repotoire/api/shared/middleware/usage.py"
+    ],
+    "patterns": ["middleware-stack", "dependency-injection", "api-key-auth"]
+  },
+  "input-validation": {
+    "description": "Pydantic models + FastAPI automatic validation",
+    "implemented_via": [
+      "Pydantic BaseModel schemas",
+      "FastAPI automatic request validation",
+      "Path/Query parameter validation"
+    ],
+    "key_files": [
+      "repotoire/api/schemas/",
+      "repotoire/models.py"
+    ],
+    "patterns": ["pydantic-validation", "fastapi-automatic"]
+  },
+  "vector-search": {
+    "description": "Hybrid vector + graph search with multiple backends",
+    "implemented_via": [
+      "GraphRAGRetriever - hybrid search orchestration",
+      "VectorStore abstraction - LanceDB/graph backends",
+      "CodeEmbedder - OpenAI/DeepInfra/local backends"
+    ],
+    "key_files": [
+      "repotoire/ai/retrieval.py",
+      "repotoire/ai/vector_store.py",
+      "repotoire/ai/embeddings.py"
+    ],
+    "property_names": ["embedding", "vector", "similarity_score"],
+    "patterns": ["abstract-factory", "strategy-pattern", "hybrid-search"]
+  }
+}
