@@ -590,8 +590,23 @@ class AnalysisEngine:
         """
         start_time = time.time()
 
+        # REPO-600: Log tenant context for audit trail
+        from repotoire.tenant import get_tenant_context
+        tenant_ctx = get_tenant_context()
+
         with LogContext(operation="analyze"):
-            logger.info("Starting codebase analysis")
+            if tenant_ctx:
+                logger.info(
+                    "Starting codebase analysis",
+                    extra={
+                        "tenant_id": tenant_ctx.org_id_str,
+                        "tenant_slug": tenant_ctx.org_slug,
+                        "repository_path": self.repository_path,
+                        "repo_id": self.repo_id,
+                    },
+                )
+            else:
+                logger.info("Starting codebase analysis")
 
             try:
                 # Run all detectors with progress reporting

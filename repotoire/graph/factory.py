@@ -377,6 +377,9 @@ def create_cloud_client(
     Repotoire API. This allows the CLI to work without direct database
     connectivity.
 
+    Automatically sets TenantContext from the validated API key,
+    enabling tenant isolation throughout the request lifecycle.
+
     Args:
         api_key: Repotoire API key (starts with 'ak_' or 'rp_')
         show_indicator: Whether to print cloud mode indicator
@@ -390,6 +393,7 @@ def create_cloud_client(
         CloudConnectionError: If cannot connect to Repotoire Cloud
     """
     from repotoire.graph.cloud_client import CloudProxyClient
+    from repotoire.tenant.resolver import set_tenant_from_auth_info
 
     # Check cache first
     auth_info = _get_cached_auth(api_key)
@@ -401,6 +405,10 @@ def create_cloud_client(
 
         # Cache the result
         _cache_auth(api_key, auth_info)
+
+    # REPO-600: Automatically set TenantContext from API key validation
+    # This enables tenant isolation throughout the CLI command lifecycle
+    set_tenant_from_auth_info(auth_info)
 
     # Show cloud mode indicator
     if show_indicator:

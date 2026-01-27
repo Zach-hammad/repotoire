@@ -1287,6 +1287,22 @@ class IngestionPipeline:
         """
         start_time = time.time()
 
+        # REPO-600: Log tenant context for audit trail
+        from repotoire.tenant import get_tenant_context, log_tenant_operation
+        tenant_ctx = get_tenant_context()
+        if tenant_ctx:
+            logger.info(
+                "Starting ingestion pipeline",
+                extra={
+                    "tenant_id": tenant_ctx.org_id_str,
+                    "tenant_slug": tenant_ctx.org_slug,
+                    "repo_path": str(self.repo_path),
+                    "incremental": incremental,
+                },
+            )
+        else:
+            logger.debug("Starting ingestion pipeline (no tenant context - single-tenant mode)")
+
         # Reset skipped files tracking
         self.skipped_files = []
 

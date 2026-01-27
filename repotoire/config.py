@@ -670,6 +670,26 @@ class ReportingConfig:
 
 
 @dataclass
+class TenantConfig:
+    """Tenant configuration for multi-tenant isolation.
+
+    Used for local/dev mode when not using API key authentication.
+    In cloud mode, tenant is resolved automatically from API key.
+
+    REPO-600: Multi-tenant data isolation configuration.
+    """
+    # Tenant identifier (UUID string)
+    id: Optional[str] = None
+
+    # Human-readable slug (for logging/display)
+    slug: Optional[str] = None
+
+    # Whether to require tenant context for all operations
+    # If False, operations without tenant context use default tenant
+    require_context: bool = False
+
+
+@dataclass
 class RepotoireConfig:
     """Complete Repotoire configuration."""
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
@@ -684,6 +704,7 @@ class RepotoireConfig:
     embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
+    tenant: TenantConfig = field(default_factory=TenantConfig)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RepotoireConfig":
@@ -719,6 +740,7 @@ class RepotoireConfig:
             embeddings=EmbeddingsConfig(**data.get("embeddings", {})),
             sandbox=SandboxConfig(**data.get("sandbox", {})),
             reporting=reporting_config,
+            tenant=TenantConfig(**data.get("tenant", {})),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -890,6 +912,11 @@ class RepotoireConfig:
                     "grade_d_color": self.reporting.theme.grade_d_color,
                     "grade_f_color": self.reporting.theme.grade_f_color,
                 },
+            },
+            "tenant": {
+                "id": self.tenant.id,
+                "slug": self.tenant.slug,
+                "require_context": self.tenant.require_context,
             },
         }
 

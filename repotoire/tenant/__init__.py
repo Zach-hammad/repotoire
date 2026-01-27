@@ -42,8 +42,24 @@ from repotoire.tenant.context import (
     get_current_org_id,
     get_current_org_id_str,
 )
+from repotoire.tenant.resolver import (
+    resolve_tenant_identity,
+    resolve_and_set_tenant,
+    set_tenant_from_auth_info,
+    get_tenant_graph_name,
+    is_default_tenant,
+    DEFAULT_TENANT_ID,
+    DEFAULT_TENANT_SLUG,
+)
+from repotoire.tenant.logging import (
+    get_tenant_log_context,
+    log_with_tenant,
+    log_tenant_operation,
+    TenantLogger,
+)
 
 __all__ = [
+    # Context management
     "TenantContext",
     "TenantContextManager",
     "set_tenant_context",
@@ -54,4 +70,17 @@ __all__ = [
     "clear_tenant_context",
     "get_current_org_id",
     "get_current_org_id_str",
+    # Automatic resolution (CLI)
+    "resolve_tenant_identity",
+    "resolve_and_set_tenant",
+    "set_tenant_from_auth_info",
+    "get_tenant_graph_name",
+    "is_default_tenant",
+    "DEFAULT_TENANT_ID",
+    "DEFAULT_TENANT_SLUG",
+    # Tenant-aware logging
+    "get_tenant_log_context",
+    "log_with_tenant",
+    "log_tenant_operation",
+    "TenantLogger",
 ]
