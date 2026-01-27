@@ -139,8 +139,8 @@ class DataClumpsDetector(CodeSmellDetector):
         Returns:
             List of tuples: (function_name, parameter_set, file_path)
         """
-        # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
+        # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
+        repo_filter = self._get_isolation_filter("f")
         query = f"""
         MATCH (f:Function)
         WHERE coalesce(size(f.parameters), 0) >= $min_params {repo_filter}

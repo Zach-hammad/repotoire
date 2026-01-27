@@ -74,8 +74,6 @@ dependencies = [
     "radon>=6.0.0",  # Complexity metrics detector
     "vulture>=2.0.0",  # Dead code detector
     "semgrep>=1.0.0",  # Advanced security pattern detector
-    # Temporal knowledge graph (git history)
-    "graphiti-core[falkordb]>=0.24.1",  # Temporal knowledge graph with FalkorDB backend
 ]
 
 [project.optional-dependencies]
@@ -116,9 +114,6 @@ timescale = [
     # Note: psycopg2-binary already in core dependencies
 ]
 
-graphiti = [
-    # graphiti-core[falkordb] now in core deps
-]
 
 security = [
     "pip-audit>=2.6.0",  # Dependency vulnerability scanning (fallback)

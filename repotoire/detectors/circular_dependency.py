@@ -187,8 +187,8 @@ class CircularDependencyDetector(CodeSmellDetector):
                 logger.warning(f"Path cache cycle detection failed: {e}, using Cypher fallback")
 
         # Fallback: Original optimized query using bounded path traversal
-        # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f1")
+        # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
+        repo_filter = self._get_isolation_filter("f1")
         query = f"""
         MATCH (f1:File)
         WHERE true {repo_filter}

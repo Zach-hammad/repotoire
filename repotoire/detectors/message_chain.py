@@ -143,8 +143,8 @@ class MessageChainDetector(CodeSmellDetector):
         """
         findings: List[Finding] = []
 
-        # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
+        # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
+        repo_filter = self._get_isolation_filter("f")
         # Query for functions with high chain depth
         # This property would be set by the parser if it extracts chain depths
         query = f"""

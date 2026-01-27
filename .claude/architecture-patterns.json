@@ -1,23 +1,29 @@
 {
   "multi-tenant-isolation": {
-    "description": "Two-layer isolation: graph-level (physical) + node-level (logical)",
+    "description": "Two-layer defense-in-depth isolation: graph-level (physical) + node-level (logical)",
     "implemented_via": [
-      "GraphClientFactory - separate FalkorDB graph per organization",
+      "GraphClientFactory - separate FalkorDB graph per organization (Layer 1)",
       "TenantMiddleware - sets TenantContext from ClerkUser",
       "TenantContext - async-safe ContextVar propagation",
       "QueryBuilder.with_tenant() - automatic tenant filtering in Cypher",
-      "BaseDetector._get_repo_filter() - repo_id filtering for detectors"
+      "BaseDetector._get_isolation_filter() - combined tenant_id + repo_id filtering (Layer 2)",
+      "GraphAlgorithms._get_isolation_filter() - tenant filtering in graph algorithms",
+      "TimescaleClient - tenant_id column in all metrics tables",
+      "MCP server - REPOTOIRE_ORG_ID env var for tenant context"
     ],
     "key_files": [
       "repotoire/graph/tenant_factory.py",
       "repotoire/api/shared/middleware/tenant.py",
       "repotoire/tenant/context.py",
       "repotoire/graph/queries/builders.py",
-      "repotoire/detectors/base.py"
+      "repotoire/detectors/base.py",
+      "repotoire/detectors/graph_algorithms.py",
+      "repotoire/historical/timescale_client.py",
+      "mcp_server/repotoire_mcp_server.py"
     ],
     "property_names": ["tenant_id", "tenantId", "org_id", "repo_id", "repoId"],
-    "patterns": ["graph-level-isolation", "middleware-context", "factory-pattern", "contextvar-propagation"],
-    "notes": "Primary isolation is at graph level (each org has separate FalkorDB graph). Node-level tenantId is secondary layer."
+    "patterns": ["graph-level-isolation", "middleware-context", "factory-pattern", "contextvar-propagation", "defense-in-depth"],
+    "notes": "Primary isolation is at graph level (each org has separate FalkorDB graph). Node-level tenantId/repoId is defense-in-depth. Use _get_isolation_filter() NOT _get_repo_filter() for all detectors."
   },
   "authentication": {
     "description": "Clerk-based authentication with JWT and API key support",
@@ -59,5 +65,52 @@
     ],
     "property_names": ["embedding", "vector", "similarity_score"],
     "patterns": ["abstract-factory", "strategy-pattern", "hybrid-search"]
+  },
+  "git-history-queries": {
+    "description": "Natural language queries over git commit history using RAG",
+    "implemented_via": [
+      "GitHistoryRAG - vector + BM25 hybrid search over commits",
+      "CommitEntity nodes in FalkorDB with embeddings",
+      "Claude Haiku for answer generation",
+      "NLQ API endpoints: /nlq, /nlq/search, /nlq/status/{repository_id}",
+      "CLI commands: repotoire historical ask/search/ingest/status"
+    ],
+    "key_files": [
+      "repotoire/historical/git_rag.py",
+      "repotoire/cli/historical.py",
+      "repotoire/historical/git_extractor.py",
+      "repotoire/api/v1/routes/historical.py"
+    ],
+    "patterns": ["rag-retrieval", "hybrid-search", "local-embeddings"],
+    "notes": "Graphiti was REMOVED in Jan 2026 - too expensive ($10-20/1000 commits vs FREE). GitHistoryRAG uses local embeddings for FREE ingestion + $0.001/query with Claude Haiku. All Graphiti code, tests, and dependencies were deleted.",
+    "removed_in_cleanup": {
+      "date": "2026-01-27",
+      "reason": "Cost prohibitive - Graphiti required LLM calls per commit ($10-20/1000 commits)",
+      "files_deleted": [
+        "repotoire/historical/git_graphiti.py",
+        "tests/unit/test_git_graphiti.py",
+        "tests/integration/test_mcp_git_graphiti.py",
+        "tests/integration/test_historical_routes.py",
+        "repotoire/web/tests/e2e/historical-api.spec.ts"
+      ],
+      "dependencies_removed": ["graphiti-core", "neo4j", "posthog"],
+      "endpoints_removed": ["/ingest-git", "/ingest-commits", "/query", "/timeline", "/issue-origin", "/status/{repo_id}", "/commits", "/backfill", "/correct"]
+    }
+  },
+  "timescale-metrics": {
+    "description": "Historical code health metrics tracking with TimescaleDB",
+    "implemented_via": [
+      "TimescaleClient - connection and query management",
+      "MetricsCollector - extract metrics from CodebaseHealth",
+      "Hypertables with tenant_id partitioning"
+    ],
+    "key_files": [
+      "repotoire/historical/timescale_client.py",
+      "repotoire/historical/metrics_collector.py",
+      "repotoire/historical/schema.sql"
+    ],
+    "property_names": ["tenant_id", "repository", "branch"],
+    "patterns": ["time-series", "tenant-isolation", "continuous-aggregates"],
+    "notes": "All TimescaleDB queries MUST include tenant_id filter. Primary key is (time, tenant_id, repository, branch)."
   }
 }

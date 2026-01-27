@@ -38,8 +38,8 @@ class MiddleManDetector(CodeSmellDetector):
         Returns:
             List of Finding objects for classes that mostly delegate.
         """
-        # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("c")
+        # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
+        repo_filter = self._get_isolation_filter("c")
         query = f"""
         // Find classes where most methods delegate to one other class
         MATCH (c:Class)-[:CONTAINS]->(m:Function)

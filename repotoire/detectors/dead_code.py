@@ -264,7 +264,8 @@ class DeadCodeDetector(CodeSmellDetector):
         logger.info("Using path_cache for dead code detection (O(1) reachability)")
 
         # Step 1: Get all functions from graph
-        repo_filter = self._get_repo_filter("f")
+        # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
+        repo_filter = self._get_isolation_filter("f")
         all_functions_query = f"""
         MATCH (f:Function)
         WHERE true {repo_filter}
@@ -539,8 +540,8 @@ class DeadCodeDetector(CodeSmellDetector):
         """
         findings: List[Finding] = []
 
-        # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
+        # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
+        repo_filter = self._get_isolation_filter("f")
 
         # Note: Using count() = 0 instead of IS NULL because FalkorDB's IS NULL
         # returns String instead of Boolean, causing type mismatch errors.
@@ -748,8 +749,8 @@ class DeadCodeDetector(CodeSmellDetector):
         """
         findings: List[Finding] = []
 
-        # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("c")
+        # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
+        repo_filter = self._get_isolation_filter("c")
 
         # FalkorDB-compatible query
         # Note: Simplified to avoid FalkorDB type mismatch issues

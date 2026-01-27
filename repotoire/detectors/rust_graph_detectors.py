@@ -112,7 +112,7 @@ class PackageStabilityDetector(CodeSmellDetector):
         Returns:
             Tuple of (edges, package_names, abstract_counts)
         """
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
 
         # Get all modules/packages with their import relationships
         query = f"""
@@ -161,7 +161,7 @@ class PackageStabilityDetector(CodeSmellDetector):
         # Count abstract classes per package (interfaces, abstract classes)
         abstract_query = f"""
         MATCH (c:Class)
-        WHERE true {self._get_repo_filter('c')}
+        WHERE true {self._get_isolation_filter('c')}
         OPTIONAL MATCH (f:File)-[:CONTAINS]->(c)
         RETURN f.filePath AS file_path,
                c.isAbstract AS is_abstract
@@ -328,7 +328,7 @@ class TechnicalDebtHotspotDetector(CodeSmellDetector):
         Returns:
             Tuple of (file_metrics, file_paths_map)
         """
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
 
         query = f"""
         MATCH (f:File)
@@ -491,7 +491,7 @@ class LayeredArchitectureDetector(CodeSmellDetector):
 
     def _extract_layer_data(self):
         """Extract layer data from FalkorDB."""
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
 
         # Get all files
         query = f"""
@@ -718,7 +718,7 @@ class CallChainDepthDetector(CodeSmellDetector):
 
     def _extract_call_graph(self) -> Tuple[List[Tuple[int, int]], Dict[int, str]]:
         """Extract call graph from FalkorDB."""
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
 
         # Get all functions
         func_query = f"""
@@ -923,7 +923,7 @@ class HubDependencyDetector(CodeSmellDetector):
 
     def _extract_dependency_graph(self) -> Tuple[List[Tuple[int, int]], Dict[int, str]]:
         """Extract dependency graph from FalkorDB."""
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
 
         # Get all files/modules
         node_query = f"""
@@ -1101,7 +1101,7 @@ class ChangeCouplingDetector(CodeSmellDetector):
 
         This requires the graph to have Commit nodes with MODIFIES relationships.
         """
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
 
         # Get file name mapping
         file_query = f"""

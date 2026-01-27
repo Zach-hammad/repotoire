@@ -193,6 +193,23 @@ def _record_metrics_to_timescale(
             console.print("[dim]Set timescale.connection_string in config or REPOTOIRE_TIMESCALE_URI env var[/dim]")
             return
 
+        # REPO-600: Get tenant_id for multi-tenant isolation
+        try:
+            from repotoire.tenant.context import get_current_org_id_str
+            tenant_id = get_current_org_id_str()
+        except Exception:
+            tenant_id = None
+
+        if not tenant_id:
+            # Fall back to auto-resolve from auth
+            resolved_tenant_id, _ = _get_tenant_from_auth()
+            tenant_id = resolved_tenant_id
+
+        if not tenant_id:
+            console.print("\n[yellow]⚠️  No tenant context - metrics not recorded[/yellow]")
+            console.print("[dim]Authenticate with 'repotoire auth login' for tenant isolation[/dim]")
+            return
+
         if not quiet:
             console.print("\n[dim]Recording metrics to TimescaleDB...[/dim]")
 
@@ -206,11 +223,12 @@ def _record_metrics_to_timescale(
         collector = MetricsCollector()
         metrics = collector.extract_metrics(health)
 
-        # Record to TimescaleDB
+        # Record to TimescaleDB with tenant isolation
         with TimescaleClient(config.timescale.connection_string) as client:
             client.record_metrics(
                 metrics=metrics,
                 repository=str(repo_path),
+                tenant_id=tenant_id,
                 branch=git_info["branch"] or "unknown",
                 commit_sha=git_info["commit_sha"],
             )
@@ -918,47 +936,8 @@ def ingest(
                         f"https://repotoire.com/repos/{repo_id[:8]}...[/link]"
                     )
 
-                # Ingest git history automatically if this is a git repository
-                try:
-                    from repotoire.historical.git_extractor import is_git_repository, extract_commits
-
-                    if is_git_repository(validated_repo_path):
-                        if not quiet:
-                            console.print("\n[bold cyan]📜 Extracting git history...[/bold cyan]")
-
-                        commits = extract_commits(
-                            validated_repo_path,
-                            max_commits=100,  # Reasonable default for initial ingestion
-                        )
-
-                        if commits and repo_id and repo_slug:
-                            # Send to cloud API for Graphiti processing
-                            if hasattr(db, 'ingest_git_commits'):
-                                result = db.ingest_git_commits(
-                                    repo_id=repo_id,
-                                    repo_slug=repo_slug,
-                                    commits=commits,
-                                )
-                                console.print(
-                                    f"[green]✓ Ingested {result.get('commits_processed', len(commits))} "
-                                    f"commits into temporal graph[/green]"
-                                )
-                            else:
-                                if not quiet:
-                                    console.print(
-                                        "[dim]Git history extracted but temporal graph requires cloud API[/dim]"
-                                    )
-                        elif commits:
-                            if not quiet:
-                                console.print(
-                                    f"[dim]Found {len(commits)} commits (login to sync git history)[/dim]"
-                                )
-                except ImportError:
-                    # GitPython not installed - skip silently
-                    pass
-                except Exception as e:
-                    # Non-fatal - git history is enhancement, not required
-                    logger.warning(f"Git history extraction failed: {e}")
+                # Note: Git history ingestion is now done via `repotoire historical ingest`
+                # which uses GitHistoryRAG (99% cheaper than old Graphiti approach)
                     if not quiet:
                         console.print(f"[yellow]⚠️  Git history skipped: {e}[/yellow]")
 
@@ -3951,9 +3930,25 @@ def trend(
             console.print("[dim]Install with: pip install repotoire[timescale][/dim]")
             raise click.Abort()
 
-        # Query trend data
+        # REPO-600: Get tenant_id for multi-tenant isolation
+        try:
+            from repotoire.tenant.context import get_current_org_id_str
+            tenant_id = get_current_org_id_str()
+        except Exception:
+            tenant_id = None
+
+        if not tenant_id:
+            resolved_tenant_id, _ = _get_tenant_from_auth()
+            tenant_id = resolved_tenant_id
+
+        if not tenant_id:
+            console.print("\n[red]❌ No tenant context available[/red]")
+            console.print("[dim]Authenticate with 'repotoire auth login' for tenant isolation[/dim]")
+            raise click.Abort()
+
+        # Query trend data with tenant isolation
         with TimescaleClient(config.timescale.connection_string) as client:
-            data = client.get_trend(repository, branch=branch, days=days)
+            data = client.get_trend(repository, tenant_id=tenant_id, branch=branch, days=days)
 
         if not data:
             console.print(f"\n[yellow]No metrics found for {repository}:{branch} in the last {days} days[/yellow]")
@@ -4051,9 +4046,25 @@ def regression(
             console.print("[dim]Install with: pip install repotoire[timescale][/dim]")
             raise click.Abort()
 
-        # Check for regression
+        # REPO-600: Get tenant_id for multi-tenant isolation
+        try:
+            from repotoire.tenant.context import get_current_org_id_str
+            tenant_id = get_current_org_id_str()
+        except Exception:
+            tenant_id = None
+
+        if not tenant_id:
+            resolved_tenant_id, _ = _get_tenant_from_auth()
+            tenant_id = resolved_tenant_id
+
+        if not tenant_id:
+            console.print("\n[red]❌ No tenant context available[/red]")
+            console.print("[dim]Authenticate with 'repotoire auth login' for tenant isolation[/dim]")
+            raise click.Abort()
+
+        # Check for regression with tenant isolation
         with TimescaleClient(config.timescale.connection_string) as client:
-            result = client.detect_regression(repository, branch=branch, threshold=threshold)
+            result = client.detect_regression(repository, tenant_id=tenant_id, branch=branch, threshold=threshold)
 
         if not result:
             console.print(f"\n[green]✓ No significant regression detected[/green]")
@@ -4136,9 +4147,25 @@ def compare(
             console.print("[dim]Install with: pip install repotoire[timescale][/dim]")
             raise click.Abort()
 
-        # Query comparison data
+        # REPO-600: Get tenant_id for multi-tenant isolation
+        try:
+            from repotoire.tenant.context import get_current_org_id_str
+            tenant_id = get_current_org_id_str()
+        except Exception:
+            tenant_id = None
+
+        if not tenant_id:
+            resolved_tenant_id, _ = _get_tenant_from_auth()
+            tenant_id = resolved_tenant_id
+
+        if not tenant_id:
+            console.print("\n[red]❌ No tenant context available[/red]")
+            console.print("[dim]Authenticate with 'repotoire auth login' for tenant isolation[/dim]")
+            raise click.Abort()
+
+        # Query comparison data with tenant isolation
         with TimescaleClient(config.timescale.connection_string) as client:
-            stats = client.compare_periods(repository, start_date, end_date, branch=branch)
+            stats = client.compare_periods(repository, tenant_id=tenant_id, start_date=start_date, end_date=end_date, branch=branch)
 
         if not stats or stats.get('num_analyses', 0) == 0:
             console.print(f"\n[yellow]No metrics found for {repository}:{branch} between {start} and {end}[/yellow]")
@@ -4212,13 +4239,29 @@ def export(
             console.print("[dim]Install with: pip install repotoire[timescale][/dim]")
             raise click.Abort()
 
-        # Query data
+        # REPO-600: Get tenant_id for multi-tenant isolation
+        try:
+            from repotoire.tenant.context import get_current_org_id_str
+            tenant_id = get_current_org_id_str()
+        except Exception:
+            tenant_id = None
+
+        if not tenant_id:
+            resolved_tenant_id, _ = _get_tenant_from_auth()
+            tenant_id = resolved_tenant_id
+
+        if not tenant_id:
+            console.print("\n[red]❌ No tenant context available[/red]")
+            console.print("[dim]Authenticate with 'repotoire auth login' for tenant isolation[/dim]")
+            raise click.Abort()
+
+        # Query data with tenant isolation
         with TimescaleClient(config.timescale.connection_string) as client:
             if days:
-                data = client.get_trend(repository, branch=branch, days=days)
+                data = client.get_trend(repository, tenant_id=tenant_id, branch=branch, days=days)
             else:
                 # Get all data (use a large number)
-                data = client.get_trend(repository, branch=branch, days=365 * 10)
+                data = client.get_trend(repository, tenant_id=tenant_id, branch=branch, days=365 * 10)
 
         if not data:
             console.print(f"\n[yellow]No metrics found for {repository}:{branch}[/yellow]")

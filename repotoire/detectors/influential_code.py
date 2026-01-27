@@ -106,8 +106,8 @@ class InfluentialCodeDetector(CodeSmellDetector):
         Returns:
             List of high PageRank functions with metrics
         """
-        # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
+        # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
+        repo_filter = self._get_isolation_filter("f")
         query = f"""
         MATCH (f:Function)
         WHERE f.pagerank IS NOT NULL {repo_filter}
@@ -160,8 +160,8 @@ class InfluentialCodeDetector(CodeSmellDetector):
         Returns:
             List of bloated functions
         """
-        # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
+        # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
+        repo_filter = self._get_isolation_filter("f")
         query = f"""
         MATCH (f:Function)
         WHERE f.pagerank IS NOT NULL

@@ -62,8 +62,8 @@ class RefusedBequestDetector(CodeSmellDetector):
         Returns:
             List of findings for refused bequest violations
         """
-        # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("child")
+        # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
+        repo_filter = self._get_isolation_filter("child")
         query = f"""
         // Find classes that inherit from another class
         MATCH (child:Class)-[:INHERITS]->(parent:Class)

@@ -35,15 +35,24 @@ _cache_lock = threading.Lock()
 class GraphAlgorithms:
     """High-performance graph algorithms using Rust (no GDS required)."""
 
-    def __init__(self, client: FalkorDBClient, repo_id: Optional[str] = None):
+    def __init__(
+        self,
+        client: FalkorDBClient,
+        repo_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+    ):
         """Initialize graph algorithms.
+
+        REPO-600: Added tenant_id for multi-tenant data isolation (defense-in-depth).
 
         Args:
             client: FalkorDB client instance
-            repo_id: Repository UUID for filtering queries (multi-tenant isolation)
+            repo_id: Repository UUID for filtering queries (repo-level isolation)
+            tenant_id: Organization UUID for filtering queries (tenant-level isolation)
         """
         self.client = client
         self.repo_id = repo_id
+        self.tenant_id = tenant_id
         # Cache for node ID mappings
         self._node_cache: Dict[str, Dict[str, int]] = {}
 
@@ -60,16 +69,59 @@ class GraphAlgorithms:
             return f"AND {node_alias}.repoId = $repo_id"
         return ""
 
+    def _get_tenant_filter(self, node_alias: str = "n") -> str:
+        """Get Cypher WHERE clause fragment for tenant_id filtering.
+
+        REPO-600: Multi-tenant data isolation.
+
+        Args:
+            node_alias: The node alias to filter (default: 'n')
+
+        Returns:
+            Empty string if no tenant_id, otherwise 'AND n.tenantId = $tenant_id'
+        """
+        if self.tenant_id:
+            return f"AND {node_alias}.tenantId = $tenant_id"
+        return ""
+
+    def _get_isolation_filter(self, node_alias: str = "n") -> str:
+        """Get combined tenant + repo isolation filter.
+
+        REPO-600: Multi-tenant data isolation (defense-in-depth).
+
+        This combines both tenant-level (org) and repo-level isolation filters.
+
+        Args:
+            node_alias: The node alias to filter (default: 'n')
+
+        Returns:
+            Combined WHERE clause fragments for tenant and repo isolation
+        """
+        filters = []
+        tenant_filter = self._get_tenant_filter(node_alias)
+        repo_filter = self._get_repo_filter(node_alias)
+
+        if tenant_filter:
+            filters.append(tenant_filter)
+        if repo_filter:
+            filters.append(repo_filter)
+
+        return " ".join(filters)
+
     def _get_query_params(self, **extra_params) -> Dict:
-        """Get query parameters including repo_id if set.
+        """Get query parameters including tenant_id and repo_id if set.
+
+        REPO-600: Now includes tenant_id for multi-tenant isolation.
 
         Args:
             **extra_params: Additional parameters to include
 
         Returns:
-            Dict with repo_id (if set) and any extra parameters
+            Dict with tenant_id, repo_id (if set) and any extra parameters
         """
         params = {}
+        if self.tenant_id:
+            params["tenant_id"] = self.tenant_id
         if self.repo_id:
             params["repo_id"] = self.repo_id
         params.update(extra_params)
@@ -99,8 +151,8 @@ class GraphAlgorithms:
         """
         # Get all nodes and edges in one query
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("n")
-        repo_filter_a = self._get_repo_filter("a")
+        repo_filter = self._get_isolation_filter("n")
+        repo_filter_a = self._get_isolation_filter("a")
         query = f"""
         MATCH (n:{node_label})
         WHERE true {repo_filter}
@@ -335,7 +387,7 @@ class GraphAlgorithms:
         """
         # Use parameterized query to prevent injection
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
         query = f"""
         MATCH (f:Function)
         WHERE f.betweenness_score IS NOT NULL
@@ -363,7 +415,7 @@ class GraphAlgorithms:
             Dictionary with min, max, avg, stdev of betweenness scores
         """
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
         query = f"""
         MATCH (f:Function)
         WHERE f.betweenness_score IS NOT NULL {repo_filter}
@@ -457,7 +509,7 @@ class GraphAlgorithms:
             List of function data with harmonic centrality scores
         """
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
         query = f"""
         MATCH (f:Function)
         WHERE f.harmonic_centrality IS NOT NULL
@@ -493,7 +545,7 @@ class GraphAlgorithms:
             List of function data with low harmonic centrality scores
         """
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
         query = f"""
         MATCH (f:Function)
         WHERE f.harmonic_centrality IS NOT NULL
@@ -522,7 +574,7 @@ class GraphAlgorithms:
             Dictionary with min, max, avg, stdev of harmonic centrality scores
         """
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
         query = f"""
         MATCH (f:Function)
         WHERE f.harmonic_centrality IS NOT NULL {repo_filter}
@@ -573,7 +625,7 @@ class GraphAlgorithms:
             List of entry point function data
         """
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
         query = f"""
         MATCH (f:Function)
         WHERE NOT (:Function)-[:CALLS]->(f)
@@ -829,7 +881,7 @@ class GraphAlgorithms:
 
         try:
             # Filter by repoId for multi-tenant isolation
-            repo_filter = self._get_repo_filter("f")
+            repo_filter = self._get_isolation_filter("f")
             query = f"""
             MATCH (f:Function)
             WHERE f.communityId IS NOT NULL {repo_filter}
@@ -1004,7 +1056,7 @@ class GraphAlgorithms:
             Dictionary with min, max, avg, percentiles of PageRank scores
         """
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
         query = f"""
         MATCH (f:Function)
         WHERE f.pagerank IS NOT NULL {repo_filter}
@@ -1207,7 +1259,7 @@ class GraphAlgorithms:
             Dictionary with community sizes, distribution, coupling metrics
         """
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
         query = f"""
         MATCH (f:File)
         WHERE f.community_id IS NOT NULL {repo_filter}
@@ -1248,7 +1300,7 @@ class GraphAlgorithms:
             List of inter-community edges with source/target communities
         """
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f1")
+        repo_filter = self._get_isolation_filter("f1")
         query = f"""
         MATCH (f1:File)-[r:IMPORTS]->(f2:File)
         WHERE f1.community_id IS NOT NULL
@@ -1276,7 +1328,7 @@ class GraphAlgorithms:
             List of potentially misplaced files with metrics
         """
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
         query = f"""
         MATCH (f:File)
         WHERE f.community_id IS NOT NULL {repo_filter}
@@ -1315,8 +1367,8 @@ class GraphAlgorithms:
             List of oversized communities
         """
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
-        repo_filter_f2 = self._get_repo_filter("f2")
+        repo_filter = self._get_isolation_filter("f")
+        repo_filter_f2 = self._get_isolation_filter("f2")
         query = f"""
         MATCH (f:File)
         WHERE f.community_id IS NOT NULL {repo_filter}
@@ -1423,7 +1475,7 @@ class GraphAlgorithms:
             List of cycles with their member files
         """
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("f")
+        repo_filter = self._get_isolation_filter("f")
         query = f"""
         MATCH (f:File)
         WHERE f.scc_component IS NOT NULL {repo_filter}
@@ -1477,7 +1529,7 @@ class GraphAlgorithms:
 
         try:
             # Filter by repoId for multi-tenant isolation
-            repo_filter = self._get_repo_filter("f")
+            repo_filter = self._get_isolation_filter("f")
             # Calculate both in-degree and out-degree with pure Cypher
             query = f"""
             MATCH (f:File)
@@ -1535,7 +1587,7 @@ class GraphAlgorithms:
         validated_label = validate_identifier(node_label, "node label")
 
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("n")
+        repo_filter = self._get_isolation_filter("n")
         query = f"""
         MATCH (n:{validated_label})
         WHERE n.in_degree IS NOT NULL AND n.in_degree >= $min_degree {repo_filter}
@@ -1592,7 +1644,7 @@ class GraphAlgorithms:
         validated_label = validate_identifier(node_label, "node label")
 
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("n")
+        repo_filter = self._get_isolation_filter("n")
         query = f"""
         MATCH (n:{validated_label})
         WHERE n.out_degree IS NOT NULL AND n.out_degree >= $min_degree {repo_filter}
@@ -1639,7 +1691,7 @@ class GraphAlgorithms:
         validated_label = validate_identifier(node_label, "node label")
 
         # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("n")
+        repo_filter = self._get_isolation_filter("n")
         query = f"""
         MATCH (n:{validated_label})
         WHERE (n.in_degree IS NOT NULL OR n.out_degree IS NOT NULL) {repo_filter}

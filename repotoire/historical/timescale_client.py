@@ -87,6 +87,7 @@ class TimescaleClient:
         self,
         metrics: Dict[str, Any],
         repository: str,
+        tenant_id: str,
         branch: str = "main",
         commit_sha: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -97,6 +98,7 @@ class TimescaleClient:
         Args:
             metrics: Dictionary of metric values
             repository: Repository identifier (path or name)
+            tenant_id: Organization UUID for multi-tenant isolation (REPO-600)
             branch: Git branch name
             commit_sha: Git commit SHA
             metadata: Additional metadata (team, version, etc.)
@@ -112,6 +114,7 @@ class TimescaleClient:
             >>> client.record_metrics(
             ...     metrics,
             ...     repository="/path/to/repo",
+            ...     tenant_id="org_abc123",
             ...     branch="main",
             ...     commit_sha="abc123"
             ... )
@@ -130,7 +133,7 @@ class TimescaleClient:
             cur.execute(
                 """
                 INSERT INTO code_health_metrics (
-                    time, repository, branch, commit_sha,
+                    time, tenant_id, repository, branch, commit_sha,
                     overall_health, structure_health, quality_health, architecture_health,
                     critical_count, high_count, medium_count, low_count, total_findings,
                     total_files, total_classes, total_functions, total_loc,
@@ -139,7 +142,7 @@ class TimescaleClient:
                     layer_violations, boundary_violations, abstraction_ratio,
                     metadata
                 ) VALUES (
-                    %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
                     %s, %s, %s, %s,
                     %s, %s, %s, %s, %s,
                     %s, %s, %s, %s,
@@ -148,7 +151,7 @@ class TimescaleClient:
                     %s, %s, %s,
                     %s
                 )
-                ON CONFLICT (time, repository, branch) DO UPDATE SET
+                ON CONFLICT (time, tenant_id, repository, branch) DO UPDATE SET
                     commit_sha = EXCLUDED.commit_sha,
                     overall_health = EXCLUDED.overall_health,
                     structure_health = EXCLUDED.structure_health,
@@ -176,7 +179,7 @@ class TimescaleClient:
                     metadata = EXCLUDED.metadata
                 """,
                 (
-                    timestamp, repository, branch, commit_sha,
+                    timestamp, tenant_id, repository, branch, commit_sha,
                     metrics.get("overall_health"),
                     metrics.get("structure_health"),
                     metrics.get("quality_health"),
@@ -210,6 +213,7 @@ class TimescaleClient:
     def get_trend(
         self,
         repository: str,
+        tenant_id: str,
         branch: str = "main",
         days: int = 30
     ) -> List[Dict[str, Any]]:
@@ -217,6 +221,7 @@ class TimescaleClient:
 
         Args:
             repository: Repository identifier
+            tenant_id: Organization UUID for multi-tenant isolation (REPO-600)
             branch: Git branch name
             days: Number of days to look back
 
@@ -243,12 +248,13 @@ class TimescaleClient:
                     high_count,
                     commit_sha
                 FROM code_health_metrics
-                WHERE repository = %s
+                WHERE tenant_id = %s
+                  AND repository = %s
                   AND branch = %s
                   AND time > %s
                 ORDER BY time ASC
                 """,
-                (repository, branch, cutoff_date)
+                (tenant_id, repository, branch, cutoff_date)
             )
 
             columns = [desc[0] for desc in cur.description]
@@ -257,6 +263,7 @@ class TimescaleClient:
     def detect_regression(
         self,
         repository: str,
+        tenant_id: str,
         branch: str = "main",
         threshold: float = 5.0
     ) -> Optional[Dict[str, Any]]:
@@ -264,6 +271,7 @@ class TimescaleClient:
 
         Args:
             repository: Repository identifier
+            tenant_id: Organization UUID for multi-tenant isolation (REPO-600)
             branch: Git branch name
             threshold: Minimum health score drop to flag as regression
 
@@ -282,7 +290,7 @@ class TimescaleClient:
                         overall_health,
                         commit_sha
                     FROM code_health_metrics
-                    WHERE repository = %s AND branch = %s
+                    WHERE tenant_id = %s AND repository = %s AND branch = %s
                     ORDER BY time DESC
                     LIMIT 2
                 )
@@ -294,7 +302,7 @@ class TimescaleClient:
                     (SELECT commit_sha FROM recent ORDER BY time ASC LIMIT 1) as prev_commit,
                     (SELECT commit_sha FROM recent ORDER BY time DESC LIMIT 1) as current_commit
                 """,
-                (repository, branch)
+                (tenant_id, repository, branch)
             )
 
             result = cur.fetchone()
@@ -319,6 +327,7 @@ class TimescaleClient:
     def compare_periods(
         self,
         repository: str,
+        tenant_id: str,
         start_date: datetime,
         end_date: datetime,
         branch: str = "main"
@@ -327,6 +336,7 @@ class TimescaleClient:
 
         Args:
             repository: Repository identifier
+            tenant_id: Organization UUID for multi-tenant isolation (REPO-600)
             start_date: Start of comparison period
             end_date: End of comparison period
             branch: Git branch name
@@ -349,11 +359,12 @@ class TimescaleClient:
                     SUM(high_count) as total_high,
                     COUNT(*) as num_analyses
                 FROM code_health_metrics
-                WHERE repository = %s
+                WHERE tenant_id = %s
+                  AND repository = %s
                   AND branch = %s
                   AND time BETWEEN %s AND %s
                 """,
-                (repository, branch, start_date, end_date)
+                (tenant_id, repository, branch, start_date, end_date)
             )
 
             row = cur.fetchone()
@@ -373,12 +384,14 @@ class TimescaleClient:
     def get_latest_metrics(
         self,
         repository: str,
+        tenant_id: str,
         branch: str = "main"
     ) -> Optional[Dict[str, Any]]:
         """Get most recent metrics for a repository/branch.
 
         Args:
             repository: Repository identifier
+            tenant_id: Organization UUID for multi-tenant isolation (REPO-600)
             branch: Git branch name
 
         Returns:
@@ -392,11 +405,11 @@ class TimescaleClient:
                 """
                 SELECT *
                 FROM code_health_metrics
-                WHERE repository = %s AND branch = %s
+                WHERE tenant_id = %s AND repository = %s AND branch = %s
                 ORDER BY time DESC
                 LIMIT 1
                 """,
-                (repository, branch)
+                (tenant_id, repository, branch)
             )
 
             row = cur.fetchone()

@@ -48,8 +48,8 @@ class InappropriateIntimacyDetector(CodeSmellDetector):
         Returns:
             List of Finding objects for mutually coupled class pairs.
         """
-        # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("c1")
+        # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
+        repo_filter = self._get_isolation_filter("c1")
         query = f"""
         // Find pairs of classes with excessive mutual access
         MATCH (c1:Class)-[:CONTAINS]->(m1:Function)

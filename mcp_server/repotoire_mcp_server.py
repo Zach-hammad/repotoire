@@ -51,12 +51,19 @@ API_KEY = os.getenv("REPOTOIRE_API_KEY")
 FALKORDB_HOST = os.getenv("FALKORDB_HOST", "bolt://localhost:7688")
 FALKORDB_PASSWORD = os.getenv("FALKORDB_PASSWORD", "")
 
+# REPO-600: Multi-tenant isolation configuration
+# Set these to connect to a tenant-isolated graph (recommended for SaaS)
+TENANT_ORG_ID = os.getenv("REPOTOIRE_ORG_ID")  # Organization UUID
+TENANT_ORG_SLUG = os.getenv("REPOTOIRE_ORG_SLUG")  # Organization slug (optional)
+
 # Track import status for local features
 _local_available = False
 _import_error = None
 
 try:
+    from uuid import UUID
     from repotoire.graph import FalkorDBClient, create_falkordb_client
+    from repotoire.graph.tenant_factory import get_factory as get_graph_factory
     from repotoire.detectors.engine import AnalysisEngine
     _local_available = True
 except ImportError as e:
@@ -162,14 +169,41 @@ def _require_api_key() -> None:
 def _get_graph_client() -> "FalkorDBClient":
     """Get FalkorDB client for local features.
 
-    Uses the centralized config system via create_falkordb_client().
+    REPO-600: Multi-tenant data isolation.
+
+    Priority for client creation:
+    1. If REPOTOIRE_ORG_ID is set, use GraphClientFactory for tenant isolation
+    2. Otherwise, use default client (single-tenant mode with warning)
+
     Environment overrides (FALKORDB_HOST, FALKORDB_PASSWORD) are still respected
     through the RepotoireConfig environment variable handling.
     """
     if not _local_available:
         raise RuntimeError(f"Local features unavailable: {_import_error}")
-    # Use factory function for consistent config handling
-    # CLI overrides can be passed here if needed
+
+    # REPO-600: Use tenant-isolated client if org config is available
+    if TENANT_ORG_ID:
+        try:
+            org_id = UUID(TENANT_ORG_ID)
+            factory = get_graph_factory()
+            client = factory.get_client(org_id=org_id, org_slug=TENANT_ORG_SLUG)
+            logger.debug(f"Using tenant-isolated graph for org {org_id}")
+            return client
+        except ValueError as e:
+            logger.error(f"Invalid REPOTOIRE_ORG_ID format: {e}")
+            raise RuntimeError(
+                f"Invalid REPOTOIRE_ORG_ID: {TENANT_ORG_ID}\n"
+                "Must be a valid UUID (e.g., '550e8400-e29b-41d4-a716-446655440000')"
+            )
+
+    # Single-tenant mode: use default client
+    # Log warning in production-like environments
+    if API_KEY:
+        logger.warning(
+            "REPOTOIRE_ORG_ID not set - using default graph (single-tenant mode). "
+            "For multi-tenant SaaS deployment, set REPOTOIRE_ORG_ID to isolate data."
+        )
+
     return create_falkordb_client()
 
 
@@ -563,6 +597,11 @@ async def run_server() -> None:
     logger.info(f"Local FalkorDB: {FALKORDB_HOST}")
     logger.info(f"API: {API_BASE_URL}")
     logger.info(f"Pro features: {'Enabled' if API_KEY else 'Disabled (no API key)'}")
+    # REPO-600: Log tenant isolation status
+    if TENANT_ORG_ID:
+        logger.info(f"Tenant isolation: Enabled (org_id={TENANT_ORG_ID[:8]}..., slug={TENANT_ORG_SLUG or 'none'})")
+    else:
+        logger.info("Tenant isolation: Disabled (single-tenant mode)")
 
     async with stdio_server() as (read_stream, write_stream):
         await server.run(

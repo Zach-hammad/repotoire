@@ -114,8 +114,8 @@ class GodClassDetector(CodeSmellDetector):
         # Use parameterized query to prevent injection
         # Even though these are class attributes (not user input), parameterization
         # is the correct and safe approach
-        # Filter by repoId for multi-tenant isolation (if repo_id is set)
-        repo_filter = self._get_repo_filter("c")
+        # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
+        repo_filter = self._get_isolation_filter("c")
         query = f"""
         MATCH (file:File)-[:CONTAINS]->(c:Class)
         WHERE true {repo_filter}

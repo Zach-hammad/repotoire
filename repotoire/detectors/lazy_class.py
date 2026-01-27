@@ -75,8 +75,8 @@ class LazyClassDetector(CodeSmellDetector):
         Returns:
             List of findings for lazy classes
         """
-        # Filter by repoId for multi-tenant isolation
-        repo_filter = self._get_repo_filter("c")
+        # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
+        repo_filter = self._get_isolation_filter("c")
         query = f"""
         MATCH (c:Class)
         WHERE c.name IS NOT NULL {repo_filter}
