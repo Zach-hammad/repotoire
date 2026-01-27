@@ -685,6 +685,56 @@ See full troubleshooting guide in project documentation.
 
 **Guidelines**: Dev (pool=20, timeout=60s), Staging (pool=100, timeout=30s), Production (pool=200, timeout=15s)
 
+## Multi-Tenant Architecture (REPO-600)
+
+Repotoire uses **defense-in-depth** for multi-tenant data isolation with two independent layers:
+
+### Layer 1: Graph-Level Isolation
+- Each organization gets a separate FalkorDB graph (e.g., `repotoire_org_abc123`)
+- Graph selection happens at connection time via `GraphClientFactory`
+- Complete physical separation - no cross-tenant queries possible
+
+### Layer 2: Node-Level Filtering
+- Every node has a `tenantId` property (organization UUID)
+- Every query includes tenant filtering via `QueryBuilder.with_tenant()` or `_get_isolation_filter()`
+- FalkorDB indexes on `tenantId` for all 8 node types ensure fast filtering
+- Defense against misconfigured graph selection
+
+### Automatic Tenant Resolution
+The CLI automatically resolves tenant from authenticated user for better UX:
+```
+CLI request → API key validation → org_id from response → TenantContext
+```
+
+No `--tenant-id` flag needed - just `repotoire ingest ./repo`. Override available for multi-org users.
+
+### Key Components
+| Component | File | Purpose |
+|-----------|------|---------|
+| TenantContext | `tenant/context.py` | Async-safe ContextVar for tenant propagation |
+| TenantContextManager | `tenant/context.py` | Context manager for CLI/API tenant scope |
+| QueryBuilder.with_tenant() | `graph/queries/builders.py` | Automatic tenant filtering in queries |
+| CodeSmellDetector.tenant_id | `detectors/base.py` | Tenant property for all detectors |
+| _get_tenant_from_auth() | `cli/__init__.py` | Auto-resolve tenant from API key |
+
+### Adding Tenant Filtering to New Code
+```python
+# Option 1: Use QueryBuilder (preferred)
+query, params = (QueryBuilder()
+    .match("(n:File)")
+    .with_tenant("n")  # Automatically adds tenantId filter
+    .where("n.language = $lang")
+    .return_("n.filePath")
+    .build({"lang": "python"}))
+
+# Option 2: Use detector base class methods
+filter_clause = self._get_isolation_filter("n")  # Returns "AND n.tenantId = $tenant_id AND n.repoId = $repo_id"
+params = self._get_query_params(extra_param="value")  # Includes tenant_id automatically
+
+# Option 3: Inject into existing queries
+query, params = inject_tenant_filter(raw_query, existing_params, node_alias="n")
+```
+
 ## Security Considerations
 
 ### Input Validation
