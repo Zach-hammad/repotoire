@@ -979,9 +979,16 @@ def ingest(
 @click.option(
     "--format",
     "-f",
-    type=click.Choice(["json", "html"], case_sensitive=False),
+    type=click.Choice(["json", "html", "sarif", "markdown", "pdf", "excel"], case_sensitive=False),
     default="json",
-    help="Output format (json or html)",
+    help="Output format (json, html, sarif, markdown, pdf, excel)",
+)
+@click.option(
+    "--open",
+    "open_report",
+    is_flag=True,
+    default=False,
+    help="Automatically open the generated report in the default browser",
 )
 @click.option(
     "--quiet",
@@ -1020,18 +1027,40 @@ def ingest(
     envvar="REPOTOIRE_OFFLINE",
     help="Run without authentication (skip API auth and tier limit checks)",
 )
+@click.option(
+    "--fail-on-grade",
+    type=click.Choice(["A", "B", "C", "D", "F"], case_sensitive=False),
+    default=None,
+    help="Exit with code 2 if health grade is below threshold (e.g., --fail-on-grade C fails for D or F)",
+)
+@click.option(
+    "--disable-detectors",
+    type=str,
+    default=None,
+    help="Comma-separated list of detectors to disable (e.g., 'Ruff,Pylint,Bandit')",
+)
+@click.option(
+    "--enable-detectors",
+    type=str,
+    default=None,
+    help="Comma-separated list of detectors to enable (all others disabled). Takes precedence over config file.",
+)
 @click.pass_context
 def analyze(
     ctx: click.Context,
     repo_path: str,
     output: str | None,
     format: str,
+    open_report: bool,
     quiet: bool,
     track_metrics: bool,
     keep_metadata: bool,
     parallel: bool,
     workers: int,
     offline: bool,
+    fail_on_grade: str | None,
+    disable_detectors: str | None,
+    enable_detectors: str | None,
 ) -> None:
     """Analyze codebase health and generate a comprehensive report.
 
@@ -1147,6 +1176,22 @@ def analyze(
             try:
                 # Convert detector config to dict for detectors
                 detector_config_dict = asdict(config.detectors)
+
+                # Apply CLI overrides for detector enable/disable
+                if enable_detectors:
+                    enabled_list = [d.strip() for d in enable_detectors.split(",") if d.strip()]
+                    detector_config_dict["enabled_detectors"] = enabled_list
+                    if not quiet:
+                        console.print(f"[dim]Enabled detectors: {', '.join(enabled_list)}[/dim]")
+
+                if disable_detectors:
+                    disabled_list = [d.strip() for d in disable_detectors.split(",") if d.strip()]
+                    # Merge with existing disabled detectors from config
+                    existing_disabled = detector_config_dict.get("disabled_detectors", []) or []
+                    detector_config_dict["disabled_detectors"] = list(set(existing_disabled + disabled_list))
+                    if not quiet:
+                        console.print(f"[dim]Disabled detectors: {', '.join(disabled_list)}[/dim]")
+
                 engine = AnalysisEngine(
                     db,
                     detector_config=detector_config_dict,
@@ -1214,16 +1259,54 @@ def analyze(
                 if validated_output:
                     if format.lower() == "html":
                         from repotoire.reporters import HTMLReporter
-                        reporter = HTMLReporter(repo_path=validated_repo_path)
+                        reporter = HTMLReporter(
+                            repo_path=validated_repo_path,
+                            config=config.reporting,
+                        )
                         reporter.generate(health, validated_output)
                         logger.info(f"HTML report saved to {validated_output}")
                         console.print(f"\n✅ HTML report saved to {validated_output}")
+                    elif format.lower() == "sarif":
+                        from repotoire.reporters import SARIFReporter
+                        reporter = SARIFReporter(repo_path=validated_repo_path)
+                        reporter.generate(health, validated_output)
+                        logger.info(f"SARIF report saved to {validated_output}")
+                        console.print(f"\n✅ SARIF report saved to {validated_output}")
+                        console.print(f"[dim]Compatible with GitHub Code Scanning and other SARIF tools[/dim]")
+                    elif format.lower() == "markdown":
+                        from repotoire.reporters import MarkdownReporter
+                        reporter = MarkdownReporter(repo_path=validated_repo_path)
+                        reporter.generate(health, validated_output)
+                        logger.info(f"Markdown report saved to {validated_output}")
+                        console.print(f"\n✅ Markdown report saved to {validated_output}")
+                        console.print(f"[dim]GitHub-flavored Markdown with emoji support[/dim]")
+                    elif format.lower() == "pdf":
+                        from repotoire.reporters import PDFReporter
+                        reporter = PDFReporter(repo_path=validated_repo_path)
+                        reporter.generate(health, validated_output)
+                        logger.info(f"PDF report saved to {validated_output}")
+                        console.print(f"\n✅ PDF report saved to {validated_output}")
+                    elif format.lower() == "excel":
+                        from repotoire.reporters import ExcelReporter
+                        reporter = ExcelReporter(repo_path=validated_repo_path)
+                        reporter.generate(health, validated_output)
+                        logger.info(f"Excel report saved to {validated_output}")
+                        console.print(f"\n✅ Excel report saved to {validated_output}")
+                        console.print(f"[dim]Multi-sheet workbook with Summary, Findings, Metrics, and By Detector sheets[/dim]")
                     else:  # JSON format
                         import json
                         with open(validated_output, "w") as f:
                             json.dump(health.to_dict(), f, indent=2)
                         logger.info(f"JSON report saved to {validated_output}")
                         console.print(f"\n✅ JSON report saved to {validated_output}")
+
+                    # Open report in browser if requested
+                    if open_report:
+                        import webbrowser
+                        file_url = Path(validated_output).absolute().as_uri()
+                        webbrowser.open(file_url)
+                        if not quiet:
+                            console.print(f"[dim]Opening report in browser...[/dim]")
 
                 # Record metrics to TimescaleDB if enabled
                 if track_metrics or config.timescale.auto_track:
@@ -1233,6 +1316,23 @@ def analyze(
                         config=config,
                         quiet=quiet
                     )
+
+                # Check fail-on-grade threshold
+                if fail_on_grade:
+                    grade_order = {"A": 0, "B": 1, "C": 2, "D": 3, "F": 4}
+                    threshold = grade_order.get(fail_on_grade.upper(), 4)
+                    actual = grade_order.get(health.grade, 4)
+                    if actual > threshold:
+                        console.print(
+                            f"\n[red]❌ Grade {health.grade} is below threshold {fail_on_grade.upper()}[/red]"
+                        )
+                        ctx.exit(2)
+                    else:
+                        if not quiet:
+                            console.print(
+                                f"\n[green]✓ Grade {health.grade} meets threshold {fail_on_grade.upper()}[/green]"
+                            )
+
             finally:
                 db.close()
 
@@ -5293,6 +5393,247 @@ def ask(
         raise click.Abort()
     finally:
         client.close()
+
+
+# Config command group
+@cli.group()
+def config():
+    """Manage Repotoire configuration.
+
+    \b
+    COMMANDS:
+      init     Create a new configuration file
+      show     Display current configuration
+    """
+    pass
+
+
+@config.command("init")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["yaml", "toml", "json"], case_sensitive=False),
+    default="yaml",
+    help="Configuration file format (default: yaml)",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    default=None,
+    help="Output path (default: .reporc for yaml/json, falkor.toml for toml)",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Overwrite existing config file",
+)
+def config_init(format: str, output: str | None, force: bool) -> None:
+    """Create a new configuration file with default settings.
+
+    \b
+    Examples:
+      # Create default .reporc (YAML)
+      repotoire config init
+
+      # Create TOML config
+      repotoire config init -f toml
+
+      # Create config at custom path
+      repotoire config init -o /path/to/my-config.yaml
+    """
+    from repotoire.config import generate_config_template
+
+    # Determine output path
+    if output is None:
+        if format.lower() == "toml":
+            output = "falkor.toml"
+        else:
+            output = ".reporc"
+
+    output_path = Path(output)
+
+    # Check if file exists
+    if output_path.exists() and not force:
+        console.print(f"[yellow]⚠️  Config file already exists: {output}[/yellow]")
+        console.print("[dim]Use --force to overwrite[/dim]")
+        raise click.Abort()
+
+    try:
+        template = generate_config_template(format.lower())
+        output_path.write_text(template)
+        console.print(f"[green]✓[/green] Created config file: {output}")
+        console.print(f"[dim]Edit this file to customize Repotoire settings[/dim]")
+    except Exception as e:
+        console.print(f"[red]❌ Error creating config: {e}[/red]")
+        raise click.Abort()
+
+
+@config.command("show")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["yaml", "json", "table"], case_sensitive=False),
+    default="table",
+    help="Output format (default: table)",
+)
+@click.pass_context
+def config_show(ctx: click.Context, format: str) -> None:
+    """Display current configuration.
+
+    Shows the merged configuration from all sources (defaults, config file,
+    environment variables).
+
+    \b
+    Examples:
+      # Show as formatted table
+      repotoire config show
+
+      # Show as YAML
+      repotoire config show -f yaml
+
+      # Show as JSON (for scripting)
+      repotoire config show -f json
+    """
+    cfg: FalkorConfig = ctx.obj['config']
+
+    if format.lower() == "json":
+        import json
+        console.print(json.dumps(cfg.to_dict(), indent=2, default=str))
+        return
+
+    if format.lower() == "yaml":
+        try:
+            import yaml
+            console.print(yaml.dump(cfg.to_dict(), default_flow_style=False, sort_keys=False))
+        except ImportError:
+            console.print("[yellow]YAML output requires PyYAML: pip install pyyaml[/yellow]")
+            raise click.Abort()
+        return
+
+    # Table format (default)
+    from rich.tree import Tree
+
+    tree = Tree("[bold cyan]Repotoire Configuration[/bold cyan]")
+
+    # Database section
+    db_section = tree.add("[cyan]database[/cyan]")
+    db_section.add(f"host: {cfg.database.host}")
+    db_section.add(f"port: {cfg.database.port}")
+    db_section.add(f"password: {'***' if cfg.database.password else '(not set)'}")
+    db_section.add(f"max_retries: {cfg.database.max_retries}")
+
+    # Ingestion section
+    ing_section = tree.add("[cyan]ingestion[/cyan]")
+    patterns_str = ", ".join(cfg.ingestion.patterns[:3])
+    if len(cfg.ingestion.patterns) > 3:
+        patterns_str += f" (+{len(cfg.ingestion.patterns) - 3} more)"
+    ing_section.add(f"patterns: {patterns_str}")
+    exclude_str = ", ".join(cfg.ingestion.exclude_patterns[:2])
+    if len(cfg.ingestion.exclude_patterns) > 2:
+        exclude_str += f" (+{len(cfg.ingestion.exclude_patterns) - 2} more)"
+    ing_section.add(f"exclude_patterns: {exclude_str}")
+    ing_section.add(f"batch_size: {cfg.ingestion.batch_size}")
+    ing_section.add(f"max_file_size_mb: {cfg.ingestion.max_file_size_mb}")
+
+    # Detectors section
+    det_section = tree.add("[cyan]detectors[/cyan]")
+    if cfg.detectors.enabled_detectors:
+        det_section.add(f"enabled_detectors: {cfg.detectors.enabled_detectors}")
+    if cfg.detectors.disabled_detectors:
+        det_section.add(f"disabled_detectors: {cfg.detectors.disabled_detectors}")
+    det_section.add(f"god_class_high_method_count: {cfg.detectors.god_class_high_method_count}")
+
+    # Logging section
+    log_section = tree.add("[cyan]logging[/cyan]")
+    log_section.add(f"level: {cfg.logging.level}")
+    log_section.add(f"format: {cfg.logging.format}")
+    log_section.add(f"file: {cfg.logging.file or '(not set)'}")
+
+    # Embeddings section
+    emb_section = tree.add("[cyan]embeddings[/cyan]")
+    emb_section.add(f"backend: {cfg.embeddings.backend}")
+    emb_section.add(f"model: {cfg.embeddings.model or '(default)'}")
+
+    console.print(tree)
+
+
+@cli.command("completion")
+@click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]))
+def shell_completion(shell: str) -> None:
+    """Generate shell completion script.
+
+    \b
+    USAGE:
+      # Bash (add to ~/.bashrc)
+      eval "$(repotoire completion bash)"
+
+      # Zsh (add to ~/.zshrc)
+      eval "$(repotoire completion zsh)"
+
+      # Fish (add to ~/.config/fish/completions/repotoire.fish)
+      repotoire completion fish > ~/.config/fish/completions/repotoire.fish
+    """
+    import os
+    import sys
+
+    # Get the completion script using Click's built-in support
+    prog_name = "repotoire"
+
+    if shell == "bash":
+        script = f'''
+# Bash completion for {prog_name}
+_{prog_name}_completion() {{
+    local IFS=$'\\n'
+    COMPREPLY=( $( env COMP_WORDS="${{COMP_WORDS[*]}}" \\
+                   COMP_CWORD=$COMP_CWORD \\
+                   _{prog_name.upper()}_COMPLETE=bash_complete $1 ) )
+    return 0
+}}
+complete -o default -F _{prog_name}_completion {prog_name}
+'''
+    elif shell == "zsh":
+        script = f'''
+# Zsh completion for {prog_name}
+_{prog_name}_completion() {{
+    local -a completions
+    local -a completions_with_descriptions
+    local -a response
+    (( ! $+commands[{prog_name}] )) && return 1
+    response=("${{(@f)$( env COMP_WORDS="${{words[*]}}" \\
+                        COMP_CWORD=$((CURRENT-1)) \\
+                        _{prog_name.upper()}_COMPLETE=zsh_complete {prog_name} )}}")
+    for key descr in ${{(kv)response}}; do
+        if [[ "$descr" == "_" ]]; then
+            completions+=("$key")
+        else
+            completions_with_descriptions+=("$key":"$descr")
+        fi
+    done
+    if [ -n "$completions_with_descriptions" ]; then
+        _describe -V unsorted completions_with_descriptions -U
+    fi
+    if [ -n "$completions" ]; then
+        compadd -U -V unsorted -a completions
+    fi
+    compstate[insert]="automenu"
+}}
+compdef _{prog_name}_completion {prog_name}
+'''
+    else:  # fish
+        script = f'''
+# Fish completion for {prog_name}
+function _{prog_name}_completion
+    set -l response (env _{prog_name.upper()}_COMPLETE=fish_complete COMP_WORDS=(commandline -cp) COMP_CWORD=(commandline -t) {prog_name})
+    for completion in $response
+        echo $completion
+    end
+end
+complete -c {prog_name} -f -a "(_{prog_name}_completion)"
+'''
+
+    click.echo(script.strip())
 
 
 def main() -> None:

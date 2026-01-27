@@ -391,6 +391,60 @@ class AnalysisEngine:
             )
         )
 
+        # Filter detectors based on enabled/disabled configuration
+        self.detectors = self._filter_detectors(config)
+
+    def _filter_detectors(self, config: Dict) -> List:
+        """Filter detectors based on enabled/disabled configuration.
+
+        Args:
+            config: Detector configuration dict with optional keys:
+                - enabled_detectors: List of detector names to enable (None = all enabled)
+                - disabled_detectors: List of detector names to disable
+
+        Returns:
+            Filtered list of detector instances
+        """
+        enabled = config.get("enabled_detectors")  # None means all enabled
+        disabled = config.get("disabled_detectors", [])
+
+        # Normalize detector names (remove "Detector" suffix for easier matching)
+        def normalize_name(name: str) -> str:
+            return name.replace("Detector", "")
+
+        # Build set of disabled detector names (normalized)
+        disabled_set = {normalize_name(d) for d in disabled}
+
+        # Build set of enabled detector names (normalized), if specified
+        enabled_set = None
+        if enabled is not None:
+            enabled_set = {normalize_name(e) for e in enabled}
+
+        filtered = []
+        skipped = []
+        for detector in self.detectors:
+            name = detector.__class__.__name__
+            normalized = normalize_name(name)
+
+            # Check if explicitly disabled
+            if normalized in disabled_set or name in disabled_set:
+                skipped.append(name)
+                continue
+
+            # Check if enabled list is specified and this detector is not in it
+            if enabled_set is not None:
+                if normalized not in enabled_set and name not in enabled_set:
+                    skipped.append(name)
+                    continue
+
+            filtered.append(detector)
+
+        if skipped:
+            logger.info(f"Disabled {len(skipped)} detectors: {', '.join(skipped)}")
+
+        logger.info(f"Active detectors: {len(filtered)}/{len(self.detectors)}")
+        return filtered
+
     def _build_path_cache(self) -> Optional["PyPathCache"]:
         """Build transitive closure cache for O(1) reachability queries (REPO-416).
 

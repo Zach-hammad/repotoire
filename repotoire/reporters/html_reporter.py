@@ -1,4 +1,4 @@
-"""HTML report generator for Falkor analysis results."""
+"""HTML report generator for Repotoire analysis results."""
 
 from datetime import datetime
 from pathlib import Path
@@ -7,6 +7,7 @@ from jinja2 import Template
 
 from repotoire.models import CodebaseHealth, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.config import ReportingConfig, ReportingTheme
 
 logger = get_logger(__name__)
 
@@ -14,13 +15,19 @@ logger = get_logger(__name__)
 class HTMLReporter:
     """Generate HTML reports from analysis results."""
 
-    def __init__(self, repo_path: Optional[Path] = None):
+    def __init__(
+        self,
+        repo_path: Optional[Path] = None,
+        config: Optional[ReportingConfig] = None,
+    ):
         """Initialize HTML reporter.
 
         Args:
             repo_path: Path to repository for extracting code snippets
+            config: Optional reporting configuration for themes and branding
         """
         self.repo_path = Path(repo_path) if repo_path else None
+        self.config = config or ReportingConfig()
 
     def generate(self, health: CodebaseHealth, output_path: Path) -> None:
         """Generate HTML report from health data.
@@ -65,6 +72,13 @@ class HTMLReporter:
             "severity_colors": self._get_severity_colors(),
             "severity_labels": self._get_severity_labels(),
             "dedup_stats": health.dedup_stats if health.dedup_stats else None,
+            # Theme and branding
+            "theme": self.config.theme,
+            "title": self.config.title,
+            "logo_url": self.config.logo_url,
+            "footer_text": self.config.footer_text,
+            "footer_link": self.config.footer_link,
+            "theme_name": self.config.theme_name,
         }
 
         # Render template
@@ -240,15 +254,42 @@ class HTMLReporter:
         return template.render(**data)
 
 
-# HTML Template with code display
+# HTML Template with code display and theme support
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Falkor Code Health Report</title>
+    <title>{{ title }}</title>
     <style>
+        :root {
+            --primary-color: {{ theme.primary_color }};
+            --header-gradient-start: {{ theme.header_gradient_start }};
+            --header-gradient-end: {{ theme.header_gradient_end }};
+            --background-color: {{ theme.background_color }};
+            --text-color: {{ theme.text_color }};
+            --link-color: {{ theme.link_color }};
+            --grade-a-color: {{ theme.grade_a_color }};
+            --grade-b-color: {{ theme.grade_b_color }};
+            --grade-c-color: {{ theme.grade_c_color }};
+            --grade-d-color: {{ theme.grade_d_color }};
+            --grade-f-color: {{ theme.grade_f_color }};
+            {% if theme_name == 'dark' %}
+            --card-background: #1f2937;
+            --border-color: #374151;
+            --code-background: #0f172a;
+            --code-header-background: #1e293b;
+            --secondary-text: #9ca3af;
+            {% else %}
+            --card-background: white;
+            --border-color: #e5e7eb;
+            --code-background: #1f2937;
+            --code-header-background: #374151;
+            --secondary-text: #6b7280;
+            {% endif %}
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -258,22 +299,22 @@ HTML_TEMPLATE = """
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             line-height: 1.6;
-            color: #1f2937;
-            background: #f9fafb;
+            color: var(--text-color);
+            background: var(--background-color);
             padding: 2rem;
         }
 
         .container {
             max-width: 1400px;
             margin: 0 auto;
-            background: white;
+            background: var(--card-background);
             border-radius: 12px;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
             overflow: hidden;
         }
 
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--header-gradient-start) 0%, var(--header-gradient-end) 100%);
             color: white;
             padding: 3rem 2rem;
             text-align: center;
@@ -286,6 +327,12 @@ HTML_TEMPLATE = """
             align-items: center;
             justify-content: center;
             gap: 0.75rem;
+        }
+
+        .header .logo {
+            height: 48px;
+            width: auto;
+            margin-right: 0.5rem;
         }
 
         .header .timestamp {
@@ -317,20 +364,20 @@ HTML_TEMPLATE = """
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
 
-        .grade-A { background: #10b981; color: white; }
-        .grade-B { background: #06b6d4; color: white; }
-        .grade-C { background: #f59e0b; color: white; }
-        .grade-D { background: #ef4444; color: white; }
-        .grade-F { background: #991b1b; color: white; }
+        .grade-A { background: var(--grade-a-color); color: white; }
+        .grade-B { background: var(--grade-b-color); color: white; }
+        .grade-C { background: var(--grade-c-color); color: white; }
+        .grade-D { background: var(--grade-d-color); color: white; }
+        .grade-F { background: var(--grade-f-color); color: white; }
 
         .score {
             font-size: 1.5rem;
-            color: #6b7280;
+            color: var(--secondary-text);
             margin-bottom: 0.5rem;
         }
 
         .grade-description {
-            color: #6b7280;
+            color: var(--secondary-text);
             font-style: italic;
         }
 
@@ -342,8 +389,8 @@ HTML_TEMPLATE = """
         }
 
         .metric-card {
-            background: white;
-            border: 1px solid #e5e7eb;
+            background: var(--card-background);
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 1.5rem;
             transition: transform 0.2s, box-shadow 0.2s;
@@ -358,20 +405,20 @@ HTML_TEMPLATE = """
             font-size: 0.875rem;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            color: #6b7280;
+            color: var(--secondary-text);
             margin-bottom: 0.5rem;
         }
 
         .metric-value {
             font-size: 2rem;
             font-weight: bold;
-            color: #1f2937;
+            color: var(--text-color);
             margin-bottom: 0.5rem;
         }
 
         .metric-bar {
             height: 8px;
-            background: #e5e7eb;
+            background: var(--border-color);
             border-radius: 4px;
             overflow: hidden;
             margin-top: 0.75rem;
@@ -396,7 +443,7 @@ HTML_TEMPLATE = """
             font-weight: 600;
             margin-bottom: 1.5rem;
             padding-bottom: 0.75rem;
-            border-bottom: 2px solid #e5e7eb;
+            border-bottom: 2px solid var(--border-color);
         }
 
         .findings-list {
@@ -406,7 +453,7 @@ HTML_TEMPLATE = """
         }
 
         .finding-card {
-            border: 1px solid #e5e7eb;
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             overflow: hidden;
             transition: box-shadow 0.2s;
@@ -418,8 +465,8 @@ HTML_TEMPLATE = """
 
         .finding-header {
             padding: 1.25rem;
-            background: #f9fafb;
-            border-bottom: 1px solid #e5e7eb;
+            background: var(--background-color);
+            border-bottom: 1px solid var(--border-color);
             display: flex;
             align-items: center;
             gap: 1rem;
@@ -447,8 +494,8 @@ HTML_TEMPLATE = """
         }
 
         .detector-badge {
-            background: #e0e7ff;
-            color: #4f46e5;
+            background: {% if theme_name == 'dark' %}#312e81{% else %}#e0e7ff{% endif %};
+            color: {% if theme_name == 'dark' %}#a5b4fc{% else %}#4f46e5{% endif %};
             padding: 0.25rem 0.75rem;
             border-radius: 6px;
             font-size: 0.875rem;
@@ -460,7 +507,7 @@ HTML_TEMPLATE = """
         }
 
         .finding-description {
-            color: #4b5563;
+            color: var(--secondary-text);
             margin-bottom: 1rem;
             line-height: 1.7;
         }
@@ -471,7 +518,7 @@ HTML_TEMPLATE = """
 
         .affected-files-label {
             font-weight: 600;
-            color: #6b7280;
+            color: var(--secondary-text);
             margin-bottom: 0.5rem;
             font-size: 0.875rem;
             text-transform: uppercase;
@@ -487,21 +534,21 @@ HTML_TEMPLATE = """
         .file-item {
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
             font-size: 0.875rem;
-            color: #6b7280;
+            color: var(--secondary-text);
             padding: 0.5rem;
-            background: #f9fafb;
+            background: var(--background-color);
             border-radius: 4px;
         }
 
         .code-snippet {
             margin-top: 1rem;
-            border: 1px solid #e5e7eb;
+            border: 1px solid var(--border-color);
             border-radius: 6px;
             overflow: hidden;
         }
 
         .code-header {
-            background: #374151;
+            background: var(--code-header-background);
             color: white;
             padding: 0.75rem 1rem;
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
@@ -518,14 +565,14 @@ HTML_TEMPLATE = """
         }
 
         .line-badge {
-            background: #4b5563;
+            background: {% if theme_name == 'dark' %}#374151{% else %}#4b5563{% endif %};
             padding: 0.25rem 0.5rem;
             border-radius: 4px;
             font-size: 0.75rem;
         }
 
         .code-body {
-            background: #1f2937;
+            background: var(--code-background);
             overflow-x: auto;
         }
 
@@ -542,12 +589,12 @@ HTML_TEMPLATE = """
         }
 
         .line-number {
-            color: #6b7280;
+            color: var(--secondary-text);
             padding: 0.25rem 1rem;
             text-align: right;
             min-width: 60px;
             user-select: none;
-            border-right: 1px solid #374151;
+            border-right: 1px solid var(--code-header-background);
         }
 
         .line-content {
@@ -596,21 +643,30 @@ HTML_TEMPLATE = """
         .stat-value {
             font-size: 2rem;
             font-weight: bold;
-            color: #1f2937;
+            color: var(--text-color);
         }
 
         .stat-label {
             font-size: 0.875rem;
-            color: #6b7280;
+            color: var(--secondary-text);
             margin-top: 0.25rem;
         }
 
         .footer {
             text-align: center;
             padding: 2rem;
-            color: #6b7280;
-            border-top: 1px solid #e5e7eb;
+            color: var(--secondary-text);
+            border-top: 1px solid var(--border-color);
             margin-top: 3rem;
+        }
+
+        .footer a {
+            color: var(--link-color);
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
         }
 
         @media print {
@@ -630,7 +686,10 @@ HTML_TEMPLATE = """
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎼 Repotoire Code Health Report</h1>
+            <h1>
+                {% if logo_url %}<img src="{{ logo_url }}" alt="Logo" class="logo">{% else %}🎼{% endif %}
+                {{ title }}
+            </h1>
             <p class="timestamp">Generated {{ generated_at }}</p>
         </div>
 
@@ -856,10 +915,12 @@ HTML_TEMPLATE = """
         </div>
 
         <div class="footer">
-            <p>Generated by <strong>Falkor</strong> - Graph-Powered Code Analysis Platform</p>
+            <p>{{ footer_text }}</p>
+            {% if footer_link %}
             <p style="margin-top: 0.5rem; font-size: 0.875rem;">
-                <a href="https://github.com/yourusername/falkor" style="color: #667eea; text-decoration: none;">github.com/yourusername/falkor</a>
+                <a href="{{ footer_link }}">{{ footer_link }}</a>
             </p>
+            {% endif %}
         </div>
     </div>
 </body>

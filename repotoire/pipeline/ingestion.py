@@ -677,17 +677,26 @@ class IngestionPipeline:
 
         return False
 
-    def scan(self, patterns: Optional[List[str]] = None) -> List[Path]:
+    def scan(
+        self,
+        patterns: Optional[List[str]] = None,
+        exclude_patterns: Optional[List[str]] = None,
+        exclude_dirs: Optional[List[str]] = None,
+    ) -> List[Path]:
         """Scan repository for source files with security validation.
 
         Uses Rust parallel scanner for 3-10x speedup over Python glob.
 
         Args:
-            patterns: List of glob patterns to match (default: ['**/*.py'])
+            patterns: List of glob patterns to match (default: includes all supported languages)
+            exclude_patterns: List of glob patterns to exclude (e.g., "**/test_*.py", "**/tests/**")
+            exclude_dirs: List of directory names to ignore (e.g., [".git", "node_modules"])
 
         Returns:
             List of validated file paths
         """
+        import fnmatch
+
         if patterns is None:
             # Default patterns include all supported languages
             patterns = ["**/*.py"]
@@ -697,11 +706,47 @@ class IngestionPipeline:
             if self.rust_parser is not None:
                 patterns.extend(["**/*.java", "**/*.go", "**/*.rs"])
 
-        ignored_dirs = [".git", "__pycache__", "node_modules", ".venv", "venv", "build", "dist"]
-        file_paths = rust_scan_files(str(self.repo_path), patterns, ignored_dirs)
-        files = [Path(p) for p in file_paths if not self._should_skip_file(Path(p))]
+        # Default ignored directories
+        if exclude_dirs is None:
+            exclude_dirs = [".git", "__pycache__", "node_modules", ".venv", "venv", "build", "dist"]
 
-        logger.info(f"Found {len(files)} source files (skipped {len(self.skipped_files)} files)")
+        # Default exclude patterns (empty - rely on config)
+        if exclude_patterns is None:
+            exclude_patterns = []
+
+        # Load additional patterns from .repotoireignore file
+        from repotoire.config import load_ignore_patterns
+        ignore_file_patterns = load_ignore_patterns(start_dir=self.repo_path)
+        if ignore_file_patterns:
+            exclude_patterns = list(exclude_patterns) + ignore_file_patterns
+            logger.debug(f"Added {len(ignore_file_patterns)} patterns from .repotoireignore")
+
+        file_paths = rust_scan_files(str(self.repo_path), patterns, exclude_dirs)
+
+        # Apply exclude patterns
+        files = []
+        excluded_count = 0
+        for p in file_paths:
+            path = Path(p)
+            if self._should_skip_file(path):
+                continue
+
+            # Check against exclude patterns
+            rel_path = str(path.relative_to(self.repo_path))
+            excluded = False
+            for pattern in exclude_patterns:
+                if fnmatch.fnmatch(rel_path, pattern):
+                    excluded = True
+                    excluded_count += 1
+                    self._record_skipped_file(str(path), f"Matched exclude pattern: {pattern}")
+                    break
+            if not excluded:
+                files.append(path)
+
+        logger.info(
+            f"Found {len(files)} source files "
+            f"(skipped {len(self.skipped_files)} files, {excluded_count} by exclude patterns)"
+        )
         return files
 
     def _get_relative_path(self, file_path: Path) -> str:

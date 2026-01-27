@@ -129,6 +129,48 @@ class IngestionConfig:
         "**/*.py",
         "**/*.ts", "**/*.tsx",
         "**/*.js", "**/*.jsx",
+        "**/*.java",
+        "**/*.go",
+    ])
+    exclude_patterns: list[str] = field(default_factory=lambda: [
+        "**/test_*.py",
+        "**/*_test.py",
+        "**/tests/**",
+        "**/__tests__/**",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.test.js",
+        "**/*.test.jsx",
+        "**/*.spec.ts",
+        "**/*.spec.tsx",
+        "**/*.spec.js",
+        "**/*.spec.jsx",
+        "**/node_modules/**",
+        "**/vendor/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/.venv/**",
+        "**/venv/**",
+        "**/env/**",
+    ])
+    exclude_dirs: list[str] = field(default_factory=lambda: [
+        ".git",
+        "__pycache__",
+        "node_modules",
+        ".venv",
+        "venv",
+        "env",
+        "build",
+        "dist",
+        ".tox",
+        ".eggs",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".coverage",
+        "htmlcov",
+        ".next",
+        ".nuxt",
     ])
     follow_symlinks: bool = False
     max_file_size_mb: float = 10.0
@@ -143,8 +185,87 @@ class AnalysisConfig:
 
 
 @dataclass
+class RuffConfig:
+    """Ruff detector configuration."""
+    enabled: bool = True
+    select_rules: Optional[list[str]] = None  # If set, only run these rules
+    ignore_rules: list[str] = field(default_factory=list)  # Rules to ignore
+    max_findings: int = 500
+
+
+@dataclass
+class BanditConfig:
+    """Bandit security detector configuration."""
+    enabled: bool = True
+    severity_threshold: str = "low"  # low, medium, high
+    confidence_threshold: str = "low"  # low, medium, high
+    skip_tests: list[str] = field(default_factory=list)  # e.g., ["B101", "B601"]
+    max_findings: int = 200
+
+
+@dataclass
+class MypyConfig:
+    """Mypy type checker configuration."""
+    enabled: bool = True
+    strict: bool = False
+    ignore_missing_imports: bool = True
+    max_findings: int = 300
+
+
+@dataclass
+class PylintConfig:
+    """Pylint detector configuration."""
+    enabled: bool = True
+    enable_only: list[str] = field(default_factory=list)  # Specific checks to run
+    disable: list[str] = field(default_factory=list)  # Checks to disable
+    max_findings: int = 50
+    jobs: int = 4  # Parallel jobs
+
+
+@dataclass
+class RadonConfig:
+    """Radon complexity detector configuration."""
+    enabled: bool = True
+    complexity_threshold: str = "C"  # A, B, C, D, E, F - min complexity to report
+    max_findings: int = 100
+
+
+@dataclass
+class JscpdConfig:
+    """JSCPD duplicate code detector configuration."""
+    enabled: bool = True
+    min_lines: int = 5  # Minimum lines for duplicate detection
+    min_tokens: int = 50  # Minimum tokens for duplicate detection
+    threshold: float = 0.0  # 0-100, percentage threshold
+
+
+@dataclass
+class VultureConfig:
+    """Vulture dead code detector configuration."""
+    enabled: bool = True
+    min_confidence: int = 60  # 0-100, minimum confidence threshold
+    max_findings: int = 100
+
+
+@dataclass
+class SemgrepConfig:
+    """Semgrep security detector configuration."""
+    enabled: bool = True
+    rulesets: list[str] = field(default_factory=lambda: [
+        "p/python",
+        "p/owasp-top-ten",
+    ])
+    severity_threshold: str = "info"  # info, warning, error
+    max_findings: int = 100
+
+
+@dataclass
 class DetectorConfig:
-    """Detector thresholds configuration."""
+    """Detector thresholds and per-detector configuration."""
+    # Enable/disable control
+    enabled_detectors: Optional[list[str]] = None  # None = all enabled, or list of names
+    disabled_detectors: list[str] = field(default_factory=list)  # Detectors to disable
+
     # God class detector thresholds
     god_class_high_method_count: int = 20
     god_class_medium_method_count: int = 15
@@ -154,6 +275,16 @@ class DetectorConfig:
     god_class_medium_loc: int = 300
     god_class_high_lcom: float = 0.8  # Lack of cohesion (0-1, higher is worse)
     god_class_medium_lcom: float = 0.6
+
+    # Per-detector configuration
+    ruff: RuffConfig = field(default_factory=RuffConfig)
+    bandit: BanditConfig = field(default_factory=BanditConfig)
+    mypy: MypyConfig = field(default_factory=MypyConfig)
+    pylint: PylintConfig = field(default_factory=PylintConfig)
+    radon: RadonConfig = field(default_factory=RadonConfig)
+    jscpd: JscpdConfig = field(default_factory=JscpdConfig)
+    vulture: VultureConfig = field(default_factory=VultureConfig)
+    semgrep: SemgrepConfig = field(default_factory=SemgrepConfig)
 
 
 @dataclass
@@ -258,6 +389,70 @@ class RAGConfig:
 
 
 @dataclass
+class ReportingTheme:
+    """Theme colors for report generation.
+
+    Example configuration:
+    ```yaml
+    reporting:
+      theme:
+        primary_color: "#667eea"
+        header_gradient_start: "#667eea"
+        header_gradient_end: "#764ba2"
+        background_color: "#f9fafb"
+        text_color: "#1f2937"
+        link_color: "#4f46e5"
+    ```
+    """
+    primary_color: str = "#667eea"
+    header_gradient_start: str = "#667eea"
+    header_gradient_end: str = "#764ba2"
+    background_color: str = "#f9fafb"
+    text_color: str = "#1f2937"
+    link_color: str = "#4f46e5"
+    grade_a_color: str = "#10b981"
+    grade_b_color: str = "#06b6d4"
+    grade_c_color: str = "#f59e0b"
+    grade_d_color: str = "#ef4444"
+    grade_f_color: str = "#991b1b"
+
+
+@dataclass
+class ReportingConfig:
+    """Reporting and output configuration.
+
+    Example configuration:
+    ```yaml
+    reporting:
+      theme_name: "light"  # "light", "dark", or "custom"
+      title: "Code Health Report"
+      logo_url: "https://example.com/logo.png"
+      footer_text: "Generated by Repotoire"
+      include_snippets: true
+      max_findings: 100
+      theme:
+        primary_color: "#667eea"
+    ```
+    """
+    # Theme selection: "light", "dark", or "custom"
+    theme_name: str = "light"
+
+    # Branding options
+    title: str = "Repotoire Code Health Report"
+    logo_url: Optional[str] = None
+    footer_text: str = "Generated by Repotoire - Graph-Powered Code Health Platform"
+    footer_link: str = "https://repotoire.com"
+
+    # Report content options
+    include_snippets: bool = True
+    max_findings: int = 100
+    max_snippet_lines: int = 10
+
+    # Custom theme (used when theme_name is "custom")
+    theme: ReportingTheme = field(default_factory=ReportingTheme)
+
+
+@dataclass
 class RepotoireConfig:
     """Complete Repotoire configuration."""
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
@@ -269,6 +464,7 @@ class RepotoireConfig:
     timescale: TimescaleConfig = field(default_factory=TimescaleConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
     embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
+    reporting: ReportingConfig = field(default_factory=ReportingConfig)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RepotoireConfig":
@@ -283,15 +479,24 @@ class RepotoireConfig:
         # Expand environment variables
         data = _expand_env_vars(data)
 
+        # Parse detector config with nested per-detector configs
+        detector_data = data.get("detectors", {})
+        detector_config = _parse_detector_config(detector_data)
+
+        # Parse reporting config with nested theme
+        reporting_data = data.get("reporting", {})
+        reporting_config = _parse_reporting_config(reporting_data)
+
         return cls(
             database=DatabaseConfig(**data.get("database", {})),
             ingestion=IngestionConfig(**data.get("ingestion", {})),
             analysis=AnalysisConfig(**data.get("analysis", {})),
-            detectors=DetectorConfig(**data.get("detectors", {})),
+            detectors=detector_config,
             secrets=SecretsConfig(**data.get("secrets", {})),
             logging=LoggingConfig(**data.get("logging", {})),
             rag=RAGConfig(**data.get("rag", {})),
             embeddings=EmbeddingsConfig(**data.get("embeddings", {})),
+            reporting=reporting_config,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -311,6 +516,8 @@ class RepotoireConfig:
             },
             "ingestion": {
                 "patterns": self.ingestion.patterns,
+                "exclude_patterns": self.ingestion.exclude_patterns,
+                "exclude_dirs": self.ingestion.exclude_dirs,
                 "follow_symlinks": self.ingestion.follow_symlinks,
                 "max_file_size_mb": self.ingestion.max_file_size_mb,
                 "batch_size": self.ingestion.batch_size,
@@ -320,6 +527,8 @@ class RepotoireConfig:
                 "max_coupling": self.analysis.max_coupling,
             },
             "detectors": {
+                "enabled_detectors": self.detectors.enabled_detectors,
+                "disabled_detectors": self.detectors.disabled_detectors,
                 "god_class_high_method_count": self.detectors.god_class_high_method_count,
                 "god_class_medium_method_count": self.detectors.god_class_medium_method_count,
                 "god_class_high_complexity": self.detectors.god_class_high_complexity,
@@ -328,6 +537,54 @@ class RepotoireConfig:
                 "god_class_medium_loc": self.detectors.god_class_medium_loc,
                 "god_class_high_lcom": self.detectors.god_class_high_lcom,
                 "god_class_medium_lcom": self.detectors.god_class_medium_lcom,
+                "ruff": {
+                    "enabled": self.detectors.ruff.enabled,
+                    "select_rules": self.detectors.ruff.select_rules,
+                    "ignore_rules": self.detectors.ruff.ignore_rules,
+                    "max_findings": self.detectors.ruff.max_findings,
+                },
+                "bandit": {
+                    "enabled": self.detectors.bandit.enabled,
+                    "severity_threshold": self.detectors.bandit.severity_threshold,
+                    "confidence_threshold": self.detectors.bandit.confidence_threshold,
+                    "skip_tests": self.detectors.bandit.skip_tests,
+                    "max_findings": self.detectors.bandit.max_findings,
+                },
+                "mypy": {
+                    "enabled": self.detectors.mypy.enabled,
+                    "strict": self.detectors.mypy.strict,
+                    "ignore_missing_imports": self.detectors.mypy.ignore_missing_imports,
+                    "max_findings": self.detectors.mypy.max_findings,
+                },
+                "pylint": {
+                    "enabled": self.detectors.pylint.enabled,
+                    "enable_only": self.detectors.pylint.enable_only,
+                    "disable": self.detectors.pylint.disable,
+                    "max_findings": self.detectors.pylint.max_findings,
+                    "jobs": self.detectors.pylint.jobs,
+                },
+                "radon": {
+                    "enabled": self.detectors.radon.enabled,
+                    "complexity_threshold": self.detectors.radon.complexity_threshold,
+                    "max_findings": self.detectors.radon.max_findings,
+                },
+                "jscpd": {
+                    "enabled": self.detectors.jscpd.enabled,
+                    "min_lines": self.detectors.jscpd.min_lines,
+                    "min_tokens": self.detectors.jscpd.min_tokens,
+                    "threshold": self.detectors.jscpd.threshold,
+                },
+                "vulture": {
+                    "enabled": self.detectors.vulture.enabled,
+                    "min_confidence": self.detectors.vulture.min_confidence,
+                    "max_findings": self.detectors.vulture.max_findings,
+                },
+                "semgrep": {
+                    "enabled": self.detectors.semgrep.enabled,
+                    "rulesets": self.detectors.semgrep.rulesets,
+                    "severity_threshold": self.detectors.semgrep.severity_threshold,
+                    "max_findings": self.detectors.semgrep.max_findings,
+                },
             },
             "secrets": {
                 "enabled": self.secrets.enabled,
@@ -353,6 +610,29 @@ class RepotoireConfig:
             "embeddings": {
                 "backend": self.embeddings.backend,
                 "model": self.embeddings.model,
+            },
+            "reporting": {
+                "theme_name": self.reporting.theme_name,
+                "title": self.reporting.title,
+                "logo_url": self.reporting.logo_url,
+                "footer_text": self.reporting.footer_text,
+                "footer_link": self.reporting.footer_link,
+                "include_snippets": self.reporting.include_snippets,
+                "max_findings": self.reporting.max_findings,
+                "max_snippet_lines": self.reporting.max_snippet_lines,
+                "theme": {
+                    "primary_color": self.reporting.theme.primary_color,
+                    "header_gradient_start": self.reporting.theme.header_gradient_start,
+                    "header_gradient_end": self.reporting.theme.header_gradient_end,
+                    "background_color": self.reporting.theme.background_color,
+                    "text_color": self.reporting.theme.text_color,
+                    "link_color": self.reporting.theme.link_color,
+                    "grade_a_color": self.reporting.theme.grade_a_color,
+                    "grade_b_color": self.reporting.theme.grade_b_color,
+                    "grade_c_color": self.reporting.theme.grade_c_color,
+                    "grade_d_color": self.reporting.theme.grade_d_color,
+                    "grade_f_color": self.reporting.theme.grade_f_color,
+                },
             },
         }
 
@@ -380,6 +660,87 @@ class RepotoireConfig:
 
 # Backward compatibility alias
 FalkorConfig = RepotoireConfig
+
+
+def _parse_detector_config(data: Dict[str, Any]) -> DetectorConfig:
+    """Parse detector configuration with nested per-detector configs.
+
+    Args:
+        data: Detector configuration dictionary
+
+    Returns:
+        DetectorConfig instance with properly parsed nested configs
+    """
+    # Extract nested per-detector configs
+    ruff_data = data.pop("ruff", {}) if "ruff" in data else {}
+    bandit_data = data.pop("bandit", {}) if "bandit" in data else {}
+    mypy_data = data.pop("mypy", {}) if "mypy" in data else {}
+    pylint_data = data.pop("pylint", {}) if "pylint" in data else {}
+    radon_data = data.pop("radon", {}) if "radon" in data else {}
+    jscpd_data = data.pop("jscpd", {}) if "jscpd" in data else {}
+    vulture_data = data.pop("vulture", {}) if "vulture" in data else {}
+    semgrep_data = data.pop("semgrep", {}) if "semgrep" in data else {}
+
+    # Create nested configs
+    ruff_config = RuffConfig(**ruff_data) if ruff_data else RuffConfig()
+    bandit_config = BanditConfig(**bandit_data) if bandit_data else BanditConfig()
+    mypy_config = MypyConfig(**mypy_data) if mypy_data else MypyConfig()
+    pylint_config = PylintConfig(**pylint_data) if pylint_data else PylintConfig()
+    radon_config = RadonConfig(**radon_data) if radon_data else RadonConfig()
+    jscpd_config = JscpdConfig(**jscpd_data) if jscpd_data else JscpdConfig()
+    vulture_config = VultureConfig(**vulture_data) if vulture_data else VultureConfig()
+    semgrep_config = SemgrepConfig(**semgrep_data) if semgrep_data else SemgrepConfig()
+
+    # Create main config with remaining fields and nested configs
+    return DetectorConfig(
+        ruff=ruff_config,
+        bandit=bandit_config,
+        mypy=mypy_config,
+        pylint=pylint_config,
+        radon=radon_config,
+        jscpd=jscpd_config,
+        vulture=vulture_config,
+        semgrep=semgrep_config,
+        **data  # Pass remaining fields directly
+    )
+
+
+def _parse_reporting_config(data: Dict[str, Any]) -> ReportingConfig:
+    """Parse reporting configuration with nested theme.
+
+    Args:
+        data: Reporting configuration dictionary
+
+    Returns:
+        ReportingConfig instance with properly parsed nested theme
+    """
+    # Extract nested theme config
+    theme_data = data.pop("theme", {}) if "theme" in data else {}
+
+    # Create theme config
+    theme_config = ReportingTheme(**theme_data) if theme_data else ReportingTheme()
+
+    # Apply dark theme defaults if theme_name is "dark"
+    if data.get("theme_name") == "dark" and not theme_data:
+        theme_config = ReportingTheme(
+            primary_color="#818cf8",
+            header_gradient_start="#1e1b4b",
+            header_gradient_end="#312e81",
+            background_color="#111827",
+            text_color="#f3f4f6",
+            link_color="#a5b4fc",
+            grade_a_color="#34d399",
+            grade_b_color="#22d3ee",
+            grade_c_color="#fbbf24",
+            grade_d_color="#f87171",
+            grade_f_color="#dc2626",
+        )
+
+    # Create main config with remaining fields and nested theme
+    return ReportingConfig(
+        theme=theme_config,
+        **data  # Pass remaining fields directly
+    )
 
 
 def _expand_env_vars(data: Union[Dict, list, str, Any]) -> Any:
@@ -472,6 +833,98 @@ def find_config_file(start_dir: Optional[Path] = None) -> Optional[Path]:
 
     logger.debug("No config file found")
     return None
+
+
+def find_ignore_file(start_dir: Optional[Path] = None) -> Optional[Path]:
+    """Find .repotoireignore file using hierarchical search.
+
+    Searches in order:
+    1. start_dir (or current directory)
+    2. Parent directories up to root
+
+    Args:
+        start_dir: Starting directory for search (default: current directory)
+
+    Returns:
+        Path to ignore file, or None if not found
+    """
+    if start_dir is None:
+        start_dir = Path.cwd()
+    else:
+        start_dir = Path(start_dir).resolve()
+
+    # Search current directory and parents
+    current = start_dir
+    while True:
+        ignore_file = current / ".repotoireignore"
+        if ignore_file.exists() and ignore_file.is_file():
+            logger.info(f"Found ignore file: {ignore_file}")
+            return ignore_file
+
+        # Move to parent
+        parent = current.parent
+        if parent == current:  # Reached root
+            break
+        current = parent
+
+    logger.debug("No .repotoireignore file found")
+    return None
+
+
+def load_ignore_patterns(ignore_file: Optional[Path] = None, start_dir: Optional[Path] = None) -> list[str]:
+    """Load ignore patterns from .repotoireignore file.
+
+    File format:
+    - One pattern per line (fnmatch/glob syntax)
+    - Lines starting with # are comments
+    - Empty lines are ignored
+    - Patterns are relative to the repository root
+
+    Example .repotoireignore:
+    ```
+    # Ignore test files
+    test_*.py
+    *_test.py
+
+    # Ignore specific directories
+    vendor/**
+    build/**
+
+    # Ignore specific file types
+    *.log
+    *.tmp
+    ```
+
+    Args:
+        ignore_file: Explicit path to ignore file (optional)
+        start_dir: Starting directory for hierarchical search (default: current directory)
+
+    Returns:
+        List of ignore patterns (empty list if no file found)
+    """
+    if ignore_file is None:
+        ignore_file = find_ignore_file(start_dir)
+
+    if ignore_file is None:
+        return []
+
+    patterns = []
+    try:
+        content = ignore_file.read_text()
+        for line in content.splitlines():
+            # Strip whitespace
+            line = line.strip()
+            # Skip empty lines and comments
+            if not line or line.startswith("#"):
+                continue
+            patterns.append(line)
+
+        logger.info(f"Loaded {len(patterns)} patterns from {ignore_file}")
+        return patterns
+
+    except Exception as e:
+        logger.warning(f"Failed to read ignore file {ignore_file}: {e}")
+        return []
 
 
 def load_config_file(file_path: Path) -> Dict[str, Any]:
