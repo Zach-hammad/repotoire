@@ -111,6 +111,143 @@
     ],
     "property_names": ["tenant_id", "repository", "branch"],
     "patterns": ["time-series", "tenant-isolation", "continuous-aggregates"],
-    "notes": "All TimescaleDB queries MUST include tenant_id filter. Primary key is (time, tenant_id, repository, branch)."
+    "notes": "All TimescaleDB queries MUST include tenant_id filter. Primary key is (time, tenant_id, repository, branch). All queries use %s parameterized placeholders - NO SQL injection vulnerabilities."
+  },
+  "rate-limiting": {
+    "description": "Tiered rate limiting with Redis backend and standard headers",
+    "implemented_via": [
+      "slowapi.Limiter - core rate limiting engine with Redis/memory storage",
+      "RateLimitMiddleware - adds X-RateLimit-* headers to all responses",
+      "RateLimitTier enum - FREE (60/min), PRO (300/min), ENTERPRISE (1000/min)",
+      "Category-based limits - api, analysis, webhook, sensitive, api_key_validation, account, search",
+      "rate_limit_exceeded_handler - 429 responses with Retry-After header"
+    ],
+    "key_files": [
+      "repotoire/api/shared/middleware/rate_limit.py",
+      "repotoire/api/app.py"
+    ],
+    "patterns": ["middleware-stack", "redis-backend", "tiered-limits"],
+    "notes": "Rate limiting is FULLY IMPLEMENTED. Check app.py:399 for middleware registration, app.py:101-104 for Limiter init. Headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After."
+  },
+  "security-headers": {
+    "description": "Comprehensive security headers via middleware",
+    "implemented_via": [
+      "SecurityHeadersMiddleware - adds all security headers",
+      "X-Content-Type-Options: nosniff",
+      "X-Frame-Options: DENY",
+      "X-XSS-Protection: 1; mode=block",
+      "Strict-Transport-Security (HSTS) - production only",
+      "Content-Security-Policy (CSP) - restrictive default-src 'none'",
+      "Permissions-Policy - disables camera, microphone, geolocation, etc.",
+      "Referrer-Policy: strict-origin-when-cross-origin",
+      "Cache-Control: no-store for API responses"
+    ],
+    "key_files": [
+      "repotoire/api/shared/middleware/security_headers.py",
+      "repotoire/api/app.py"
+    ],
+    "patterns": ["middleware-stack", "defense-in-depth"],
+    "notes": "Security headers middleware registered at app.py:408. HSTS only in production (ENVIRONMENT=production). CSP_REPORT_URI env var supported for violation reports."
+  },
+  "cors-configuration": {
+    "description": "Explicit CORS origins - NOT wildcards",
+    "implemented_via": [
+      "CORSMiddleware from Starlette",
+      "CORS_ORIGINS env var - comma-separated list",
+      "Explicit allow_methods - GET, POST, PUT, DELETE, PATCH, OPTIONS",
+      "Explicit allow_headers - Authorization, Content-Type, X-API-Key, X-Request-ID"
+    ],
+    "key_files": [
+      "repotoire/api/app.py"
+    ],
+    "patterns": ["explicit-allowlist", "no-wildcards"],
+    "notes": "CORS does NOT use wildcards. Default origins: http://localhost:3000,http://localhost:3001. See app.py:93-96 for CORS_ORIGINS, app.py:413-419 for middleware config."
+  },
+  "webhook-security": {
+    "description": "HMAC signature verification for all webhooks",
+    "implemented_via": [
+      "github.verify_webhook_signature() - HMAC-SHA256 verification",
+      "Svix for Clerk webhook verification",
+      "Stripe webhook signature verification",
+      "401 Unauthorized for invalid signatures"
+    ],
+    "key_files": [
+      "repotoire/api/shared/services/github.py",
+      "repotoire/api/v1/routes/github.py",
+      "repotoire/api/v1/routes/webhooks.py",
+      "repotoire/api/v1/routes/customer_webhooks.py"
+    ],
+    "patterns": ["hmac-verification", "constant-time-comparison"],
+    "notes": "GitHub webhook verification at github.py route line 457: if not github.verify_webhook_signature(body, signature). Uses hmac.compare_digest for timing-safe comparison."
+  },
+  "api-key-validation": {
+    "description": "Secure API key validation via Clerk SDK",
+    "implemented_via": [
+      "clerk.api_keys.verify_api_key() - Clerk SDK method",
+      "No direct string comparison - SDK handles timing-safe validation",
+      "Rate limited: 10/minute for validation endpoint",
+      "Scoped keys with org-level permissions"
+    ],
+    "key_files": [
+      "repotoire/api/shared/auth/clerk.py",
+      "repotoire/api/v1/routes/cli_auth.py"
+    ],
+    "patterns": ["sdk-delegation", "timing-safe"],
+    "notes": "API key validation uses Clerk SDK, NOT custom string comparison. See clerk.py:234 for verify_api_key call. No timing attack vulnerability."
+  },
+  "sql-injection-prevention": {
+    "description": "All SQL queries use parameterized placeholders",
+    "implemented_via": [
+      "psycopg2 %s placeholders for all TimescaleDB queries",
+      "SQLAlchemy ORM for PostgreSQL queries",
+      "No f-string interpolation of user input in SQL"
+    ],
+    "key_files": [
+      "repotoire/historical/timescale_client.py",
+      "repotoire/db/"
+    ],
+    "patterns": ["parameterized-queries", "orm"],
+    "notes": "TimescaleClient uses cur.execute('...WHERE x = %s...', (param,)) pattern throughout. No SQL injection vulnerabilities."
+  },
+  "command-injection-prevention": {
+    "description": "All subprocess calls use list arguments, not shell=True",
+    "implemented_via": [
+      "run_external_tool() - shared utility for all external tools",
+      "subprocess.run(cmd_list, ...) - list argument, shell=False default",
+      "No shell interpretation of user input"
+    ],
+    "key_files": [
+      "repotoire/detectors/external_tool_runner.py",
+      "repotoire/cli/repo_utils.py"
+    ],
+    "patterns": ["subprocess-list", "no-shell"],
+    "notes": "All subprocess calls use list for cmd argument. shell=False is default. See external_tool_runner.py:232 for subprocess.run pattern."
+  },
+  "sandbox-secret-filtering": {
+    "description": "E2B sandbox excludes sensitive files before upload",
+    "implemented_via": [
+      "DEFAULT_SENSITIVE_PATTERNS - 50+ file patterns (.env, credentials, keys, etc.)",
+      "SECRET_CONTENT_PATTERNS - regex patterns for API keys in file contents",
+      "SecretFileFilter class - pattern + content scanning",
+      "SANDBOX_EXCLUDE_PATTERNS env var for custom patterns"
+    ],
+    "key_files": [
+      "repotoire/sandbox/tool_executor.py"
+    ],
+    "patterns": ["pattern-matching", "content-scanning", "defense-in-depth"],
+    "notes": "E2B sandbox filters: .env*, .aws/, .ssh/, credentials.json, *.pem, *password*, etc. Also scans file CONTENTS for API key patterns (AKIA*, ghp_*, sk_live_*, etc.)."
+  },
+  "csrf-protection": {
+    "description": "CSRF protection via Origin header validation",
+    "implemented_via": [
+      "CSRFProtectionMiddleware - validates Origin on state-changing requests",
+      "Registered in middleware stack before route handlers"
+    ],
+    "key_files": [
+      "repotoire/api/shared/middleware/csrf.py",
+      "repotoire/api/app.py"
+    ],
+    "patterns": ["origin-validation", "middleware"],
+    "notes": "CSRF middleware registered at app.py:396. Validates Origin header matches allowed origins for POST/PUT/DELETE requests."
   }
 }
