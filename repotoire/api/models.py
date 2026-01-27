@@ -16,7 +16,7 @@ class CodeSearchRequest(BaseModel):
     )
     top_k: int = Field(
         default=10,
-        description="Number of results to return",
+        description="Number of results to return per page",
         ge=1,
         le=50
     )
@@ -28,6 +28,11 @@ class CodeSearchRequest(BaseModel):
         default=True,
         description="Whether to include related entities via graph traversal"
     )
+    cursor: Optional[str] = Field(
+        default=None,
+        description="Pagination cursor for fetching next page. Opaque string from previous response.",
+        max_length=100
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -35,7 +40,8 @@ class CodeSearchRequest(BaseModel):
                 "query": "How does authentication work?",
                 "top_k": 10,
                 "entity_types": ["Function", "Class"],
-                "include_related": True
+                "include_related": True,
+                "cursor": None
             }
         }
     )
@@ -67,13 +73,21 @@ class CodeSearchResponse(BaseModel):
     """Response model for code search."""
 
     results: List[CodeEntity] = Field(..., description="Search results ordered by relevance")
-    total: int = Field(..., description="Total number of results returned", ge=0)
+    total: int = Field(..., description="Number of results in this page", ge=0)
     query: str = Field(..., description="Original query")
     search_strategy: str = Field(
         ...,
         description="Search strategy used (vector, graph, hybrid)"
     )
     execution_time_ms: float = Field(..., description="Query execution time in milliseconds", ge=0)
+    next_cursor: Optional[str] = Field(
+        default=None,
+        description="Cursor for fetching next page. Null if no more results."
+    )
+    has_more: bool = Field(
+        default=False,
+        description="Whether there are more results available"
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -98,7 +112,9 @@ class CodeSearchResponse(BaseModel):
                 "total": 1,
                 "query": "How does authentication work?",
                 "search_strategy": "hybrid",
-                "execution_time_ms": 125.5
+                "execution_time_ms": 125.5,
+                "next_cursor": "eyJvZmZzZXQiOiAxMH0=",
+                "has_more": True
             }
         }
     )

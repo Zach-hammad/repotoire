@@ -35,6 +35,7 @@ from repotoire.api.models import ErrorResponse, RateLimitError
 from repotoire.api.shared.middleware import (
     DEFAULT_RATE_LIMIT,
     DeprecationMiddleware,
+    IdempotencyMiddleware,
     RateLimitMiddleware,
     SecurityHeadersMiddleware,
     TenantMiddleware,
@@ -391,6 +392,10 @@ app.add_middleware(CorrelationIdMiddleware)
 # Sets TenantContext from authenticated user for request-scoped isolation
 app.add_middleware(TenantMiddleware)
 
+# Add idempotency key middleware (caches POST/PUT/PATCH responses by Idempotency-Key header)
+# This enables safe request retries without creating duplicates
+app.add_middleware(IdempotencyMiddleware)
+
 # Add CSRF protection middleware (validates Origin on state-changing requests)
 from repotoire.api.shared.middleware import CSRFProtectionMiddleware
 app.add_middleware(CSRFProtectionMiddleware)
@@ -415,7 +420,7 @@ app.add_middleware(
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID", "Idempotency-Key"],
 )
 
 # Configure rate limiter on app state for use in routes

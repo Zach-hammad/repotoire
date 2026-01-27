@@ -21,6 +21,13 @@ from .tenant import (
     TenantContextDependency,
 )
 from .security_headers import SecurityHeadersMiddleware
+from .idempotency import (
+    IdempotencyMiddleware,
+    IdempotencyStore,
+    IDEMPOTENCY_KEY_HEADER,
+    IDEMPOTENCY_REPLAYED_HEADER,
+    get_idempotency_store,
+)
 from .deprecation import (
     DeprecationInfo,
     DeprecationMiddleware,
@@ -103,4 +110,10 @@ __all__ = [
     "is_origin_allowed",
     # Security headers
     "SecurityHeadersMiddleware",
+    # Idempotency
+    "IdempotencyMiddleware",
+    "IdempotencyStore",
+    "IDEMPOTENCY_KEY_HEADER",
+    "IDEMPOTENCY_REPLAYED_HEADER",
+    "get_idempotency_store",
 ]

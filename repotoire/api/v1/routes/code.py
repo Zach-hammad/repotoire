@@ -1,6 +1,8 @@
 """API routes for code Q&A and search."""
 
 import asyncio
+import base64
+import json
 import os
 import time
 from typing import Optional
@@ -116,6 +118,23 @@ def get_retriever_for_org(
     )
 
 
+def get_retriever(
+    org: Organization = Depends(enforce_feature_for_api("api_access")),
+    embedder: CodeEmbedder = Depends(get_embedder),
+) -> GraphRAGRetriever:
+    """FastAPI dependency for GraphRAGRetriever.
+
+    Provides a tenant-isolated retriever instance with pre-loaded embedder.
+    This is the recommended way to get a retriever in API endpoints.
+
+    Usage:
+        @router.post("/search")
+        async def search(retriever: GraphRAGRetriever = Depends(get_retriever)):
+            results = await asyncio.to_thread(retriever.retrieve, ...)
+    """
+    return get_retriever_for_org(org, embedder)
+
+
 def _retrieval_result_to_code_entity(result: RetrievalResult) -> CodeEntity:
     """Convert RetrievalResult to CodeEntity API model."""
     return CodeEntity(
@@ -131,6 +150,37 @@ def _retrieval_result_to_code_entity(result: RetrievalResult) -> CodeEntity:
         relationships=result.relationships,
         metadata=result.metadata
     )
+
+
+def _encode_cursor(offset: int) -> str:
+    """Encode pagination cursor as base64 JSON.
+
+    Args:
+        offset: The offset to encode
+
+    Returns:
+        Base64 encoded cursor string
+    """
+    cursor_data = {"offset": offset}
+    return base64.urlsafe_b64encode(json.dumps(cursor_data).encode()).decode()
+
+
+def _decode_cursor(cursor: Optional[str]) -> int:
+    """Decode pagination cursor to get offset.
+
+    Args:
+        cursor: Base64 encoded cursor string, or None
+
+    Returns:
+        Offset value, or 0 if cursor is None/invalid
+    """
+    if not cursor:
+        return 0
+    try:
+        cursor_data = json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())
+        return max(0, int(cursor_data.get("offset", 0)))
+    except (ValueError, json.JSONDecodeError, KeyError):
+        return 0
 
 
 @router.post(
@@ -159,11 +209,15 @@ async def search_code(
     - Vector similarity search for semantic matching
     - Graph traversal for related entities
     - Ranked by relevance score
+    - Cursor-based pagination for large result sets
 
     **Example Queries**:
     - "How does authentication work?"
     - "Find all functions that parse JSON"
     - "Classes that handle database connections"
+
+    **Pagination**:
+    Use the `cursor` field from a previous response to fetch the next page.
     """
     start_time = time.time()
 
@@ -171,18 +225,37 @@ async def search_code(
     retriever = get_retriever_for_org(org, embedder)
 
     try:
-        logger.info(f"Code search request: {search_request.query}", extra={"org_id": str(org.id)})
+        # Parse pagination cursor
+        offset = _decode_cursor(search_request.cursor)
 
-        # Perform hybrid retrieval
-        results = retriever.retrieve(
-            query=search_request.query,
-            top_k=search_request.top_k,
-            entity_types=search_request.entity_types,
-            include_related=search_request.include_related
+        logger.info(
+            f"Code search request: {search_request.query} (offset={offset})",
+            extra={"org_id": str(org.id)}
         )
 
+        # Fetch one extra result to determine has_more
+        fetch_count = offset + search_request.top_k + 1
+
+        # Perform hybrid retrieval (run sync method in thread pool to avoid blocking)
+        all_results = await asyncio.to_thread(
+            retriever.retrieve,
+            query=search_request.query,
+            top_k=fetch_count,
+            entity_types=search_request.entity_types,
+            include_related=search_request.include_related,
+        )
+
+        # Apply pagination: slice from offset to offset + top_k
+        page_results = all_results[offset : offset + search_request.top_k]
+        has_more = len(all_results) > offset + search_request.top_k
+
+        # Generate next cursor if there are more results
+        next_cursor = None
+        if has_more:
+            next_cursor = _encode_cursor(offset + search_request.top_k)
+
         # Convert to API models
-        code_entities = [_retrieval_result_to_code_entity(r) for r in results]
+        code_entities = [_retrieval_result_to_code_entity(r) for r in page_results]
 
         execution_time_ms = (time.time() - start_time) * 1000
 
@@ -191,7 +264,9 @@ async def search_code(
             total=len(code_entities),
             query=search_request.query,
             search_strategy="hybrid" if search_request.include_related else "vector",
-            execution_time_ms=execution_time_ms
+            execution_time_ms=execution_time_ms,
+            next_cursor=next_cursor,
+            has_more=has_more,
         )
 
     except Exception as e:
@@ -243,11 +318,12 @@ async def ask_code_question(
     try:
         logger.info(f"Code Q&A request: {ask_request.question}", extra={"org_id": str(org.id)})
 
-        # Step 1: Retrieve relevant code
-        retrieval_results = retriever.retrieve(
+        # Step 1: Retrieve relevant code (run sync method in thread pool to avoid blocking)
+        retrieval_results = await asyncio.to_thread(
+            retriever.retrieve,
             query=ask_request.question,
             top_k=ask_request.top_k,
-            include_related=ask_request.include_related
+            include_related=ask_request.include_related,
         )
 
         if not retrieval_results:
