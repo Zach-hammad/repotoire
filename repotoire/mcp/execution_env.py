@@ -1285,7 +1285,7 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
 # Repotoire imports
-from repotoire.graph import FalkorDBClient
+from repotoire.graph import FalkorDBClient, create_falkordb_client
 from repotoire.models import (
     CodebaseHealth, Finding, Severity,
     File, Class, Function, Module, Rule
@@ -1329,7 +1329,21 @@ def connect_neo4j(
                 "Set it with: export FALKORDB_PASSWORD='your-password'\n"
                 "Or pass password directly: connect_neo4j(password='...')"
             )
-    return FalkorDBClient(uri=uri, password=password)
+    # Build overrides for factory function
+    overrides = {"password": password}
+    if uri is not None:
+        import warnings
+        warnings.warn(
+            "uri parameter is deprecated. Use FALKORDB_HOST env var instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        # Try to parse host from uri for backward compatibility
+        if "://" in uri:
+            parts = uri.split("://")[1].split(":")
+            overrides["host"] = parts[0]
+
+    return create_falkordb_client(**overrides)
 
 # Pre-connect client for convenience
 try:

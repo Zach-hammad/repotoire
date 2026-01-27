@@ -577,12 +577,9 @@ if __name__ == "__main__":
             needs_graph_db = pattern.class_name in ['AnalysisEngine', 'TemporalIngestionPipeline', 'DetectorQueryBuilder']
 
             if needs_graph_db:
-                code.append("# Instantiate FalkorDBClient for class constructor")
-                code.append("graph_client = FalkorDBClient(")
-                code.append("    host=os.getenv('FALKORDB_HOST', 'localhost'),")
-                code.append("    port=int(os.getenv('FALKORDB_PORT', '6379')),")
-                code.append("    password=os.getenv('FALKORDB_PASSWORD')")
-                code.append(")")
+                code.append("# Instantiate FalkorDBClient using factory for consistent config")
+                code.append("from repotoire.graph import create_falkordb_client")
+                code.append("graph_client = create_falkordb_client()")
                 code.append("")
 
             instantiation = self._instantiate_class(pattern.class_name, di_params)
@@ -653,14 +650,9 @@ if __name__ == "__main__":
 
         # Construct dependencies if needed
         if needs_graph_client or needs_retriever:
-            code.append("# Construct FalkorDBClient dependency")
-            code.append("from repotoire.graph import FalkorDBClient")
-            code.append("import os")
-            code.append("client = FalkorDBClient(")
-            code.append("    host=os.getenv('FALKORDB_HOST', 'localhost'),")
-            code.append("    port=int(os.getenv('FALKORDB_PORT', '6379')),")
-            code.append("    password=os.getenv('FALKORDB_PASSWORD')")
-            code.append(")")
+            code.append("# Construct FalkorDBClient using factory for consistent config")
+            code.append("from repotoire.graph import create_falkordb_client")
+            code.append("client = create_falkordb_client()")
             code.append("")
 
         if needs_embedder or needs_retriever:
@@ -940,8 +932,9 @@ if __name__ == "__main__":
         # GraphRAGRetriever needs FalkorDBClient + CodeEmbedder
         if 'GraphRAGRetriever' in type_hint:
             return (
+                f"from repotoire.graph import create_falkordb_client\n"
                 f"{param_name} = GraphRAGRetriever(\n"
-                f"    graph_client=FalkorDBClient(host=os.getenv('FALKORDB_HOST', 'localhost'), port=int(os.getenv('FALKORDB_PORT', '6379')), password=os.getenv('FALKORDB_PASSWORD')),\n"
+                f"    graph_client=create_falkordb_client(),\n"
                 f"    embedder=CodeEmbedder(api_key=os.getenv('OPENAI_API_KEY'))\n"
                 f")"
             )
@@ -949,11 +942,8 @@ if __name__ == "__main__":
         # FalkorDBClient (or Neo4jClient alias)
         if 'FalkorDBClient' in type_hint or 'Neo4jClient' in type_hint:
             return (
-                f"{param_name} = FalkorDBClient(\n"
-                f"    host=os.getenv('FALKORDB_HOST', 'localhost'),\n"
-                f"    port=int(os.getenv('FALKORDB_PORT', '6379')),\n"
-                f"    password=os.getenv('FALKORDB_PASSWORD')\n"
-                f")"
+                f"from repotoire.graph import create_falkordb_client\n"
+                f"{param_name} = create_falkordb_client()"
             )
 
         # CodeEmbedder

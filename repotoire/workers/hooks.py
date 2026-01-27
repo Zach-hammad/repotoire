@@ -1798,13 +1798,13 @@ def generate_fixes_for_analysis(
 
         # Initialize AutoFixEngine with Claude Opus 4.5 (outside session to avoid long transactions)
         from repotoire.autofix.engine import AutoFixEngine
-        from repotoire.graph import FalkorDBClient
+        from repotoire.graph import create_falkordb_client
         from repotoire.models import Finding as ModelFinding
         from repotoire.models import Severity
 
-        falkordb_host = os.environ.get("FALKORDB_HOST", "bolt://localhost:7687")
+        # Use factory function for consistent config handling
         falkordb_password = os.environ.get("FALKORDB_PASSWORD", "")
-        graph_client = FalkorDBClient(uri=falkordb_host, password=falkordb_password)
+        graph_client = create_falkordb_client(password=falkordb_password) if falkordb_password else create_falkordb_client()
 
         engine = AutoFixEngine(
             graph_client=graph_client,

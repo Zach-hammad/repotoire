@@ -311,6 +311,8 @@ class GraphClientFactory:
         """Create a FalkorDB client for a tenant.
 
         Each tenant gets a separate graph within the FalkorDB instance.
+        Uses the centralized create_falkordb_client() factory for consistent
+        configuration handling (retry settings, circuit breaker, etc.).
 
         Args:
             org_id: Organization UUID
@@ -319,13 +321,16 @@ class GraphClientFactory:
         Returns:
             FalkorDBClient configured for the tenant's graph
         """
-        from repotoire.graph.falkordb_client import FalkorDBClient
+        from repotoire.graph.factory import create_falkordb_client
 
-        client = FalkorDBClient(
+        # Use factory with factory-level overrides for connection settings
+        # This ensures we use the centralized config for retry/circuit breaker
+        # while respecting the factory's connection parameters
+        client = create_falkordb_client(
+            graph_name=graph_name,
             host=self.falkordb_host,
             port=self.falkordb_port,
             password=self.falkordb_password,
-            graph_name=graph_name,
         )
         client._org_id = org_id
 
@@ -399,13 +404,13 @@ class GraphClientFactory:
         # Close any cached client first
         self.close_client(org_id)
 
-        from repotoire.graph.falkordb_client import FalkorDBClient
+        from repotoire.graph.factory import create_falkordb_client
 
-        temp_client = FalkorDBClient(
+        temp_client = create_falkordb_client(
+            graph_name=graph_name,
             host=self.falkordb_host,
             port=self.falkordb_port,
             password=self.falkordb_password,
-            graph_name=graph_name,
         )
         try:
             temp_client.graph.delete()

@@ -56,7 +56,7 @@ _local_available = False
 _import_error = None
 
 try:
-    from repotoire.graph import FalkorDBClient
+    from repotoire.graph import FalkorDBClient, create_falkordb_client
     from repotoire.detectors.engine import AnalysisEngine
     _local_available = True
 except ImportError as e:
@@ -160,10 +160,17 @@ def _require_api_key() -> None:
 # =============================================================================
 
 def _get_graph_client() -> "FalkorDBClient":
-    """Get FalkorDB client for local features."""
+    """Get FalkorDB client for local features.
+
+    Uses the centralized config system via create_falkordb_client().
+    Environment overrides (FALKORDB_HOST, FALKORDB_PASSWORD) are still respected
+    through the RepotoireConfig environment variable handling.
+    """
     if not _local_available:
         raise RuntimeError(f"Local features unavailable: {_import_error}")
-    return FalkorDBClient(host=FALKORDB_HOST, password=FALKORDB_PASSWORD)
+    # Use factory function for consistent config handling
+    # CLI overrides can be passed here if needed
+    return create_falkordb_client()
 
 
 # =============================================================================

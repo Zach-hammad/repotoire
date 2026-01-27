@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import List, Set
 import subprocess
 
-from repotoire.graph import FalkorDBClient
+from repotoire.graph import FalkorDBClient, create_falkordb_client
 from repotoire.pipeline.ingestion import IngestionPipeline
 from repotoire.detectors.engine import AnalysisEngine
 from repotoire.models import Severity
@@ -152,8 +152,12 @@ def main() -> int:
         return 1
 
     try:
-        # Connect to FalkorDB
-        client = FalkorDBClient(uri=args.falkordb_host, password=falkordb_password)
+        # Connect to FalkorDB using factory function
+        # CLI args can override the default config values
+        overrides = {"password": falkordb_password}
+        if args.falkordb_host and args.falkordb_host != "localhost":
+            overrides["host"] = args.falkordb_host
+        client = create_falkordb_client(**overrides)
 
         # Get repository root
         repo_root = subprocess.run(

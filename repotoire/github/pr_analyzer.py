@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 import os
 
-from repotoire.graph import FalkorDBClient
+from repotoire.graph import create_falkordb_client
 from repotoire.pipeline.ingestion import IngestionPipeline
 from repotoire.detectors.engine import AnalysisEngine
 from repotoire.models import Severity, CodebaseHealth
@@ -234,8 +234,8 @@ def main() -> int:
         return 1
 
     try:
-        # Connect to FalkorDB
-        client = FalkorDBClient(uri=args.falkordb_host, password=args.falkordb_password)
+        # Connect to FalkorDB using factory for consistent config
+        client = create_falkordb_client(password=args.falkordb_password)
 
         # Run ingestion
         print(f"📥 Ingesting codebase...")

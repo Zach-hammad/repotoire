@@ -64,7 +64,8 @@ class StructuralSimilarityAnalyzer:
     in the code graph (call relationships, imports, containment).
 
     Example:
-        >>> client = FalkorDBClient(uri="bolt://localhost:7687")
+        >>> from repotoire.graph import create_falkordb_client
+        >>> client = create_falkordb_client()
         >>> analyzer = StructuralSimilarityAnalyzer(client)
         >>>
         >>> # Ensure embeddings are generated

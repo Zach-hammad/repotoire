@@ -164,6 +164,8 @@ _DEPRECATED_ENV_VARS = {
     "FALKOR_RAG_CACHE_ENABLED": "REPOTOIRE_RAG_CACHE_ENABLED",
     "FALKOR_RAG_CACHE_TTL": "REPOTOIRE_RAG_CACHE_TTL",
     "FALKOR_RAG_CACHE_MAX_SIZE": "REPOTOIRE_RAG_CACHE_MAX_SIZE",
+    # Sandbox (SANDBOX_* -> REPOTOIRE_SANDBOX_*)
+    "SANDBOX_TRIAL_EXECUTIONS": "REPOTOIRE_SANDBOX_TRIAL_EXECUTIONS",
 }
 
 
@@ -208,13 +210,58 @@ class ConfigError(Exception):
 
 @dataclass
 class DatabaseConfig:
-    """FalkorDB connection configuration."""
+    """FalkorDB connection configuration.
+
+    All parameters align with FalkorDBClient defaults (REPO-500 stability fixes).
+    These can be overridden via config file or REPOTOIRE_DB_* environment variables.
+
+    Connection Settings:
+        host: FalkorDB host (default: localhost)
+        port: FalkorDB port (default: 6379)
+        password: Redis password (optional)
+        ssl: Enable TLS/SSL (default: False)
+        socket_timeout: Socket timeout in seconds (default: 30.0)
+        socket_connect_timeout: Connection timeout in seconds (default: 10.0)
+        max_connections: Connection pool size (default: 100)
+
+    Retry Settings (exponential backoff with jitter):
+        max_retries: Maximum retry attempts (default: 5)
+        retry_base_delay: Base delay between retries in seconds (default: 2.0)
+        retry_backoff_factor: Exponential backoff multiplier (default: 2.0)
+        retry_jitter: Random jitter factor 0-1 to prevent thundering herd (default: 0.5)
+        retry_max_delay: Maximum delay cap in seconds (default: 60.0)
+
+    Query Settings:
+        default_query_timeout: Default timeout for queries in seconds (default: 30.0)
+
+    Circuit Breaker Settings:
+        circuit_breaker_threshold: Consecutive failures before opening (default: 5)
+        circuit_breaker_timeout: Seconds before half-open state (default: 30.0)
+        health_check_interval: Seconds between health checks (default: 60.0)
+    """
+    # Connection settings
     host: str = "localhost"
     port: int = 6379
     password: Optional[str] = None
-    max_retries: int = 3
-    retry_backoff_factor: float = 2.0  # Exponential backoff multiplier
-    retry_base_delay: float = 1.0  # Base delay in seconds
+    ssl: bool = False
+    socket_timeout: float = 30.0
+    socket_connect_timeout: float = 10.0
+    max_connections: int = 100
+
+    # Retry settings (REPO-500 stability fixes)
+    max_retries: int = 5  # Increased for Redis loading states
+    retry_base_delay: float = 2.0  # Increased for stability
+    retry_backoff_factor: float = 2.0
+    retry_jitter: float = 0.5  # Prevent thundering herd
+    retry_max_delay: float = 60.0  # Cap maximum delay
+
+    # Query settings
+    default_query_timeout: float = 30.0
+
+    # Circuit breaker settings
+    circuit_breaker_threshold: int = 5
+    circuit_breaker_timeout: float = 30.0
+    health_check_interval: float = 60.0
 
 
 # Backward compatibility alias
@@ -467,6 +514,21 @@ class TimescaleConfig:
 
 
 @dataclass
+class PostgresConfig:
+    """PostgreSQL database configuration for SQLAlchemy sessions.
+
+    Used by db/session.py for async/sync database sessions.
+    If database_url is not set, falls back to DATABASE_URL env var.
+    """
+    database_url: Optional[str] = None
+    pool_size: int = 5
+    max_overflow: int = 5
+    pool_timeout: int = 30
+    pool_recycle: int = 1800
+    echo: bool = False
+
+
+@dataclass
 class EmbeddingsConfig:
     """Embeddings configuration for RAG vector search.
 
@@ -500,6 +562,47 @@ class RAGConfig:
     cache_enabled: bool = True  # Enable query result caching
     cache_ttl: int = 3600  # Time-to-live in seconds (default: 1 hour)
     cache_max_size: int = 1000  # Maximum cache entries (LRU eviction)
+
+
+@dataclass
+class SandboxConfig:
+    """E2B sandbox execution configuration.
+
+    Sandbox provides secure, isolated execution of tests and analysis tools.
+    Requires an E2B API key to operate.
+
+    Example configuration:
+    ```yaml
+    sandbox:
+      timeout_seconds: 300
+      memory_mb: 1024
+      cpu_count: 1
+      sandbox_template: repotoire-analyzer
+      trial_executions: 50
+    ```
+
+    Environment Variables (E2B_* are kept as-is since it's an external service):
+        E2B_API_KEY: Required API key for E2B service
+        E2B_TIMEOUT_SECONDS: Execution timeout (default: 300)
+        E2B_MEMORY_MB: Memory limit in MB (default: 1024)
+        E2B_CPU_COUNT: CPU core count (default: 1)
+        E2B_SANDBOX_TEMPLATE: Custom sandbox template ID
+        REPOTOIRE_SANDBOX_TRIAL_EXECUTIONS: Free trial executions (default: 50)
+
+    Attributes:
+        api_key: E2B API key (loaded from E2B_API_KEY env var)
+        timeout_seconds: Maximum execution time in seconds (default: 300)
+        memory_mb: Memory limit in MB (default: 1024)
+        cpu_count: Number of CPU cores (default: 1)
+        sandbox_template: E2B sandbox template ID (optional)
+        trial_executions: Number of free trial executions (default: 50)
+    """
+    api_key: Optional[str] = None
+    timeout_seconds: int = 300
+    memory_mb: int = 1024
+    cpu_count: int = 1
+    sandbox_template: Optional[str] = None
+    trial_executions: int = 50
 
 
 @dataclass
@@ -570,6 +673,7 @@ class ReportingConfig:
 class RepotoireConfig:
     """Complete Repotoire configuration."""
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    postgres: PostgresConfig = field(default_factory=PostgresConfig)
     ingestion: IngestionConfig = field(default_factory=IngestionConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     detectors: DetectorConfig = field(default_factory=DetectorConfig)
@@ -578,6 +682,7 @@ class RepotoireConfig:
     timescale: TimescaleConfig = field(default_factory=TimescaleConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
     embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
+    sandbox: SandboxConfig = field(default_factory=SandboxConfig)
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
 
     @classmethod
@@ -603,13 +708,16 @@ class RepotoireConfig:
 
         return cls(
             database=DatabaseConfig(**data.get("database", {})),
+            postgres=PostgresConfig(**data.get("postgres", {})),
             ingestion=IngestionConfig(**data.get("ingestion", {})),
             analysis=AnalysisConfig(**data.get("analysis", {})),
             detectors=detector_config,
             secrets=SecretsConfig(**data.get("secrets", {})),
             logging=LoggingConfig(**data.get("logging", {})),
+            timescale=TimescaleConfig(**data.get("timescale", {})),
             rag=RAGConfig(**data.get("rag", {})),
             embeddings=EmbeddingsConfig(**data.get("embeddings", {})),
+            sandbox=SandboxConfig(**data.get("sandbox", {})),
             reporting=reporting_config,
         )
 
@@ -621,12 +729,26 @@ class RepotoireConfig:
         """
         return {
             "database": {
+                # Connection settings
                 "host": self.database.host,
                 "port": self.database.port,
                 "password": self.database.password,
+                "ssl": self.database.ssl,
+                "socket_timeout": self.database.socket_timeout,
+                "socket_connect_timeout": self.database.socket_connect_timeout,
+                "max_connections": self.database.max_connections,
+                # Retry settings
                 "max_retries": self.database.max_retries,
-                "retry_backoff_factor": self.database.retry_backoff_factor,
                 "retry_base_delay": self.database.retry_base_delay,
+                "retry_backoff_factor": self.database.retry_backoff_factor,
+                "retry_jitter": self.database.retry_jitter,
+                "retry_max_delay": self.database.retry_max_delay,
+                # Query settings
+                "default_query_timeout": self.database.default_query_timeout,
+                # Circuit breaker settings
+                "circuit_breaker_threshold": self.database.circuit_breaker_threshold,
+                "circuit_breaker_timeout": self.database.circuit_breaker_timeout,
+                "health_check_interval": self.database.health_check_interval,
             },
             "ingestion": {
                 "patterns": self.ingestion.patterns,
@@ -716,6 +838,19 @@ class RepotoireConfig:
                 "format": self.logging.format,
                 "file": self.logging.file,
             },
+            "postgres": {
+                "database_url": self.postgres.database_url,
+                "pool_size": self.postgres.pool_size,
+                "max_overflow": self.postgres.max_overflow,
+                "pool_timeout": self.postgres.pool_timeout,
+                "pool_recycle": self.postgres.pool_recycle,
+                "echo": self.postgres.echo,
+            },
+            "timescale": {
+                "enabled": self.timescale.enabled,
+                "connection_string": self.timescale.connection_string,
+                "auto_track": self.timescale.auto_track,
+            },
             "rag": {
                 "cache_enabled": self.rag.cache_enabled,
                 "cache_ttl": self.rag.cache_ttl,
@@ -724,6 +859,14 @@ class RepotoireConfig:
             "embeddings": {
                 "backend": self.embeddings.backend,
                 "model": self.embeddings.model,
+            },
+            "sandbox": {
+                "api_key": self.sandbox.api_key,
+                "timeout_seconds": self.sandbox.timeout_seconds,
+                "memory_mb": self.sandbox.memory_mb,
+                "cpu_count": self.sandbox.cpu_count,
+                "sandbox_template": self.sandbox.sandbox_template,
+                "trial_executions": self.sandbox.trial_executions,
             },
             "reporting": {
                 "theme_name": self.reporting.theme_name,
@@ -1123,6 +1266,8 @@ def load_config_from_env() -> Dict[str, Any]:
     # Database (FalkorDB) configuration
     # Note: FALKORDB_* is kept as-is since it's the database name
     database = {}
+
+    # Connection settings
     if host := os.getenv("FALKORDB_HOST"):
         database["host"] = host
     if port := os.getenv("FALKORDB_PORT"):
@@ -1132,21 +1277,76 @@ def load_config_from_env() -> Dict[str, Any]:
             logger.warning(f"Invalid FALKORDB_PORT value: {port}, ignoring")
     if password := os.getenv("FALKORDB_PASSWORD"):
         database["password"] = password
-    if max_retries := os.getenv("REPOTOIRE_DB_MAX_RETRIES"):
+    if ssl := _get_env_with_fallback("REPOTOIRE_DB_SSL"):
+        database["ssl"] = ssl.lower() in ("true", "1", "yes")
+    if socket_timeout := _get_env_with_fallback("REPOTOIRE_DB_SOCKET_TIMEOUT"):
+        try:
+            database["socket_timeout"] = float(socket_timeout)
+        except ValueError:
+            logger.warning(f"Invalid REPOTOIRE_DB_SOCKET_TIMEOUT value: {socket_timeout}, ignoring")
+    if socket_connect_timeout := _get_env_with_fallback("REPOTOIRE_DB_SOCKET_CONNECT_TIMEOUT"):
+        try:
+            database["socket_connect_timeout"] = float(socket_connect_timeout)
+        except ValueError:
+            logger.warning(f"Invalid REPOTOIRE_DB_SOCKET_CONNECT_TIMEOUT value: {socket_connect_timeout}, ignoring")
+    # Support both FALKORDB_MAX_CONNECTIONS (external) and REPOTOIRE_DB_MAX_CONNECTIONS
+    if max_connections := os.getenv("FALKORDB_MAX_CONNECTIONS") or _get_env_with_fallback("REPOTOIRE_DB_MAX_CONNECTIONS"):
+        try:
+            database["max_connections"] = int(max_connections)
+        except ValueError:
+            logger.warning(f"Invalid max_connections value: {max_connections}, ignoring")
+
+    # Retry settings
+    if max_retries := _get_env_with_fallback("REPOTOIRE_DB_MAX_RETRIES"):
         try:
             database["max_retries"] = int(max_retries)
         except ValueError:
             logger.warning(f"Invalid REPOTOIRE_DB_MAX_RETRIES value: {max_retries}, ignoring")
-    if retry_backoff_factor := os.getenv("REPOTOIRE_DB_RETRY_BACKOFF_FACTOR"):
-        try:
-            database["retry_backoff_factor"] = float(retry_backoff_factor)
-        except ValueError:
-            logger.warning(f"Invalid REPOTOIRE_DB_RETRY_BACKOFF_FACTOR value: {retry_backoff_factor}, ignoring")
-    if retry_base_delay := os.getenv("REPOTOIRE_DB_RETRY_BASE_DELAY"):
+    if retry_base_delay := _get_env_with_fallback("REPOTOIRE_DB_RETRY_BASE_DELAY"):
         try:
             database["retry_base_delay"] = float(retry_base_delay)
         except ValueError:
             logger.warning(f"Invalid REPOTOIRE_DB_RETRY_BASE_DELAY value: {retry_base_delay}, ignoring")
+    if retry_backoff_factor := _get_env_with_fallback("REPOTOIRE_DB_RETRY_BACKOFF_FACTOR"):
+        try:
+            database["retry_backoff_factor"] = float(retry_backoff_factor)
+        except ValueError:
+            logger.warning(f"Invalid REPOTOIRE_DB_RETRY_BACKOFF_FACTOR value: {retry_backoff_factor}, ignoring")
+    if retry_jitter := _get_env_with_fallback("REPOTOIRE_DB_RETRY_JITTER"):
+        try:
+            database["retry_jitter"] = float(retry_jitter)
+        except ValueError:
+            logger.warning(f"Invalid REPOTOIRE_DB_RETRY_JITTER value: {retry_jitter}, ignoring")
+    if retry_max_delay := _get_env_with_fallback("REPOTOIRE_DB_RETRY_MAX_DELAY"):
+        try:
+            database["retry_max_delay"] = float(retry_max_delay)
+        except ValueError:
+            logger.warning(f"Invalid REPOTOIRE_DB_RETRY_MAX_DELAY value: {retry_max_delay}, ignoring")
+
+    # Query settings
+    if default_query_timeout := _get_env_with_fallback("REPOTOIRE_DB_QUERY_TIMEOUT"):
+        try:
+            database["default_query_timeout"] = float(default_query_timeout)
+        except ValueError:
+            logger.warning(f"Invalid REPOTOIRE_DB_QUERY_TIMEOUT value: {default_query_timeout}, ignoring")
+
+    # Circuit breaker settings
+    if cb_threshold := _get_env_with_fallback("REPOTOIRE_DB_CIRCUIT_BREAKER_THRESHOLD"):
+        try:
+            database["circuit_breaker_threshold"] = int(cb_threshold)
+        except ValueError:
+            logger.warning(f"Invalid REPOTOIRE_DB_CIRCUIT_BREAKER_THRESHOLD value: {cb_threshold}, ignoring")
+    if cb_timeout := _get_env_with_fallback("REPOTOIRE_DB_CIRCUIT_BREAKER_TIMEOUT"):
+        try:
+            database["circuit_breaker_timeout"] = float(cb_timeout)
+        except ValueError:
+            logger.warning(f"Invalid REPOTOIRE_DB_CIRCUIT_BREAKER_TIMEOUT value: {cb_timeout}, ignoring")
+    if health_interval := _get_env_with_fallback("REPOTOIRE_DB_HEALTH_CHECK_INTERVAL"):
+        try:
+            database["health_check_interval"] = float(health_interval)
+        except ValueError:
+            logger.warning(f"Invalid REPOTOIRE_DB_HEALTH_CHECK_INTERVAL value: {health_interval}, ignoring")
+
     if database:
         config["database"] = database
 
@@ -1216,6 +1416,36 @@ def load_config_from_env() -> Dict[str, Any]:
     if timescale:
         config["timescale"] = timescale
 
+    # PostgreSQL configuration for SQLAlchemy sessions
+    # Uses DATABASE_URL as primary (standard convention), with REPOTOIRE_POSTGRES_* for pool settings
+    postgres = {}
+    if database_url := os.getenv("DATABASE_URL"):
+        postgres["database_url"] = database_url
+    if pool_size := os.getenv("DATABASE_POOL_SIZE"):
+        try:
+            postgres["pool_size"] = int(pool_size)
+        except ValueError:
+            logger.warning(f"Invalid DATABASE_POOL_SIZE value: {pool_size}")
+    if max_overflow := os.getenv("DATABASE_MAX_OVERFLOW"):
+        try:
+            postgres["max_overflow"] = int(max_overflow)
+        except ValueError:
+            logger.warning(f"Invalid DATABASE_MAX_OVERFLOW value: {max_overflow}")
+    if pool_timeout := os.getenv("DATABASE_POOL_TIMEOUT"):
+        try:
+            postgres["pool_timeout"] = int(pool_timeout)
+        except ValueError:
+            logger.warning(f"Invalid DATABASE_POOL_TIMEOUT value: {pool_timeout}")
+    if pool_recycle := os.getenv("DATABASE_POOL_RECYCLE"):
+        try:
+            postgres["pool_recycle"] = int(pool_recycle)
+        except ValueError:
+            logger.warning(f"Invalid DATABASE_POOL_RECYCLE value: {pool_recycle}")
+    if echo := os.getenv("DATABASE_ECHO"):
+        postgres["echo"] = echo.lower() in ("true", "1", "yes")
+    if postgres:
+        config["postgres"] = postgres
+
     # RAG configuration (with deprecation warnings for FALKOR_RAG_*)
     rag = {}
     if cache_enabled := _get_env_with_fallback("REPOTOIRE_RAG_CACHE_ENABLED"):
@@ -1232,6 +1462,37 @@ def load_config_from_env() -> Dict[str, Any]:
             logger.warning(f"Invalid REPOTOIRE_RAG_CACHE_MAX_SIZE value: {cache_max_size}")
     if rag:
         config["rag"] = rag
+
+    # Sandbox configuration
+    # Note: E2B_* env vars are kept as-is since they're external service conventions
+    sandbox = {}
+    if api_key := os.getenv("E2B_API_KEY"):
+        sandbox["api_key"] = api_key
+    if timeout := os.getenv("E2B_TIMEOUT_SECONDS"):
+        try:
+            sandbox["timeout_seconds"] = int(timeout)
+        except ValueError:
+            logger.warning(f"Invalid E2B_TIMEOUT_SECONDS value: {timeout}")
+    if memory := os.getenv("E2B_MEMORY_MB"):
+        try:
+            sandbox["memory_mb"] = int(memory)
+        except ValueError:
+            logger.warning(f"Invalid E2B_MEMORY_MB value: {memory}")
+    if cpu := os.getenv("E2B_CPU_COUNT"):
+        try:
+            sandbox["cpu_count"] = int(cpu)
+        except ValueError:
+            logger.warning(f"Invalid E2B_CPU_COUNT value: {cpu}")
+    if template := os.getenv("E2B_SANDBOX_TEMPLATE"):
+        sandbox["sandbox_template"] = template
+    # Support both old and new env var names for trial executions
+    if trial := _get_env_with_fallback("REPOTOIRE_SANDBOX_TRIAL_EXECUTIONS"):
+        try:
+            sandbox["trial_executions"] = int(trial)
+        except ValueError:
+            logger.warning(f"Invalid REPOTOIRE_SANDBOX_TRIAL_EXECUTIONS value: {trial}")
+    if sandbox:
+        config["sandbox"] = sandbox
 
     return config
 
@@ -1333,16 +1594,58 @@ def validate_config(config: RepotoireConfig) -> List[str]:
     # ========================================================================
     # Database validation
     # ========================================================================
+    # Connection settings
     if config.database.port <= 0:
         raise ConfigError("database.port must be a positive integer")
     if config.database.port > 65535:
         raise ConfigError("database.port must be <= 65535")
+    if config.database.socket_timeout <= 0:
+        raise ConfigError("database.socket_timeout must be positive")
+    if config.database.socket_timeout > 600:
+        warnings.append(
+            "database.socket_timeout > 600s is very high and may cause "
+            "long hangs on connection issues"
+        )
+    if config.database.socket_connect_timeout <= 0:
+        raise ConfigError("database.socket_connect_timeout must be positive")
+    if config.database.max_connections < 1:
+        raise ConfigError("database.max_connections must be at least 1")
+    if config.database.max_connections > 1000:
+        warnings.append(
+            "database.max_connections > 1000 may exhaust system resources"
+        )
+
+    # Retry settings
     if config.database.max_retries < 0:
         raise ConfigError("database.max_retries cannot be negative")
-    if config.database.retry_backoff_factor <= 0:
-        raise ConfigError("database.retry_backoff_factor must be positive")
+    if config.database.max_retries > 20:
+        warnings.append(
+            "database.max_retries > 20 may cause very long wait times on failures"
+        )
     if config.database.retry_base_delay < 0:
         raise ConfigError("database.retry_base_delay cannot be negative")
+    if config.database.retry_backoff_factor <= 0:
+        raise ConfigError("database.retry_backoff_factor must be positive")
+    if config.database.retry_jitter < 0 or config.database.retry_jitter > 1:
+        raise ConfigError("database.retry_jitter must be between 0 and 1")
+    if config.database.retry_max_delay <= 0:
+        raise ConfigError("database.retry_max_delay must be positive")
+
+    # Query settings
+    if config.database.default_query_timeout <= 0:
+        raise ConfigError("database.default_query_timeout must be positive")
+    if config.database.default_query_timeout > 300:
+        warnings.append(
+            "database.default_query_timeout > 300s is very high for most queries"
+        )
+
+    # Circuit breaker settings
+    if config.database.circuit_breaker_threshold < 1:
+        raise ConfigError("database.circuit_breaker_threshold must be at least 1")
+    if config.database.circuit_breaker_timeout <= 0:
+        raise ConfigError("database.circuit_breaker_timeout must be positive")
+    if config.database.health_check_interval <= 0:
+        raise ConfigError("database.health_check_interval must be positive")
 
     # ========================================================================
     # Ingestion validation
@@ -1522,6 +1825,31 @@ def validate_config(config: RepotoireConfig) -> List[str]:
         )
 
     # ========================================================================
+    # Sandbox validation
+    # ========================================================================
+    if config.sandbox.timeout_seconds <= 0:
+        raise ConfigError("sandbox.timeout_seconds must be positive")
+    if config.sandbox.timeout_seconds > 3600:
+        warnings.append(
+            "sandbox.timeout_seconds > 3600 (1 hour) is very high and may cause "
+            "long-running sandbox sessions"
+        )
+    if config.sandbox.memory_mb < 256:
+        raise ConfigError("sandbox.memory_mb must be at least 256")
+    if config.sandbox.memory_mb > 16384:
+        warnings.append(
+            "sandbox.memory_mb > 16384 (16GB) is very high and may be expensive"
+        )
+    if config.sandbox.cpu_count < 1:
+        raise ConfigError("sandbox.cpu_count must be at least 1")
+    if config.sandbox.cpu_count > 8:
+        warnings.append(
+            "sandbox.cpu_count > 8 is very high and may be expensive"
+        )
+    if config.sandbox.trial_executions < 0:
+        raise ConfigError("sandbox.trial_executions cannot be negative")
+
+    # ========================================================================
     # Reporting validation
     # ========================================================================
     valid_themes = {"light", "dark", "custom"}
@@ -1618,12 +1946,29 @@ def generate_config_template(format: str = "yaml") -> str:
             "# Environment variables can be referenced using ${VAR_NAME} syntax.",
             "",
             "[database]",
+            "# Connection settings",
             f'host = "{data["database"]["host"]}"',
             f'port = {data["database"]["port"]}',
             f'password = "{data["database"]["password"] or ""}"',
+            f'ssl = {str(data["database"]["ssl"]).lower()}',
+            f'socket_timeout = {data["database"]["socket_timeout"]}',
+            f'socket_connect_timeout = {data["database"]["socket_connect_timeout"]}',
+            f'max_connections = {data["database"]["max_connections"]}',
+            "",
+            "# Retry settings (exponential backoff with jitter)",
             f'max_retries = {data["database"]["max_retries"]}',
-            f'retry_backoff_factor = {data["database"]["retry_backoff_factor"]}',
             f'retry_base_delay = {data["database"]["retry_base_delay"]}',
+            f'retry_backoff_factor = {data["database"]["retry_backoff_factor"]}',
+            f'retry_jitter = {data["database"]["retry_jitter"]}',
+            f'retry_max_delay = {data["database"]["retry_max_delay"]}',
+            "",
+            "# Query settings",
+            f'default_query_timeout = {data["database"]["default_query_timeout"]}',
+            "",
+            "# Circuit breaker settings",
+            f'circuit_breaker_threshold = {data["database"]["circuit_breaker_threshold"]}',
+            f'circuit_breaker_timeout = {data["database"]["circuit_breaker_timeout"]}',
+            f'health_check_interval = {data["database"]["health_check_interval"]}',
             "",
             "[ingestion]",
             f'patterns = {json.dumps(data["ingestion"]["patterns"])}',

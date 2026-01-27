@@ -18,8 +18,12 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from repotoire.config import RepotoireConfig
+    from repotoire.graph.falkordb_client import FalkorDBClient
 
 import httpx
 from rich.console import Console
@@ -583,6 +587,83 @@ def _log_cloud_connection(
     # Run in background thread to not block CLI
     thread = threading.Thread(target=_do_log, daemon=True)
     thread.start()
+
+
+def create_falkordb_client(
+    config: Optional["RepotoireConfig"] = None,
+    graph_name: str = "repotoire",
+    **overrides,
+) -> "FalkorDBClient":
+    """Create a FalkorDBClient from configuration.
+
+    This is the centralized factory function for creating FalkorDBClient instances.
+    It uses RepotoireConfig as the single source of truth for connection settings,
+    retry behavior, and circuit breaker configuration.
+
+    Args:
+        config: RepotoireConfig instance. If None, loads from environment/file.
+        graph_name: Name of the graph to use (default: "repotoire")
+        **overrides: Override any config value (e.g., max_retries=2 for tests)
+
+    Returns:
+        FalkorDBClient instance configured from config
+
+    Examples:
+        # Use default config (from env/file)
+        client = create_falkordb_client()
+
+        # Use specific config
+        config = load_config()
+        client = create_falkordb_client(config=config)
+
+        # Override specific settings
+        client = create_falkordb_client(max_retries=2, graph_name="test")
+
+        # Override with specific host (e.g., from CLI args)
+        client = create_falkordb_client(host="custom-host.example.com", port=6380)
+    """
+    from repotoire.config import load_config, RepotoireConfig
+    from repotoire.graph.falkordb_client import FalkorDBClient
+
+    # Load config if not provided
+    if config is None:
+        config = load_config()
+
+    db = config.database
+
+    # Build kwargs from config, allowing overrides
+    client_kwargs = {
+        # Connection settings
+        "host": overrides.get("host", db.host),
+        "port": overrides.get("port", db.port),
+        "graph_name": graph_name,
+        "password": overrides.get("password", db.password),
+        "ssl": overrides.get("ssl", db.ssl),
+        "socket_timeout": overrides.get("socket_timeout", db.socket_timeout),
+        "socket_connect_timeout": overrides.get("socket_connect_timeout", db.socket_connect_timeout),
+        "max_connections": overrides.get("max_connections", db.max_connections),
+        # Retry settings
+        "max_retries": overrides.get("max_retries", db.max_retries),
+        "retry_base_delay": overrides.get("retry_base_delay", db.retry_base_delay),
+        "retry_backoff_factor": overrides.get("retry_backoff_factor", db.retry_backoff_factor),
+        "retry_jitter": overrides.get("retry_jitter", db.retry_jitter),
+        "retry_max_delay": overrides.get("retry_max_delay", db.retry_max_delay),
+        # Query settings
+        "default_query_timeout": overrides.get("default_query_timeout", db.default_query_timeout),
+        # Circuit breaker settings
+        "circuit_breaker_threshold": overrides.get("circuit_breaker_threshold", db.circuit_breaker_threshold),
+        "circuit_breaker_timeout": overrides.get("circuit_breaker_timeout", db.circuit_breaker_timeout),
+    }
+
+    # Note: health_check_interval is set internally by FalkorDBClient, not as constructor arg
+
+    logger.debug(
+        f"Creating FalkorDBClient: host={client_kwargs['host']}, port={client_kwargs['port']}, "
+        f"graph={graph_name}, max_retries={client_kwargs['max_retries']}, "
+        f"circuit_breaker_threshold={client_kwargs['circuit_breaker_threshold']}"
+    )
+
+    return FalkorDBClient(**client_kwargs)
 
 
 def is_cloud_mode() -> bool:

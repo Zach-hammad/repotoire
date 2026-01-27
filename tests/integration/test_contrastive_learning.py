@@ -61,13 +61,11 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture
 def falkordb_client():
     """Create a FalkorDB client for testing."""
-    from repotoire.graph.falkordb_client import FalkorDBClient
+    from repotoire.graph import create_falkordb_client
 
-    client = FalkorDBClient(
-        host=FALKORDB_HOST,
-        port=FALKORDB_PORT,
-        password=FALKORDB_PASSWORD,
+    client = create_falkordb_client(
         graph_name="contrastive_test",
+        max_retries=2,  # Faster failure for tests
     )
 
     # Clear the test graph

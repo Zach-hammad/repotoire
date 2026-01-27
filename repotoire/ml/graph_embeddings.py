@@ -74,7 +74,8 @@ class FastRPEmbedder:
     - FastRP embeddings capture structural patterns from graph topology
 
     Example:
-        >>> client = FalkorDBClient(uri="bolt://localhost:7687")
+        >>> from repotoire.graph import create_falkordb_client
+        >>> client = create_falkordb_client()
         >>> embedder = FastRPEmbedder(client)
         >>>
         >>> # Generate embeddings for all functions

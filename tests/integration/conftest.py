@@ -58,26 +58,29 @@ def pytest_configure(config):
 
 @pytest.fixture(scope="module")
 def graph_client():
-    """Module-scoped Neo4j client for connection reuse.
+    """Module-scoped FalkorDB client for connection reuse.
 
     Creates a single connection per test module to avoid connection overhead.
     Graph clearing is handled by the isolate_graph_test autouse fixture.
+
+    Uses the centralized factory function for consistent configuration.
 
     Yields:
         FalkorDBClient instance
     """
     try:
-        from repotoire.graph import FalkorDBClient
+        from repotoire.graph import create_falkordb_client
 
-        client = FalkorDBClient(
-            uri=os.getenv("FALKORDB_HOST", "bolt://localhost:7687"),
-            username="neo4j",
-            password=os.getenv("FALKORDB_PASSWORD", "password")
+        # Use factory with test-specific settings
+        client = create_falkordb_client(
+            graph_name=os.getenv("REPOTOIRE_TEST_GRAPH", "repotoire_test"),
+            password=os.getenv("FALKORDB_PASSWORD"),
+            max_retries=2,  # Faster failure for tests
         )
         yield client
         client.close()
     except Exception as e:
-        pytest.skip(f"Neo4j test database not available: {e}")
+        pytest.skip(f"FalkorDB test database not available: {e}")
 
 
 @pytest.fixture(scope="module")
@@ -96,16 +99,18 @@ def falkordb_client():
     Creates a single connection per test module to avoid connection overhead.
     Graph clearing is handled by the isolate_graph_test autouse fixture.
 
+    Uses the centralized factory function for consistent configuration.
+
     Yields:
         FalkorDBClient instance
     """
     try:
-        from repotoire.graph import FalkorDBClient
+        from repotoire.graph import create_falkordb_client
 
-        client = FalkorDBClient(
-            host=os.getenv("REPOTOIRE_FALKORDB_HOST", "localhost"),
-            port=int(os.getenv("REPOTOIRE_FALKORDB_PORT", "6379")),
-            graph_name=os.getenv("REPOTOIRE_FALKORDB_GRAPH", "repotoire_test")
+        # Use factory with test-specific overrides
+        client = create_falkordb_client(
+            graph_name=os.getenv("REPOTOIRE_FALKORDB_GRAPH", "repotoire_test"),
+            max_retries=2,  # Faster failure for tests
         )
         yield client
         client.close()

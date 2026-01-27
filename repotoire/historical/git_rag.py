@@ -78,9 +78,9 @@ class GitHistoryRAG:
 
     Example:
         >>> from repotoire.ai.embeddings import CodeEmbedder
-        >>> from repotoire.graph.falkordb_client import FalkorDBClient
+        >>> from repotoire.graph import create_falkordb_client
         >>>
-        >>> client = FalkorDBClient(...)
+        >>> client = create_falkordb_client()
         >>> embedder = CodeEmbedder(backend="local")  # FREE
         >>> rag = GitHistoryRAG(client, embedder)
         >>>

@@ -5,6 +5,7 @@ from repotoire.graph.falkordb_client import FalkorDBClient
 from repotoire.graph.factory import (
     create_client,
     create_cloud_client,
+    create_falkordb_client,
     is_cloud_mode,
     get_cloud_auth_info,
     CloudAuthenticationError,
@@ -32,6 +33,7 @@ __all__ = [
     # Factory functions
     "create_client",
     "create_cloud_client",
+    "create_falkordb_client",
     "is_cloud_mode",
     "get_cloud_auth_info",
     "GraphClientFactory",

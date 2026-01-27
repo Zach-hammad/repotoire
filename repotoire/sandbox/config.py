@@ -11,11 +11,16 @@ Trial Mode:
 - New users get a limited number of free sandbox executions
 - After trial, subscription is required
 - Usage is tracked via SandboxMetricsCollector
+
+Note: This module now delegates to repotoire.config.SandboxConfig for configuration.
+The SandboxConfig class here is maintained for backward compatibility but uses
+the centralized config system under the hood.
 """
 
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
@@ -23,6 +28,7 @@ from repotoire.logging_config import get_logger
 from repotoire.sandbox.exceptions import SandboxConfigurationError
 
 if TYPE_CHECKING:
+    from repotoire.config import RepotoireConfig
     from repotoire.db.models import PlanTier
 
 logger = get_logger(__name__)
@@ -34,6 +40,10 @@ DEFAULT_TRIAL_EXECUTIONS = 50  # Free executions before requiring subscription
 @dataclass
 class SandboxConfig:
     """Configuration for E2B sandbox execution.
+
+    Note: This class now delegates to repotoire.config.SandboxConfig for
+    centralized configuration management. It is maintained for backward
+    compatibility.
 
     Attributes:
         api_key: E2B API key (required for sandbox operations)
@@ -49,7 +59,8 @@ class SandboxConfig:
         E2B_MEMORY_MB: Memory limit in MB (default: 1024)
         E2B_CPU_COUNT: CPU core count (default: 1)
         E2B_SANDBOX_TEMPLATE: Custom sandbox template ID
-        SANDBOX_TRIAL_EXECUTIONS: Number of free trial executions (default: 50)
+        REPOTOIRE_SANDBOX_TRIAL_EXECUTIONS: Free trial executions (default: 50)
+            (SANDBOX_TRIAL_EXECUTIONS is deprecated but still supported)
     """
 
     api_key: Optional[str] = None
@@ -60,8 +71,44 @@ class SandboxConfig:
     trial_executions: int = DEFAULT_TRIAL_EXECUTIONS
 
     @classmethod
+    def from_config(cls, config: Optional["RepotoireConfig"] = None) -> "SandboxConfig":
+        """Create SandboxConfig from centralized RepotoireConfig.
+
+        This is the preferred way to create a SandboxConfig instance.
+        It uses the centralized configuration system which properly handles
+        environment variables, config files, and deprecation warnings.
+
+        Args:
+            config: Optional RepotoireConfig instance. If None, loads from
+                    environment/config files.
+
+        Returns:
+            SandboxConfig instance populated from the centralized config
+        """
+        from repotoire.config import load_config, RepotoireConfig
+
+        if config is None:
+            config = load_config()
+
+        sandbox_cfg = config.sandbox
+
+        return cls(
+            api_key=sandbox_cfg.api_key,
+            timeout_seconds=sandbox_cfg.timeout_seconds,
+            memory_mb=sandbox_cfg.memory_mb,
+            cpu_count=sandbox_cfg.cpu_count,
+            sandbox_template=sandbox_cfg.sandbox_template,
+            trial_executions=sandbox_cfg.trial_executions,
+        )
+
+    @classmethod
     def from_env(cls) -> "SandboxConfig":
         """Create configuration from environment variables.
+
+        Note: This method is maintained for backward compatibility.
+        Consider using from_config() instead, which uses the centralized
+        RepotoireConfig system with proper deprecation warnings and
+        config file support.
 
         Returns:
             SandboxConfig instance populated from environment
@@ -70,6 +117,13 @@ class SandboxConfig:
             E2B_API_KEY is required. Without it, sandbox operations will fail
             with a clear error message directing users to sign up.
         """
+        # Prefer centralized config but catch import errors for minimal deps
+        try:
+            return cls.from_config()
+        except ImportError:
+            logger.debug("Centralized config not available, using direct env parsing")
+
+        # Fallback: Direct env parsing (backward compatibility)
         api_key = os.getenv("E2B_API_KEY")
 
         if not api_key:
@@ -104,13 +158,29 @@ class SandboxConfig:
 
         sandbox_template = os.getenv("E2B_SANDBOX_TEMPLATE")
 
-        # Parse trial executions
+        # Parse trial executions - check new name first, then deprecated name
         trial_executions = cls._parse_int_env(
-            "SANDBOX_TRIAL_EXECUTIONS",
-            default=DEFAULT_TRIAL_EXECUTIONS,
+            "REPOTOIRE_SANDBOX_TRIAL_EXECUTIONS",
+            default=None,
             min_value=0,
             max_value=1000,
         )
+        if trial_executions is None:
+            # Check deprecated env var with warning
+            old_trial = os.getenv("SANDBOX_TRIAL_EXECUTIONS")
+            if old_trial:
+                logger.warning(
+                    "SANDBOX_TRIAL_EXECUTIONS is deprecated, "
+                    "use REPOTOIRE_SANDBOX_TRIAL_EXECUTIONS instead"
+                )
+                trial_executions = cls._parse_int_env(
+                    "SANDBOX_TRIAL_EXECUTIONS",
+                    default=DEFAULT_TRIAL_EXECUTIONS,
+                    min_value=0,
+                    max_value=1000,
+                )
+            else:
+                trial_executions = DEFAULT_TRIAL_EXECUTIONS
 
         return cls(
             api_key=api_key,
@@ -166,20 +236,20 @@ class SandboxConfig:
     @staticmethod
     def _parse_int_env(
         env_var: str,
-        default: int,
+        default: Optional[int],
         min_value: int,
         max_value: int,
-    ) -> int:
+    ) -> Optional[int]:
         """Parse an integer environment variable with validation.
 
         Args:
             env_var: Name of the environment variable
-            default: Default value if not set
+            default: Default value if not set (can be None)
             min_value: Minimum allowed value
             max_value: Maximum allowed value
 
         Returns:
-            Parsed integer value
+            Parsed integer value, or default if not set
 
         Raises:
             SandboxConfigurationError: If value is invalid

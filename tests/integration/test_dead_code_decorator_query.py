@@ -13,15 +13,14 @@ from repotoire.models import ClassEntity, FunctionEntity, NodeType
 @pytest.fixture
 def clean_db():
     """Create a FalkorDB client for testing."""
-    from repotoire.graph import FalkorDBClient
-
-    # Try to connect to local FalkorDB
-    host = os.getenv("REPOTOIRE_FALKORDB_HOST", "localhost")
-    port = int(os.getenv("REPOTOIRE_FALKORDB_PORT", "6381"))  # Local dev port
-    graph_name = "repotoire_decorator_test"
+    from repotoire.graph import create_falkordb_client
 
     try:
-        client = FalkorDBClient(host=host, port=port, graph_name=graph_name)
+        # Use factory with test-specific settings
+        client = create_falkordb_client(
+            graph_name="repotoire_decorator_test",
+            max_retries=2,  # Faster failure for tests
+        )
         # Clear the test graph
         client.clear_graph()
         yield client

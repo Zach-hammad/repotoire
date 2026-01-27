@@ -235,3 +235,123 @@ def close_sync_db() -> None:
     """
     sync_engine.dispose()
     logger.info("Sync database connections closed")
+
+
+def get_database_url_from_config() -> str:
+    """Get database URL from RepotoireConfig if available.
+
+    This provides an alternative to the DATABASE_URL environment variable,
+    allowing configuration via .reporc files.
+
+    Returns:
+        Database URL string, or None if not configured
+
+    Example:
+        # In .reporc:
+        postgres:
+          database_url: "postgresql://user:pass@localhost:5432/repotoire"
+    """
+    try:
+        from repotoire.config import load_config
+        config = load_config()
+        if config.postgres.database_url:
+            return config.postgres.database_url
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.debug(f"Could not load config: {e}")
+
+    return None
+
+
+def init_from_config(config=None):
+    """Initialize database engines from RepotoireConfig (optional alternative).
+
+    This function allows initializing the database engines using RepotoireConfig
+    instead of direct environment variables. Useful for testing or when using
+    config files.
+
+    Note: This rebuilds the global engines. Use with caution in production.
+
+    Args:
+        config: Optional RepotoireConfig instance. If None, loads from
+                environment/config files.
+
+    Example:
+        from repotoire.db.session import init_from_config
+        from repotoire.config import load_config
+
+        config = load_config()
+        init_from_config(config)
+    """
+    global engine, async_session_factory, sync_engine, sync_session_factory
+
+    try:
+        from repotoire.config import load_config, RepotoireConfig
+    except ImportError:
+        logger.warning("repotoire.config not available, using env vars")
+        return
+
+    if config is None:
+        config = load_config()
+
+    pg = config.postgres
+
+    # Get database URL from config or fallback to env
+    database_url = pg.database_url or os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError(
+            "Database URL not configured. Set DATABASE_URL environment variable "
+            "or configure postgres.database_url in config file."
+        )
+
+    # Convert to async URL if needed
+    if database_url.startswith("postgresql://"):
+        async_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    else:
+        async_url = database_url
+
+    # Parse and create engines
+    cleaned_url, connect_args = _parse_database_url(async_url)
+
+    engine = create_async_engine(
+        cleaned_url,
+        echo=pg.echo,
+        pool_size=pg.pool_size,
+        max_overflow=pg.max_overflow,
+        pool_timeout=pg.pool_timeout,
+        pool_recycle=pg.pool_recycle,
+        pool_pre_ping=True,
+        connect_args=connect_args,
+    )
+
+    async_session_factory = async_sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+
+    # Sync engine
+    sync_url = cleaned_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    _sync_url, _sync_connect_args = _parse_sync_database_url(sync_url)
+
+    sync_engine = create_engine(
+        _sync_url,
+        echo=pg.echo,
+        pool_size=pg.pool_size,
+        max_overflow=pg.max_overflow,
+        pool_timeout=pg.pool_timeout,
+        pool_recycle=pg.pool_recycle,
+        pool_pre_ping=True,
+        connect_args=_sync_connect_args,
+    )
+
+    sync_session_factory = sessionmaker(
+        sync_engine,
+        class_=Session,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+
+    logger.info("Database engines reinitialized from config")
