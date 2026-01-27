@@ -1,5 +1,6 @@
 """Analysis engine that orchestrates all detectors."""
 
+import heapq
 import os
 import threading
 import time
@@ -648,7 +649,7 @@ class AnalysisEngine:
 
                 # REPO-500: Apply global findings limit to prevent memory exhaustion
                 if len(findings) > MAX_FINDINGS_LIMIT:
-                    # Sort by severity (highest first) before truncation
+                    # Use heapq.nsmallest for O(N log K) instead of O(N log N) full sort
                     severity_order = {
                         Severity.CRITICAL: 0,
                         Severity.HIGH: 1,
@@ -656,10 +657,11 @@ class AnalysisEngine:
                         Severity.LOW: 3,
                         Severity.INFO: 4,
                     }
-                    findings = sorted(
+                    findings = heapq.nsmallest(
+                        MAX_FINDINGS_LIMIT,
                         findings,
                         key=lambda f: severity_order.get(f.severity, 5)
-                    )[:MAX_FINDINGS_LIMIT]
+                    )
                     logger.warning(
                         f"Truncated findings from {deduplicated_count} to {MAX_FINDINGS_LIMIT} "
                         f"(prioritized by severity)"

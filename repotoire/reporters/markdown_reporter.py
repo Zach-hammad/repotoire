@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 
 from repotoire.models import CodebaseHealth, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.reporters.base_reporter import BaseReporter
 
 logger = get_logger(__name__)
 
@@ -32,12 +33,16 @@ GRADE_EMOJI = {
 }
 
 
-class MarkdownReporter:
-    """Generate Markdown reports from analysis results."""
+class MarkdownReporter(BaseReporter):
+    """Generate Markdown reports from analysis results.
+
+    Inherits common functionality from BaseReporter including code snippet
+    extraction and language detection.
+    """
 
     def __init__(
         self,
-        repo_path: Optional[Path] = None,
+        repo_path: Path | str | None = None,
         include_snippets: bool = False,
         max_findings_per_severity: int = 10,
         include_toc: bool = True,
@@ -50,8 +55,7 @@ class MarkdownReporter:
             max_findings_per_severity: Max findings to show per severity level
             include_toc: Whether to include table of contents
         """
-        self.repo_path = Path(repo_path) if repo_path else None
-        self.include_snippets = include_snippets
+        super().__init__(repo_path=repo_path, include_snippets=include_snippets)
         self.max_findings_per_severity = max_findings_per_severity
         self.include_toc = include_toc
 

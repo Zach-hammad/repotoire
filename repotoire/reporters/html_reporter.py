@@ -8,26 +8,32 @@ from jinja2 import Template
 from repotoire.models import CodebaseHealth, Finding, Severity
 from repotoire.logging_config import get_logger
 from repotoire.config import ReportingConfig, ReportingTheme
+from repotoire.reporters.base_reporter import BaseReporter
 
 logger = get_logger(__name__)
 
 
-class HTMLReporter:
-    """Generate HTML reports from analysis results."""
+class HTMLReporter(BaseReporter):
+    """Generate HTML reports from analysis results.
+
+    Inherits common functionality from BaseReporter including code snippet
+    extraction and language detection.
+    """
 
     def __init__(
         self,
-        repo_path: Optional[Path] = None,
-        config: Optional[ReportingConfig] = None,
+        repo_path: Path | str | None = None,
+        config: ReportingConfig | None = None,
+        include_snippets: bool = True,
     ):
         """Initialize HTML reporter.
 
         Args:
             repo_path: Path to repository for extracting code snippets
             config: Optional reporting configuration for themes and branding
+            include_snippets: Whether to include code snippets in reports
         """
-        self.repo_path = Path(repo_path) if repo_path else None
-        self.config = config or ReportingConfig()
+        super().__init__(repo_path=repo_path, include_snippets=include_snippets, config=config)
 
     def generate(self, health: CodebaseHealth, output_path: Path) -> None:
         """Generate HTML report from health data.

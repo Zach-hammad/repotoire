@@ -14,6 +14,7 @@ from urllib.parse import quote
 
 from repotoire.models import CodebaseHealth, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.reporters.base_reporter import BaseReporter
 
 logger = get_logger(__name__)
 
@@ -40,14 +41,18 @@ SEVERITY_TO_SECURITY_SEVERITY = {
 }
 
 
-class SARIFReporter:
-    """Generate SARIF 2.1.0 compliant reports from analysis results."""
+class SARIFReporter(BaseReporter):
+    """Generate SARIF 2.1.0 compliant reports from analysis results.
+
+    Inherits common functionality from BaseReporter including code snippet
+    extraction and language detection.
+    """
 
     def __init__(
         self,
-        repo_path: Optional[Path] = None,
+        repo_path: Path | str | None = None,
         tool_name: str = "Repotoire",
-        tool_version: Optional[str] = None,
+        tool_version: str | None = None,
         include_snippets: bool = True,
     ):
         """Initialize SARIF reporter.
@@ -58,9 +63,8 @@ class SARIFReporter:
             tool_version: Version of the analysis tool
             include_snippets: Whether to include code snippets in results
         """
-        self.repo_path = Path(repo_path) if repo_path else None
+        super().__init__(repo_path=repo_path, include_snippets=include_snippets)
         self.tool_name = tool_name
-        self.include_snippets = include_snippets
 
         # Get version from package if not provided
         if tool_version is None:

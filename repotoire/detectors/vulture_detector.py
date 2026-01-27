@@ -296,17 +296,28 @@ class VultureDetector(CodeSmellDetector):
             reduction = int(dynamic_info["confidence_reduction"] * 100)
             adjusted_confidence = max(confidence - reduction, 50)
 
-        # Determine severity based on adjusted confidence and type
-        if adjusted_confidence >= 95:
-            severity = Severity.MEDIUM  # Very likely unused
-        elif adjusted_confidence >= 80:
-            severity = Severity.LOW  # Probably unused
-        else:
-            severity = Severity.INFO  # Might be unused
+        # Determine severity based on adjusted confidence, type, and complexity
+        # Phase 6 improvement: Cross-validated high-confidence findings are more actionable
+        complexity = graph_context.get("complexity", 0)
 
-        # Adjust severity for functions/classes (higher impact)
-        if item_type in ("function", "class", "method") and adjusted_confidence >= 90:
-            severity = Severity.HIGH
+        if adjusted_confidence >= 95:
+            # Very high confidence - use complexity to determine severity
+            if item_type in ("function", "class", "method"):
+                # Functions/classes with high confidence are definitely actionable
+                if complexity >= 5:
+                    severity = Severity.HIGH  # Complex unused code - high priority
+                else:
+                    severity = Severity.MEDIUM  # Simple unused code
+            else:
+                severity = Severity.MEDIUM  # Variables/imports with very high confidence
+        elif adjusted_confidence >= 80:
+            # High confidence - still actionable but lower priority
+            if item_type in ("function", "class", "method") and complexity >= 10:
+                severity = Severity.MEDIUM  # Complex functions with good confidence
+            else:
+                severity = Severity.LOW  # Probably unused
+        else:
+            severity = Severity.INFO  # Might be unused - needs investigation
 
         # Create finding
         finding_id = str(uuid.uuid4())

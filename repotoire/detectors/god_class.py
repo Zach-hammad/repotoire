@@ -246,7 +246,8 @@ class GodClassDetector(CodeSmellDetector):
                     "line_end": line_end,
                 },
                 suggested_fix=self._suggest_refactoring(
-                    name, method_count, total_complexity, coupling_count, loc, lcom
+                    name, method_count, total_complexity, coupling_count, loc, lcom,
+                    qualified_name=qualified_name
                 ),
                 estimated_effort=self._estimate_effort(method_count, total_complexity, loc),
                 created_at=datetime.now(),
@@ -624,6 +625,38 @@ class GodClassDetector(CodeSmellDetector):
 
         return base_severity
 
+    def _find_method_clusters(self, qualified_name: str) -> list[dict]:
+        """Find method clusters in a class based on shared attribute usage.
+
+        Phase 6 improvement: Query graph to find methods that share attributes,
+        suggesting concrete Extract Class opportunities.
+
+        Args:
+            qualified_name: Fully qualified class name
+
+        Returns:
+            List of clusters with method names and shared attributes
+        """
+        # Query to find methods that share attribute usage
+        query = """
+        MATCH (c:Class {qualifiedName: $class_name})-[:CONTAINS]->(m:Function)
+        WHERE m.is_method = true
+        OPTIONAL MATCH (m)-[:USES]->(a:Attribute)<-[:USES]-(m2:Function)
+        WHERE m2.is_method = true AND m2 <> m
+        WITH m, collect(DISTINCT a.name) as shared_attrs, collect(DISTINCT m2.name) as related_methods
+        WHERE size(related_methods) > 0
+        RETURN m.name as method, shared_attrs, related_methods
+        ORDER BY size(related_methods) DESC
+        LIMIT 10
+        """
+
+        try:
+            results = self.db.execute_query(query, {"class_name": qualified_name})
+            return list(results) if results else []
+        except Exception as e:
+            self.logger.debug(f"Method cluster analysis failed for {qualified_name}: {e}")
+            return []
+
     def _suggest_refactoring(
         self,
         name: str,
@@ -632,8 +665,12 @@ class GodClassDetector(CodeSmellDetector):
         coupling_count: int,
         loc: int,
         lcom: float,
+        qualified_name: str | None = None,
     ) -> str:
         """Suggest refactoring strategies.
+
+        Phase 6 improvement: Uses graph analysis to suggest specific method
+        clusters for extraction when qualified_name is provided.
 
         Args:
             name: Class name
@@ -642,24 +679,48 @@ class GodClassDetector(CodeSmellDetector):
             coupling_count: Coupling count
             loc: Lines of code
             lcom: Lack of cohesion metric
+            qualified_name: Optional fully qualified name for cluster analysis
 
         Returns:
             Refactoring suggestions
         """
         suggestions = [f"Refactor '{name}' to reduce its responsibilities:\n"]
 
-        if method_count >= 20:
+        # Phase 6: Try to find specific method clusters to extract
+        clusters = []
+        if qualified_name and method_count >= 10:
+            clusters = self._find_method_clusters(qualified_name)
+
+        if clusters:
+            # Provide concrete extraction suggestions based on method clusters
+            suggestions.append(
+                f"1. **Suggested Extract Class opportunities** (based on shared attribute usage):\n"
+            )
+            for i, cluster in enumerate(clusters[:3], 1):
+                method = cluster.get("method", "unknown")
+                related = cluster.get("related_methods", [])
+                shared = cluster.get("shared_attrs", [])
+                if related:
+                    related_str = ", ".join(related[:4])
+                    if len(related) > 4:
+                        related_str += f" (+{len(related) - 4} more)"
+                    shared_str = ", ".join(shared[:3]) if shared else "state"
+                    suggestions.append(
+                        f"   {i}a. '{method}' + [{related_str}]\n"
+                        f"       → Extract to new class managing: {shared_str}\n"
+                    )
+        elif method_count >= 20:
             suggestions.append(
                 f"1. Extract related methods into separate classes\n"
                 f"   - Look for method groups that work with the same data\n"
-                f"   - Create focused classes with single responsibilities"
+                f"   - Create focused classes with single responsibilities\n"
             )
 
         if total_complexity >= 100:
             suggestions.append(
                 f"2. Simplify complex methods\n"
                 f"   - Break down complex methods into smaller functions\n"
-                f"   - Consider using the Strategy or Command pattern"
+                f"   - Consider using the Strategy or Command pattern\n"
             )
 
         if coupling_count >= 50:
@@ -667,7 +728,7 @@ class GodClassDetector(CodeSmellDetector):
                 f"3. Reduce coupling\n"
                 f"   - Apply dependency injection\n"
                 f"   - Use interfaces to decouple dependencies\n"
-                f"   - Consider facade or mediator patterns"
+                f"   - Consider facade or mediator patterns\n"
             )
 
         if loc >= self.high_loc:
@@ -675,7 +736,7 @@ class GodClassDetector(CodeSmellDetector):
                 f"4. Break down the large class ({loc} LOC)\n"
                 f"   - Split into smaller, focused classes\n"
                 f"   - Consider using composition over inheritance\n"
-                f"   - Extract data classes for complex state"
+                f"   - Extract data classes for complex state\n"
             )
 
         if lcom >= self.medium_lcom:
@@ -683,7 +744,7 @@ class GodClassDetector(CodeSmellDetector):
                 f"5. Improve cohesion (current LCOM: {lcom:.2f})\n"
                 f"   - Group methods that use the same fields\n"
                 f"   - Extract unrelated methods into separate classes\n"
-                f"   - Consider using the Extract Class refactoring"
+                f"   - Consider using the Extract Class refactoring\n"
             )
 
         suggestions.append(

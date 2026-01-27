@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from repotoire.api.auth.state_store import (
+from repotoire.api.shared.auth.state_store import (
     KEY_PREFIX,
     STATE_TOKEN_TTL,
     StateStoreUnavailableError,
@@ -364,15 +364,15 @@ class TestGetStateStoreDependency:
     @pytest.mark.asyncio
     async def test_get_state_store_returns_store(self) -> None:
         """Test that get_state_store returns a StateTokenStore."""
-        from repotoire.api.auth.state_store import get_state_store
+        from repotoire.api.shared.auth.state_store import get_state_store
 
         mock_redis = AsyncMock()
         mock_redis.ping = AsyncMock()
 
         with patch(
-            "repotoire.api.auth.state_store.aioredis.from_url", return_value=mock_redis
+            "repotoire.api.shared.auth.state_store.aioredis.from_url", return_value=mock_redis
         ):
-            with patch("repotoire.api.auth.state_store._redis_client", None):
+            with patch("repotoire.api.shared.auth.state_store._redis_client", None):
                 store = await get_state_store()
 
                 assert isinstance(store, StateTokenStore)
@@ -380,20 +380,20 @@ class TestGetStateStoreDependency:
     @pytest.mark.asyncio
     async def test_get_state_store_reuses_client(self) -> None:
         """Test that get_state_store reuses the Redis client."""
-        from repotoire.api.auth.state_store import get_state_store
+        from repotoire.api.shared.auth.state_store import get_state_store
 
         mock_redis = AsyncMock()
         mock_redis.ping = AsyncMock()
 
         with patch(
-            "repotoire.api.auth.state_store.aioredis.from_url", return_value=mock_redis
+            "repotoire.api.shared.auth.state_store.aioredis.from_url", return_value=mock_redis
         ) as mock_from_url:
-            with patch("repotoire.api.auth.state_store._redis_client", None):
+            with patch("repotoire.api.shared.auth.state_store._redis_client", None):
                 # First call creates client
                 await get_state_store()
 
                 # Reset the module-level client for second call test
-                import repotoire.api.auth.state_store as module
+                import repotoire.api.shared.auth.state_store as module
 
                 # Second call should reuse
                 await get_state_store()
@@ -407,15 +407,15 @@ class TestGetStateStoreDependency:
         """Test that get_state_store raises error when Redis unavailable."""
         import redis.asyncio as aioredis
 
-        from repotoire.api.auth.state_store import get_state_store
+        from repotoire.api.shared.auth.state_store import get_state_store
 
         mock_redis = AsyncMock()
         mock_redis.ping.side_effect = aioredis.RedisError("Connection refused")
 
         with patch(
-            "repotoire.api.auth.state_store.aioredis.from_url", return_value=mock_redis
+            "repotoire.api.shared.auth.state_store.aioredis.from_url", return_value=mock_redis
         ):
-            with patch("repotoire.api.auth.state_store._redis_client", None):
+            with patch("repotoire.api.shared.auth.state_store._redis_client", None):
                 with pytest.raises(
                     StateStoreUnavailableError, match="Redis connection failed"
                 ):
@@ -428,11 +428,11 @@ class TestCloseRedisClient:
     @pytest.mark.asyncio
     async def test_close_redis_client_closes_connection(self) -> None:
         """Test that close_redis_client properly closes the connection."""
-        from repotoire.api.auth.state_store import close_redis_client
+        from repotoire.api.shared.auth.state_store import close_redis_client
 
         mock_redis = AsyncMock()
 
-        with patch("repotoire.api.auth.state_store._redis_client", mock_redis):
+        with patch("repotoire.api.shared.auth.state_store._redis_client", mock_redis):
             await close_redis_client()
 
             mock_redis.close.assert_called_once()
@@ -440,8 +440,8 @@ class TestCloseRedisClient:
     @pytest.mark.asyncio
     async def test_close_redis_client_handles_none(self) -> None:
         """Test that close_redis_client handles None client gracefully."""
-        from repotoire.api.auth.state_store import close_redis_client
+        from repotoire.api.shared.auth.state_store import close_redis_client
 
-        with patch("repotoire.api.auth.state_store._redis_client", None):
+        with patch("repotoire.api.shared.auth.state_store._redis_client", None):
             # Should not raise
             await close_redis_client()

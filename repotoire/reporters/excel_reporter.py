@@ -10,20 +10,25 @@ from typing import List, Optional
 
 from repotoire.models import CodebaseHealth, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.reporters.base_reporter import BaseReporter
 
 logger = get_logger(__name__)
 
 
-class ExcelReporter:
-    """Generate Excel reports from analysis results."""
+class ExcelReporter(BaseReporter):
+    """Generate Excel reports from analysis results.
 
-    def __init__(self, repo_path: Optional[Path] = None):
+    Inherits common functionality from BaseReporter including code snippet
+    extraction and language detection.
+    """
+
+    def __init__(self, repo_path: Path | str | None = None):
         """Initialize Excel reporter.
 
         Args:
             repo_path: Path to repository (for reference in report)
         """
-        self.repo_path = Path(repo_path) if repo_path else None
+        super().__init__(repo_path=repo_path, include_snippets=False)
 
     def generate(self, health: CodebaseHealth, output_path: Path) -> None:
         """Generate Excel report from health data.

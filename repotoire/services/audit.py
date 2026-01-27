@@ -541,16 +541,16 @@ def audit_action(
                         if get_resource_id:
                             try:
                                 resource_id = get_resource_id(*args, **kwargs)
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug(f"Non-fatal error extracting resource_id for audit: {e}")
 
                         # Get additional metadata if extractor provided
                         metadata = None
                         if get_metadata:
                             try:
                                 metadata = get_metadata(*args, **kwargs)
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug(f"Non-fatal error extracting metadata for audit: {e}")
 
                         # Merge error metadata
                         if error_metadata:

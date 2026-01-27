@@ -100,6 +100,15 @@ class GraphSchema:
         "CREATE INDEX flows_to_edge_type_idx IF NOT EXISTS FOR ()-[r:FLOWS_TO]-() ON (r.edge_type)",
         "CREATE INDEX flows_to_source_line_idx IF NOT EXISTS FOR ()-[r:FLOWS_TO]-() ON (r.source_line)",
         "CREATE INDEX flows_to_scope_idx IF NOT EXISTS FOR ()-[r:FLOWS_TO]-() ON (r.scope)",
+        # Performance optimization indexes (Phase 2)
+        # Dead code detection: 3-way filter on usage counts
+        "CREATE INDEX function_usage_idx IF NOT EXISTS FOR (f:Function) ON (f.call_count, f.inherit_count, f.use_count)",
+        # Extended function complexity index for analysis queries
+        "CREATE INDEX function_complexity_return_idx IF NOT EXISTS FOR (f:Function) ON (f.complexity, f.is_async, f.has_return)",
+        # Class type filtering for God class detection
+        "CREATE INDEX class_type_idx IF NOT EXISTS FOR (c:Class) ON (c.is_dataclass, c.is_abstract)",
+        # File filtering for language-specific analysis
+        "CREATE INDEX file_lang_external_idx IF NOT EXISTS FOR (f:File) ON (f.language, f.is_external)",
     ]
 
     # Vector index definitions (labels and index names)
@@ -160,6 +169,11 @@ class GraphSchema:
         "CREATE INDEX ON :Commit(authorEmail)",
         "CREATE INDEX ON :Commit(committedAt)",
         "CREATE INDEX ON :Commit(repoId)",
+        # Performance optimization indexes (Phase 2)
+        "CREATE INDEX ON :Function(call_count)",
+        "CREATE INDEX ON :Function(is_external)",
+        "CREATE INDEX ON :Class(is_abstract)",
+        "CREATE INDEX ON :File(is_external)",
     ]
 
     @staticmethod

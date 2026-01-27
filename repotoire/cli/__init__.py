@@ -730,11 +730,19 @@ def ingest(
                 # Clear database if force-full is requested
                 if force_full:
                     if not quiet:
-                        console.print("[yellow]Warning:[/yellow] Force-full mode will clear all existing graph data.")
-                        if not click.confirm("Are you sure you want to continue?", default=False):
+                        # Enhanced destructive operation warning (Phase 5 CLI UX)
+                        console.print("\n[bold red]⚠️  WARNING: DESTRUCTIVE OPERATION[/bold red]")
+                        console.print("[yellow]This will DELETE:[/yellow]")
+                        console.print("  • All ingested code entities (files, classes, functions)")
+                        console.print("  • All relationship data (calls, imports, uses)")
+                        console.print("  • All analysis findings and health metrics")
+                        console.print("  • All cached embeddings and graph vectors")
+                        console.print("\n[red]This cannot be undone.[/red]")
+                        console.print()
+                        if not click.confirm("Type 'y' to confirm deletion", default=False):
                             console.print("[dim]Aborted.[/dim]")
                             raise click.Abort()
-                        console.print("[yellow]Clearing existing graph...[/yellow]")
+                        console.print("\n[yellow]Clearing existing graph...[/yellow]")
                     db.clear_graph()
                     if not quiet:
                         console.print("[green]✓ Database cleared[/green]\n")
@@ -964,6 +972,37 @@ def ingest(
     except ValueError as e:
         logger.error(f"Validation error: {e}")
         console.print(f"\n[red]❌ Error: {e}[/red]")
+        raise click.Abort()
+    except ConnectionError as e:
+        # Enhanced error message for connection failures (Phase 5 CLI UX)
+        logger.error(f"Connection error: {e}")
+        console.print("\n[red]❌ Cannot connect to FalkorDB[/red]")
+        console.print(f"  Host: {os.getenv('FALKORDB_HOST', 'localhost')}")
+        console.print(f"  Port: {os.getenv('FALKORDB_PORT', '6379')}")
+        console.print("\n[yellow]Troubleshooting:[/yellow]")
+        console.print("  • Check if FalkorDB is running: [dim]docker ps | grep falkordb[/dim]")
+        console.print("  • Start FalkorDB: [dim]docker run -p 6379:6379 falkordb/falkordb[/dim]")
+        console.print("  • Or use cloud mode: [dim]repotoire login[/dim]")
+        raise click.Abort()
+    except PermissionError as e:
+        # Enhanced error message for permission failures (Phase 5 CLI UX)
+        logger.error(f"Permission error: {e}")
+        filename = getattr(e, 'filename', 'unknown file')
+        console.print(f"\n[red]❌ Permission denied: {filename}[/red]")
+        console.print("\n[yellow]Troubleshooting:[/yellow]")
+        console.print(f"  • Check file permissions: [dim]ls -la {filename}[/dim]")
+        console.print(f"  • Grant read access: [dim]chmod 644 {filename}[/dim]")
+        console.print(f"  • Or exclude the file via patterns in config")
+        raise click.Abort()
+    except MemoryError:
+        # Enhanced error message for memory issues (Phase 5 CLI UX)
+        logger.error("Out of memory during ingestion")
+        console.print("\n[red]❌ Out of memory[/red]")
+        console.print("\n[yellow]Troubleshooting:[/yellow]")
+        console.print("  • Reduce batch size: [dim]repotoire ingest --batch-size 50[/dim]")
+        console.print("  • Exclude large files: [dim]--max-file-size 5[/dim]")
+        console.print("  • Split repository into smaller chunks")
+        console.print("  • Increase system memory or swap space")
         raise click.Abort()
     except Exception as e:
         logger.exception("Unexpected error during ingestion")
@@ -1342,6 +1381,35 @@ def analyze(
     except click.ClickException:
         # Let Click handle its own exceptions (preserves command context)
         raise
+    except ConnectionError as e:
+        # Enhanced error message for connection failures (Phase 5 CLI UX)
+        logger.error(f"Connection error: {e}")
+        console.print("\n[red]❌ Cannot connect to FalkorDB[/red]")
+        console.print(f"  Host: {os.getenv('FALKORDB_HOST', 'localhost')}")
+        console.print(f"  Port: {os.getenv('FALKORDB_PORT', '6379')}")
+        console.print("\n[yellow]Troubleshooting:[/yellow]")
+        console.print("  • Check if FalkorDB is running: [dim]docker ps | grep falkordb[/dim]")
+        console.print("  • Start FalkorDB: [dim]docker run -p 6379:6379 falkordb/falkordb[/dim]")
+        console.print("  • Or use cloud mode: [dim]repotoire login[/dim]")
+        raise click.Abort()
+    except PermissionError as e:
+        # Enhanced error message for permission failures (Phase 5 CLI UX)
+        logger.error(f"Permission error: {e}")
+        filename = getattr(e, 'filename', 'unknown file')
+        console.print(f"\n[red]❌ Permission denied: {filename}[/red]")
+        console.print("\n[yellow]Troubleshooting:[/yellow]")
+        console.print(f"  • Check file permissions: [dim]ls -la {filename}[/dim]")
+        console.print(f"  • Grant read access: [dim]chmod 644 {filename}[/dim]")
+        raise click.Abort()
+    except MemoryError:
+        # Enhanced error message for memory issues (Phase 5 CLI UX)
+        logger.error("Out of memory during analysis")
+        console.print("\n[red]❌ Out of memory[/red]")
+        console.print("\n[yellow]Troubleshooting:[/yellow]")
+        console.print("  • Enable parallel mode with fewer workers: [dim]--workers 2[/dim]")
+        console.print("  • Disable some detectors: [dim]--disable-detectors semgrep,jscpd[/dim]")
+        console.print("  • Increase system memory or swap space")
+        raise click.Abort()
     except Exception as e:
         # Check for ConfigurationError (no database configured)
         from repotoire.graph.factory import ConfigurationError

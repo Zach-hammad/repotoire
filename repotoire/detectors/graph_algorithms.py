@@ -229,8 +229,8 @@ class GraphAlgorithms:
             """
             try:
                 self.client.execute_query(drop_query)
-            except Exception:
-                pass  # Projection doesn't exist, that's fine
+            except Exception as e:
+                logger.debug(f"Graph projection '{projection_name}' does not exist (expected): {e}")
 
             # Create new projection
             create_query = f"""

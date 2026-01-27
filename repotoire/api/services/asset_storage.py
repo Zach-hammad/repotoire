@@ -17,16 +17,13 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Optional
 
+from repotoire.api.shared.services.s3_client import get_r2_config, get_s3_client
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 # Configuration from environment
-R2_ENDPOINT_URL = os.environ.get("R2_ENDPOINT_URL")
-R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID")
-R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY")
 R2_BUCKET = os.environ.get("R2_BUCKET", "repotoire-marketplace")
-R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID")
 
 # Default presigned URL expiration: 1 hour
 DEFAULT_PRESIGNED_EXPIRATION = 3600
@@ -86,31 +83,18 @@ def _get_s3_client():
     Raises:
         StorageNotConfiguredError: If storage is not configured.
     """
+    if not is_storage_configured():
+        raise StorageNotConfiguredError(
+            "R2 storage not configured. Set R2_ENDPOINT_URL (or R2_ACCOUNT_ID), "
+            "R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET environment variables."
+        )
+
     try:
-        import boto3
+        return get_s3_client(get_r2_config())
     except ImportError:
         raise StorageError(
             "boto3 is required for asset storage. Install with: pip install boto3"
         )
-
-    if not is_storage_configured():
-        raise StorageNotConfiguredError(
-            "R2 storage not configured. Set R2_ENDPOINT_URL, R2_ACCESS_KEY_ID, "
-            "R2_SECRET_ACCESS_KEY, and R2_BUCKET environment variables."
-        )
-
-    # Determine endpoint URL
-    endpoint_url = R2_ENDPOINT_URL
-    if not endpoint_url and R2_ACCOUNT_ID:
-        endpoint_url = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-
-    return boto3.client(
-        "s3",
-        endpoint_url=endpoint_url,
-        aws_access_key_id=R2_ACCESS_KEY_ID,
-        aws_secret_access_key=R2_SECRET_ACCESS_KEY,
-        region_name="auto",
-    )
 
 
 def is_storage_configured() -> bool:
@@ -119,12 +103,8 @@ def is_storage_configured() -> bool:
     Returns:
         True if all required environment variables are set.
     """
-    return bool(
-        (R2_ENDPOINT_URL or R2_ACCOUNT_ID)
-        and R2_ACCESS_KEY_ID
-        and R2_SECRET_ACCESS_KEY
-        and R2_BUCKET
-    )
+    config = get_r2_config()
+    return config.is_configured() and bool(R2_BUCKET)
 
 
 def _get_version_key(publisher_slug: str, asset_slug: str, version: str) -> str:

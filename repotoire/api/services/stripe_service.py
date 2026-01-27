@@ -149,7 +149,7 @@ class StripeService:
         Raises:
             HTTPException: If tier is FREE or if Stripe API call fails
         """
-        from repotoire.api.services.billing import PLAN_LIMITS
+        from repotoire.api.shared.services.billing import PLAN_LIMITS
 
         if tier == PlanTier.FREE:
             raise HTTPException(

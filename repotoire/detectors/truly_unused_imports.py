@@ -225,8 +225,8 @@ class TrulyUnusedImportsDetector(CodeSmellDetector):
                                 rname = self.path_cache.get_name(rid)
                                 if rname:
                                     reachable.add(rname)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            self.logger.debug(f"Error getting CALLS reachable for {entity_id}: {e}")
 
                         # Get all reachable via USES (direct usage)
                         try:
@@ -235,8 +235,8 @@ class TrulyUnusedImportsDetector(CodeSmellDetector):
                                 rname = self.path_cache.get_name(rid)
                                 if rname:
                                     reachable.add(rname)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            self.logger.debug(f"Error getting USES reachable for {entity_id}: {e}")
 
                         # Get all reachable via INHERITS
                         try:
@@ -245,8 +245,8 @@ class TrulyUnusedImportsDetector(CodeSmellDetector):
                                 rname = self.path_cache.get_name(rid)
                                 if rname:
                                     reachable.add(rname)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            self.logger.debug(f"Error getting INHERITS reachable for {entity_id}: {e}")
 
                 except Exception as e:
                     self.logger.debug(f"Error building reachable set for {file_path}: {e}")

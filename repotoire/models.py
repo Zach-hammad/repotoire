@@ -9,6 +9,7 @@ This module defines the core data structures used throughout Falkor:
 All models use dataclasses for immutability and type safety.
 """
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -1603,3 +1604,94 @@ class CodebaseHealth:
             }
             for f in self.findings
         ]
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CodebaseHealth":
+        """Create CodebaseHealth instance from dictionary.
+
+        Inverse of to_dict() for deserializing JSON reports.
+
+        Args:
+            data: Dictionary representation (e.g., from JSON file)
+
+        Returns:
+            CodebaseHealth instance
+
+        Example:
+            >>> with open("report.json") as f:
+            ...     data = json.load(f)
+            >>> health = CodebaseHealth.from_dict(data)
+        """
+        # Parse findings
+        findings = []
+        for f_data in data.get("findings", []):
+            finding = Finding(
+                id=f_data.get("id", str(uuid.uuid4())),
+                detector=f_data["detector"],
+                severity=Severity(f_data["severity"]),
+                title=f_data["title"],
+                description=f_data.get("description", ""),
+                affected_nodes=f_data.get("affected_nodes", []),
+                affected_files=f_data.get("affected_files", []),
+                line_start=f_data.get("line_start"),
+                line_end=f_data.get("line_end"),
+                graph_context=f_data.get("graph_context", {}),
+                suggested_fix=f_data.get("suggested_fix"),
+                estimated_effort=f_data.get("estimated_effort"),
+            )
+            findings.append(finding)
+
+        # Parse findings summary
+        fs_data = data.get("findings_summary", {})
+        findings_summary = FindingsSummary(
+            critical=fs_data.get("critical", 0),
+            high=fs_data.get("high", 0),
+            medium=fs_data.get("medium", 0),
+            low=fs_data.get("low", 0),
+            info=fs_data.get("info", 0),
+        )
+
+        # Parse metrics if present (may not be in minimal exports)
+        metrics = MetricsBreakdown()
+        if "metrics" in data:
+            m_data = data["metrics"]
+            metrics = MetricsBreakdown(
+                modularity=m_data.get("modularity", 0.0),
+                avg_coupling=m_data.get("avg_coupling", 0.0),
+                circular_dependencies=m_data.get("circular_dependencies", 0),
+                bottleneck_count=m_data.get("bottleneck_count", 0),
+                dead_code_percentage=m_data.get("dead_code_percentage", 0.0),
+                duplication_percentage=m_data.get("duplication_percentage", 0.0),
+                god_class_count=m_data.get("god_class_count", 0),
+                layer_violations=m_data.get("layer_violations", 0),
+                boundary_violations=m_data.get("boundary_violations", 0),
+                abstraction_ratio=m_data.get("abstraction_ratio", 0.0),
+                total_files=m_data.get("total_files", 0),
+                total_classes=m_data.get("total_classes", 0),
+                total_functions=m_data.get("total_functions", 0),
+                total_loc=m_data.get("total_loc", 0),
+            )
+
+        # Parse timestamp
+        analyzed_at = datetime.now()
+        if "analyzed_at" in data:
+            try:
+                analyzed_at = datetime.fromisoformat(data["analyzed_at"])
+            except (ValueError, TypeError):
+                pass
+
+        return cls(
+            grade=data.get("grade", "F"),
+            overall_score=data.get("overall_score", 0.0),
+            structure_score=data.get("structure_score", 0.0),
+            quality_score=data.get("quality_score", 0.0),
+            architecture_score=data.get("architecture_score", 0.0),
+            issues_score=data.get("issues_score", 0.0),
+            metrics=metrics,
+            findings_summary=findings_summary,
+            findings=findings,
+            dedup_stats=data.get("dedup_stats"),
+            root_cause_summary=data.get("root_cause_summary"),
+            voting_stats=data.get("voting_stats"),
+            analyzed_at=analyzed_at,
+        )

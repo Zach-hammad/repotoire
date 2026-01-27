@@ -10,24 +10,13 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
+from repotoire.api.shared.services.s3_client import get_default_config, get_s3_client
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 # Configuration from environment
-STORAGE_PROVIDER = os.environ.get("STORAGE_PROVIDER", "s3")  # "s3" or "r2"
 S3_BUCKET_NAME = os.environ.get("EXPORTS_BUCKET_NAME", "repotoire-exports")
-S3_REGION = os.environ.get("AWS_REGION", "us-east-1")
-S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL")  # For R2 or custom endpoints
-
-# R2 specific (Cloudflare)
-R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID")
-R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID")
-R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY")
-
-# AWS specific
-AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
 
 # Presigned URL expiration (default: 7 days)
 PRESIGNED_URL_EXPIRATION = int(os.environ.get("PRESIGNED_URL_EXPIRATION_SECONDS", 7 * 24 * 60 * 60))
@@ -39,40 +28,7 @@ def _get_s3_client():
     Returns:
         boto3 S3 client configured for the storage provider.
     """
-    try:
-        import boto3
-    except ImportError:
-        raise ImportError(
-            "boto3 is required for cloud storage. Install with: pip install boto3"
-        )
-
-    if STORAGE_PROVIDER == "r2" and R2_ACCOUNT_ID:
-        # Cloudflare R2
-        endpoint_url = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-        return boto3.client(
-            "s3",
-            endpoint_url=endpoint_url,
-            aws_access_key_id=R2_ACCESS_KEY_ID,
-            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
-            region_name="auto",
-        )
-    elif S3_ENDPOINT_URL:
-        # Custom S3-compatible endpoint
-        return boto3.client(
-            "s3",
-            endpoint_url=S3_ENDPOINT_URL,
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-            region_name=S3_REGION,
-        )
-    else:
-        # Standard AWS S3
-        return boto3.client(
-            "s3",
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-            region_name=S3_REGION,
-        )
+    return get_s3_client(get_default_config())
 
 
 async def upload_export(
@@ -208,7 +164,5 @@ def is_storage_configured() -> bool:
     Returns:
         True if storage credentials are available.
     """
-    if STORAGE_PROVIDER == "r2":
-        return bool(R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY)
-    else:
-        return bool(AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY)
+    config = get_default_config()
+    return config.is_configured()

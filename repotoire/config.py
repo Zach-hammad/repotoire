@@ -77,8 +77,9 @@ file = "logs/repotoire.log"
 import os
 import json
 import re
+from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass, field
 
 try:
@@ -100,6 +101,104 @@ except ImportError:
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+# ============================================================================
+# Enums for config value validation (Phase 4 improvements)
+# ============================================================================
+
+
+class LogLevel(str, Enum):
+    """Valid log levels."""
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
+
+
+class SecretsPolicy(str, Enum):
+    """Secrets detection policy options."""
+    REDACT = "redact"
+    BLOCK = "block"
+    WARN = "warn"
+    FAIL = "fail"
+
+
+class SeverityThreshold(str, Enum):
+    """Severity threshold options for detectors."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+# ============================================================================
+# Deprecation helpers for env var migration (FALKOR_* -> REPOTOIRE_*)
+# ============================================================================
+
+# Mapping of deprecated env vars to their new names
+_DEPRECATED_ENV_VARS = {
+    # Ingestion
+    "FALKOR_INGESTION_PATTERNS": "REPOTOIRE_INGESTION_PATTERNS",
+    "FALKOR_INGESTION_FOLLOW_SYMLINKS": "REPOTOIRE_INGESTION_FOLLOW_SYMLINKS",
+    "FALKOR_INGESTION_MAX_FILE_SIZE_MB": "REPOTOIRE_INGESTION_MAX_FILE_SIZE_MB",
+    "FALKOR_INGESTION_BATCH_SIZE": "REPOTOIRE_INGESTION_BATCH_SIZE",
+    # Analysis
+    "FALKOR_ANALYSIS_MIN_MODULARITY": "REPOTOIRE_ANALYSIS_MIN_MODULARITY",
+    "FALKOR_ANALYSIS_MAX_COUPLING": "REPOTOIRE_ANALYSIS_MAX_COUPLING",
+    # Secrets
+    "FALKOR_SECRETS_ENABLED": "REPOTOIRE_SECRETS_ENABLED",
+    "FALKOR_SECRETS_POLICY": "REPOTOIRE_SECRETS_POLICY",
+    # Logging
+    "FALKOR_LOG_LEVEL": "REPOTOIRE_LOG_LEVEL",
+    "FALKOR_LOG_FORMAT": "REPOTOIRE_LOG_FORMAT",
+    "FALKOR_LOG_FILE": "REPOTOIRE_LOG_FILE",
+    # TimescaleDB
+    "FALKOR_TIMESCALE_ENABLED": "REPOTOIRE_TIMESCALE_ENABLED",
+    "FALKOR_TIMESCALE_URI": "REPOTOIRE_TIMESCALE_URI",
+    "FALKOR_TIMESCALE_AUTO_TRACK": "REPOTOIRE_TIMESCALE_AUTO_TRACK",
+    # RAG
+    "FALKOR_RAG_CACHE_ENABLED": "REPOTOIRE_RAG_CACHE_ENABLED",
+    "FALKOR_RAG_CACHE_TTL": "REPOTOIRE_RAG_CACHE_TTL",
+    "FALKOR_RAG_CACHE_MAX_SIZE": "REPOTOIRE_RAG_CACHE_MAX_SIZE",
+}
+
+
+def _get_env_with_fallback(new_key: str, old_key: Optional[str] = None) -> Optional[str]:
+    """Get environment variable with deprecation warning for old keys.
+
+    Args:
+        new_key: The new (preferred) environment variable name
+        old_key: The deprecated environment variable name (optional)
+
+    Returns:
+        The environment variable value, or None if not set
+    """
+    # Check new key first
+    if value := os.getenv(new_key):
+        return value
+
+    # Check old key with deprecation warning
+    if old_key:
+        if value := os.getenv(old_key):
+            logger.warning(
+                f"Environment variable '{old_key}' is deprecated, use '{new_key}' instead"
+            )
+            return value
+
+    # Check our mapping for auto-detected deprecated vars
+    for deprecated, replacement in _DEPRECATED_ENV_VARS.items():
+        if replacement == new_key:
+            if value := os.getenv(deprecated):
+                logger.warning(
+                    f"Environment variable '{deprecated}' is deprecated, use '{new_key}' instead"
+                )
+                return value
+
+    return None
 
 
 class ConfigError(Exception):
@@ -294,6 +393,21 @@ class CustomSecretPattern:
     pattern: str  # Regex pattern to match
     risk_level: str = "high"  # critical, high, medium, low
     remediation: str = ""  # Remediation suggestion
+
+    def __post_init__(self):
+        """Validate the regex pattern on initialization."""
+        try:
+            re.compile(self.pattern)
+        except re.error as e:
+            raise ValueError(f"Invalid regex in secret pattern '{self.name}': {e}")
+
+        # Validate risk_level
+        valid_risk_levels = {"critical", "high", "medium", "low"}
+        if self.risk_level.lower() not in valid_risk_levels:
+            raise ValueError(
+                f"Invalid risk_level '{self.risk_level}' in pattern '{self.name}'. "
+                f"Must be one of: {', '.join(sorted(valid_risk_levels))}"
+            )
 
 
 @dataclass
@@ -998,12 +1112,16 @@ def load_config_from_env() -> Dict[str, Any]:
     Environment variables take precedence over config files but are
     overridden by command-line arguments.
 
+    Uses _get_env_with_fallback() to show deprecation warnings when
+    old FALKOR_* environment variables are used.
+
     Returns:
         Configuration dictionary with values from environment
     """
     config = {}
 
     # Database (FalkorDB) configuration
+    # Note: FALKORDB_* is kept as-is since it's the database name
     database = {}
     if host := os.getenv("FALKORDB_HOST"):
         database["host"] = host
@@ -1032,85 +1150,86 @@ def load_config_from_env() -> Dict[str, Any]:
     if database:
         config["database"] = database
 
-    # Ingestion configuration
+    # Ingestion configuration (with deprecation warnings for FALKOR_INGESTION_*)
     ingestion = {}
-    if patterns := os.getenv("FALKOR_INGESTION_PATTERNS"):
+    if patterns := _get_env_with_fallback("REPOTOIRE_INGESTION_PATTERNS"):
         ingestion["patterns"] = [p.strip() for p in patterns.split(",")]
-    if follow_symlinks := os.getenv("FALKOR_INGESTION_FOLLOW_SYMLINKS"):
+    if follow_symlinks := _get_env_with_fallback("REPOTOIRE_INGESTION_FOLLOW_SYMLINKS"):
         ingestion["follow_symlinks"] = follow_symlinks.lower() in ("true", "1", "yes")
-    if max_file_size := os.getenv("FALKOR_INGESTION_MAX_FILE_SIZE_MB"):
+    if max_file_size := _get_env_with_fallback("REPOTOIRE_INGESTION_MAX_FILE_SIZE_MB"):
         try:
             ingestion["max_file_size_mb"] = float(max_file_size)
         except ValueError:
-            logger.warning(f"Invalid FALKOR_INGESTION_MAX_FILE_SIZE_MB: {max_file_size}")
-    if batch_size := os.getenv("FALKOR_INGESTION_BATCH_SIZE"):
+            logger.warning(f"Invalid REPOTOIRE_INGESTION_MAX_FILE_SIZE_MB: {max_file_size}")
+    if batch_size := _get_env_with_fallback("REPOTOIRE_INGESTION_BATCH_SIZE"):
         try:
             ingestion["batch_size"] = int(batch_size)
         except ValueError:
-            logger.warning(f"Invalid FALKOR_INGESTION_BATCH_SIZE: {batch_size}")
+            logger.warning(f"Invalid REPOTOIRE_INGESTION_BATCH_SIZE: {batch_size}")
     if ingestion:
         config["ingestion"] = ingestion
 
-    # Analysis configuration
+    # Analysis configuration (with deprecation warnings for FALKOR_ANALYSIS_*)
     analysis = {}
-    if min_modularity := os.getenv("FALKOR_ANALYSIS_MIN_MODULARITY"):
+    if min_modularity := _get_env_with_fallback("REPOTOIRE_ANALYSIS_MIN_MODULARITY"):
         try:
             analysis["min_modularity"] = float(min_modularity)
         except ValueError:
-            logger.warning(f"Invalid FALKOR_ANALYSIS_MIN_MODULARITY: {min_modularity}")
-    if max_coupling := os.getenv("FALKOR_ANALYSIS_MAX_COUPLING"):
+            logger.warning(f"Invalid REPOTOIRE_ANALYSIS_MIN_MODULARITY: {min_modularity}")
+    if max_coupling := _get_env_with_fallback("REPOTOIRE_ANALYSIS_MAX_COUPLING"):
         try:
             analysis["max_coupling"] = float(max_coupling)
         except ValueError:
-            logger.warning(f"Invalid FALKOR_ANALYSIS_MAX_COUPLING: {max_coupling}")
+            logger.warning(f"Invalid REPOTOIRE_ANALYSIS_MAX_COUPLING: {max_coupling}")
     if analysis:
         config["analysis"] = analysis
 
-    # Secrets configuration
+    # Secrets configuration (with deprecation warnings for FALKOR_SECRETS_*)
     secrets = {}
-    if secrets_enabled := os.getenv("FALKOR_SECRETS_ENABLED"):
+    if secrets_enabled := _get_env_with_fallback("REPOTOIRE_SECRETS_ENABLED"):
         secrets["enabled"] = secrets_enabled.lower() in ("true", "1", "yes")
-    if secrets_policy := os.getenv("FALKOR_SECRETS_POLICY"):
+    if secrets_policy := _get_env_with_fallback("REPOTOIRE_SECRETS_POLICY"):
         secrets["policy"] = secrets_policy.lower()
     if secrets:
         config["secrets"] = secrets
 
-    # Logging configuration (support both FALKOR_ prefix and unprefixed)
+    # Logging configuration (with deprecation warnings for FALKOR_LOG_*)
+    # Also supports unprefixed LOG_LEVEL, LOG_FORMAT, LOG_FILE as additional fallbacks
     logging_cfg = {}
-    if level := os.getenv("FALKOR_LOG_LEVEL") or os.getenv("LOG_LEVEL"):
+    if level := _get_env_with_fallback("REPOTOIRE_LOG_LEVEL") or os.getenv("LOG_LEVEL"):
         logging_cfg["level"] = level.upper()
-    if format := os.getenv("FALKOR_LOG_FORMAT") or os.getenv("LOG_FORMAT"):
-        logging_cfg["format"] = format
-    if file := os.getenv("FALKOR_LOG_FILE") or os.getenv("LOG_FILE"):
+    if fmt := _get_env_with_fallback("REPOTOIRE_LOG_FORMAT") or os.getenv("LOG_FORMAT"):
+        logging_cfg["format"] = fmt
+    if file := _get_env_with_fallback("REPOTOIRE_LOG_FILE") or os.getenv("LOG_FILE"):
         logging_cfg["file"] = file
     if logging_cfg:
         config["logging"] = logging_cfg
 
-    # TimescaleDB configuration (support both REPOTOIRE_ and FALKOR_ prefixes)
+    # TimescaleDB configuration (with deprecation warnings for FALKOR_TIMESCALE_*)
     timescale = {}
-    if enabled := os.getenv("FALKOR_TIMESCALE_ENABLED") or os.getenv("REPOTOIRE_TIMESCALE_ENABLED"):
+    if enabled := _get_env_with_fallback("REPOTOIRE_TIMESCALE_ENABLED"):
         timescale["enabled"] = enabled.lower() in ("true", "1", "yes")
-    if connection_string := os.getenv("FALKOR_TIMESCALE_URI") or os.getenv("REPOTOIRE_TIMESCALE_URI"):
+    if connection_string := _get_env_with_fallback("REPOTOIRE_TIMESCALE_URI"):
         timescale["connection_string"] = connection_string
-    if auto_track := os.getenv("FALKOR_TIMESCALE_AUTO_TRACK") or os.getenv("REPOTOIRE_TIMESCALE_AUTO_TRACK"):
+    if auto_track := _get_env_with_fallback("REPOTOIRE_TIMESCALE_AUTO_TRACK"):
         timescale["auto_track"] = auto_track.lower() in ("true", "1", "yes")
     if timescale:
         config["timescale"] = timescale
 
-    # RAG configuration (support both REPOTOIRE_ and FALKOR_ prefixes)
+    # RAG configuration (with deprecation warnings for FALKOR_RAG_*)
     rag = {}
-    if cache_enabled := os.getenv("FALKOR_RAG_CACHE_ENABLED") or os.getenv("REPOTOIRE_RAG_CACHE_ENABLED"):
+    if cache_enabled := _get_env_with_fallback("REPOTOIRE_RAG_CACHE_ENABLED"):
         rag["cache_enabled"] = cache_enabled.lower() in ("true", "1", "yes")
-    if cache_ttl := os.getenv("FALKOR_RAG_CACHE_TTL") or os.getenv("REPOTOIRE_RAG_CACHE_TTL"):
+    if cache_ttl := _get_env_with_fallback("REPOTOIRE_RAG_CACHE_TTL"):
         try:
             rag["cache_ttl"] = int(cache_ttl)
         except ValueError:
-            logger.warning(f"Invalid RAG_CACHE_TTL value: {cache_ttl}")
-    if cache_max_size := os.getenv("FALKOR_RAG_CACHE_MAX_SIZE") or os.getenv("REPOTOIRE_RAG_CACHE_MAX_SIZE"):
+            logger.warning(f"Invalid REPOTOIRE_RAG_CACHE_TTL value: {cache_ttl}")
+    if cache_max_size := _get_env_with_fallback("REPOTOIRE_RAG_CACHE_MAX_SIZE"):
         try:
             rag["cache_max_size"] = int(cache_max_size)
         except ValueError:
-            logger.warning(f"Invalid RAG_CACHE_MAX_SIZE value: {cache_max_size}")
+            logger.warning(f"Invalid REPOTOIRE_RAG_CACHE_MAX_SIZE value: {cache_max_size}")
     if rag:
         config["rag"] = rag
 
@@ -1191,6 +1310,256 @@ def load_config(
 
     # Create final config from merged data (applies defaults for missing values)
     return FalkorConfig.from_dict(merged_data)
+
+
+def validate_config(config: RepotoireConfig) -> List[str]:
+    """Validate configuration and return warnings.
+
+    Performs comprehensive validation of all configuration values,
+    checking for invalid values, out-of-range parameters, and
+    potential performance issues.
+
+    Args:
+        config: The configuration to validate
+
+    Returns:
+        List of warning messages (empty if no warnings)
+
+    Raises:
+        ConfigError: If configuration has invalid values that cannot be used
+    """
+    warnings: List[str] = []
+
+    # ========================================================================
+    # Database validation
+    # ========================================================================
+    if config.database.port <= 0:
+        raise ConfigError("database.port must be a positive integer")
+    if config.database.port > 65535:
+        raise ConfigError("database.port must be <= 65535")
+    if config.database.max_retries < 0:
+        raise ConfigError("database.max_retries cannot be negative")
+    if config.database.retry_backoff_factor <= 0:
+        raise ConfigError("database.retry_backoff_factor must be positive")
+    if config.database.retry_base_delay < 0:
+        raise ConfigError("database.retry_base_delay cannot be negative")
+
+    # ========================================================================
+    # Ingestion validation
+    # ========================================================================
+    if config.ingestion.batch_size < 1:
+        raise ConfigError("ingestion.batch_size must be at least 1")
+    if config.ingestion.batch_size < 10:
+        warnings.append(
+            "ingestion.batch_size < 10 may hurt performance due to increased "
+            "network round-trips. Consider using 50-100 for optimal performance."
+        )
+    if config.ingestion.batch_size > 1000:
+        warnings.append(
+            "ingestion.batch_size > 1000 may cause memory issues on large files. "
+            "Consider using 100-500 for a balance of performance and memory."
+        )
+    if config.ingestion.max_file_size_mb <= 0:
+        raise ConfigError("ingestion.max_file_size_mb must be positive")
+    if config.ingestion.max_file_size_mb > 100:
+        warnings.append(
+            "ingestion.max_file_size_mb > 100 may cause memory issues. "
+            "Consider excluding large files via patterns."
+        )
+    if not config.ingestion.patterns:
+        warnings.append(
+            "ingestion.patterns is empty - no files will be ingested"
+        )
+
+    # ========================================================================
+    # Analysis validation
+    # ========================================================================
+    if not 0 <= config.analysis.min_modularity <= 1:
+        raise ConfigError("analysis.min_modularity must be between 0 and 1")
+    if config.analysis.max_coupling < 0:
+        raise ConfigError("analysis.max_coupling cannot be negative")
+
+    # ========================================================================
+    # Detector validation
+    # ========================================================================
+    # God class thresholds
+    if config.detectors.god_class_high_method_count < config.detectors.god_class_medium_method_count:
+        warnings.append(
+            "god_class_high_method_count < god_class_medium_method_count - "
+            "high severity will never trigger before medium"
+        )
+    if config.detectors.god_class_high_complexity < config.detectors.god_class_medium_complexity:
+        warnings.append(
+            "god_class_high_complexity < god_class_medium_complexity - "
+            "high severity will never trigger before medium"
+        )
+    if config.detectors.god_class_high_loc < config.detectors.god_class_medium_loc:
+        warnings.append(
+            "god_class_high_loc < god_class_medium_loc - "
+            "high severity will never trigger before medium"
+        )
+    if not 0 <= config.detectors.god_class_high_lcom <= 1:
+        raise ConfigError("detectors.god_class_high_lcom must be between 0 and 1")
+    if not 0 <= config.detectors.god_class_medium_lcom <= 1:
+        raise ConfigError("detectors.god_class_medium_lcom must be between 0 and 1")
+    if config.detectors.god_class_high_lcom < config.detectors.god_class_medium_lcom:
+        warnings.append(
+            "god_class_high_lcom < god_class_medium_lcom - "
+            "high severity will never trigger before medium"
+        )
+
+    # Per-detector validation
+    if config.detectors.ruff.max_findings <= 0:
+        warnings.append("detectors.ruff.max_findings <= 0 will suppress all Ruff findings")
+    if config.detectors.bandit.max_findings <= 0:
+        warnings.append("detectors.bandit.max_findings <= 0 will suppress all Bandit findings")
+    if config.detectors.mypy.max_findings <= 0:
+        warnings.append("detectors.mypy.max_findings <= 0 will suppress all Mypy findings")
+    if config.detectors.pylint.max_findings <= 0:
+        warnings.append("detectors.pylint.max_findings <= 0 will suppress all Pylint findings")
+    if config.detectors.pylint.jobs < 1:
+        raise ConfigError("detectors.pylint.jobs must be at least 1")
+    if config.detectors.vulture.min_confidence < 0 or config.detectors.vulture.min_confidence > 100:
+        raise ConfigError("detectors.vulture.min_confidence must be between 0 and 100")
+    if config.detectors.jscpd.threshold < 0 or config.detectors.jscpd.threshold > 100:
+        raise ConfigError("detectors.jscpd.threshold must be between 0 and 100")
+
+    # Validate severity thresholds are valid strings
+    valid_severity = {"low", "medium", "high"}
+    if config.detectors.bandit.severity_threshold.lower() not in valid_severity:
+        raise ConfigError(
+            f"detectors.bandit.severity_threshold must be one of: {', '.join(valid_severity)}"
+        )
+    if config.detectors.bandit.confidence_threshold.lower() not in valid_severity:
+        raise ConfigError(
+            f"detectors.bandit.confidence_threshold must be one of: {', '.join(valid_severity)}"
+        )
+
+    valid_radon_complexity = {"a", "b", "c", "d", "e", "f"}
+    if config.detectors.radon.complexity_threshold.lower() not in valid_radon_complexity:
+        raise ConfigError(
+            f"detectors.radon.complexity_threshold must be one of: {', '.join(sorted(valid_radon_complexity))}"
+        )
+
+    valid_semgrep_severity = {"info", "warning", "error"}
+    if config.detectors.semgrep.severity_threshold.lower() not in valid_semgrep_severity:
+        raise ConfigError(
+            f"detectors.semgrep.severity_threshold must be one of: {', '.join(valid_semgrep_severity)}"
+        )
+
+    # ========================================================================
+    # Secrets validation
+    # ========================================================================
+    try:
+        SecretsPolicy(config.secrets.policy.lower())
+    except ValueError:
+        valid_policies = [p.value for p in SecretsPolicy]
+        raise ConfigError(
+            f"secrets.policy '{config.secrets.policy}' is invalid. "
+            f"Must be one of: {', '.join(valid_policies)}"
+        )
+
+    if config.secrets.entropy_threshold < 0:
+        raise ConfigError("secrets.entropy_threshold cannot be negative")
+    if config.secrets.entropy_threshold > 8:
+        warnings.append(
+            "secrets.entropy_threshold > 8 is very high - may miss legitimate secrets"
+        )
+    if config.secrets.min_entropy_length < 1:
+        raise ConfigError("secrets.min_entropy_length must be at least 1")
+    if config.secrets.parallel_workers < 1:
+        raise ConfigError("secrets.parallel_workers must be at least 1")
+
+    # Validate custom patterns (if any are CustomSecretPattern instances)
+    for i, pattern in enumerate(config.secrets.custom_patterns):
+        if isinstance(pattern, dict):
+            # Pattern is a dict - validate regex
+            if "pattern" in pattern:
+                try:
+                    re.compile(pattern["pattern"])
+                except re.error as e:
+                    raise ConfigError(
+                        f"Invalid regex in secrets.custom_patterns[{i}]: {e}"
+                    )
+
+    # ========================================================================
+    # Logging validation
+    # ========================================================================
+    try:
+        LogLevel(config.logging.level.upper())
+    except ValueError:
+        valid_levels = [l.value for l in LogLevel]
+        raise ConfigError(
+            f"logging.level '{config.logging.level}' is invalid. "
+            f"Must be one of: {', '.join(valid_levels)}"
+        )
+
+    valid_formats = {"human", "json"}
+    if config.logging.format.lower() not in valid_formats:
+        raise ConfigError(
+            f"logging.format must be one of: {', '.join(valid_formats)}"
+        )
+
+    # ========================================================================
+    # RAG validation
+    # ========================================================================
+    if config.rag.cache_ttl < 0:
+        raise ConfigError("rag.cache_ttl cannot be negative")
+    if config.rag.cache_max_size < 0:
+        raise ConfigError("rag.cache_max_size cannot be negative")
+    if config.rag.cache_enabled and config.rag.cache_max_size == 0:
+        warnings.append(
+            "rag.cache_enabled is True but cache_max_size is 0 - cache will be ineffective"
+        )
+
+    # ========================================================================
+    # Embeddings validation
+    # ========================================================================
+    valid_backends = {"openai", "local", "deepinfra"}
+    if config.embeddings.backend.lower() not in valid_backends:
+        raise ConfigError(
+            f"embeddings.backend must be one of: {', '.join(valid_backends)}"
+        )
+
+    # ========================================================================
+    # Reporting validation
+    # ========================================================================
+    valid_themes = {"light", "dark", "custom"}
+    if config.reporting.theme_name.lower() not in valid_themes:
+        raise ConfigError(
+            f"reporting.theme_name must be one of: {', '.join(valid_themes)}"
+        )
+
+    if config.reporting.max_findings <= 0:
+        warnings.append("reporting.max_findings <= 0 will show no findings in reports")
+
+    if config.reporting.max_snippet_lines <= 0:
+        warnings.append("reporting.max_snippet_lines <= 0 will disable code snippets")
+
+    # Validate color formats (basic hex check)
+    hex_color_pattern = re.compile(r'^#[0-9a-fA-F]{6}$')
+    theme = config.reporting.theme
+    color_fields = [
+        ("primary_color", theme.primary_color),
+        ("header_gradient_start", theme.header_gradient_start),
+        ("header_gradient_end", theme.header_gradient_end),
+        ("background_color", theme.background_color),
+        ("text_color", theme.text_color),
+        ("link_color", theme.link_color),
+        ("grade_a_color", theme.grade_a_color),
+        ("grade_b_color", theme.grade_b_color),
+        ("grade_c_color", theme.grade_c_color),
+        ("grade_d_color", theme.grade_d_color),
+        ("grade_f_color", theme.grade_f_color),
+    ]
+
+    for field_name, color in color_fields:
+        if not hex_color_pattern.match(color):
+            warnings.append(
+                f"reporting.theme.{field_name} '{color}' is not a valid hex color (expected #RRGGBB)"
+            )
+
+    return warnings
 
 
 def generate_config_template(format: str = "yaml") -> str:

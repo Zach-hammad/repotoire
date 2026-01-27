@@ -205,8 +205,8 @@ class TwoTierSkillCache:
             if data:
                 skill = CachedSkill.model_validate_json(data)
                 return skill.version
-        except Exception:
-            pass  # Silently fail for version check
+        except Exception as e:
+            logger.debug(f"Non-fatal error checking L2 version for skill '{skill_id}': {e}")
         return None
 
     async def get(self, skill_id: str) -> Optional[CachedSkill]:

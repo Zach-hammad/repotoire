@@ -15,16 +15,21 @@ from typing import Optional
 
 from repotoire.models import CodebaseHealth, Severity
 from repotoire.logging_config import get_logger
+from repotoire.reporters.base_reporter import BaseReporter
 
 logger = get_logger(__name__)
 
 
-class PDFReporter:
-    """Generate PDF reports from analysis results."""
+class PDFReporter(BaseReporter):
+    """Generate PDF reports from analysis results.
+
+    Inherits common functionality from BaseReporter including code snippet
+    extraction and language detection.
+    """
 
     def __init__(
         self,
-        repo_path: Optional[Path] = None,
+        repo_path: Path | str | None = None,
         include_snippets: bool = True,
         page_size: str = "A4",
     ):
@@ -35,8 +40,7 @@ class PDFReporter:
             include_snippets: Whether to include code snippets
             page_size: Page size ("A4", "Letter", etc.)
         """
-        self.repo_path = Path(repo_path) if repo_path else None
-        self.include_snippets = include_snippets
+        super().__init__(repo_path=repo_path, include_snippets=include_snippets)
         self.page_size = page_size
 
     def generate(self, health: CodebaseHealth, output_path: Path) -> None:
