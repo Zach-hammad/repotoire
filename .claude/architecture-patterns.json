@@ -322,28 +322,81 @@
     "notes": "Input validation is AUTOMATIC via Pydantic. Check models.py for Field() constraints. No manual validation needed in route handlers."
   },
   "billing-enforcement": {
-    "implemented_via": ["enforce_feature", "enforce_feature_for_api", "check_usage_limit", "enforce_repo_limit", "enforce_analysis_limit"],
-    "key_files": [
-      "repotoire/api/shared/middleware/usage.py",
-      "repotoire/api/shared/services/billing.py"
-    ],
+    "description": "Multi-layer billing enforcement across backend API and frontend UI",
+    "implemented_via": {
+      "backend": [
+        "enforce_feature() - FastAPI dependency for feature gating",
+        "enforce_feature_for_api() - API key auth variant with org lookup",
+        "check_usage_limit() - Check limit without incrementing",
+        "enforce_repo_limit - Dependency for repo creation endpoints",
+        "enforce_analysis_limit - Dependency for analysis endpoints",
+        "increment_usage() - Increment counter after successful operation"
+      ],
+      "frontend": [
+        "useSubscription() hook - SWR-based subscription/usage fetching",
+        "isBillingError() - Detect billing errors from API responses",
+        "showBillingErrorToast() - Toast with upgrade action button",
+        "Proactive limit checks - Check before API call to avoid unnecessary requests",
+        "Reactive error handling - Catch billing errors from API responses"
+      ]
+    },
+    "key_files": {
+      "backend": [
+        "repotoire/api/shared/middleware/usage.py",
+        "repotoire/api/shared/services/billing.py",
+        "repotoire/api/v1/routes/github.py",
+        "repotoire/api/v1/routes/analysis.py"
+      ],
+      "frontend": [
+        "repotoire/web/src/lib/hooks.ts",
+        "repotoire/web/src/lib/error-utils.ts",
+        "repotoire/web/src/lib/error-codes.ts",
+        "repotoire/web/src/app/dashboard/repos/connect/page.tsx",
+        "repotoire/web/src/components/repos/repo-card.tsx"
+      ]
+    },
     "patterns": {
-      "feature_gating": "org: Organization = Depends(enforce_feature('feature_name'))",
-      "feature_gating_api": "org: Organization = Depends(enforce_feature_for_api('feature_name'))",
-      "usage_limit_check": "await check_usage_limit(db, org, 'resource_type')",
-      "usage_limit_dependency": "Depends(enforce_analysis_limit)"
+      "backend": {
+        "feature_gating": "org: Organization = Depends(enforce_feature('feature_name'))",
+        "feature_gating_api": "org: Organization = Depends(enforce_feature_for_api('feature_name'))",
+        "usage_limit_check": "await check_usage_limit(db, org, 'resource_type')",
+        "usage_limit_dependency": "Depends(enforce_analysis_limit)",
+        "batch_limit_check": "if len(repo_ids) > remaining: raise HTTPException(402, detail={...})"
+      },
+      "frontend": {
+        "proactive_check": "if (limitStatus.atLimit) { toast.warning(...); return; }",
+        "reactive_catch": "if (isBillingError(error)) { showBillingErrorToast(error, onUpgrade); return; }",
+        "limit_status_memo": "useMemo(() => ({ current, limit, remaining, atLimit, nearLimit, canConnect }), [usage])",
+        "disabled_ui": "disabled={limitStatus.atLimit} with tooltip explaining limit"
+      }
     },
     "resource_types": ["repos", "analyses"],
     "feature_names": ["api_access", "auto_fix", "sso"],
+    "plan_limits": {
+      "FREE": { "repos": 1, "analyses": 10 },
+      "PRO": { "repos": "5/seat", "analyses": -1 },
+      "ENTERPRISE": { "repos": -1, "analyses": -1 }
+    },
     "error_codes": {
-      "limit_exceeded": "USAGE_LIMIT_EXCEEDED",
-      "feature_unavailable": "FEATURE_NOT_AVAILABLE"
+      "backend": {
+        "limit_exceeded": "USAGE_LIMIT_EXCEEDED",
+        "feature_unavailable": "FEATURE_NOT_AVAILABLE"
+      },
+      "frontend": {
+        "ERR_BILLING_001": "Limit exceeded",
+        "ERR_BILLING_002": "Feature unavailable",
+        "ERR_BILLING_003": "Repo limit",
+        "ERR_BILLING_004": "Analysis limit"
+      }
     },
     "notes": [
       "Use check_usage_limit() directly in function body when endpoint uses API key auth (enforce_feature_for_api already returns org)",
       "Use Depends(enforce_*_limit) for JWT-only endpoints",
       "Informational endpoints (viewing stats/quotas) don't need feature gating",
-      "RateLimitMiddleware is registered in app.py - check middleware stack before adding"
+      "Frontend must pass error details to ApiError for isBillingError() detection to work",
+      "Always check limits proactively in UI before making API calls",
+      "Show upgrade path in all billing error toasts with action button",
+      "Use useMemo for limit status calculations to avoid recalculation on every render"
     ]
   }
 }
