@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, memo, useCallback } from 'react';
+import { useState, memo, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -19,14 +19,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { MoreVertical, Trash2, ExternalLink, Play, Loader2 } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { MoreVertical, Trash2, ExternalLink, Play, Loader2, AlertTriangle } from 'lucide-react';
 import { RepoStatusBadge } from './repo-status-badge';
 import { HealthScoreBadge } from './health-score-badge';
 import { AnalysisProgress } from './analysis-progress';
 import { formatDate } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { useApiClient } from '@/lib/api-client';
+import { useSubscription } from '@/lib/hooks';
 import { toast } from 'sonner';
+import { isBillingError, showBillingErrorToast } from '@/lib/error-utils';
 import type { Repository } from '@/types';
 
 interface RepoCardProps {
@@ -41,6 +49,24 @@ function RepoCardComponent({ repo, installationId, onUpdate }: RepoCardProps) {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [showDisableDialog, setShowDisableDialog] = useState(false);
+  const { usage, subscription } = useSubscription();
+
+  // Calculate analysis limit status
+  const analysisLimitStatus = useMemo(() => {
+    const current = usage.analyses;
+    const limit = usage.limits.analyses;
+    const isUnlimited = limit === -1;
+    const atLimit = !isUnlimited && current >= limit;
+    const nearLimit = !isUnlimited && !atLimit && (current / limit) >= 0.9;
+
+    return {
+      current,
+      limit,
+      isUnlimited,
+      atLimit,
+      nearLimit,
+    };
+  }, [usage]);
 
   const handleAnalyze = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click navigation
@@ -48,6 +74,20 @@ function RepoCardComponent({ repo, installationId, onUpdate }: RepoCardProps) {
       toast.error('Missing installation ID');
       return;
     }
+
+    // Check analysis limit before starting
+    if (analysisLimitStatus.atLimit) {
+      toast.warning('Analysis limit reached', {
+        description: `You've used all ${analysisLimitStatus.limit} analyses on your ${subscription.tier} plan this month.`,
+        action: {
+          label: 'Upgrade',
+          onClick: () => router.push('/dashboard/billing'),
+        },
+        duration: 10000,
+      });
+      return;
+    }
+
     setIsAnalyzing(true);
     try {
       await api.post('/github/analyze', {
@@ -57,6 +97,11 @@ function RepoCardComponent({ repo, installationId, onUpdate }: RepoCardProps) {
       toast.success(`Analysis started for ${repo.full_name}`);
       onUpdate?.();
     } catch (error: unknown) {
+      // Handle billing errors specially
+      if (isBillingError(error)) {
+        showBillingErrorToast(error, () => router.push('/dashboard/billing'));
+        return;
+      }
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       toast.error('Failed to start analysis', {
         description: errorMessage,
@@ -64,7 +109,7 @@ function RepoCardComponent({ repo, installationId, onUpdate }: RepoCardProps) {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [api, installationId, repo.github_repo_id, repo.full_name, onUpdate]);
+  }, [api, installationId, repo.github_repo_id, repo.full_name, onUpdate, analysisLimitStatus, subscription.tier, router]);
 
   const handleDisconnect = useCallback(async () => {
     setIsDisconnecting(true);
@@ -127,17 +172,32 @@ function RepoCardComponent({ repo, installationId, onUpdate }: RepoCardProps) {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               {installationId && (
-                <DropdownMenuItem
-                  onClick={handleAnalyze}
-                  disabled={isAnalyzing || repo.analysis_status === 'running'}
-                >
-                  {isAnalyzing ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-                  ) : (
-                    <Play className="mr-2 h-4 w-4" aria-hidden="true" />
-                  )}
-                  {isAnalyzing ? 'Starting...' : 'Analyze'}
-                </DropdownMenuItem>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuItem
+                        onClick={handleAnalyze}
+                        disabled={isAnalyzing || repo.analysis_status === 'running' || analysisLimitStatus.atLimit}
+                        className={analysisLimitStatus.atLimit ? 'opacity-50' : ''}
+                      >
+                        {isAnalyzing ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                        ) : analysisLimitStatus.atLimit ? (
+                          <AlertTriangle className="mr-2 h-4 w-4 text-yellow-500" aria-hidden="true" />
+                        ) : (
+                          <Play className="mr-2 h-4 w-4" aria-hidden="true" />
+                        )}
+                        {isAnalyzing ? 'Starting...' : analysisLimitStatus.atLimit ? 'Limit Reached' : 'Analyze'}
+                      </DropdownMenuItem>
+                    </TooltipTrigger>
+                    {analysisLimitStatus.atLimit && (
+                      <TooltipContent>
+                        <p>You&apos;ve reached your monthly analysis limit.</p>
+                        <p className="text-xs text-muted-foreground">Upgrade your plan for more analyses.</p>
+                      </TooltipContent>
+                    )}
+                  </Tooltip>
+                </TooltipProvider>
               )}
               <DropdownMenuItem asChild>
                 <a

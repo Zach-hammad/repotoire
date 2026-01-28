@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from repotoire.api.shared.auth import ClerkUser, require_org
+from repotoire.api.shared.middleware.usage import enforce_repo_limit
+from repotoire.api.shared.services.billing import check_usage_limit, increment_usage
 from repotoire.api.shared.services.encryption import TokenEncryption, get_token_encryption
 from repotoire.api.shared.services.github import GitHubAppClient, get_github_client
 from repotoire.db.models import (
@@ -736,6 +738,21 @@ async def handle_push_event(db: AsyncSession, payload: dict) -> None:
         )
         return
 
+    # Gate 6.5: Check analysis usage limit
+    limit_result = await check_usage_limit(db, org, "analyses")
+    if not limit_result.allowed:
+        logger.info(
+            "Skipping auto-analysis: usage limit reached",
+            extra={
+                "repo_id": repo_id,
+                "repo": repo_full_name,
+                "org_id": str(org.id),
+                "current": limit_result.current,
+                "limit": limit_result.limit,
+            },
+        )
+        return
+
     # Gate 7: Check debouncing (prevent rapid consecutive analyses)
     debouncer = get_push_debouncer()
     if not debouncer.should_analyze(repo_id):
@@ -804,6 +821,10 @@ async def handle_push_event(db: AsyncSession, payload: dict) -> None:
         incremental=True,  # Use incremental for push-triggered analysis
     )
 
+    # Increment analysis usage counter
+    await increment_usage(db, org.id, "analyses")
+    await db.commit()
+
     logger.info(
         "Auto-analysis queued",
         extra={
@@ -857,9 +878,31 @@ async def handle_pull_request_event(db: AsyncSession, payload: dict) -> None:
             },
         )
 
-        # Get installation ID for GitHub API calls
+        # Get installation and organization for billing checks
         installation = repo.installation
         github_installation_id = installation.installation_id
+
+        # Load organization for billing limit check
+        result = await db.execute(
+            select(Organization).where(Organization.id == installation.organization_id)
+        )
+        org = result.scalar_one_or_none()
+        if not org:
+            logger.warning(f"Organization not found for installation {installation.id}")
+            return
+
+        # Check analysis usage limit before creating PR analysis
+        limit_result = await check_usage_limit(db, org, "analyses")
+        if not limit_result.allowed:
+            logger.info(
+                f"Skipping PR analysis: usage limit reached for {repo.full_name}",
+                extra={
+                    "org_id": str(org.id),
+                    "current": limit_result.current,
+                    "limit": limit_result.limit,
+                },
+            )
+            return
 
         # Parse owner/repo from full_name
         owner, repo_name = repo.full_name.split("/", 1)
@@ -886,6 +929,11 @@ async def handle_pull_request_event(db: AsyncSession, payload: dict) -> None:
         from repotoire.workers.webhooks import process_pr_event
 
         task = process_pr_event.delay(payload)
+
+        # Increment analysis usage counter
+        await increment_usage(db, org.id, "analyses")
+        await db.commit()
+
         logger.info(
             f"Queued PR analysis task {task.id} for {repo.full_name} PR #{pr_number}"
         )
@@ -1196,6 +1244,20 @@ async def analyze_repo_by_id(
         if existing_repo:
             repo.repository_id = existing_repo.id
         else:
+            # Check repository limit before creating new repository
+            limit_result = await check_usage_limit(db, org, "repos")
+            if not limit_result.allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "USAGE_LIMIT_EXCEEDED",
+                        "message": limit_result.message,
+                        "current": limit_result.current,
+                        "limit": limit_result.limit,
+                        "upgrade_url": limit_result.upgrade_url,
+                    },
+                )
+
             # Create new Repository record
             new_repo = Repository(
                 organization_id=org.id,
@@ -1210,6 +1272,20 @@ async def analyze_repo_by_id(
 
         await db.commit()
         await db.refresh(repo)
+
+    # Check analysis usage limit before creating analysis run
+    analysis_limit_result = await check_usage_limit(db, org, "analyses")
+    if not analysis_limit_result.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "USAGE_LIMIT_EXCEEDED",
+                "message": analysis_limit_result.message,
+                "current": analysis_limit_result.current,
+                "limit": analysis_limit_result.limit,
+                "upgrade_url": analysis_limit_result.upgrade_url,
+            },
+        )
 
     # Create analysis run using the linked Repository ID
     analysis_run = AnalysisRun(
@@ -1252,6 +1328,10 @@ async def analyze_repo_by_id(
         access_token,
         repo.default_branch,
     )
+
+    # Increment analysis usage counter
+    await increment_usage(db, org.id, "analyses")
+    await db.commit()
 
     return AnalyzeRepoResponse(
         analysis_run_id=analysis_run.id,
@@ -1635,6 +1715,20 @@ async def analyze_repo(
     repo = result.scalar_one_or_none()
 
     if not repo:
+        # Check repository limit before creating new repository
+        limit_result = await check_usage_limit(db, org, "repos")
+        if not limit_result.allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "USAGE_LIMIT_EXCEEDED",
+                    "message": limit_result.message,
+                    "current": limit_result.current,
+                    "limit": limit_result.limit,
+                    "upgrade_url": limit_result.upgrade_url,
+                },
+            )
+
         repo = Repository(
             organization_id=org.id,
             github_repo_id=github_repo.repo_id,
@@ -1646,6 +1740,20 @@ async def analyze_repo(
         db.add(repo)
         await db.flush()  # Get the ID without committing
         logger.info(f"Created Repository record for {github_repo.full_name}")
+
+    # 4.5 Check analysis usage limit before creating analysis run
+    analysis_limit_result = await check_usage_limit(db, org, "analyses")
+    if not analysis_limit_result.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "USAGE_LIMIT_EXCEEDED",
+                "message": analysis_limit_result.message,
+                "current": analysis_limit_result.current,
+                "limit": analysis_limit_result.limit,
+                "upgrade_url": analysis_limit_result.upgrade_url,
+            },
+        )
 
     # 5. Create AnalysisRun
     analysis_run = AnalysisRun(
@@ -1669,6 +1777,10 @@ async def analyze_repo(
         commit_sha="HEAD",
         incremental=False,  # First analysis needs full scan
     )
+
+    # 7. Increment analysis usage counter
+    await increment_usage(db, org.id, "analyses")
+    await db.commit()
 
     logger.info(
         "Analysis triggered via GitHub integration",

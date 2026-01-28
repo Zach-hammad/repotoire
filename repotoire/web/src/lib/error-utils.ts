@@ -263,6 +263,91 @@ export function isRateLimitError(error: unknown): boolean {
 }
 
 /**
+ * Check if an error is a billing/usage limit error.
+ */
+export function isBillingError(error: unknown): boolean {
+  const status = getErrorStatus(error);
+  if (status === 402) return true;
+
+  // Check for billing-specific error codes in the response
+  if (error instanceof ApiClientError) {
+    const details = error.details;
+    if (typeof details === 'object' && details !== null) {
+      const detailObj = details as Record<string, unknown>;
+      // Check for USAGE_LIMIT_EXCEEDED or FEATURE_NOT_AVAILABLE error codes
+      if (detailObj.error === 'USAGE_LIMIT_EXCEEDED' ||
+          detailObj.error === 'FEATURE_NOT_AVAILABLE') {
+        return true;
+      }
+      // Check nested detail object
+      if (typeof detailObj.detail === 'object' && detailObj.detail !== null) {
+        const nestedDetail = detailObj.detail as Record<string, unknown>;
+        if (nestedDetail.error === 'USAGE_LIMIT_EXCEEDED' ||
+            nestedDetail.error === 'FEATURE_NOT_AVAILABLE') {
+          return true;
+        }
+      }
+    }
+  }
+
+  const code = getErrorCode(error);
+  return code === ErrorCodes.BILLING_LIMIT_EXCEEDED ||
+    code === ErrorCodes.BILLING_FEATURE_UNAVAILABLE ||
+    code === ErrorCodes.BILLING_REPO_LIMIT ||
+    code === ErrorCodes.BILLING_ANALYSIS_LIMIT;
+}
+
+/**
+ * Get the upgrade URL from a billing error response.
+ */
+export function getUpgradeUrl(error: unknown): string | null {
+  if (error instanceof ApiClientError) {
+    const details = error.details;
+    if (typeof details === 'object' && details !== null) {
+      const detailObj = details as Record<string, unknown>;
+      if (typeof detailObj.upgrade_url === 'string') {
+        return detailObj.upgrade_url;
+      }
+      // Check nested detail object
+      if (typeof detailObj.detail === 'object' && detailObj.detail !== null) {
+        const nestedDetail = detailObj.detail as Record<string, unknown>;
+        if (typeof nestedDetail.upgrade_url === 'string') {
+          return nestedDetail.upgrade_url;
+        }
+      }
+    }
+  }
+  return '/dashboard/billing';
+}
+
+/**
+ * Show a billing error toast with upgrade action.
+ */
+export function showBillingErrorToast(
+  error: unknown,
+  onUpgrade?: () => void
+): void {
+  const parsed = parseError(error);
+  const upgradeUrl = getUpgradeUrl(error);
+
+  toast.warning(parsed.title, {
+    description: `${parsed.message} ${parsed.action}`,
+    action: onUpgrade
+      ? {
+          label: 'Upgrade',
+          onClick: onUpgrade,
+        }
+      : upgradeUrl
+      ? {
+          label: 'Upgrade',
+          onClick: () => window.location.href = upgradeUrl,
+        }
+      : undefined,
+    duration: 10000, // Keep visible longer for billing errors
+  });
+}
+
+/**
  * Display a standardized error toast notification with actionable messaging.
  *
  * Uses the error code system to provide:

@@ -28,8 +28,9 @@ from repotoire.autofix.best_of_n import (
     BestOfNUsageLimitError,
 )
 from repotoire.api.shared.auth import ClerkUser, get_current_user
+from repotoire.api.shared.middleware.usage import enforce_feature
 from repotoire.api.models import PreviewResult, PreviewCheck
-from repotoire.db.models import PlanTier
+from repotoire.db.models import Organization, PlanTier
 from repotoire.db.models.fix import Fix, FixStatus, FixConfidence, FixType
 from repotoire.db.models.user import User
 from repotoire.db.repositories.fix import FixRepository
@@ -904,6 +905,7 @@ Apply an approved fix to the repository.
 async def apply_fix(
     fix_id: str,
     request: Optional[ApplyFixRequest] = None,
+    org: Organization = Depends(enforce_feature("auto_fix")),
     user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -1157,6 +1159,7 @@ Falls back to local syntax-only validation (import/type checks skipped).
 async def preview_fix(
     fix_id: str,
     force: bool = Query(False, description="Force fresh preview, bypassing cache"),
+    org: Organization = Depends(enforce_feature("auto_fix")),
     user: ClerkUser = Depends(get_current_user),
     cache: "PreviewCache" = Depends(_get_preview_cache),
     db: AsyncSession = Depends(get_db),
@@ -1962,6 +1965,7 @@ class ConsistencyStatsResponse(BaseModel):
 async def generate_fixes(
     analysis_run_id: str,
     request: GenerateFixesRequest = GenerateFixesRequest(),
+    org: Organization = Depends(enforce_feature("auto_fix")),
     user: ClerkUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> GenerateFixesResponse:

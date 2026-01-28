@@ -71,6 +71,12 @@ export const ErrorCodes = {
   LIMIT_CONCURRENT_EXCEEDED: 'ERR_LIMIT_003',
   LIMIT_DAILY_EXCEEDED: 'ERR_LIMIT_004',
 
+  // Billing errors (ERR_BILLING_XXX)
+  BILLING_LIMIT_EXCEEDED: 'ERR_BILLING_001',
+  BILLING_FEATURE_UNAVAILABLE: 'ERR_BILLING_002',
+  BILLING_REPO_LIMIT: 'ERR_BILLING_003',
+  BILLING_ANALYSIS_LIMIT: 'ERR_BILLING_004',
+
   // Fix/autofix errors (ERR_FIX_XXX)
   FIX_PREVIEW_REQUIRED: 'ERR_FIX_001',
   FIX_ALREADY_APPLIED: 'ERR_FIX_002',
@@ -363,6 +369,36 @@ export const ErrorMessages: Record<ErrorCode, ErrorInfo> = {
     severity: 'warning',
   },
 
+  // Billing errors
+  [ErrorCodes.BILLING_LIMIT_EXCEEDED]: {
+    title: 'Usage Limit Reached',
+    message: 'You\'ve reached your plan\'s usage limit.',
+    action: 'Upgrade your plan or add more seats for additional capacity.',
+    reportable: false,
+    severity: 'warning',
+  },
+  [ErrorCodes.BILLING_FEATURE_UNAVAILABLE]: {
+    title: 'Feature Not Available',
+    message: 'This feature is not available on your current plan.',
+    action: 'Upgrade to Pro or Enterprise to access this feature.',
+    reportable: false,
+    severity: 'warning',
+  },
+  [ErrorCodes.BILLING_REPO_LIMIT]: {
+    title: 'Repository Limit Reached',
+    message: 'You\'ve reached the maximum number of repositories for your plan.',
+    action: 'Disconnect unused repositories or upgrade your plan.',
+    reportable: false,
+    severity: 'warning',
+  },
+  [ErrorCodes.BILLING_ANALYSIS_LIMIT]: {
+    title: 'Analysis Limit Reached',
+    message: 'You\'ve reached the maximum number of analyses for this billing period.',
+    action: 'Upgrade your plan or wait for your limit to reset next month.',
+    reportable: false,
+    severity: 'warning',
+  },
+
   // Fix/autofix errors
   [ErrorCodes.FIX_PREVIEW_REQUIRED]: {
     title: 'Preview Required',
@@ -619,6 +655,12 @@ const errorPatterns: ErrorPattern[] = [
   { patterns: ['rate limit', 'too many requests', '429'], code: ErrorCodes.LIMIT_RATE_EXCEEDED },
   { patterns: ['quota exceeded', 'quota limit'], code: ErrorCodes.LIMIT_QUOTA_EXCEEDED },
   { patterns: ['concurrent limit', 'concurrent exceeded'], code: ErrorCodes.LIMIT_CONCURRENT_EXCEEDED },
+
+  // Billing patterns
+  { patterns: ['usage_limit_exceeded', 'usage limit exceeded'], code: ErrorCodes.BILLING_LIMIT_EXCEEDED },
+  { patterns: ['feature_not_available', 'feature not available'], code: ErrorCodes.BILLING_FEATURE_UNAVAILABLE },
+  { patterns: ['repository limit reached', 'repo limit reached'], code: ErrorCodes.BILLING_REPO_LIMIT },
+  { patterns: ['analysis limit reached', 'analyses limit'], code: ErrorCodes.BILLING_ANALYSIS_LIMIT },
 
   // Fix patterns
   { patterns: ['preview required', 'run preview first'], code: ErrorCodes.FIX_PREVIEW_REQUIRED },

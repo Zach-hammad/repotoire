@@ -48,6 +48,44 @@ class ApiError extends Error {
     super(message);
     this.name = 'ApiError';
   }
+
+  /**
+   * Check if this is a billing/usage limit error
+   */
+  isBillingError(): boolean {
+    return (
+      this.status === 402 ||
+      this.status === 403 &&
+      typeof this.details === 'object' &&
+      this.details !== null &&
+      'error' in this.details &&
+      ((this.details as Record<string, unknown>).error === 'USAGE_LIMIT_EXCEEDED' ||
+       (this.details as Record<string, unknown>).error === 'FEATURE_NOT_AVAILABLE')
+    );
+  }
+
+  /**
+   * Get upgrade URL if this is a billing error
+   */
+  getUpgradeUrl(): string | null {
+    if (this.isBillingError() && typeof this.details === 'object' && this.details !== null) {
+      return (this.details as Record<string, unknown>).upgrade_url as string || null;
+    }
+    return null;
+  }
+
+  /**
+   * Get the specific billing error type
+   */
+  getBillingErrorType(): 'limit_exceeded' | 'feature_unavailable' | null {
+    if (!this.isBillingError() || typeof this.details !== 'object' || this.details === null) {
+      return null;
+    }
+    const error = (this.details as Record<string, unknown>).error;
+    if (error === 'USAGE_LIMIT_EXCEEDED') return 'limit_exceeded';
+    if (error === 'FEATURE_NOT_AVAILABLE') return 'feature_unavailable';
+    return null;
+  }
 }
 
 // Token getter function - will be set by the auth provider
@@ -87,13 +125,22 @@ export async function request<T>(
 
   if (!response.ok) {
     let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    let errorDetails: unknown;
     try {
       const errorData = await response.json();
-      errorMessage = errorData.detail || errorData.message || errorMessage;
+      errorDetails = errorData;
+      // Extract message from various API error formats
+      if (typeof errorData.detail === 'string') {
+        errorMessage = errorData.detail;
+      } else if (typeof errorData.detail === 'object' && errorData.detail?.message) {
+        errorMessage = errorData.detail.message;
+      } else if (errorData.message) {
+        errorMessage = errorData.message;
+      }
     } catch {
       // Use default error message if JSON parsing fails
     }
-    throw new ApiError(errorMessage, response.status);
+    throw new ApiError(errorMessage, response.status, errorDetails);
   }
 
   return response.json();

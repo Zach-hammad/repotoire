@@ -373,6 +373,22 @@ async def trigger_analysis(
     session: AsyncSession = Depends(get_db),
 ) -> TriggerAnalysisResponse:
     """Trigger a new repository analysis."""
+    # Check analysis usage limit before proceeding
+    from repotoire.api.shared.services.billing import check_usage_limit
+
+    limit_result = await check_usage_limit(session, org, "analyses")
+    if not limit_result.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "USAGE_LIMIT_EXCEEDED",
+                "message": limit_result.message,
+                "current": limit_result.current,
+                "limit": limit_result.limit,
+                "upgrade_url": limit_result.upgrade_url,
+            },
+        )
+
     # Get repository and verify access
     repo = await session.get(Repository, request.repository_id)
     if not repo:

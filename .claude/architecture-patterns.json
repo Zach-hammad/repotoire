@@ -320,5 +320,30 @@
     ],
     "patterns": ["declarative-validation", "automatic-422"],
     "notes": "Input validation is AUTOMATIC via Pydantic. Check models.py for Field() constraints. No manual validation needed in route handlers."
+  },
+  "billing-enforcement": {
+    "implemented_via": ["enforce_feature", "enforce_feature_for_api", "check_usage_limit", "enforce_repo_limit", "enforce_analysis_limit"],
+    "key_files": [
+      "repotoire/api/shared/middleware/usage.py",
+      "repotoire/api/shared/services/billing.py"
+    ],
+    "patterns": {
+      "feature_gating": "org: Organization = Depends(enforce_feature('feature_name'))",
+      "feature_gating_api": "org: Organization = Depends(enforce_feature_for_api('feature_name'))",
+      "usage_limit_check": "await check_usage_limit(db, org, 'resource_type')",
+      "usage_limit_dependency": "Depends(enforce_analysis_limit)"
+    },
+    "resource_types": ["repos", "analyses"],
+    "feature_names": ["api_access", "auto_fix", "sso"],
+    "error_codes": {
+      "limit_exceeded": "USAGE_LIMIT_EXCEEDED",
+      "feature_unavailable": "FEATURE_NOT_AVAILABLE"
+    },
+    "notes": [
+      "Use check_usage_limit() directly in function body when endpoint uses API key auth (enforce_feature_for_api already returns org)",
+      "Use Depends(enforce_*_limit) for JWT-only endpoints",
+      "Informational endpoints (viewing stats/quotas) don't need feature gating",
+      "RateLimitMiddleware is registered in app.py - check middleware stack before adding"
+    ]
   }
 }

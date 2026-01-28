@@ -1,15 +1,18 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { useGitHubInstallations, useAvailableRepos, useConnectRepos } from '@/lib/hooks';
+import { useState, useCallback, useMemo } from 'react';
+import { useGitHubInstallations, useAvailableRepos, useConnectRepos, useSubscription } from '@/lib/hooks';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { Github, Building2, User, ArrowLeft, Loader2, ExternalLink } from 'lucide-react';
+import { Github, Building2, User, ArrowLeft, Loader2, ExternalLink, AlertTriangle, Sparkles } from 'lucide-react';
+import { isBillingError, showBillingErrorToast } from '@/lib/error-utils';
 
 export default function ConnectRepoPage() {
   const router = useRouter();
@@ -19,6 +22,29 @@ export default function ConnectRepoPage() {
   const [selectedRepos, setSelectedRepos] = useState<Set<number>>(new Set());
   const { trigger: connectRepos, isMutating } = useConnectRepos();
   const [isInstallingGitHubApp, setIsInstallingGitHubApp] = useState(false);
+  const { usage, subscription, isLoading: loadingSubscription } = useSubscription();
+
+  // Calculate repo limit status
+  const repoLimitStatus = useMemo(() => {
+    const current = usage.repos;
+    const limit = usage.limits.repos;
+    const isUnlimited = limit === -1;
+    const remaining = isUnlimited ? Infinity : Math.max(0, limit - current);
+    const percentage = isUnlimited ? 0 : Math.min(100, (current / limit) * 100);
+    const atLimit = !isUnlimited && current >= limit;
+    const nearLimit = !isUnlimited && percentage >= 80 && !atLimit;
+
+    return {
+      current,
+      limit,
+      isUnlimited,
+      remaining,
+      percentage,
+      atLimit,
+      nearLimit,
+      canConnect: (count: number) => isUnlimited || remaining >= count,
+    };
+  }, [usage]);
 
   const handleInstallGitHubApp = useCallback(() => {
     setIsInstallingGitHubApp(true);
@@ -28,6 +54,19 @@ export default function ConnectRepoPage() {
   const handleConnect = async () => {
     if (selectedRepos.size === 0 || !selectedInstallation) return;
 
+    // Check if selection exceeds remaining limit
+    if (!repoLimitStatus.canConnect(selectedRepos.size)) {
+      toast.warning('Repository limit exceeded', {
+        description: `You can only connect ${repoLimitStatus.remaining} more repository(s) on your current plan.`,
+        action: {
+          label: 'Upgrade',
+          onClick: () => router.push('/dashboard/billing'),
+        },
+        duration: 10000,
+      });
+      return;
+    }
+
     try {
       await connectRepos({
         installation_uuid: selectedInstallation,
@@ -36,6 +75,11 @@ export default function ConnectRepoPage() {
       toast.success(`Connected ${selectedRepos.size} repository(s)`);
       router.push('/dashboard/repos');
     } catch (error: unknown) {
+      // Handle billing errors specially
+      if (isBillingError(error)) {
+        showBillingErrorToast(error, () => router.push('/dashboard/billing'));
+        return;
+      }
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       toast.error('Failed to connect repositories', {
         description: errorMessage,
@@ -176,6 +220,49 @@ export default function ConnectRepoPage() {
         </CardContent>
       </Card>
 
+      {/* Repository Limit Warning */}
+      {!loadingSubscription && selectedInstallation && (repoLimitStatus.atLimit || repoLimitStatus.nearLimit) && (
+        <Alert variant={repoLimitStatus.atLimit ? 'destructive' : 'default'} className={cn(
+          !repoLimitStatus.atLimit && 'border-yellow-500 bg-yellow-50 dark:bg-yellow-950'
+        )}>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>
+            {repoLimitStatus.atLimit
+              ? 'Repository Limit Reached'
+              : 'Approaching Repository Limit'}
+          </AlertTitle>
+          <AlertDescription className="flex flex-col gap-3">
+            <p>
+              {repoLimitStatus.atLimit
+                ? `You've used all ${repoLimitStatus.limit} repositories on your ${subscription.tier} plan.`
+                : `You're using ${repoLimitStatus.current} of ${repoLimitStatus.limit} repositories (${Math.round(repoLimitStatus.percentage)}%).`}
+            </p>
+            {!repoLimitStatus.isUnlimited && (
+              <Progress value={repoLimitStatus.percentage} className="h-2" />
+            )}
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant={repoLimitStatus.atLimit ? 'default' : 'outline'}
+                onClick={() => router.push('/dashboard/billing')}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                Upgrade Plan
+              </Button>
+              {repoLimitStatus.atLimit && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => router.push('/dashboard/repos')}
+                >
+                  Manage Repositories
+                </Button>
+              )}
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Repository Selector */}
       {selectedInstallation && (
         <Card>
@@ -248,13 +335,22 @@ export default function ConnectRepoPage() {
         </Button>
         <Button
           onClick={handleConnect}
-          disabled={selectedRepos.size === 0 || isMutating}
+          disabled={
+            selectedRepos.size === 0 ||
+            isMutating ||
+            (repoLimitStatus.atLimit && !repoLimitStatus.isUnlimited) ||
+            (!repoLimitStatus.canConnect(selectedRepos.size) && !repoLimitStatus.isUnlimited)
+          }
         >
           {isMutating ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Connecting...
             </>
+          ) : repoLimitStatus.atLimit && !repoLimitStatus.isUnlimited ? (
+            'Limit Reached'
+          ) : !repoLimitStatus.canConnect(selectedRepos.size) && !repoLimitStatus.isUnlimited ? (
+            `Exceeds limit (${repoLimitStatus.remaining} remaining)`
           ) : (
             `Connect ${selectedRepos.size} Repo${selectedRepos.size !== 1 ? 's' : ''}`
           )}
