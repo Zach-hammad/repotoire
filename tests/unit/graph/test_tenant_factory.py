@@ -13,55 +13,85 @@ from repotoire.graph.tenant_factory import (
 
 
 class TestGraphNameGeneration:
-    """Tests for graph/database name generation from org ID and slug."""
+    """Tests for graph/database name generation from org ID and slug.
+
+    REPO-500: Graph names now include org_id suffix for collision prevention.
+    Format: org_{sanitized_slug}_{8_char_md5_of_org_id}
+    """
 
     def test_generate_graph_name_from_slug(self):
-        """Test graph name generation from org slug."""
+        """Test graph name generation from org slug includes org_id suffix."""
+        import hashlib
         factory = GraphClientFactory()
         org_id = uuid4()
+        expected_suffix = hashlib.md5(str(org_id).encode()).hexdigest()[:8]
 
         name = factory._generate_graph_name(org_id, "acme-corp")
-        assert name == "org_acme_corp"
+        assert name == f"org_acme_corp_{expected_suffix}"
 
     def test_generate_graph_name_from_slug_with_dots(self):
         """Test graph name generation handles dots in slug."""
+        import hashlib
         factory = GraphClientFactory()
         org_id = uuid4()
+        expected_suffix = hashlib.md5(str(org_id).encode()).hexdigest()[:8]
 
         name = factory._generate_graph_name(org_id, "acme.corp.inc")
-        assert name == "org_acme_corp_inc"
+        assert name == f"org_acme_corp_inc_{expected_suffix}"
 
     def test_generate_graph_name_from_slug_with_special_chars(self):
         """Test graph name sanitization of special characters."""
+        import hashlib
         factory = GraphClientFactory()
         org_id = uuid4()
+        expected_suffix = hashlib.md5(str(org_id).encode()).hexdigest()[:8]
 
         name = factory._generate_graph_name(org_id, "acme--corp__test")
-        assert name == "org_acme_corp_test"
+        assert name == f"org_acme_corp_test_{expected_suffix}"
 
     def test_generate_graph_name_from_uuid(self):
-        """Test graph name fallback to UUID when no slug."""
+        """Test graph name fallback to UUID when no slug uses 16 char MD5."""
+        import hashlib
         factory = GraphClientFactory()
         org_id = UUID("550e8400-e29b-41d4-a716-446655440000")
+        expected_suffix = hashlib.md5(str(org_id).encode()).hexdigest()[:16]
 
         name = factory._generate_graph_name(org_id, None)
-        assert name == "org_550e8400"
+        assert name == f"org_{expected_suffix}"
 
     def test_generate_graph_name_lowercase(self):
         """Test graph names are lowercased."""
+        import hashlib
         factory = GraphClientFactory()
         org_id = uuid4()
+        expected_suffix = hashlib.md5(str(org_id).encode()).hexdigest()[:8]
 
         name = factory._generate_graph_name(org_id, "AcMeCorp")
-        assert name == "org_acmecorp"
+        assert name == f"org_acmecorp_{expected_suffix}"
 
     def test_generate_graph_name_strips_underscores(self):
         """Test leading/trailing underscores are stripped."""
+        import hashlib
         factory = GraphClientFactory()
         org_id = uuid4()
+        expected_suffix = hashlib.md5(str(org_id).encode()).hexdigest()[:8]
 
         name = factory._generate_graph_name(org_id, "_acme_")
-        assert name == "org_acme"
+        assert name == f"org_acme_{expected_suffix}"
+
+    def test_different_orgs_same_slug_get_different_names(self):
+        """Test REPO-500: Different orgs with colliding slugs get unique names."""
+        factory = GraphClientFactory()
+        org_id_1 = uuid4()
+        org_id_2 = uuid4()
+
+        # Both slugs sanitize to "acme_corp" but should get different names
+        name1 = factory._generate_graph_name(org_id_1, "acme-corp")
+        name2 = factory._generate_graph_name(org_id_2, "acme_corp")
+
+        assert name1 != name2
+        assert name1.startswith("org_acme_corp_")
+        assert name2.startswith("org_acme_corp_")
 
 
 class TestClientCaching:
@@ -152,18 +182,20 @@ class TestFalkorDBClientCreation:
 
     @patch("repotoire.graph.falkordb_client.FalkorDBClient")
     def test_falkordb_client_created_with_correct_graph_name(self, mock_falkordb_class):
-        """Test FalkorDB client is created with correct graph name."""
+        """Test FalkorDB client is created with correct graph name including org_id suffix."""
+        import hashlib
         mock_client = Mock()
         mock_falkordb_class.return_value = mock_client
 
         factory = GraphClientFactory()
         org_id = uuid4()
+        expected_suffix = hashlib.md5(str(org_id).encode()).hexdigest()[:8]
 
         factory.get_client(org_id, "test-org")
 
         mock_falkordb_class.assert_called_once()
         call_kwargs = mock_falkordb_class.call_args[1]
-        assert call_kwargs["graph_name"] == "org_test_org"
+        assert call_kwargs["graph_name"] == f"org_test_org_{expected_suffix}"
 
 
 class TestEnvironmentVariables:
@@ -250,12 +282,14 @@ class TestProvisioning:
     @pytest.mark.asyncio
     async def test_provision_falkordb_is_noop(self):
         """Test FalkorDB provisioning is a no-op (graphs auto-create)."""
+        import hashlib
         factory = GraphClientFactory()
         org_id = uuid4()
+        expected_suffix = hashlib.md5(str(org_id).encode()).hexdigest()[:8]
 
         # Should not raise
         graph_name = await factory.provision_tenant(org_id, "test-org")
-        assert graph_name == "org_test_org"
+        assert graph_name == f"org_test_org_{expected_suffix}"
 
     @pytest.mark.asyncio
     @patch("repotoire.graph.falkordb_client.FalkorDBClient")

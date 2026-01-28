@@ -553,10 +553,20 @@ class TestMarketplaceCLI:
         )
         mock_client.download_asset.return_value = gz_buffer.getvalue()
 
+        # Must patch ASSET_DIRECTORIES as well since it's captured at module load
+        patched_asset_dirs = {
+            "command": tmp_path,
+            "skill": tmp_path / "skills",
+            "style": tmp_path / "styles",
+            "hook": tmp_path / "hooks",
+            "prompt": tmp_path / "prompts",
+        }
+
         with patch("repotoire.cli.marketplace_sync.COMMANDS_DIR", tmp_path):
             with patch("repotoire.cli.marketplace_sync.MARKETPLACE_DIR", tmp_path):
                 with patch("repotoire.cli.marketplace_sync.MANIFEST_FILE", tmp_path / "manifest.json"):
-                    result = runner.invoke(marketplace, ["install", "@acme/tool"])
+                    with patch("repotoire.cli.marketplace_sync.ASSET_DIRECTORIES", patched_asset_dirs):
+                        result = runner.invoke(marketplace, ["install", "@acme/tool"])
 
         assert result.exit_code == 0
         assert "Installed" in result.output

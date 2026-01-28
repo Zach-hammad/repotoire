@@ -380,7 +380,9 @@ class TestIsCloudMode:
         """Should return False when no API key."""
         monkeypatch.delenv("REPOTOIRE_API_KEY", raising=False)
 
-        assert is_cloud_mode() is False
+        # Must also mock CredentialStore since get_api_key checks multiple sources
+        with patch("repotoire.graph.factory.get_api_key", return_value=None):
+            assert is_cloud_mode() is False
 
 
 # =============================================================================
@@ -421,11 +423,12 @@ class TestCreateClientPriority:
     def test_no_api_key_raises_configuration_error(self, monkeypatch):
         """Should raise ConfigurationError when API key is not set."""
         # All env vars are cleared by fixture
+        # Must also mock CredentialStore since get_api_key checks multiple sources
+        with patch("repotoire.graph.factory.get_api_key", return_value=None):
+            with pytest.raises(ConfigurationError) as exc_info:
+                create_client()
 
-        with pytest.raises(ConfigurationError) as exc_info:
-            create_client()
-
-        assert "API key required" in str(exc_info.value)
+            assert "API key required" in str(exc_info.value)
 
 
 # =============================================================================
