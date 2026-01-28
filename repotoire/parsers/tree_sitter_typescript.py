@@ -195,6 +195,78 @@ class TreeSitterTypeScriptParser(BaseTreeSitterParser):
         # Standard function/method extraction
         return super()._extract_function(func_node, file_path, parent_class)
 
+    def _extract_class(
+        self,
+        class_node: UniversalASTNode,
+        file_path: str,
+        tree: Optional[UniversalASTNode] = None
+    ):
+        """Extract ClassEntity from TypeScript class declaration.
+
+        Handles TypeScript 5+ features including const type parameters
+        on generic classes.
+
+        Args:
+            class_node: Class declaration node
+            file_path: Path to source file
+            tree: Root tree node for nesting level calculation
+
+        Returns:
+            ClassEntity or None if extraction fails
+        """
+        from repotoire.models import ClassEntity
+
+        # Get class name
+        name_node = class_node.get_field("name")
+        if not name_node:
+            logger.warning(f"Class node missing 'name' field in {file_path}")
+            return None
+
+        class_name = name_node.text
+
+        # Get docstring (JSDoc)
+        docstring = self._extract_docstring(class_node)
+
+        # Get base classes/interfaces
+        base_classes = self._extract_base_classes(class_node)
+
+        # Extract decorators
+        decorators = self._extract_decorators(class_node)
+
+        # Extract type parameters (with TS 5+ const support)
+        type_parameters = self._extract_type_parameters(class_node)
+
+        # Calculate nesting level
+        nesting_level = self._calculate_nesting_level(class_node, tree) if tree else 0
+
+        # Build metadata
+        metadata = {}
+        if type_parameters:
+            metadata["type_parameters"] = type_parameters
+            metadata["is_generic"] = True
+            # Check if any type param has const modifier
+            if any(tp.get("is_const") for tp in type_parameters):
+                metadata["has_const_type_params"] = True
+
+        # Check for abstract class
+        is_abstract = any(child.text == "abstract" for child in class_node.children)
+        if is_abstract:
+            metadata["is_abstract"] = True
+
+        return ClassEntity(
+            name=class_name,
+            qualified_name=f"{file_path}::{class_name}",
+            file_path=file_path,
+            line_start=class_node.start_line + 1,
+            line_end=class_node.end_line + 1,
+            docstring=docstring,
+            decorators=decorators,
+            is_dataclass=False,
+            is_exception=any("Error" in base or "Exception" in base for base in base_classes),
+            nesting_level=nesting_level,
+            metadata=metadata if metadata else None
+        )
+
     def _extract_arrow_function(
         self,
         var_node: UniversalASTNode,
@@ -204,6 +276,7 @@ class TreeSitterTypeScriptParser(BaseTreeSitterParser):
         """Extract FunctionEntity from arrow function assigned to variable.
 
         Handles: `const foo = () => {}`
+        Handles TS 5+ generic arrow functions: `const foo = <const T>(x: T) => x`
 
         Args:
             var_node: variable_declarator node
@@ -239,6 +312,17 @@ class TreeSitterTypeScriptParser(BaseTreeSitterParser):
         # Check for async
         is_async = self._is_async_function(arrow_func)
 
+        # Extract type parameters (with TS 5+ const support)
+        type_parameters = self._extract_type_parameters(arrow_func)
+
+        # Build metadata
+        metadata = {}
+        if type_parameters:
+            metadata["type_parameters"] = type_parameters
+            metadata["is_generic"] = True
+            if any(tp.get("is_const") for tp in type_parameters):
+                metadata["has_const_type_params"] = True
+
         return FunctionEntity(
             name=func_name,
             qualified_name=qualified_name,
@@ -254,7 +338,8 @@ class TreeSitterTypeScriptParser(BaseTreeSitterParser):
             is_classmethod=False,
             is_property=False,
             has_return=self._has_return_statement(arrow_func),
-            has_yield=False  # Arrow functions can't be generators
+            has_yield=False,  # Arrow functions can't be generators
+            metadata=metadata if metadata else None
         )
 
     def _extract_class_arrow_method(
@@ -576,6 +661,8 @@ class TreeSitterTypeScriptParser(BaseTreeSitterParser):
             "catch_clause",
             "ternary_expression",
             "binary_expression",  # Will check for && and ||
+            # TypeScript 5+ satisfies adds type checking branches
+            "satisfies_expression",
         }
 
         for node in func_node.walk():
@@ -590,6 +677,109 @@ class TreeSitterTypeScriptParser(BaseTreeSitterParser):
                     complexity += 1
 
         return complexity
+
+    def _extract_type_parameters(self, func_node: UniversalASTNode) -> List[dict]:
+        """Extract type parameters from TypeScript generic function/class.
+
+        Handles TypeScript 5+ features:
+        - `<T>` -> [{"name": "T", "constraint": null, "is_const": false}]
+        - `<T extends string>` -> [{"name": "T", "constraint": "string", "is_const": false}]
+        - `<const T>` (TS 5+) -> [{"name": "T", "constraint": null, "is_const": true}]
+        - `<const T extends readonly string[]>` -> [{"name": "T", "constraint": "readonly string[]", "is_const": true}]
+
+        Args:
+            func_node: Function or class node
+
+        Returns:
+            List of type parameter dictionaries
+        """
+        type_params = []
+
+        # Find type_parameters node
+        for child in func_node.children:
+            if child.node_type == "type_parameters":
+                for param_child in child.children:
+                    if param_child.node_type == "type_parameter":
+                        param = self._extract_single_type_parameter(param_child)
+                        if param:
+                            type_params.append(param)
+
+        return type_params
+
+    def _extract_single_type_parameter(self, param_node: UniversalASTNode) -> Optional[dict]:
+        """Extract a single type parameter's details.
+
+        Handles TypeScript 5+ const type parameters.
+
+        Args:
+            param_node: type_parameter node
+
+        Returns:
+            Dict with name, constraint, is_const or None
+        """
+        param = {"name": None, "constraint": None, "is_const": False, "default": None}
+
+        for child in param_node.children:
+            if child.node_type == "type_identifier":
+                param["name"] = child.text
+            elif child.node_type == "constraint":
+                # Extract constraint type
+                for constraint_child in child.children:
+                    if constraint_child.node_type not in ("extends",):
+                        param["constraint"] = constraint_child.text
+            elif child.node_type == "default_type":
+                # Default type parameter value
+                for default_child in child.children:
+                    if default_child.node_type != "=":
+                        param["default"] = default_child.text
+            # TypeScript 5+ const modifier
+            elif child.text == "const":
+                param["is_const"] = True
+
+        if param["name"]:
+            return param
+        return None
+
+    def _extract_satisfies_relationships(self, tree: UniversalASTNode, file_path: str) -> List[dict]:
+        """Extract satisfies type relationships (TypeScript 5+).
+
+        The satisfies operator: `const obj = { a: 1 } satisfies Record<string, number>`
+        creates a type constraint relationship without widening the type.
+
+        Args:
+            tree: Root UniversalASTNode
+            file_path: Path to source file
+
+        Returns:
+            List of satisfies relationship dicts with expression and type
+        """
+        relationships = []
+
+        for node in tree.walk():
+            if node.node_type == "satisfies_expression":
+                rel = {
+                    "line": node.start_line + 1,
+                    "type": None,
+                    "expression": None
+                }
+
+                for child in node.children:
+                    if child.node_type == "type_identifier":
+                        rel["type"] = child.text
+                    elif child.node_type == "generic_type":
+                        # Handle generic types like Record<string, number>
+                        name_node = None
+                        for gc in child.children:
+                            if gc.node_type == "type_identifier":
+                                name_node = gc.text
+                                break
+                        if name_node:
+                            rel["type"] = child.text  # Full generic type
+
+                if rel["type"]:
+                    relationships.append(rel)
+
+        return relationships
 
 
     def _detect_react_hooks(self, func_node: UniversalASTNode) -> List[str]:
@@ -727,6 +917,10 @@ class TreeSitterTypeScriptParser(BaseTreeSitterParser):
             entity: FunctionEntity to update
             func_node: Function node to analyze
         """
+        # Ensure metadata is initialized
+        if entity.metadata is None:
+            entity.metadata = {}
+
         # Get the actual function node for analysis (might be wrapped)
         analysis_node = func_node
         if func_node.node_type == "variable_declarator":

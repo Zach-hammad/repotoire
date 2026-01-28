@@ -129,6 +129,7 @@ except ImportError:
 from repotoire.graph import FalkorDBClient, GraphSchema
 from repotoire.graph.base import DatabaseClient
 from repotoire.parsers import CodeParser, PythonParser
+from repotoire.parsers import GenericFallbackParser, EXTENSION_TO_LANGUAGE
 from repotoire.models import Entity, Relationship, SecretsPolicy, RelationshipType
 
 # Optional TypeScript/JavaScript parsers
@@ -438,6 +439,19 @@ class IngestionPipeline:
                 logger.info("Go parser registered")
             except ImportError as e:
                 logger.debug(f"Go parser not available: {e}")
+
+        # Register generic fallback parser for all other languages
+        # This ensures every file gets tracked in the knowledge graph
+        fallback_parser = GenericFallbackParser()
+        fallback_languages = set(GenericFallbackParser.supported_languages())
+        # Don't register fallback for languages that have dedicated parsers
+        already_registered = {"python", "typescript", "javascript", "java", "go"}
+        for lang in fallback_languages - already_registered:
+            self.register_parser(lang, fallback_parser)
+        logger.info(
+            f"Generic fallback parser registered for {len(fallback_languages - already_registered)} languages: "
+            f"{', '.join(sorted(fallback_languages - already_registered)[:10])}..."
+        )
 
         # Initialize Rust parallel parser if available (Phase 2 performance)
         self.rust_parser = None
@@ -2685,23 +2699,35 @@ class IngestionPipeline:
     def _detect_language(self, file_path: Path) -> str:
         """Detect programming language from file extension.
 
+        Uses EXTENSION_TO_LANGUAGE from generic_fallback_parser for comprehensive
+        language support. Dedicated parsers (Python, TypeScript, Java, Go) have
+        priority over the fallback parser.
+
         Args:
             file_path: Path to file
 
         Returns:
             Language identifier
         """
-        extension_map = {
+        # Primary extension map for languages with dedicated parsers
+        primary_map = {
             ".py": "python",
             ".js": "javascript",
+            ".jsx": "javascript",
             ".ts": "typescript",
             ".tsx": "typescript",
             ".java": "java",
             ".go": "go",
-            ".rs": "rust",
         }
 
-        return extension_map.get(file_path.suffix, "unknown")
+        suffix = file_path.suffix.lower()
+
+        # Check primary parsers first
+        if suffix in primary_map:
+            return primary_map[suffix]
+
+        # Fall back to EXTENSION_TO_LANGUAGE for all other extensions
+        return EXTENSION_TO_LANGUAGE.get(suffix, "unknown")
 
     def _separate_rust_parseable_files(
         self, files: List[Path]

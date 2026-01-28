@@ -4,8 +4,11 @@ This module provides Java parsing support using tree-sitter,
 following the same adapter pattern as the Python and TypeScript parsers.
 """
 
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from repotoire.parsers.base_tree_sitter_parser import BaseTreeSitterParser
+
+if TYPE_CHECKING:
+    from repotoire.models import ClassEntity
 from repotoire.parsers.tree_sitter_adapter import TreeSitterAdapter, UniversalASTNode
 from repotoire.logging_config import get_logger
 
@@ -403,6 +406,12 @@ class TreeSitterJavaParser(BaseTreeSitterParser):
     def _calculate_complexity(self, func_node: UniversalASTNode) -> int:
         """Calculate cyclomatic complexity for Java methods.
 
+        Handles:
+        - Standard control flow (if, for, while, etc.)
+        - Switch expressions (Java 12+)
+        - Pattern matching in switch (Java 21+)
+        - Pattern matching in instanceof (Java 16+)
+
         Args:
             func_node: Method declaration node
 
@@ -421,9 +430,14 @@ class TreeSitterJavaParser(BaseTreeSitterParser):
             "do_statement",
             "switch_expression",
             "switch_block_statement_group",  # case labels
+            "switch_rule",  # Java 12+ arrow-style case
             "catch_clause",
             "ternary_expression",
             "binary_expression",  # Will check for && and ||
+            # Java 16+ pattern matching
+            "instanceof_expression",  # Pattern matching instanceof
+            "pattern",  # Type patterns in switch
+            "guarded_pattern",  # Pattern with guard (case Foo f when f.x > 0)
         }
 
         for node in func_node.walk():
@@ -434,6 +448,17 @@ class TreeSitterJavaParser(BaseTreeSitterParser):
                         if child.text in ("&&", "||"):
                             complexity += 1
                             break
+                elif node.node_type == "instanceof_expression":
+                    # Check if it's pattern matching instanceof (has type_pattern)
+                    has_pattern = any(
+                        child.node_type in ("type_pattern", "record_pattern")
+                        for child in node.children
+                    )
+                    if has_pattern:
+                        complexity += 1  # Pattern creates a binding/branch
+                elif node.node_type == "guarded_pattern":
+                    # Guarded patterns add extra complexity for the guard
+                    complexity += 1
                 else:
                     complexity += 1
 
@@ -534,3 +559,187 @@ class TreeSitterJavaParser(BaseTreeSitterParser):
             if node.node_type == "yield_statement":
                 return True
         return False
+
+    def _extract_class(
+        self,
+        class_node: UniversalASTNode,
+        file_path: str,
+        tree: Optional[UniversalASTNode] = None
+    ) -> Optional["ClassEntity"]:
+        """Extract ClassEntity from Java class node.
+
+        Handles Java 14+ records with special processing:
+        - Record components become implicit fields
+        - Records implicitly extend java.lang.Record
+        - Records are implicitly final
+
+        Args:
+            class_node: Class/record declaration node
+            file_path: Path to source file
+            tree: Root tree node for nesting level calculation
+
+        Returns:
+            ClassEntity or None if extraction fails
+        """
+        from repotoire.models import ClassEntity
+
+        # Get class name - handle both regular classes and records
+        name_node = class_node.get_field("name")
+        if not name_node:
+            # Try identifier child for records
+            for child in class_node.children:
+                if child.node_type == "identifier":
+                    name_node = child
+                    break
+
+        if not name_node:
+            logger.warning(f"Class/record node missing 'name' field in {file_path}")
+            return None
+
+        class_name = name_node.text
+
+        # Check if this is a record declaration
+        is_record = class_node.node_type == "record_declaration"
+
+        # Get docstring (Javadoc)
+        docstring = self._extract_docstring(class_node)
+
+        # Get base classes/interfaces
+        base_classes = self._extract_base_classes(class_node)
+
+        # Records implicitly extend java.lang.Record
+        if is_record and "Record" not in base_classes:
+            base_classes.insert(0, "java.lang.Record")
+
+        # Extract annotations
+        decorators = self._extract_decorators(class_node)
+
+        # Check if sealed (Java 17+)
+        is_sealed = self._is_sealed_class(class_node)
+
+        # Calculate nesting level
+        nesting_level = 0
+        if tree:
+            nesting_level = self._calculate_nesting_level(class_node, tree)
+
+        # Store record-specific metadata
+        metadata = {}
+        if is_record:
+            metadata["is_record"] = True
+            metadata["is_final"] = True  # Records are implicitly final
+            # Extract record components
+            components = self._extract_record_components(class_node)
+            if components:
+                metadata["record_components"] = components
+
+        if is_sealed:
+            metadata["is_sealed"] = True
+            permitted = self._extract_permitted_subclasses(class_node)
+            if permitted:
+                metadata["permitted_subclasses"] = permitted
+
+        return ClassEntity(
+            name=class_name,
+            qualified_name=f"{file_path}::{class_name}",
+            file_path=file_path,
+            line_start=class_node.start_line + 1,
+            line_end=class_node.end_line + 1,
+            docstring=docstring,
+            decorators=decorators,
+            is_dataclass=is_record,  # Records are similar to dataclasses
+            is_exception=any("Exception" in base for base in base_classes),
+            nesting_level=nesting_level,
+            metadata=metadata if metadata else None
+        )
+
+    def _extract_record_components(self, record_node: UniversalASTNode) -> List[dict]:
+        """Extract record components (the parameters in record declaration).
+
+        Java 14+ records: `record Point(int x, int y) {}`
+        Components become implicit final fields with accessors.
+
+        Args:
+            record_node: record_declaration node
+
+        Returns:
+            List of component dictionaries with name, type, annotations
+        """
+        components = []
+
+        # Find formal_parameters or record_component_list
+        for child in record_node.children:
+            if child.node_type in ("formal_parameters", "record_component_list"):
+                for param in child.children:
+                    if param.node_type in ("formal_parameter", "record_component"):
+                        component = self._extract_single_record_component(param)
+                        if component:
+                            components.append(component)
+
+        return components
+
+    def _extract_single_record_component(self, param_node: UniversalASTNode) -> Optional[dict]:
+        """Extract a single record component's details.
+
+        Args:
+            param_node: formal_parameter or record_component node
+
+        Returns:
+            Dict with name, type, annotations or None
+        """
+        component = {"name": None, "type": None, "annotations": []}
+
+        for child in param_node.children:
+            if child.node_type == "identifier":
+                component["name"] = child.text
+            elif child.node_type in ("type_identifier", "generic_type", "array_type",
+                                      "integral_type", "floating_point_type", "boolean_type"):
+                component["type"] = child.text
+            elif child.node_type in ("annotation", "marker_annotation"):
+                for ann_child in child.children:
+                    if ann_child.node_type == "identifier":
+                        component["annotations"].append(ann_child.text)
+
+        if component["name"]:
+            return component
+        return None
+
+    def _is_sealed_class(self, class_node: UniversalASTNode) -> bool:
+        """Check if class is sealed (Java 17+).
+
+        Args:
+            class_node: Class declaration node
+
+        Returns:
+            True if class has sealed modifier
+        """
+        for child in class_node.children:
+            if child.node_type == "modifiers":
+                for modifier in child.children:
+                    if modifier.text == "sealed":
+                        return True
+        return False
+
+    def _extract_permitted_subclasses(self, class_node: UniversalASTNode) -> List[str]:
+        """Extract permitted subclasses from sealed class (Java 17+).
+
+        Handles: `sealed class Shape permits Circle, Square {}`
+
+        Args:
+            class_node: Sealed class declaration node
+
+        Returns:
+            List of permitted subclass names
+        """
+        permitted = []
+
+        for child in class_node.children:
+            if child.node_type == "permits":
+                for subchild in child.children:
+                    if subchild.node_type == "type_identifier":
+                        permitted.append(subchild.text)
+                    elif subchild.node_type == "type_list":
+                        for type_child in subchild.children:
+                            if type_child.node_type == "type_identifier":
+                                permitted.append(type_child.text)
+
+        return permitted

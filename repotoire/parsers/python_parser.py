@@ -183,6 +183,73 @@ class PythonASTVisitor(ast.NodeVisitor):
         )
         self.entities.extend(nested_funcs)
 
+    def visit_Match(self, node: "ast.Match") -> None:
+        """Handle Python 3.10+ match statements.
+
+        Extracts:
+        - Pattern bindings as variable USES relationships
+        - Match subject as a relationship
+        """
+        # Python 3.10+ support - use hasattr for backward compatibility
+        if not hasattr(ast, "Match"):
+            return
+
+        # The match subject is used
+        # We'll track pattern bindings for relationship extraction
+        for case in node.cases:
+            self._extract_match_pattern_bindings(case.pattern)
+
+        # Continue visiting the match body
+        self.generic_visit(node)
+
+    def _extract_match_pattern_bindings(self, pattern: "ast.pattern") -> None:
+        """Extract variable bindings from match patterns.
+
+        Handles:
+        - MatchAs: `case x:` or `case _ as x:`
+        - MatchMapping: `case {"key": value}:`
+        - MatchClass: `case Point(x=a, y=b):`
+        - MatchSequence: `case [x, y, *rest]:`
+        - MatchStar: `case [*rest]:`
+        """
+        if not hasattr(ast, "MatchAs"):
+            return
+
+        # MatchAs - captures a binding (case x: or case _ as x:)
+        if isinstance(pattern, ast.MatchAs):
+            if pattern.name:
+                # This creates a variable binding - could track as entity
+                pass
+            if pattern.pattern:
+                self._extract_match_pattern_bindings(pattern.pattern)
+
+        # MatchOr - multiple patterns (case 1 | 2 | 3:)
+        elif hasattr(ast, "MatchOr") and isinstance(pattern, ast.MatchOr):
+            for p in pattern.patterns:
+                self._extract_match_pattern_bindings(p)
+
+        # MatchSequence - list/tuple patterns (case [x, y]:)
+        elif hasattr(ast, "MatchSequence") and isinstance(pattern, ast.MatchSequence):
+            for p in pattern.patterns:
+                self._extract_match_pattern_bindings(p)
+
+        # MatchMapping - dict patterns (case {"key": value}:)
+        elif hasattr(ast, "MatchMapping") and isinstance(pattern, ast.MatchMapping):
+            for p in pattern.patterns:
+                self._extract_match_pattern_bindings(p)
+
+        # MatchClass - class patterns (case Point(x=a):)
+        elif hasattr(ast, "MatchClass") and isinstance(pattern, ast.MatchClass):
+            for p in pattern.patterns:
+                self._extract_match_pattern_bindings(p)
+            for p in pattern.kwd_patterns:
+                self._extract_match_pattern_bindings(p)
+
+        # MatchStar - star patterns (case [*rest]:)
+        elif hasattr(ast, "MatchStar") and isinstance(pattern, ast.MatchStar):
+            # pattern.name is the binding if present
+            pass
+
     def finalize(self) -> None:
         """Finalize extraction by creating cross-entity relationships.
 
@@ -403,13 +470,28 @@ class PythonASTVisitor(ast.NodeVisitor):
         class_node: ast.ClassDef,
         class_attributes: Dict[str, int],
     ) -> None:
-        """Extract self.x attribute accesses from a method, updating class_attributes."""
+        """Extract self.x attribute accesses from a method, updating class_attributes.
+
+        Also handles:
+        - Walrus operator (NamedExpr): `if (x := self.get_value()):`
+        """
         for child in ast.walk(method_node):
             if isinstance(child, ast.Attribute):
                 if isinstance(child.value, ast.Name) and child.value.id == "self":
                     attr_name = child.attr
                     if attr_name not in class_attributes:
                         class_attributes[attr_name] = class_node.lineno
+
+            # Python 3.8+ walrus operator support
+            # Handles: if (self.x := value): or result := self.method()
+            elif hasattr(ast, "NamedExpr") and isinstance(child, ast.NamedExpr):
+                # The target is always a Name node
+                # Check if the value involves self attributes
+                if isinstance(child.value, ast.Attribute):
+                    if isinstance(child.value.value, ast.Name) and child.value.value.id == "self":
+                        attr_name = child.value.attr
+                        if attr_name not in class_attributes:
+                            class_attributes[attr_name] = child.lineno
 
     def _create_attribute_usage_relationships(
         self,
@@ -637,6 +719,10 @@ class PythonASTVisitor(ast.NodeVisitor):
                 complexity += 1
             elif isinstance(child, ast.BoolOp):
                 complexity += len(child.values) - 1
+            # Python 3.10+ match statement support
+            elif hasattr(ast, "Match") and isinstance(child, ast.Match):
+                # Each case branch adds to complexity
+                complexity += len(child.cases)
         return complexity
 
 

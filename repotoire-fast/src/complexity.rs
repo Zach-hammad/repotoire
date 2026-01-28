@@ -103,6 +103,24 @@ fn count_complexity_in_stmt(stmt: &Stmt) -> u32 {
                 count += count_complexity_in_stmt(s);
             }
         }
+        // Python 3.10+ match statement support
+        Stmt::Match(m) => {
+            // Each case branch adds to complexity (like elif branches)
+            count += m.cases.len() as u32;
+            // Count complexity in the subject expression
+            count += count_complexity_in_expr(&m.subject);
+            // Walk into each case body and guard
+            for case in &m.cases {
+                // Guard expressions add complexity (case x if condition:)
+                if let Some(guard) = &case.guard {
+                    count += 1; // Guard is a decision point
+                    count += count_complexity_in_expr(guard);
+                }
+                for s in &case.body {
+                    count += count_complexity_in_stmt(s);
+                }
+            }
+        }
         Stmt::Assign(a)=> {
             count += count_complexity_in_expr(&a.value);
         }
@@ -314,4 +332,26 @@ pub fn calculate_complexity_batch(source: &str) -> Option<HashMap<String, u32>> 
     }
 
     Some(results)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_match_statement_complexity() {
+        let code = r#"
+def handle_command(command):
+    match command:
+        case "quit":
+            return "Goodbye"
+        case "help":
+            return "Help"
+        case _:
+            return "Unknown"
+"#;
+        let result = calculate_complexity(code);
+        println!("Match complexity result: {:?}", result);
+        assert!(result.is_some(), "Should parse successfully");
+        assert!(result.unwrap() >= 4, "Should count match cases");
+    }
 }

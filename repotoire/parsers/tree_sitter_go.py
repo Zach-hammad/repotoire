@@ -223,6 +223,10 @@ class TreeSitterGoParser(BaseTreeSitterParser):
     ) -> Optional[ClassEntity]:
         """Extract ClassEntity from Go type declaration.
 
+        Handles Go 1.18+ generics:
+        - `type Stack[T any] struct { items []T }`
+        - `type Comparable[T comparable] interface { Compare(T) int }`
+
         Args:
             class_node: Type declaration node
             file_path: Path to source file
@@ -234,6 +238,7 @@ class TreeSitterGoParser(BaseTreeSitterParser):
         # Get type name from type_spec
         type_name = None
         is_interface = False
+        type_parameters = []
 
         for child in class_node.children:
             if child.node_type == "type_spec":
@@ -242,6 +247,9 @@ class TreeSitterGoParser(BaseTreeSitterParser):
                         type_name = spec_child.text
                     elif spec_child.node_type == "interface_type":
                         is_interface = True
+                    # Go 1.18+ type parameters
+                    elif spec_child.node_type == "type_parameter_list":
+                        type_parameters = self._extract_type_parameters(spec_child)
 
         if not type_name:
             logger.warning(f"Type declaration missing name in {file_path}")
@@ -256,6 +264,12 @@ class TreeSitterGoParser(BaseTreeSitterParser):
         # Calculate nesting level
         nesting_level = self._calculate_nesting_level(class_node, tree) if tree else 0
 
+        # Build metadata for generics
+        metadata = {}
+        if type_parameters:
+            metadata["type_parameters"] = type_parameters
+            metadata["is_generic"] = True
+
         return ClassEntity(
             name=type_name,
             qualified_name=f"{file_path}::{type_name}",
@@ -266,7 +280,8 @@ class TreeSitterGoParser(BaseTreeSitterParser):
             decorators=[],  # Go doesn't have decorators
             is_dataclass=not is_interface,  # Structs are data-like
             is_exception=False,
-            nesting_level=nesting_level
+            nesting_level=nesting_level,
+            metadata=metadata if metadata else None
         )
 
     def _extract_function(
@@ -277,6 +292,10 @@ class TreeSitterGoParser(BaseTreeSitterParser):
     ) -> Optional[FunctionEntity]:
         """Extract FunctionEntity from Go function declaration.
 
+        Handles Go 1.18+ generics:
+        - `func Map[T, U any](s []T, f func(T) U) []U {}`
+        - `func Min[T constraints.Ordered](x, y T) T {}`
+
         Args:
             func_node: Function declaration node
             file_path: Path to source file
@@ -285,12 +304,16 @@ class TreeSitterGoParser(BaseTreeSitterParser):
         Returns:
             FunctionEntity or None if extraction fails
         """
-        # Get function name
+        # Get function name and type parameters
         func_name = None
+        type_parameters = []
+
         for child in func_node.children:
             if child.node_type == "identifier":
                 func_name = child.text
-                break
+            # Go 1.18+ type parameters
+            elif child.node_type == "type_parameter_list":
+                type_parameters = self._extract_type_parameters(child)
 
         if not func_name:
             logger.warning(f"Function declaration missing name in {file_path}")
@@ -311,6 +334,12 @@ class TreeSitterGoParser(BaseTreeSitterParser):
         # Check for return/yield
         has_return = self._has_return_statement(func_node)
 
+        # Build metadata for generics
+        metadata = {}
+        if type_parameters:
+            metadata["type_parameters"] = type_parameters
+            metadata["is_generic"] = True
+
         return FunctionEntity(
             name=func_name,
             qualified_name=qualified_name,
@@ -326,7 +355,8 @@ class TreeSitterGoParser(BaseTreeSitterParser):
             is_classmethod=False,
             is_property=False,
             has_return=has_return,
-            has_yield=False  # Go doesn't have yield
+            has_yield=False,  # Go doesn't have yield
+            metadata=metadata if metadata else None
         )
 
     def _extract_method_with_receiver(
@@ -338,6 +368,7 @@ class TreeSitterGoParser(BaseTreeSitterParser):
         """Extract FunctionEntity from Go method declaration with receiver.
 
         Go methods look like: `func (r *Receiver) MethodName() {}`
+        Go 1.18+ generic methods: `func (r *Receiver[T]) MethodName(x T) T {}`
 
         Args:
             method_node: Method declaration node
@@ -347,9 +378,10 @@ class TreeSitterGoParser(BaseTreeSitterParser):
         Returns:
             FunctionEntity or None if extraction fails
         """
-        # Get method name (field_identifier)
+        # Get method name (field_identifier) and type parameters
         method_name = None
         receiver_type = None
+        type_parameters = []
 
         for child in method_node.children:
             if child.node_type == "field_identifier":
@@ -358,6 +390,9 @@ class TreeSitterGoParser(BaseTreeSitterParser):
                 # First parameter_list is the receiver
                 if receiver_type is None:
                     receiver_type = self._extract_receiver_type(child)
+            # Go 1.18+ type parameters on methods
+            elif child.node_type == "type_parameter_list":
+                type_parameters = self._extract_type_parameters(child)
 
         if not method_name:
             logger.warning(f"Method declaration missing name in {file_path}")
@@ -386,6 +421,14 @@ class TreeSitterGoParser(BaseTreeSitterParser):
         # Check for return
         has_return = self._has_return_statement(method_node)
 
+        # Build metadata for generics and receiver info
+        metadata = {}
+        if type_parameters:
+            metadata["type_parameters"] = type_parameters
+            metadata["is_generic"] = True
+        if receiver_type:
+            metadata["receiver_type"] = receiver_type
+
         return FunctionEntity(
             name=method_name,
             qualified_name=qualified_name,
@@ -401,7 +444,8 @@ class TreeSitterGoParser(BaseTreeSitterParser):
             is_classmethod=False,
             is_property=False,
             has_return=has_return,
-            has_yield=False
+            has_yield=False,
+            metadata=metadata if metadata else None
         )
 
     def _extract_receiver_type(self, param_list: UniversalASTNode) -> Optional[str]:
@@ -518,10 +562,13 @@ class TreeSitterGoParser(BaseTreeSitterParser):
         return None
 
     def _extract_base_classes(self, class_node: UniversalASTNode) -> List[str]:
-        """Extract embedded types from Go interface.
+        """Extract embedded types from Go interface or struct.
 
         Go interfaces can embed other interfaces:
         `type ReadCloser interface { Reader; Closer }`
+
+        Go structs can embed other types (composition/inheritance):
+        `type Child struct { Parent; field int }`
 
         Args:
             class_node: Type declaration node
@@ -532,6 +579,7 @@ class TreeSitterGoParser(BaseTreeSitterParser):
         base_names = []
 
         for child in class_node.walk():
+            # Interface embedding
             if child.node_type == "interface_type":
                 for interface_child in child.children:
                     if interface_child.node_type == "type_elem":
@@ -539,6 +587,30 @@ class TreeSitterGoParser(BaseTreeSitterParser):
                         for elem_child in interface_child.children:
                             if elem_child.node_type == "type_identifier":
                                 base_names.append(elem_child.text)
+
+            # Struct embedding (Go's form of inheritance)
+            elif child.node_type == "struct_type":
+                for struct_child in child.children:
+                    if struct_child.node_type == "field_declaration_list":
+                        for field in struct_child.children:
+                            if field.node_type == "field_declaration":
+                                # Check if this is an embedded field (no field name)
+                                has_name = False
+                                type_name = None
+                                for field_child in field.children:
+                                    if field_child.node_type == "field_identifier":
+                                        has_name = True
+                                    elif field_child.node_type == "type_identifier":
+                                        type_name = field_child.text
+                                    elif field_child.node_type == "pointer_type":
+                                        # *EmbeddedType
+                                        for ptr_child in field_child.children:
+                                            if ptr_child.node_type == "type_identifier":
+                                                type_name = ptr_child.text
+
+                                # If no field name, it's an embedded type (inheritance)
+                                if not has_name and type_name:
+                                    base_names.append(type_name)
 
         return base_names
 
@@ -695,6 +767,7 @@ class TreeSitterGoParser(BaseTreeSitterParser):
         - Simple calls: `foo()`
         - Method calls: `obj.Method()`
         - Package calls: `fmt.Println()`
+        - Generic calls: `Map[int, string]()`
 
         Args:
             call_node: call_expression node
@@ -711,5 +784,110 @@ class TreeSitterGoParser(BaseTreeSitterParser):
                 for sel_child in child.children:
                     if sel_child.node_type == "field_identifier":
                         return sel_child.text
+            # Go 1.18+ generic instantiation: func[T, U](...)
+            elif child.node_type == "index_expression":
+                # The function name is inside the index expression
+                for idx_child in child.children:
+                    if idx_child.node_type == "identifier":
+                        return idx_child.text
 
         return None
+
+    def _extract_type_parameters(self, type_param_list: UniversalASTNode) -> List[dict]:
+        """Extract type parameters from Go 1.18+ generic type/function.
+
+        Handles:
+        - `[T any]` -> [{"name": "T", "constraint": "any"}]
+        - `[T, U comparable]` -> [{"name": "T", "constraint": "comparable"}, ...]
+        - `[K comparable, V any]` -> separate constraints
+
+        Args:
+            type_param_list: type_parameter_list node
+
+        Returns:
+            List of type parameter dictionaries with name and constraint
+        """
+        type_params = []
+
+        for child in type_param_list.children:
+            if child.node_type == "type_parameter_declaration":
+                param = self._extract_single_type_parameter(child)
+                if param:
+                    type_params.append(param)
+
+        return type_params
+
+    def _extract_single_type_parameter(self, param_node: UniversalASTNode) -> Optional[dict]:
+        """Extract a single type parameter's details.
+
+        Args:
+            param_node: type_parameter_declaration node
+
+        Returns:
+            Dict with name and constraint or None
+        """
+        param = {"name": None, "constraint": None}
+
+        for child in param_node.children:
+            if child.node_type == "identifier":
+                param["name"] = child.text
+            elif child.node_type == "type_identifier":
+                # Simple constraint like `any`, `comparable`
+                param["constraint"] = child.text
+            elif child.node_type == "constraint_elem":
+                # More complex constraints like `~int | ~int64`
+                param["constraint"] = child.text
+            elif child.node_type == "type_elem":
+                # Union constraints
+                param["constraint"] = child.text
+            elif child.node_type == "interface_type":
+                # Inline interface constraint
+                param["constraint"] = "interface{}"
+
+        if param["name"]:
+            # Default constraint is "any" if not specified
+            if not param["constraint"]:
+                param["constraint"] = "any"
+            return param
+
+        return None
+
+    def _extract_embedded_structs(self, class_node: UniversalASTNode) -> List[str]:
+        """Extract embedded struct types (Go's composition/inheritance).
+
+        Go uses struct embedding for inheritance-like behavior:
+        `type Child struct { Parent; other_field int }`
+
+        Args:
+            class_node: Type declaration node
+
+        Returns:
+            List of embedded type names
+        """
+        embedded = []
+
+        for child in class_node.walk():
+            if child.node_type == "struct_type":
+                for struct_child in child.children:
+                    if struct_child.node_type == "field_declaration_list":
+                        for field in struct_child.children:
+                            if field.node_type == "field_declaration":
+                                # Embedded field has no name, just type
+                                has_name = False
+                                type_name = None
+                                for field_child in field.children:
+                                    if field_child.node_type == "field_identifier":
+                                        has_name = True
+                                    elif field_child.node_type == "type_identifier":
+                                        type_name = field_child.text
+                                    elif field_child.node_type == "pointer_type":
+                                        # *EmbeddedType
+                                        for ptr_child in field_child.children:
+                                            if ptr_child.node_type == "type_identifier":
+                                                type_name = ptr_child.text
+
+                                # If no field name, it's an embedded type
+                                if not has_name and type_name:
+                                    embedded.append(type_name)
+
+        return embedded
