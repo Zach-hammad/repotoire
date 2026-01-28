@@ -223,6 +223,14 @@ filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
 ]
+# Exclude sample repos from test collection (they have their own pyproject.toml)
+norecursedirs = [
+    "tests/fixtures/sample_repos",
+    ".git",
+    ".venv",
+    "node_modules",
+    "__pycache__",
+]
 
 [dependency-groups]
 dev = [
