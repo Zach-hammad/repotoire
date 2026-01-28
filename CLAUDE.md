@@ -11,13 +11,19 @@ Repotoire is a graph-powered code health platform that analyzes codebases using 
 
 This multi-layered approach enables detection of complex issues that traditional tools miss, such as circular dependencies, architectural bottlenecks, and modularity problems.
 
+## Development Rules
+
+- **Always use `uv` for package management** - Never use `pip` directly. Use `uv pip install`, `uv run`, etc.
+- **Run tests with**: `uv run pytest`
+- **Run commands with**: `uv run <command>`
+
 ## Development Setup
 
 ### Installation
 
 ```bash
 # Install with development dependencies
-pip install -e ".[dev]"
+uv pip install -e ".[dev]"
 
 # Install with all optional dependencies
 pip install -e ".[dev,gds,all-languages,config]"

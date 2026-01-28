@@ -907,6 +907,18 @@ class TreeSitterTypeScriptParser(BaseTreeSitterParser):
         # Standard function/method extraction
         entity = super()._extract_function(func_node, file_path, parent_class)
         if entity:
+            # Add type parameters for regular function declarations
+            # (Classes and arrow functions handle this separately)
+            if func_node.node_type in ("function_declaration", "method_definition"):
+                type_parameters = self._extract_type_parameters(func_node)
+                if type_parameters:
+                    if entity.metadata is None:
+                        entity.metadata = {}
+                    entity.metadata["type_parameters"] = type_parameters
+                    entity.metadata["is_generic"] = True
+                    if any(tp.get("is_const") for tp in type_parameters):
+                        entity.metadata["has_const_type_params"] = True
+
             self._add_react_metadata(entity, func_node)
         return entity
 

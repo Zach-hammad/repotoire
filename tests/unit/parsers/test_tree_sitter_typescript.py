@@ -718,3 +718,231 @@ class Third {
                 assert cls.nesting_level == 0, f"Class {cls.name} should have nesting level 0"
         finally:
             Path(temp_path).unlink()
+
+
+class TestGenericFunctionDeclarations:
+    """Tests for type parameter extraction from function declarations."""
+
+    @pytest.fixture
+    def ts_parser(self):
+        """Create a TypeScript parser."""
+        from repotoire.parsers.tree_sitter_typescript import TreeSitterTypeScriptParser
+        return TreeSitterTypeScriptParser()
+
+    def test_generic_function_declaration(self, ts_parser):
+        """Test type parameter extraction from regular function declaration."""
+        source = '''function identity<T>(value: T): T {
+    return value;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'identity'), None)
+            assert func is not None
+            assert func.metadata is not None
+            assert 'type_parameters' in func.metadata
+            assert func.metadata['is_generic'] is True
+
+            type_params = func.metadata['type_parameters']
+            assert len(type_params) == 1
+            assert type_params[0]['name'] == 'T'
+        finally:
+            Path(temp_path).unlink()
+
+    def test_generic_function_with_constraint(self, ts_parser):
+        """Test type parameter extraction with extends constraint."""
+        source = '''function getLength<T extends { length: number }>(item: T): number {
+    return item.length;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'getLength'), None)
+            assert func is not None
+            assert func.metadata is not None
+            assert 'type_parameters' in func.metadata
+            assert func.metadata['is_generic'] is True
+
+            type_params = func.metadata['type_parameters']
+            assert len(type_params) == 1
+            assert type_params[0]['name'] == 'T'
+            # Constraint should be captured
+            assert type_params[0]['constraint'] is not None
+        finally:
+            Path(temp_path).unlink()
+
+    def test_generic_function_multiple_type_params(self, ts_parser):
+        """Test function with multiple type parameters."""
+        source = '''function pair<K, V>(key: K, value: V): [K, V] {
+    return [key, value];
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'pair'), None)
+            assert func is not None
+            assert func.metadata is not None
+            assert 'type_parameters' in func.metadata
+
+            type_params = func.metadata['type_parameters']
+            assert len(type_params) == 2
+            param_names = [tp['name'] for tp in type_params]
+            assert 'K' in param_names
+            assert 'V' in param_names
+        finally:
+            Path(temp_path).unlink()
+
+    def test_const_type_parameter_function(self, ts_parser):
+        """Test TypeScript 5+ const type parameter in function declaration."""
+        source = '''function asConst<const T>(value: T): T {
+    return value;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'asConst'), None)
+            assert func is not None
+            assert func.metadata is not None
+            assert 'type_parameters' in func.metadata
+            assert func.metadata['has_const_type_params'] is True
+
+            type_params = func.metadata['type_parameters']
+            assert len(type_params) == 1
+            assert type_params[0]['name'] == 'T'
+            assert type_params[0]['is_const'] is True
+        finally:
+            Path(temp_path).unlink()
+
+    def test_exported_generic_function(self, ts_parser):
+        """Test type parameter extraction from exported function."""
+        source = '''export function map<T, U>(arr: T[], fn: (item: T) => U): U[] {
+    return arr.map(fn);
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'map'), None)
+            assert func is not None
+            assert func.metadata is not None
+            assert 'type_parameters' in func.metadata
+
+            type_params = func.metadata['type_parameters']
+            assert len(type_params) == 2
+        finally:
+            Path(temp_path).unlink()
+
+    def test_generic_async_function(self, ts_parser):
+        """Test type parameter extraction from async function declaration."""
+        source = '''async function fetchData<T>(url: string): Promise<T> {
+    const response = await fetch(url);
+    return response.json();
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'fetchData'), None)
+            assert func is not None
+            assert func.is_async is True
+            assert func.metadata is not None
+            assert 'type_parameters' in func.metadata
+
+            type_params = func.metadata['type_parameters']
+            assert len(type_params) == 1
+            assert type_params[0]['name'] == 'T'
+        finally:
+            Path(temp_path).unlink()
+
+    def test_generic_method_in_class(self, ts_parser):
+        """Test type parameter extraction from class method."""
+        source = '''class Repository {
+    findOne<T>(id: string): T | null {
+        return null;
+    }
+
+    findMany<T, K extends keyof T>(criteria: Pick<T, K>): T[] {
+        return [];
+    }
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+
+            # Check findOne method
+            find_one = next((e for e in entities if e.name == 'findOne'), None)
+            assert find_one is not None
+            assert find_one.metadata is not None
+            assert 'type_parameters' in find_one.metadata
+            assert len(find_one.metadata['type_parameters']) == 1
+            assert find_one.metadata['type_parameters'][0]['name'] == 'T'
+
+            # Check findMany method with multiple type params
+            find_many = next((e for e in entities if e.name == 'findMany'), None)
+            assert find_many is not None
+            assert find_many.metadata is not None
+            assert 'type_parameters' in find_many.metadata
+            assert len(find_many.metadata['type_parameters']) == 2
+        finally:
+            Path(temp_path).unlink()
+
+    def test_non_generic_function_has_no_type_params(self, ts_parser):
+        """Test that non-generic functions don't have type_parameters in metadata."""
+        source = '''function add(a: number, b: number): number {
+    return a + b;
+}
+'''
+        with tempfile.NamedTemporaryFile(suffix='.ts', mode='w', delete=False) as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            tree = ts_parser.parse(temp_path)
+            entities = ts_parser.extract_entities(tree, temp_path)
+
+            func = next((e for e in entities if e.name == 'add'), None)
+            assert func is not None
+            # Non-generic functions should not have type_parameters
+            if func.metadata:
+                assert 'type_parameters' not in func.metadata
+        finally:
+            Path(temp_path).unlink()
