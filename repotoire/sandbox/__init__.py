@@ -168,6 +168,14 @@ from repotoire.sandbox.override_service import (
     get_redis_client,
     close_redis_client,
 )
+from repotoire.sandbox.billing import (
+    SandboxBillingService,
+    SandboxBillingError,
+    get_sandbox_billing_service,
+    reset_sandbox_billing_service,
+    report_sandbox_usage_to_stripe,
+    SANDBOX_MINUTE_RATE_USD,
+)
 
 __all__ = [
     # Main client
@@ -285,4 +293,11 @@ __all__ = [
     "get_override_service",
     "get_redis_client",
     "close_redis_client",
+    # Billing service (REPO-313)
+    "SandboxBillingService",
+    "SandboxBillingError",
+    "get_sandbox_billing_service",
+    "reset_sandbox_billing_service",
+    "report_sandbox_usage_to_stripe",
+    "SANDBOX_MINUTE_RATE_USD",
 ]

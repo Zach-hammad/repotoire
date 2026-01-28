@@ -86,8 +86,45 @@ def _split_path_components(path: str, sep: str = os.sep) -> Tuple[str, ...]:
     """Split path into components (cached for repeated use)."""
     return tuple(path.split(sep))
 
-from repotoire_fast import scan_files as rust_scan_files
-from repotoire_fast import batch_hash_files as rust_batch_hash_files
+# Try to import Rust file scanning and hashing (10-100x faster)
+try:
+    from repotoire_fast import scan_files as rust_scan_files
+    from repotoire_fast import batch_hash_files as rust_batch_hash_files
+    _HAS_RUST_SCAN = True
+except ImportError:
+    _HAS_RUST_SCAN = False
+
+    def rust_scan_files(path: str, patterns: List[str], exclude_dirs: List[str]) -> List[str]:
+        """Pure Python fallback for file scanning."""
+        import glob
+        results = []
+        base_path = Path(path)
+        exclude_set = set(exclude_dirs)
+
+        for pattern in patterns:
+            for file_path in base_path.rglob(pattern.lstrip("*")):
+                # Check if any parent directory is excluded
+                skip = False
+                for parent in file_path.relative_to(base_path).parents:
+                    if parent.name in exclude_set:
+                        skip = True
+                        break
+                if not skip:
+                    results.append(str(file_path))
+        return results
+
+    def rust_batch_hash_files(paths: List[str]) -> List[Tuple[str, str]]:
+        """Pure Python fallback for batch file hashing."""
+        results = []
+        for path in paths:
+            try:
+                with open(path, "rb") as f:
+                    content = f.read()
+                file_hash = hashlib.md5(content).hexdigest()
+                results.append((path, file_hash))
+            except (OSError, IOError):
+                continue
+        return results
 
 from repotoire.graph import FalkorDBClient, GraphSchema
 from repotoire.graph.base import DatabaseClient
