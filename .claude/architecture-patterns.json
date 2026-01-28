@@ -435,5 +435,81 @@
       "feature gating": ["has_feature", "enforce_feature", "PLAN_LIMITS", "features list"],
       "webhook security": ["verify_webhook_signature", "Svix", "construct_webhook_event", "try_claim_event"]
     }
+  },
+  "fly-deployment": {
+    "description": "Multi-service deployment to Fly.io with shared images and parallel deploys",
+    "services": {
+      "repotoire-api": {
+        "config": "fly.toml",
+        "dockerfile": "Dockerfile.api",
+        "purpose": "FastAPI backend API",
+        "vm": "2gb RAM, shared CPU"
+      },
+      "repotoire-worker": {
+        "config": "fly.worker.toml",
+        "dockerfile": "Dockerfile.api (shared with API)",
+        "purpose": "Celery workers for async jobs",
+        "vm": "8gb RAM, performance CPU"
+      },
+      "repotoire-marketplace-mcp": {
+        "config": "deploy/marketplace-mcp/fly.toml",
+        "dockerfile": "deploy/marketplace-mcp/Dockerfile",
+        "purpose": "MCP server for Claude integration",
+        "vm": "512mb RAM, shared CPU"
+      },
+      "repotoire-falkor": {
+        "config": "deploy/falkordb/fly.toml",
+        "purpose": "FalkorDB graph database",
+        "notes": "Database - rarely needs redeployment"
+      }
+    },
+    "key_files": [
+      "fly.toml",
+      "fly.worker.toml",
+      "deploy/marketplace-mcp/fly.toml",
+      "Dockerfile.api",
+      "deploy/marketplace-mcp/Dockerfile",
+      ".github/workflows/deploy-fly.yml",
+      "scripts/deploy.sh"
+    ],
+    "patterns": ["shared-image", "parallel-deploy", "github-actions", "manual-script"],
+    "deployment_methods": {
+      "automatic": {
+        "trigger": "Push to main branch with changes to repotoire/, repotoire-fast/, Dockerfile.api, fly.toml, etc.",
+        "workflow": ".github/workflows/deploy-fly.yml",
+        "features": [
+          "Builds shared image once for API + Worker",
+          "Deploys API, Worker, Marketplace in parallel",
+          "Manual trigger with service selection",
+          "Deployment summary in GitHub Actions"
+        ]
+      },
+      "manual": {
+        "script": "./scripts/deploy.sh [all|api|worker|marketplace|status]",
+        "features": [
+          "Auth check with auto-login",
+          "Colored output",
+          "Status check after deploy"
+        ]
+      }
+    },
+    "known_issues": {
+      "auth_token_expiration": {
+        "symptom": "unauthorized errors during lease refresh/smoke checks",
+        "impact": "Warnings only - deployment usually succeeds",
+        "workaround": "Run 'fly auth login' before deployment if persistent"
+      },
+      "duplicate_builds": {
+        "symptom": "API and Worker build same Dockerfile.api separately in manual deploys",
+        "solution": "CI workflow builds once and deploys image to both apps"
+      }
+    },
+    "notes": [
+      "API and Worker share Dockerfile.api - changes affect both",
+      "Marketplace MCP has separate Dockerfile - deploy independently if only MCP changes",
+      "FalkorDB rarely needs redeploy - it's just the database",
+      "Always check 'fly status -a <app>' after deploy to verify health",
+      "Use 'fly logs -a <app>' to debug startup issues"
+    ]
   }
 }

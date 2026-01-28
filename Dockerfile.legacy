@@ -1,3 +1,11 @@
+# DEPRECATED: This Dockerfile is no longer used.
+# Use Dockerfile.api instead, which includes:
+# - CPU-only PyTorch (smaller image, no CUDA bloat)
+# - Bun + JS tools for hybrid detectors (jscpd, eslint, typescript)
+#
+# This file is kept for reference only.
+#
+# Original description:
 # Repotoire API Dockerfile for Fly.io
 # Production-ready multi-stage build with Rust extension
 
