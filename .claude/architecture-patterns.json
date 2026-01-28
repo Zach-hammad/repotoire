@@ -164,12 +164,15 @@
     "notes": "CORS does NOT use wildcards. Default origins: http://localhost:3000,http://localhost:3001. See app.py:93-96 for CORS_ORIGINS, app.py:413-419 for middleware config."
   },
   "webhook-security": {
-    "description": "HMAC signature verification for all webhooks",
+    "description": "HMAC signature verification for all webhooks with atomic event deduplication",
     "implemented_via": [
       "github.verify_webhook_signature() - HMAC-SHA256 verification",
-      "Svix for Clerk webhook verification",
-      "Stripe webhook signature verification",
-      "401 Unauthorized for invalid signatures"
+      "Svix Webhook class for Clerk webhook verification (svix.webhooks.Webhook)",
+      "StripeService.construct_webhook_event() - Stripe signature verification",
+      "try_claim_event() - atomic INSERT ON CONFLICT for race condition prevention",
+      "ProcessedWebhookEvent table - deduplication tracking",
+      "401 Unauthorized for invalid signatures",
+      "Rate limiting via @webhook_limiter.limit()"
     ],
     "key_files": [
       "repotoire/api/shared/services/github.py",
@@ -177,8 +180,18 @@
       "repotoire/api/v1/routes/webhooks.py",
       "repotoire/api/v1/routes/customer_webhooks.py"
     ],
-    "patterns": ["hmac-verification", "constant-time-comparison"],
-    "notes": "GitHub webhook verification at github.py route line 457: if not github.verify_webhook_signature(body, signature). Uses hmac.compare_digest for timing-safe comparison."
+    "patterns": ["hmac-verification", "constant-time-comparison", "atomic-deduplication", "rate-limiting"],
+    "verification_code": {
+      "stripe": "event = StripeService.construct_webhook_event(payload, signature, WEBHOOK_SECRET)",
+      "clerk": "wh = Webhook(CLERK_WEBHOOK_SECRET); event = wh.verify(payload, headers)",
+      "github": "if not github.verify_webhook_signature(body, signature): raise HTTPException(401)"
+    },
+    "race_condition_prevention": {
+      "function": "try_claim_event(db, event_id, source, event_type)",
+      "implementation": "INSERT ... ON CONFLICT DO NOTHING - returns True if inserted (process), False if exists (skip)",
+      "location": "webhooks.py:74-112"
+    },
+    "notes": "ALL webhook endpoints have HMAC verification. Race conditions prevented via atomic PostgreSQL INSERT. The deprecated is_event_processed() has TOCTOU issues - always use try_claim_event() instead."
   },
   "api-key-validation": {
     "description": "Secure API key validation via Clerk SDK",
@@ -398,5 +411,29 @@
       "Show upgrade path in all billing error toasts with action button",
       "Use useMemo for limit status calculations to avoid recalculation on every render"
     ]
+  },
+  "_agent_guidelines": {
+    "description": "Guidelines for analysis agents to avoid false positives",
+    "verification_requirements": [
+      "ALWAYS read the actual implementation file before claiming something is 'missing' or 'not implemented'",
+      "Check this architecture-patterns.json file FIRST before reporting security/billing issues",
+      "Search for alternative implementations (factory patterns, middleware, decorators) before claiming feature is missing",
+      "For billing: check enforce_feature_for_api, enforce_repo_limit, check_usage_limit usage patterns",
+      "For webhooks: check for Svix, Stripe SDK, and verify_webhook_signature calls",
+      "For race conditions: check for atomic INSERT ON CONFLICT patterns, not just is_processed() checks"
+    ],
+    "common_false_positives": {
+      "check_usage_limit ignores limit_type": "FALSE - function has if/elif branches for 'repos' and 'analyses' at billing.py:328-394",
+      "webhook lacks HMAC verification": "FALSE - uses Svix (Clerk), Stripe SDK, and verify_webhook_signature (GitHub)",
+      "race condition in webhook processing": "FALSE - try_claim_event() uses atomic INSERT ON CONFLICT DO NOTHING",
+      "missing feature enforcement on API": "FALSE - enforce_feature_for_api() is used on all Pro feature endpoints",
+      "CLI bypasses API limits": "FALSE - CLI fetches limits from /api/v1/usage endpoint, doesn't access DB directly"
+    },
+    "terminology_mapping": {
+      "tenant isolation": ["tenant_id", "tenantId", "org_id", "repoId", "GraphClientFactory", "_get_isolation_filter"],
+      "billing limits": ["check_usage_limit", "enforce_repo_limit", "enforce_analysis_limit", "enforce_feature_for_api"],
+      "feature gating": ["has_feature", "enforce_feature", "PLAN_LIMITS", "features list"],
+      "webhook security": ["verify_webhook_signature", "Svix", "construct_webhook_event", "try_claim_event"]
+    }
   }
 }
