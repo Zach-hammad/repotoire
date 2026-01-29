@@ -38,6 +38,11 @@ ENV VIRTUAL_ENV="/opt/venv"
 # Install maturin and build
 RUN uv pip install maturin --no-cache-dir
 RUN maturin build --release --out dist
+
+# Install CPU-only PyTorch first (saves ~2GB vs full CUDA version)
+RUN uv pip install torch --index-url https://download.pytorch.org/whl/cpu --no-cache-dir
+
+# Install our wheel (torch already satisfied by CPU version)
 RUN uv pip install dist/*.whl --no-cache-dir
 RUN uv pip install ".[lancedb]" --no-cache-dir --no-build-isolation
 
