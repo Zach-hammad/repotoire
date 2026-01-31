@@ -1148,3 +1148,102 @@ class FalkorDBClient(DatabaseClient):
             "graph_name": self.graph_name,
             "backend": "FalkorDB",
         }
+
+    def count_entities_without_context(self) -> int:
+        """Count entities that don't have semantic_context set.
+
+        Used for progress tracking during context generation.
+
+        Returns:
+            Total count of Function, Class, and File nodes without context.
+        """
+        query = """
+        MATCH (e)
+        WHERE (e:Function OR e:Class OR e:File)
+          AND e.semantic_context IS NULL
+        RETURN count(e) AS total
+        """
+        result = self.execute_query(query)
+        return result[0]["total"] if result else 0
+
+    def get_entities_without_context(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get entities that don't have semantic_context set.
+
+        Uses pagination to avoid loading all entities into memory.
+
+        Args:
+            limit: Maximum number of entities to return
+
+        Returns:
+            List of entity records with name, qualified_name, file_path, etc.
+        """
+        query = f"""
+        MATCH (e)
+        WHERE (e:Function OR e:Class OR e:File)
+          AND e.semantic_context IS NULL
+        RETURN
+            CASE
+                WHEN e:Function THEN 'Function'
+                WHEN e:Class THEN 'Class'
+                ELSE 'File'
+            END AS entity_type,
+            e.name AS name,
+            e.qualifiedName AS qualified_name,
+            e.filePath AS file_path,
+            e.lineStart AS line_start,
+            e.lineEnd AS line_end,
+            e.docstring AS docstring
+        LIMIT {limit}
+        """
+        return self.execute_query(query)
+
+    def batch_set_contexts(self, contexts: Dict[str, str]) -> int:
+        """Batch update semantic_context for multiple entities.
+
+        Args:
+            contexts: Dict mapping qualified_name to semantic_context string
+
+        Returns:
+            Number of entities updated
+        """
+        if not contexts:
+            return 0
+
+        # Convert to list format for UNWIND
+        updates = [
+            {"qualified_name": qn, "context": ctx}
+            for qn, ctx in contexts.items()
+        ]
+
+        query = """
+        UNWIND $updates AS update
+        MATCH (e {qualifiedName: update.qualified_name})
+        SET e.semantic_context = update.context
+        RETURN count(e) AS updated
+        """
+
+        try:
+            result = self.execute_query(query, {"updates": updates})
+            updated = result[0]["updated"] if result else 0
+            logger.debug(f"Batch set {updated} semantic contexts")
+            return updated
+        except Exception as e:
+            logger.error(f"Batch context update failed: {e}")
+            # Fallback to individual updates
+            updated = 0
+            for qn, ctx in contexts.items():
+                try:
+                    individual_query = """
+                    MATCH (e {qualifiedName: $qn})
+                    SET e.semantic_context = $context
+                    RETURN count(e) AS updated
+                    """
+                    result = self.execute_query(
+                        individual_query,
+                        {"qn": qn, "context": ctx}
+                    )
+                    if result and result[0]["updated"] > 0:
+                        updated += 1
+                except Exception as inner_e:
+                    logger.error(f"Failed to set context for {qn}: {inner_e}")
+            return updated

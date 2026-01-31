@@ -48,6 +48,53 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+
+def _log_memory_usage(phase: str, analysis_run_id: str) -> dict[str, Any]:
+    """Log current memory usage for debugging OOM issues.
+
+    Args:
+        phase: Description of current phase (e.g., "after_clone", "after_ingestion")
+        analysis_run_id: For correlation in logs
+
+    Returns:
+        Dict with memory metrics for optional further logging
+    """
+    try:
+        import psutil
+        process = psutil.Process()
+        mem_info = process.memory_info()
+
+        # Convert to MB for readability
+        rss_mb = mem_info.rss / (1024 * 1024)
+        vms_mb = mem_info.vms / (1024 * 1024)
+
+        # Get system-wide memory
+        sys_mem = psutil.virtual_memory()
+        sys_available_mb = sys_mem.available / (1024 * 1024)
+        sys_percent = sys_mem.percent
+
+        metrics = {
+            "phase": phase,
+            "rss_mb": round(rss_mb, 1),
+            "vms_mb": round(vms_mb, 1),
+            "sys_available_mb": round(sys_available_mb, 1),
+            "sys_percent": sys_percent,
+        }
+
+        logger.info(
+            f"Memory [{phase}]: RSS={rss_mb:.1f}MB, VMS={vms_mb:.1f}MB, "
+            f"System={sys_percent}% used ({sys_available_mb:.0f}MB free)",
+            extra={"analysis_run_id": analysis_run_id, "memory": metrics},
+        )
+
+        return metrics
+    except ImportError:
+        logger.debug("psutil not available for memory profiling")
+        return {}
+    except Exception as e:
+        logger.debug(f"Memory profiling failed: {e}")
+        return {}
+
 # Clone directory for temporary repository checkouts
 CLONE_BASE_DIR = Path(os.getenv("REPOTOIRE_CLONE_DIR", "/tmp/repotoire-clones"))
 
@@ -177,11 +224,15 @@ def analyze_repository(
         # ============================================================
         # PHASE 2: Clone repository (may take 30+ seconds)
         # ============================================================
+        _log_memory_usage("before_clone", analysis_run_id)
+
         clone_dir = _clone_repository_by_values(
             full_name=repo_full_name,
             github_installation_id=repo_github_installation_id,
             commit_sha=commit_sha,
         )
+
+        _log_memory_usage("after_clone", analysis_run_id)
 
         progress.update(
             progress_percent=20,
@@ -215,6 +266,8 @@ def analyze_repository(
 
         ingest_result = pipeline.ingest(incremental=incremental)
 
+        _log_memory_usage("after_ingestion", analysis_run_id)
+
         progress.update(
             progress_percent=60,
             current_step="Analyzing code health",
@@ -241,6 +294,8 @@ def analyze_repository(
             )
 
         health = engine.analyze()
+
+        _log_memory_usage("after_analysis", analysis_run_id)
 
         # ============================================================
         # PHASE 5: Trigger git history ingestion (async, non-blocking)
@@ -293,7 +348,7 @@ def analyze_repository(
         )
         progress.update(
             status=AnalysisStatus.FAILED,
-            error_message="Analysis timed out after 30 minutes",
+            error_message="Analysis timed out after 45 minutes",
         )
         raise
 

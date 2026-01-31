@@ -53,6 +53,7 @@ dependencies = [
     "celery>=5.3.0",  # Distributed task queue for background jobs
     "redis>=5.0.0",  # Redis client for Celery broker
     "structlog>=24.0.0",  # Structured logging for workers
+    "psutil>=5.9.0",  # Memory profiling for worker tasks
     "sentry-sdk[fastapi,celery,sqlalchemy]>=2.0.0",  # Error tracking
     "resend>=0.5.0",  # Email service for notifications
     "aioboto3>=13.0.0",  # Async AWS SES client for non-blocking email sending

@@ -951,8 +951,11 @@ class IngestionPipeline:
     def _generate_embeddings_for_all_entities(self) -> int:
         """Generate vector embeddings for all entities in the graph.
 
-        Queries Neo4j for all Function, Class, and File nodes without embeddings,
+        Queries Neo4j for Function, Class, and File nodes without embeddings,
         generates embeddings in batches, and updates the nodes.
+
+        Uses paginated queries to avoid loading all entities into memory at once.
+        This prevents OOM on large repositories with 50K+ entities.
 
         Returns:
             Number of entities that received embeddings
@@ -963,7 +966,7 @@ class IngestionPipeline:
         from repotoire.models import FunctionEntity, ClassEntity, FileEntity
 
         entities_embedded = 0
-        embedding_batch_size = 500  # Larger batches for throughput (batch DB updates)
+        embedding_batch_size = 500  # Batch size for embedding generation AND DB fetch
 
         # FalkorDB uses id() while Neo4j uses elementId()
         id_func = "id" if self.is_falkordb else "elementId"
@@ -976,32 +979,48 @@ class IngestionPipeline:
         ]:
             logger.info(f"Generating embeddings for {entity_type} entities...")
 
-            # Query entities without embeddings (include semantic_context for contextual retrieval)
-            query = f"""
+            # First, count how many entities need embeddings
+            count_query = f"""
             MATCH (e:{entity_type})
             WHERE e.embedding IS NULL
-            RETURN
-                {id_func}(e) as id,
-                e.name as name,
-                e.qualifiedName as qualified_name,
-                e.docstring as docstring,
-                e.filePath as file_path,
-                e.lineStart as line_start,
-                e.lineEnd as line_end,
-                e.semantic_context as semantic_context
+            RETURN count(e) as total
             """
+            count_result = self.db.execute_query(count_query)
+            total_count = count_result[0]["total"] if count_result else 0
 
-            entities = self.db.execute_query(query)
-
-            if not entities:
+            if total_count == 0:
                 logger.debug(f"No {entity_type} entities need embeddings")
                 continue
 
-            logger.info(f"Found {len(entities)} {entity_type} entities to embed")
+            logger.info(f"Found {total_count} {entity_type} entities to embed (processing in batches of {embedding_batch_size})")
 
-            # Process in batches
-            for i in range(0, len(entities), embedding_batch_size):
-                batch = entities[i:i + embedding_batch_size]
+            # Process in paginated batches to avoid loading all entities into memory
+            offset = 0
+            while offset < total_count:
+                # Paginated query - only fetch one batch at a time
+                query = f"""
+                MATCH (e:{entity_type})
+                WHERE e.embedding IS NULL
+                RETURN
+                    {id_func}(e) as id,
+                    e.name as name,
+                    e.qualifiedName as qualified_name,
+                    e.docstring as docstring,
+                    e.filePath as file_path,
+                    e.lineStart as line_start,
+                    e.lineEnd as line_end,
+                    e.semantic_context as semantic_context
+                SKIP {offset}
+                LIMIT {embedding_batch_size}
+                """
+
+                batch = self.db.execute_query(query)
+
+                if not batch:
+                    # No more entities (might have been embedded by concurrent worker)
+                    break
+
+                offset += len(batch)
 
                 # Convert to entity objects for embedder
                 entity_objects = []
@@ -1141,7 +1160,7 @@ class IngestionPipeline:
                             )
 
                     entities_embedded += len(batch)
-                    logger.debug(f"Embedded batch of {len(batch)} {entity_type} entities ({entities_embedded}/{len(entities)})")
+                    logger.debug(f"Embedded batch of {len(batch)} {entity_type} entities ({entities_embedded}/{total_count})")
 
                 except Exception as e:
                     logger.error(f"Failed to generate embeddings for batch: {e}")
@@ -1152,8 +1171,11 @@ class IngestionPipeline:
     async def _generate_contexts_for_all_entities(self) -> int:
         """Generate semantic contexts for all entities in the graph using Claude.
 
-        Queries Neo4j for all Function, Class, and File nodes without contexts,
+        Queries Neo4j for Function, Class, and File nodes without contexts,
         generates contexts using Claude, and updates the nodes.
+
+        Uses paginated queries to avoid loading all entities into memory at once.
+        This prevents OOM on large repositories with many entities.
 
         Returns:
             Number of entities that received contexts
@@ -1165,70 +1187,81 @@ class IngestionPipeline:
         from repotoire.ai import CostLimitExceeded
 
         entities_contextualized = 0
-        context_batch_size = 100  # Process entities in batches
+        context_batch_size = 100  # Batch size for context generation AND DB fetch
 
         # FalkorDB uses id() while Neo4j uses elementId()
         id_func = "id" if self.is_falkordb else "elementId"
 
-        # Get entities without context from database
-        entity_records = self.db.get_entities_without_context(limit=10000)
+        # First, count how many entities need contexts
+        total_count = self.db.count_entities_without_context()
 
-        if not entity_records:
+        if total_count == 0:
             logger.info("No entities need context generation")
             return 0
 
-        logger.info(f"Found {len(entity_records)} entities to generate contexts for")
+        logger.info(f"Found {total_count} entities to generate contexts for (processing in batches of {context_batch_size})")
 
-        # Convert records to Entity objects for the context generator
-        entities = []
-        for record in entity_records:
-            entity_type = record.get("entity_type", "Function")
+        # Process in paginated batches to avoid loading all entities into memory
+        batch_num = 0
+        cost_limit_reached = False
 
-            # Create appropriate entity type
-            if entity_type == "Function":
-                entity = FunctionEntity(
-                    name=record["name"],
-                    qualified_name=record["qualified_name"],
-                    file_path=record.get("file_path", ""),
-                    line_start=record.get("line_start", 0),
-                    line_end=record.get("line_end", 0),
-                    docstring=record.get("docstring"),
-                    parameters=[],
-                )
-            elif entity_type == "Class":
-                entity = ClassEntity(
-                    name=record["name"],
-                    qualified_name=record["qualified_name"],
-                    file_path=record.get("file_path", ""),
-                    line_start=record.get("line_start", 0),
-                    line_end=record.get("line_end", 0),
-                    docstring=record.get("docstring"),
-                )
-            else:  # File
-                entity = FileEntity(
-                    name=record["name"],
-                    qualified_name=record["qualified_name"],
-                    file_path=record.get("file_path", ""),
-                    line_start=record.get("line_start", 0),
-                    line_end=record.get("line_end", 0),
-                    language="python",
-                )
+        while not cost_limit_reached:
+            # Fetch one batch at a time (offset-based pagination)
+            # Note: As we update entities with contexts, they won't appear in subsequent queries
+            entity_records = self.db.get_entities_without_context(limit=context_batch_size)
 
-            entities.append(entity)
+            if not entity_records:
+                # No more entities need context
+                break
 
-        # Process in batches
-        for i in range(0, len(entities), context_batch_size):
-            batch = entities[i:i + context_batch_size]
+            batch_num += 1
+
+            # Convert records to Entity objects for the context generator
+            entities = []
+            for record in entity_records:
+                entity_type = record.get("entity_type", "Function")
+
+                # Create appropriate entity type
+                if entity_type == "Function":
+                    entity = FunctionEntity(
+                        name=record["name"],
+                        qualified_name=record["qualified_name"],
+                        file_path=record.get("file_path", ""),
+                        line_start=record.get("line_start", 0),
+                        line_end=record.get("line_end", 0),
+                        docstring=record.get("docstring"),
+                        parameters=[],
+                    )
+                elif entity_type == "Class":
+                    entity = ClassEntity(
+                        name=record["name"],
+                        qualified_name=record["qualified_name"],
+                        file_path=record.get("file_path", ""),
+                        line_start=record.get("line_start", 0),
+                        line_end=record.get("line_end", 0),
+                        docstring=record.get("docstring"),
+                    )
+                else:  # File
+                    entity = FileEntity(
+                        name=record["name"],
+                        qualified_name=record["qualified_name"],
+                        file_path=record.get("file_path", ""),
+                        line_start=record.get("line_start", 0),
+                        line_end=record.get("line_end", 0),
+                        language="python",
+                    )
+
+                entities.append(entity)
 
             try:
                 # Progress callback for logging
                 def on_progress(qn: str, count: int):
                     if count % 10 == 0:
-                        logger.debug(f"Generated context for {count}/{len(batch)} entities in batch")
+                        logger.debug(f"Generated context for {count}/{len(entities)} entities in batch")
 
                 # Generate contexts for batch
                 contexts = await self.context_generator.generate_contexts_batch(
-                    batch,
+                    entities,
                     on_progress=on_progress,
                 )
 
@@ -1236,11 +1269,11 @@ class IngestionPipeline:
                 if contexts:
                     updated = self.db.batch_set_contexts(contexts)
                     entities_contextualized += updated
-                    logger.debug(f"Stored {updated} contexts (batch {i // context_batch_size + 1})")
+                    logger.debug(f"Stored {updated} contexts (batch {batch_num}, total: {entities_contextualized}/{total_count})")
 
             except CostLimitExceeded as e:
                 logger.warning(f"Context generation stopped due to cost limit: {e}")
-                break
+                cost_limit_reached = True
             except Exception as e:
                 logger.error(f"Failed to generate contexts for batch: {e}")
                 continue
