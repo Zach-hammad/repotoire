@@ -5,7 +5,7 @@
 
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
 /// Direction for graph traversal
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

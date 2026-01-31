@@ -25,7 +25,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use rayon::prelude::*;
-use crate::dataflow::{DataFlowEdge, DataFlowType, extract_dataflow_edges};
+use crate::dataflow::{DataFlowEdge, extract_dataflow_edges};
 
 /// Category of taint source
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -469,6 +469,7 @@ impl TaintAnalyzer {
     }
 
     /// Build adjacency list for backward traversal (target → source)
+    /// Used by find_taint_sources for backward slicing from sinks to sources
     fn build_backward_graph(&self) -> HashMap<String, Vec<(String, u32, u32)>> {
         let mut graph: HashMap<String, Vec<(String, u32, u32)>> = HashMap::new();
         for edge in &self.edges {
@@ -616,6 +617,62 @@ impl TaintAnalyzer {
 
         flows
     }
+
+    /// Find taint sources by backward slicing from sinks
+    ///
+    /// This is the reverse of find_taint_flows: given dangerous sinks (like eval, exec),
+    /// trace backwards to find where the data came from.
+    ///
+    /// Use cases:
+    /// - "Where did this dangerous data come from?"
+    /// - "What sources flow into this SQL query?"
+    /// - Security auditing focused on specific sinks
+    pub fn find_taint_sources(&self) -> Vec<TaintFlow> {
+        let mut flows = Vec::new();
+
+        // Build backward graph for traversal
+        let backward_graph = self.build_backward_graph();
+
+        // Find all sink edges (edges where target is a sink)
+        let sink_edges: Vec<_> = self.edges.iter()
+            .filter(|e| self.matches_sink(&e.target_var).is_some())
+            .collect();
+
+        // For each sink, do backward slicing to find reachable sources
+        for edge in sink_edges {
+            if let Some(sink) = self.matches_sink(&edge.target_var) {
+                let slices = self.backward_slice(&edge.target_var, edge.target_line, &backward_graph);
+
+                for (source_var, path, path_lines) in slices {
+                    if let Some(source) = self.matches_source(&source_var) {
+                        let has_sanitizer = self.path_has_sanitizer(&path);
+
+                        flows.push(TaintFlow {
+                            source: source_var.clone(),
+                            source_line: *path_lines.first().unwrap_or(&0),
+                            source_category: source.category,
+                            sink: edge.target_var.clone(),
+                            sink_line: edge.target_line,
+                            vulnerability: sink.vulnerability,
+                            path,
+                            path_lines,
+                            scope: edge.scope.clone(),
+                            has_sanitizer,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Deduplicate flows (same source-sink pair)
+        let mut seen: HashSet<(String, String, u32, u32)> = HashSet::new();
+        flows.retain(|f| {
+            let key = (f.source.clone(), f.sink.clone(), f.source_line, f.sink_line);
+            seen.insert(key)
+        });
+
+        flows
+    }
 }
 
 /// Find taint flows in Python source code
@@ -641,6 +698,51 @@ pub fn find_taint_flows_batch(files: Vec<(String, String)>) -> Vec<(String, Vec<
         .into_par_iter()
         .map(|(path, source)| {
             let flows = find_taint_flows(&source);
+            (path, flows)
+        })
+        .collect()
+}
+
+// ============================================================================
+// BACKWARD TAINT ANALYSIS (find_taint_sources)
+// Traces from sinks back to sources - "where did this dangerous data come from?"
+// ============================================================================
+
+/// Find taint sources by backward slicing from sinks in Python source code
+///
+/// This is the reverse of find_taint_flows: given dangerous sinks (like eval, exec),
+/// trace backwards through the data flow graph to find the original sources.
+///
+/// Use cases:
+/// - Security auditing focused on specific dangerous operations
+/// - Answering "where did this data come from?"
+/// - Finding all inputs that flow into a particular sink
+pub fn find_taint_sources(source: &str) -> Vec<TaintFlow> {
+    let edges = extract_dataflow_edges(source);
+    TaintAnalyzer::new(edges).find_taint_sources()
+}
+
+/// Find taint sources with custom patterns
+///
+/// Allows specifying custom sources, sinks, and sanitizers for domain-specific analysis.
+pub fn find_taint_sources_custom(
+    source: &str,
+    sources: Vec<TaintSource>,
+    sinks: Vec<TaintSink>,
+    sanitizers: Vec<String>,
+) -> Vec<TaintFlow> {
+    let edges = extract_dataflow_edges(source);
+    TaintAnalyzer::with_patterns(edges, sources, sinks, sanitizers).find_taint_sources()
+}
+
+/// Find taint sources in multiple files in parallel
+///
+/// Batch version for analyzing entire codebases efficiently.
+pub fn find_taint_sources_batch(files: Vec<(String, String)>) -> Vec<(String, Vec<TaintFlow>)> {
+    files
+        .into_par_iter()
+        .map(|(path, source)| {
+            let flows = find_taint_sources(&source);
             (path, flows)
         })
         .collect()

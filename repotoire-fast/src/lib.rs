@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
-use pyo3::conversion::{IntoPyObject, FromPyObject};
+use pyo3::conversion::IntoPyObject;
 use walkdir::WalkDir;
 use globset::{Glob, GlobSetBuilder};
 use rayon::prelude::*;
@@ -1920,7 +1920,7 @@ fn infer_types(
     py: Python<'_>,
     files: Vec<(String, String)>,  // (file_path, source_code)
     _max_iterations: usize,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let (ti, _exports, stats) = py.detach(|| {
         type_inference::process_files_with_stats(&files)
     });
@@ -2182,7 +2182,7 @@ fn combine_features_batch<'py>(
     embeddings: PyReadonlyArray2<'py, f32>,
     metrics: PyReadonlyArray2<'py, f32>,
 ) -> PyResult<Bound<'py, numpy::PyArray2<f32>>> {
-    use numpy::{PyArray2, IntoPyArray, ndarray::Array2};
+    use numpy::{IntoPyArray, ndarray::Array2};
 
     let emb_view = embeddings.as_array();
     let met_view = metrics.as_array();
@@ -3489,6 +3489,75 @@ fn find_taint_flows_batch(
 ) -> Vec<(String, Vec<PyTaintFlow>)> {
     py.detach(|| {
         taint::find_taint_flows_batch(files)
+            .into_iter()
+            .map(|(path, flows)| {
+                let py_flows: Vec<PyTaintFlow> = flows
+                    .into_iter()
+                    .map(PyTaintFlow::from)
+                    .collect();
+                (path, py_flows)
+            })
+            .collect()
+    })
+}
+
+// ============================================================================
+// BACKWARD TAINT ANALYSIS (find_taint_sources)
+// Traces from sinks back to sources - "where did this dangerous data come from?"
+// ============================================================================
+
+/// Find taint sources by backward slicing from sinks in Python source code.
+///
+/// This is the reverse of find_taint_flows: given dangerous sinks (like eval, exec),
+/// trace backwards through the data flow graph to find the original sources.
+///
+/// Use cases:
+/// - Security auditing focused on specific dangerous operations
+/// - Answering "where did this data come from?"
+/// - Finding all inputs that flow into a particular sink
+///
+/// # Arguments
+/// * `source` - Python source code to analyze
+///
+/// # Returns
+/// List of TaintFlow objects representing source->sink paths
+///
+/// # Example
+/// ```python
+/// from repotoire_fast import find_taint_sources
+///
+/// source = '''
+/// data = input()
+/// result = eval(data)  # dangerous sink
+/// '''
+/// flows = find_taint_sources(source)
+/// for flow in flows:
+///     print(f"Data from {flow.source} flows into {flow.sink}")
+/// ```
+#[pyfunction]
+fn find_taint_sources(source: &str) -> Vec<PyTaintFlow> {
+    taint::find_taint_sources(source)
+        .into_iter()
+        .map(PyTaintFlow::from)
+        .collect()
+}
+
+/// Find taint sources in multiple files in parallel.
+///
+/// Batch version for analyzing entire codebases efficiently.
+///
+/// # Arguments
+/// * `files` - List of (file_path, source_code) tuples
+///
+/// # Returns
+/// List of (file_path, [TaintFlow]) tuples
+#[pyfunction]
+fn find_taint_sources_batch(
+    py: Python<'_>,
+    files: Vec<(String, String)>,
+) -> Vec<(String, Vec<PyTaintFlow>)> {
+    py.detach(|| {
+        taint::find_taint_sources_batch(files)
             .into_iter()
             .map(|(path, flows)| {
                 let py_flows: Vec<PyTaintFlow> = flows
@@ -4911,6 +4980,9 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_class::<PyTaintFlow>()?;
     n.add_function(wrap_pyfunction!(find_taint_flows, n)?)?;
     n.add_function(wrap_pyfunction!(find_taint_flows_batch, n)?)?;
+    // Backward taint analysis (find sources from sinks)
+    n.add_function(wrap_pyfunction!(find_taint_sources, n)?)?;
+    n.add_function(wrap_pyfunction!(find_taint_sources_batch, n)?)?;
     n.add_function(wrap_pyfunction!(get_default_taint_sources, n)?)?;
     n.add_function(wrap_pyfunction!(get_default_taint_sinks, n)?)?;
     n.add_function(wrap_pyfunction!(get_default_sanitizers, n)?)?;

@@ -106,6 +106,7 @@ impl DataFlowEdge {
 
 /// Variable definition tracking
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct VarDef {
     /// Variable name
     name: String,
@@ -146,6 +147,7 @@ impl Scope {
         );
     }
 
+    #[allow(dead_code)]
     fn lookup(&self, name: &str) -> Option<&VarDef> {
         self.definitions.get(name)
     }
@@ -222,6 +224,7 @@ impl DataFlowAnalyzer {
     }
 
     /// Look up a variable definition (searches up the scope stack)
+    #[allow(dead_code)]
     fn lookup_var(&self, name: &str) -> Option<&VarDef> {
         // Check if it's a global
         if self.globals.contains(name) {

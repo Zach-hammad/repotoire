@@ -2634,6 +2634,7 @@ pub struct CrossFileAnalysis {
 /// Cross-file function summary
 #[derive(Debug, Clone)]
 struct CrossFileSummary {
+    #[allow(dead_code)] // Stored for debugging/future use
     file_path: String,
     function_name: String,
     qualified_name: String,

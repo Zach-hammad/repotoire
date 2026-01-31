@@ -33,6 +33,9 @@ from .repotoire_fast import (
     graph_leiden,                     # Leiden community detection
     graph_leiden_parallel,            # Leiden with parallel option (REPO-215)
     graph_harmonic_centrality,        # Harmonic centrality (closeness)
+    # Import edge matching (fast replacement for slow FalkorDB query)
+    match_import_edges,               # Match import names to file entities
+    match_import_edges_parallel,      # Parallel import edge matching
     # Duplicate code detection (REPO-166)
     find_duplicates,                  # Rabin-Karp duplicate detection
     find_duplicates_batch,            # Batch duplicate detection
@@ -88,6 +91,9 @@ from .repotoire_fast import (
     PyTaintFlow,                      # Taint flow result class
     find_taint_flows,                 # Find taint flows (source -> sink)
     find_taint_flows_batch,           # Batch taint analysis in parallel
+    # Backward taint analysis (trace from sinks to sources)
+    find_taint_sources,               # Find where dangerous sink data came from
+    find_taint_sources_batch,         # Batch backward taint analysis
     get_default_taint_sources,        # Get default taint source patterns
     get_default_taint_sinks,          # Get default taint sink patterns
     get_default_sanitizers,           # Get default sanitizer patterns
@@ -108,6 +114,7 @@ from .repotoire_fast import (
     PyExtractedFunction,              # Extracted function class
     PyExtractedClass,                 # Extracted class class
     PyExtractedImport,                # Extracted import class
+    PyExtractedCall,                  # Extracted call class
     parse_files_parallel,             # Parse multiple files in parallel
     parse_files_parallel_auto,        # Parse files with auto language detection
     parse_file_tree_sitter,           # Parse single file with tree-sitter
@@ -181,6 +188,9 @@ __all__ = [
     "graph_leiden",                     # Leiden community detection
     "graph_leiden_parallel",            # Leiden with parallel option (REPO-215)
     "graph_harmonic_centrality",        # Harmonic centrality (closeness)
+    # Import edge matching (fast replacement for slow FalkorDB query)
+    "match_import_edges",               # Match import names to file entities
+    "match_import_edges_parallel",      # Parallel import edge matching
     # Duplicate code detection (REPO-166)
     "find_duplicates",                  # Rabin-Karp duplicate detection
     "find_duplicates_batch",            # Batch duplicate detection
@@ -236,6 +246,9 @@ __all__ = [
     "PyTaintFlow",                      # Taint flow result class
     "find_taint_flows",                 # Find taint flows (source -> sink)
     "find_taint_flows_batch",           # Batch taint analysis in parallel
+    # Backward taint analysis (trace from sinks to sources)
+    "find_taint_sources",               # Find where dangerous sink data came from
+    "find_taint_sources_batch",         # Batch backward taint analysis
     "get_default_taint_sources",        # Get default taint source patterns
     "get_default_taint_sinks",          # Get default taint sink patterns
     "get_default_sanitizers",           # Get default sanitizer patterns
@@ -256,6 +269,7 @@ __all__ = [
     "PyExtractedFunction",              # Extracted function class
     "PyExtractedClass",                 # Extracted class class
     "PyExtractedImport",                # Extracted import class
+    "PyExtractedCall",                  # Extracted call class
     "parse_files_parallel",             # Parse multiple files in parallel
     "parse_files_parallel_auto",        # Parse files with auto language detection
     "parse_file_tree_sitter",           # Parse single file with tree-sitter

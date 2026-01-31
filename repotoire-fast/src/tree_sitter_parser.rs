@@ -458,15 +458,10 @@ fn extract_python_callee(node: &Node, source: &str) -> (String, bool, Option<Str
                 .map(|s| s.to_string())
                 .unwrap_or_default();
 
-            // Get the object (receiver) and attribute (method name)
+            // Get the receiver object (e.g., "self", "obj", "module")
             let receiver = node.child_by_field_name("object")
                 .and_then(|n| n.utf8_text(source.as_bytes()).ok())
                 .map(|s| s.to_string());
-
-            let method = node.child_by_field_name("attribute")
-                .and_then(|n| n.utf8_text(source.as_bytes()).ok())
-                .map(|s| s.to_string())
-                .unwrap_or_default();
 
             // Use the full dotted name as callee (e.g., "self.method" or "module.func")
             (full_text, true, receiver)

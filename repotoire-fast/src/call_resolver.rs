@@ -4,7 +4,6 @@
 //! Pre-indexes entities by name, suffix, and file for instant resolution.
 
 use rustc_hash::FxHashMap;
-use std::collections::HashMap;
 
 /// Node type for entities
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
