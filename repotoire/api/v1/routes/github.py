@@ -466,12 +466,19 @@ async def github_webhook(
     event_type = request.headers.get("X-GitHub-Event", "")
 
     # Parse JSON with error handling for malformed payloads
+    # Use json.loads(body) since we already read the body for signature verification
+    import json
     try:
-        payload = await request.json()
-    except Exception as e:
+        payload = json.loads(body)
+    except json.JSONDecodeError as e:
         logger.warning(
             "Failed to parse webhook JSON payload",
-            extra={"event_type": event_type, "error": str(e)},
+            extra={
+                "event_type": event_type,
+                "error": str(e),
+                "body_length": len(body),
+                "body_preview": body[:200].decode("utf-8", errors="replace") if body else "empty",
+            },
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

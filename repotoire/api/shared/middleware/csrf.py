@@ -114,6 +114,8 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
     EXEMPT_PATHS = [
         "/api/v1/webhooks/",
         "/api/v2/webhooks/",
+        "/api/v1/github/webhook",  # GitHub App webhooks use signature verification
+        "/api/v2/github/webhook",
         "/health",
         "/ready",
         "/api/health",
