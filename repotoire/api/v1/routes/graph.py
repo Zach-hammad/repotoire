@@ -93,12 +93,25 @@ async def get_graph_user(
                 )
                 org = result.scalar_one_or_none()
 
-    # Look up org by Clerk ID
+    # Look up org by Clerk ID first
     if not org and clerk_org_id:
         result = await db.execute(
             select(Organization).where(Organization.clerk_org_id == clerk_org_id)
         )
         org = result.scalar_one_or_none()
+
+    # Fallback: try looking up by internal UUID (for API keys returning internal org_id)
+    if not org and clerk_org_id:
+        try:
+            from uuid import UUID
+            org_uuid = UUID(clerk_org_id)
+            result = await db.execute(
+                select(Organization).where(Organization.id == org_uuid)
+            )
+            org = result.scalar_one_or_none()
+        except (ValueError, TypeError):
+            # Not a valid UUID, continue
+            pass
 
     if not org:
         raise HTTPException(
