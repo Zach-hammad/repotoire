@@ -49,6 +49,55 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+# =============================================================================
+# Profiling Utilities
+# =============================================================================
+
+import time
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from typing import Dict, List
+
+
+@dataclass
+class AnalysisProfile:
+    """Profiling data for analysis runs."""
+    
+    analysis_run_id: str
+    timings: Dict[str, float] = field(default_factory=dict)
+    started_at: float = field(default_factory=time.perf_counter)
+    
+    def record(self, phase: str, duration: float) -> None:
+        """Record timing for a phase."""
+        self.timings[phase] = duration
+        logger.info(f"[PROFILE] {phase}: {duration:.2f}s")
+    
+    def summary(self) -> str:
+        """Generate profiling summary."""
+        total = sum(self.timings.values())
+        lines = [f"[PROFILE] Analysis {self.analysis_run_id} Summary:"]
+        lines.append(f"  Total: {total:.2f}s ({total/60:.1f}min)")
+        
+        # Sort by duration (longest first)
+        sorted_phases = sorted(self.timings.items(), key=lambda x: -x[1])
+        for phase, duration in sorted_phases:
+            pct = (duration / total * 100) if total > 0 else 0
+            lines.append(f"  {phase}: {duration:.2f}s ({pct:.1f}%)")
+        
+        return "\n".join(lines)
+
+
+@contextmanager
+def profile_phase(profiler: AnalysisProfile, phase: str):
+    """Context manager to profile a phase of analysis."""
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        duration = time.perf_counter() - start
+        profiler.record(phase, duration)
+
+
 def _log_memory_usage(phase: str, analysis_run_id: str) -> dict[str, Any]:
     """Log current memory usage for debugging OOM issues.
 
@@ -170,6 +219,7 @@ def analyze_repository(
     """
     progress = ProgressTracker(self, analysis_run_id)
     clone_dir: Path | None = None
+    profiler = AnalysisProfile(analysis_run_id=analysis_run_id)
 
     try:
         # ============================================================
@@ -226,11 +276,12 @@ def analyze_repository(
         # ============================================================
         _log_memory_usage("before_clone", analysis_run_id)
 
-        clone_dir = _clone_repository_by_values(
-            full_name=repo_full_name,
-            github_installation_id=repo_github_installation_id,
-            commit_sha=commit_sha,
-        )
+        with profile_phase(profiler, "clone"):
+            clone_dir = _clone_repository_by_values(
+                full_name=repo_full_name,
+                github_installation_id=repo_github_installation_id,
+                commit_sha=commit_sha,
+            )
 
         _log_memory_usage("after_clone", analysis_run_id)
 
@@ -264,7 +315,8 @@ def analyze_repository(
                 progress_percent=20 + int(pct * 0.4),  # 20-60%
             )
 
-        ingest_result = pipeline.ingest(incremental=incremental)
+        with profile_phase(profiler, "ingestion"):
+            ingest_result = pipeline.ingest(incremental=incremental)
 
         _log_memory_usage("after_ingestion", analysis_run_id)
 
@@ -293,7 +345,8 @@ def analyze_repository(
                 progress_percent=60 + int(pct * 0.3),  # 60-90%
             )
 
-        health = engine.analyze()
+        with profile_phase(profiler, "analysis"):
+            health = engine.analyze()
 
         _log_memory_usage("after_analysis", analysis_run_id)
 
@@ -320,14 +373,18 @@ def analyze_repository(
         # ============================================================
         # PHASE 6: Save results (short DB session)
         # ============================================================
-        with get_sync_session() as session:
-            _save_analysis_results(
-                session=session,
-                analysis_run_id=analysis_run_id,
-                health=health,
-                files_analyzed=getattr(ingest_result, "files_processed", 0),
-            )
-        # Session is now closed
+        with profile_phase(profiler, "save_results"):
+            with get_sync_session() as session:
+                _save_analysis_results(
+                    session=session,
+                    analysis_run_id=analysis_run_id,
+                    health=health,
+                    files_analyzed=getattr(ingest_result, "files_processed", 0),
+                )
+            # Session is now closed
+
+        # Log profiling summary
+        logger.info(profiler.summary())
 
         # Trigger post-analysis hooks (outside the session)
         from repotoire.workers.hooks import on_analysis_complete
@@ -339,6 +396,7 @@ def analyze_repository(
             "health_score": health.overall_score,
             "findings_count": len(health.findings),
             "files_analyzed": getattr(ingest_result, "files_processed", 0),
+            "profile": profiler.timings,  # Include timing data in result
         }
 
     except SoftTimeLimitExceeded:
