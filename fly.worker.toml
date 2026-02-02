@@ -28,14 +28,8 @@ primary_region = 'iad'
   TOKENIZERS_PARALLELISM = "false"
 
 # No HTTP service - this is a background worker
-# Auto-stop when no jobs in queue (cost optimization)
-[checks]
-  [checks.worker_alive]
-    type = "tcp"
-    port = 6379  # Celery heartbeat port
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "60s"
+# Celery workers don't expose a health endpoint, so we rely on process monitoring
+# The worker will auto-restart if it crashes
 
 [processes]
   # Single worker (concurrency=1) with full memory access for ML models
