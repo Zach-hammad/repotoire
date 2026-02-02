@@ -1090,53 +1090,9 @@ class IngestionPipeline:
                     else:
                         embedding_dims = self.embedder.dimensions
 
-                    # Update database with embeddings using batch UNWIND (50-100x faster)
+                    # Store embeddings in LanceDB only (not on graph nodes)
+                    # This keeps vectors on disk, not in FalkorDB RAM
                     is_compressed = self.embedding_compressor is not None
-                    if self.is_falkordb and hasattr(self.db, "batch_update_embeddings"):
-                        # Use optimized batch update with UNWIND
-                        updates = [
-                            {
-                                "id": entity["qualified_name"],
-                                "embedding": embedding,
-                                "dims": embedding_dims,
-                                "compressed": is_compressed,
-                            }
-                            for entity, embedding in zip(batch, embeddings)
-                        ]
-                        self.db.batch_update_embeddings(
-                            updates, entity_type=entity_type
-                        )
-                    else:
-                        # Fallback to individual updates for Neo4j or older clients
-                        for entity, embedding in zip(batch, embeddings):
-                            if self.is_falkordb:
-                                update_query = f"""
-                                MATCH (e:{entity_type})
-                                WHERE {id_func}(e) = $id
-                                SET e.embedding = vecf32($embedding),
-                                    e.embedding_dims = $dims,
-                                    e.embedding_compressed = $compressed
-                                """
-                            else:
-                                update_query = f"""
-                                MATCH (e:{entity_type})
-                                WHERE {id_func}(e) = $id
-                                SET e.embedding = $embedding,
-                                    e.embedding_dims = $dims,
-                                    e.embedding_compressed = $compressed
-                                """
-                            self.db.execute_query(
-                                update_query,
-                                {
-                                    "id": entity["id"],
-                                    "embedding": embedding,
-                                    "dims": embedding_dims,
-                                    "compressed": is_compressed,
-                                },
-                            )
-
-                    # Also index to external vector store if configured
-                    # This moves embeddings from in-memory graph to disk-backed storage
                     if self.vector_store is not None:
                         try:
                             entity_ids = [e["qualified_name"] for e in batch]

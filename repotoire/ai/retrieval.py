@@ -1048,11 +1048,11 @@ Format code snippets using markdown code blocks with appropriate language tags."
                 tenant_id=tenant_id,  # REPO-600: Pass tenant filter
             )
             # External store returns results, convert to dict format expected by caller
-            if results:
-                return self._convert_vector_store_results(results)
-            # If empty, might be that store has no data, fall through to graph search
+            # Note: We don't fall back to graph-native search because embeddings
+            # are only stored in LanceDB (not on graph nodes) to save RAM
+            return self._convert_vector_store_results(results) if results else []
 
-        # Fallback: Graph-native vector search
+        # Graph-native vector search (only used if LanceDB not configured)
         search_types = entity_types or ["Function", "Class", "File"]
         all_results = []
 
