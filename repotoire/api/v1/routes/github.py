@@ -1228,6 +1228,23 @@ async def analyze_repo_by_id(
     repo = result.scalar_one_or_none()
 
     if not repo:
+        # REPO-UX: Check if repo exists in a different org to give helpful error
+        any_repo_result = await db.execute(
+            select(GitHubRepository).where(GitHubRepository.id == repo_id)
+        )
+        any_repo = any_repo_result.scalar_one_or_none()
+        
+        if any_repo:
+            # Repo exists but in different org - give helpful error
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "ORG_MISMATCH",
+                    "message": f"Repository exists but belongs to a different organization. You are authenticated as org '{user.org_slug or user.org_id}'. Please switch organizations or use an API key for the correct org.",
+                    "current_org": user.org_slug or user.org_id,
+                    "hint": "Use 'repotoire login' to authenticate with the correct organization, or switch orgs in the web UI."
+                },
+            )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Repository not found",

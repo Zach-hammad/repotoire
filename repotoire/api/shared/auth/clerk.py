@@ -168,7 +168,12 @@ def require_org(user: ClerkUser = Depends(get_current_user)) -> ClerkUser:
     if not user.org_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Organization membership required",
+            detail={
+                "error": "ORG_REQUIRED",
+                "message": "Organization membership required. Your current session is not associated with an organization.",
+                "user_id": user.user_id,
+                "hint": "Please select an organization in the web UI, or use 'repotoire login' to authenticate with an org-scoped API key."
+            },
         )
     return user
 
