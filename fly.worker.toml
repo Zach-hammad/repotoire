@@ -7,17 +7,10 @@ primary_region = 'iad'
 [build]
   dockerfile = "Dockerfile.api"
 
-# Mount persistent volume for LanceDB vector storage
-[mounts]
-  source = "repotoire_vectors"
-  destination = "/data/vectors"
-
 [env]
   ENVIRONMENT = "production"
   LOG_LEVEL = "INFO"
   REPOTOIRE_CLONE_DIR = "/tmp/repotoire-clones"
-  # LanceDB vector storage path (persistent volume)
-  REPOTOIRE_VECTOR_STORE_PATH = "/data/vectors"
   # Hugging Face cache directory (writable location for embedding models)
   HF_HOME = "/tmp/huggingface"
   TRANSFORMERS_CACHE = "/tmp/huggingface"
