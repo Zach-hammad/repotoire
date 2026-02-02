@@ -233,10 +233,14 @@ async def create_organization(
         )
 
     # Create organization
+    # Link to Clerk org if user has org context in their JWT
+    graph_name = f"org_{request.slug.replace('-', '_')}"
     org = Organization(
         name=request.name,
         slug=request.slug,
         plan_tier=PlanTier.FREE,
+        clerk_org_id=user.org_id,  # Link to Clerk org for API key validation
+        graph_database_name=graph_name,
     )
     session.add(org)
     await session.flush()  # Get org.id for membership and audit log
