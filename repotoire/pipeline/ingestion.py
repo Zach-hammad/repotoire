@@ -153,10 +153,11 @@ try:
 except ImportError:
     _HAS_GO_PARSER = False
 from repotoire.logging_config import get_logger, LogContext, log_operation
-
-# Vector store removed - embeddings deprecated
-VectorStore = None
-VectorStoreConfig = None
+from repotoire.ai.vector_store import (
+    VectorStore,
+    VectorStoreConfig,
+    create_vector_store,
+)
 
 logger = get_logger(__name__)
 
@@ -301,10 +302,62 @@ class IngestionPipeline:
                 logger.warning("Continuing without clue generation")
                 self.generate_clues = False
 
-        # Embeddings deprecated - disabled
+        # Initialize embedder if needed
         self.embedder = None
+        if self.generate_embeddings:
+            try:
+                from repotoire.ai import CodeEmbedder
+                self.embedder = CodeEmbedder(
+                    backend=self.embedding_backend,
+                    model=self.embedding_model,
+                )
+                logger.info(
+                    f"Embedding generation enabled (backend={self.embedding_backend}, "
+                    f"model={self.embedder.config.effective_model}, "
+                    f"dimensions={self.embedder.dimensions})"
+                )
+            except ImportError as e:
+                logger.warning(f"Could not initialize embedder: {e}")
+                if self.embedding_backend == "local":
+                    logger.warning("Install with: pip install repotoire[local-embeddings]")
+                logger.warning("Continuing without embedding generation")
+                self.generate_embeddings = False
+            except Exception as e:
+                logger.warning(f"Could not initialize embedder: {e}")
+                logger.warning("Continuing without embedding generation")
+                self.generate_embeddings = False
+
+        # Initialize embedding compressor if needed
         self.embedding_compressor = None
-        self.generate_embeddings = False  # Force disabled
+        if self.generate_embeddings and self.compress_embeddings and self.embedder:
+            # Only compress if source dims > target dims
+            if self.embedder.dimensions > self.embedding_target_dims:
+                try:
+                    from repotoire.ai import EmbeddingCompressor
+
+                    # Load or create compressor with org-specific model path
+                    model_dir = Path.home() / ".repotoire" / "compression_models"
+                    model_path = model_dir / f"{repo_slug or 'default'}_pca.pkl"
+
+                    self.embedding_compressor = EmbeddingCompressor(
+                        target_dims=self.embedding_target_dims,
+                        model_path=model_path,
+                    )
+
+                    if self.embedding_compressor.is_fitted:
+                        logger.info(
+                            f"Embedding compression enabled (loaded PCA model: "
+                            f"{self.embedder.dimensions} → {self.embedding_target_dims} dims)"
+                        )
+                    else:
+                        logger.info(
+                            f"Embedding compression enabled (will fit PCA on first batch: "
+                            f"{self.embedder.dimensions} → {self.embedding_target_dims} dims)"
+                        )
+                except Exception as e:
+                    logger.warning(f"Could not initialize embedding compressor: {e}")
+                    logger.warning("Continuing without compression")
+                    self.embedding_compressor = None
 
         # Initialize context generator if needed (REPO-242)
         self.context_generator = None
@@ -331,9 +384,37 @@ class IngestionPipeline:
                 logger.warning("Continuing without context generation")
                 self.generate_contexts = False
 
-        # Vector store deprecated - disabled
-        self.vector_store = None
-        self.vector_store_config = None
+        # Initialize external vector store for memory-optimized embedding storage
+        # Auto-enable LanceDB when generating embeddings (moves vectors to disk)
+        self.vector_store: Optional[VectorStore] = None
+        if self.generate_embeddings:
+            # Use provided config or auto-create LanceDB config
+            if vector_store_config is not None:
+                self.vector_store_config = vector_store_config
+            else:
+                # Auto-enable LanceDB for disk-backed storage (0 RAM for vectors)
+                # Use env var for persistent storage (Fly volume), fallback to repo-local
+                vector_path = os.environ.get(
+                    "REPOTOIRE_VECTOR_STORE_PATH",
+                    str(Path(repo_path) / ".repotoire" / "vectors")
+                )
+                self.vector_store_config = VectorStoreConfig(
+                    backend="lancedb",
+                    path=vector_path,
+                )
+
+            try:
+                self.vector_store = create_vector_store(config=self.vector_store_config)
+                logger.info(
+                    f"External vector store auto-enabled: {self.vector_store_config.backend} "
+                    f"(path={self.vector_store_config.path})"
+                )
+            except ImportError as e:
+                logger.debug(f"LanceDB not available, using graph-native storage: {e}")
+                self.vector_store = None
+                self.vector_store_config = None
+        else:
+            self.vector_store_config = vector_store_config
 
         # Register default parsers with secrets policy
         self.register_parser("python", PythonParser(secrets_policy=secrets_policy))
