@@ -739,10 +739,11 @@ class CallChainDepthDetector(CodeSmellDetector):
             function_names[i] = record["name"]
             id_to_idx[func_id] = i
 
-        # Get call edges
+        # Get call edges (use f1 for isolation filter since query uses f1/f2)
+        call_filter = self._get_isolation_filter("f1")
         call_query = f"""
         MATCH (f1:Function)-[:CALLS]->(f2:Function)
-        WHERE true {repo_filter}
+        WHERE true {call_filter}
         RETURN id(f1) AS caller, id(f2) AS callee
         """
 
