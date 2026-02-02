@@ -1,4 +1,4 @@
-FROM falkordb/falkordb:v4.14.10
+FROM falkordb/falkordb:v4.16.1
 
 # FalkorDB deployment with password authentication for Fly.io
 # Password is passed via FALKOR_PASSWORD environment secret
