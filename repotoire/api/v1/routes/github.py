@@ -174,8 +174,11 @@ async def get_org_by_clerk_id(
     If not found and org_slug is provided, auto-creates the organization.
     """
     # First try to find by clerk_org_id
+    # Eagerly load subscription to avoid lazy loading in async context
     result = await db.execute(
-        select(Organization).where(Organization.clerk_org_id == org_id)
+        select(Organization)
+        .where(Organization.clerk_org_id == org_id)
+        .options(selectinload(Organization.subscription))
     )
     org = result.scalar_one_or_none()
     if org:
@@ -183,7 +186,9 @@ async def get_org_by_clerk_id(
 
     # Fall back to slug lookup
     result = await db.execute(
-        select(Organization).where(Organization.slug == org_id)
+        select(Organization)
+        .where(Organization.slug == org_id)
+        .options(selectinload(Organization.subscription))
     )
     org = result.scalar_one_or_none()
     if org:
