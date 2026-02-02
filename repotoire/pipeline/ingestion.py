@@ -173,7 +173,7 @@ class IngestionPipeline:
     # Security limits
     MAX_FILE_SIZE_MB = 10  # Maximum file size to process
     DEFAULT_FOLLOW_SYMLINKS = False  # Don't follow symlinks by default
-    DEFAULT_BATCH_SIZE = 10  # Default batch size for loading entities (very conservative for FalkorDB stability)
+    DEFAULT_BATCH_SIZE = 100  # Default batch size for loading entities (increased since BGSAVE disabled)
 
     def __init__(
         self,
@@ -1269,8 +1269,8 @@ class IngestionPipeline:
             id_mapping = self.db.batch_create_nodes(entities)
             logger.info(f"Created {len(id_mapping)} nodes")
 
-            # Delay to ease FalkorDB memory pressure during heavy ingestion
-            time.sleep(0.5)
+            # Minimal delay - BGSAVE disabled so no fork crashes
+            time.sleep(0.05)
 
             # Batch create all relationships
             # Note: batch_create_relationships now accepts qualified names directly
@@ -1280,8 +1280,8 @@ class IngestionPipeline:
             else:
                 logger.warning("No relationships to create")
 
-            # Delay after relationships too
-            time.sleep(0.5)
+            # Minimal delay after relationships
+            time.sleep(0.05)
 
         except Exception as e:
             logger.error(f"Failed to load data to graph: {e}")
