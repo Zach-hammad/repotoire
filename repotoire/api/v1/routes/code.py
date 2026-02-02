@@ -110,11 +110,33 @@ def get_retriever_for_org(
     """Get GraphRAGRetriever instance for an organization.
 
     Creates a tenant-isolated retriever using the org's graph client.
+    Uses LanceDB vector store if REPOTOIRE_VECTOR_STORE_PATH is configured.
     """
+    import os
+    from repotoire.ai.retrieval import RetrieverConfig
+    from repotoire.ai.vector_store import VectorStoreConfig
+
     graph_client = get_graph_client_for_org(org)
+
+    # Check if LanceDB is configured via environment
+    vector_store_path = os.environ.get("REPOTOIRE_VECTOR_STORE_PATH")
+    config = None
+    if vector_store_path:
+        try:
+            config = RetrieverConfig(
+                vector_store=VectorStoreConfig(
+                    backend="lancedb",
+                    path=vector_store_path,
+                )
+            )
+            logger.debug(f"Using LanceDB vector store at {vector_store_path}")
+        except Exception as e:
+            logger.warning(f"Could not configure LanceDB, using graph-native: {e}")
+
     return GraphRAGRetriever(
         client=graph_client,
-        embedder=embedder
+        embedder=embedder,
+        config=config,
     )
 
 

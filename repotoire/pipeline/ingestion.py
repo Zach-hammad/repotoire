@@ -393,7 +393,11 @@ class IngestionPipeline:
                 self.vector_store_config = vector_store_config
             else:
                 # Auto-enable LanceDB for disk-backed storage (0 RAM for vectors)
-                vector_path = str(Path(repo_path) / ".repotoire" / "vectors")
+                # Use env var for persistent storage (Fly volume), fallback to repo-local
+                vector_path = os.environ.get(
+                    "REPOTOIRE_VECTOR_STORE_PATH",
+                    str(Path(repo_path) / ".repotoire" / "vectors")
+                )
                 self.vector_store_config = VectorStoreConfig(
                     backend="lancedb",
                     path=vector_path,
