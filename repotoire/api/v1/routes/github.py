@@ -1335,10 +1335,10 @@ async def analyze_repo_by_id(
 
     # Queue the analysis
     analyze_repository.delay(
-        str(analysis_run.id),
-        repo.full_name,
-        access_token,
-        repo.default_branch,
+        analysis_run_id=str(analysis_run.id),
+        repo_id=str(repo.repository_id),
+        commit_sha="HEAD",
+        incremental=False,
     )
 
     # Increment analysis usage counter
