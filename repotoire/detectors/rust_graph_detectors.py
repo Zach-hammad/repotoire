@@ -138,10 +138,11 @@ class PackageStabilityDetector(CodeSmellDetector):
             for file_path in record.get("files", []):
                 file_to_package[file_path] = i
 
-        # Get import edges between packages
+        # Get import edges between packages (use f1 for isolation filter)
+        edge_filter = self._get_isolation_filter("f1")
         import_query = f"""
         MATCH (f1:File)-[:IMPORTS]->(f2:File)
-        WHERE true {repo_filter}
+        WHERE true {edge_filter}
         RETURN f1.filePath AS source, f2.filePath AS target
         """
 
@@ -515,10 +516,11 @@ class LayeredArchitectureDetector(CodeSmellDetector):
             if layer_id is not None:
                 file_layers[file_id] = layer_id
 
-        # Get import edges
+        # Get import edges (use f1 for isolation filter)
+        edge_filter = self._get_isolation_filter("f1")
         import_query = f"""
         MATCH (f1:File)-[:IMPORTS]->(f2:File)
-        WHERE true {repo_filter}
+        WHERE true {edge_filter}
         RETURN id(f1) AS source, id(f2) AS target
         """
 
@@ -942,10 +944,11 @@ class HubDependencyDetector(CodeSmellDetector):
             node_names[i] = record["name"]
             id_to_idx[node_id] = i
 
-        # Get import edges
+        # Get import edges (use f1 for isolation filter)
+        edge_filter = self._get_isolation_filter("f1")
         edge_query = f"""
         MATCH (f1:File)-[:IMPORTS]->(f2:File)
-        WHERE true {repo_filter}
+        WHERE true {edge_filter}
         RETURN id(f1) AS source, id(f2) AS target
         """
 
@@ -1143,10 +1146,11 @@ class ChangeCouplingDetector(CodeSmellDetector):
             if len(indexed_files) > 1:
                 commit_files.append(indexed_files)
 
-        # Get explicit dependencies
+        # Get explicit dependencies (use f1 for isolation filter)
+        dep_filter = self._get_isolation_filter("f1")
         dep_query = f"""
         MATCH (f1:File)-[:IMPORTS]->(f2:File)
-        WHERE true {repo_filter}
+        WHERE true {dep_filter}
         RETURN id(f1) AS source, id(f2) AS target
         """
 
