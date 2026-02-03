@@ -1552,15 +1552,19 @@ async def handle_organization_created(
         if org:
             org.clerk_org_id = clerk_org_id
             org.name = name
+            if not org.graph_database_name:
+                org.graph_database_name = f"org_{slug.replace('-', '_')}"
             await db.commit()
             logger.info(f"Linked existing org {slug} to Clerk org {clerk_org_id}")
             return
 
     # Create new organization
+    graph_name = f"org_{slug.replace('-', '_')}"
     org = Organization(
         name=name,
         slug=slug,
         clerk_org_id=clerk_org_id,
+        graph_database_name=graph_name,
     )
     db.add(org)
     await db.commit()
