@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '037_add_byok_api_keys'
-down_revision = '036_add_detector_settings'
+revision = '037'
+down_revision = '036'
 branch_labels = None
 depends_on = None
 
