@@ -772,6 +772,14 @@ async def get_api_key_status(
     """
     from repotoire.utils.encryption import decrypt_api_key, mask_api_key
 
+    # Look up the database user from Clerk user ID
+    db_user_result = await session.execute(
+        select(User).where(User.clerk_user_id == user.user_id)
+    )
+    db_user_record = db_user_result.scalar_one_or_none()
+    if not db_user_record:
+        raise HTTPException(status_code=404, detail="User not found in database")
+
     # Get org - try clerk_org_id first, then internal UUID
     if org_id.startswith("org_"):
         # Clerk org ID
@@ -793,7 +801,7 @@ async def get_api_key_status(
     membership_result = await session.execute(
         select(OrganizationMembership).where(
             OrganizationMembership.organization_id == org.id,
-            OrganizationMembership.user_id == user.db_user.id,
+            OrganizationMembership.user_id == db_user_record.id,
         )
     )
     membership = membership_result.scalar_one_or_none()
@@ -838,6 +846,14 @@ async def set_api_keys(
     """
     from repotoire.utils.encryption import decrypt_api_key, encrypt_api_key, mask_api_key
 
+    # Look up the database user from Clerk user ID
+    db_user_result = await session.execute(
+        select(User).where(User.clerk_user_id == user.user_id)
+    )
+    db_user_record = db_user_result.scalar_one_or_none()
+    if not db_user_record:
+        raise HTTPException(status_code=404, detail="User not found in database")
+
     # Get org - try clerk_org_id first, then internal UUID
     if org_id.startswith("org_"):
         # Clerk org ID
@@ -859,7 +875,7 @@ async def set_api_keys(
     membership_result = await session.execute(
         select(OrganizationMembership).where(
             OrganizationMembership.organization_id == org.id,
-            OrganizationMembership.user_id == user.db_user.id,
+            OrganizationMembership.user_id == db_user_record.id,
         )
     )
     membership = membership_result.scalar_one_or_none()
@@ -904,7 +920,7 @@ async def set_api_keys(
     await audit_service.log(
         db=session,
         event_type="api_keys.updated",
-        actor_id=user.db_user.id,
+        actor_id=db_user_record.id,
         organization_id=org.id,
         resource_type="organization",
         resource_id=str(org.id),
@@ -949,6 +965,14 @@ async def delete_api_keys(
     Requires admin or owner role.
     Accepts either internal UUID or Clerk org ID (org_xxx).
     """
+    # Look up the database user from Clerk user ID
+    db_user_result = await session.execute(
+        select(User).where(User.clerk_user_id == user.user_id)
+    )
+    db_user_record = db_user_result.scalar_one_or_none()
+    if not db_user_record:
+        raise HTTPException(status_code=404, detail="User not found in database")
+
     # Get org - try clerk_org_id first, then internal UUID
     if org_id.startswith("org_"):
         # Clerk org ID
@@ -970,7 +994,7 @@ async def delete_api_keys(
     membership_result = await session.execute(
         select(OrganizationMembership).where(
             OrganizationMembership.organization_id == org.id,
-            OrganizationMembership.user_id == user.db_user.id,
+            OrganizationMembership.user_id == db_user_record.id,
         )
     )
     membership = membership_result.scalar_one_or_none()
@@ -989,7 +1013,7 @@ async def delete_api_keys(
     await audit_service.log(
         db=session,
         event_type="api_keys.deleted",
-        actor_id=user.db_user.id,
+        actor_id=db_user_record.id,
         organization_id=org.id,
         resource_type="organization",
         resource_id=str(org.id),
