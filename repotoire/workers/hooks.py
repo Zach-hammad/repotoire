@@ -1737,15 +1737,13 @@ def generate_fixes_for_analysis(
     import os
     from pathlib import Path
 
-    log = logger.bind(
-        task="generate_fixes",
-        analysis_run_id=analysis_run_id,
-    )
-    log.info("starting_fix_generation", max_fixes=max_fixes)
+    # Use standard logging with extra context
+    log_extra = {"task": "generate_fixes", "analysis_run_id": analysis_run_id}
+    logger.info(f"Starting fix generation for {analysis_run_id}, max_fixes={max_fixes}", extra=log_extra)
 
     # Check if Anthropic API key is available (prefer Claude Opus 4.5 for fix generation)
     if not os.getenv("ANTHROPIC_API_KEY"):
-        log.warning("anthropic_api_key_missing")
+        logger.warning("ANTHROPIC_API_KEY not configured", extra=log_extra)
         return {
             "status": "skipped",
             "reason": "ANTHROPIC_API_KEY not configured",
@@ -1760,11 +1758,11 @@ def generate_fixes_for_analysis(
             # Get analysis run and repository
             analysis = session.get(AnalysisRun, UUID(analysis_run_id))
             if not analysis:
-                log.warning("analysis_not_found")
+                logger.warning("Analysis not found", extra=log_extra)
                 return {"status": "skipped", "reason": "analysis_not_found"}
 
             if analysis.status != AnalysisStatus.COMPLETED:
-                log.warning("analysis_not_completed", status=analysis.status)
+                logger.warning(f"Analysis not completed, status={analysis.status}", extra=log_extra)
                 return {"status": "skipped", "reason": "analysis_not_completed"}
 
             repo = analysis.repository
@@ -1787,14 +1785,14 @@ def generate_fixes_for_analysis(
             db_findings = list(findings_result.scalars().all())
 
             if not db_findings:
-                log.info("no_findings_to_fix")
+                logger.info("No findings to fix", extra=log_extra)
                 return {
                     "status": "completed",
                     "fixes_generated": 0,
                     "reason": "no_high_severity_findings",
                 }
 
-            log.info("found_findings", count=len(db_findings))
+            logger.info(f"Found {len(db_findings)} findings to process", extra=log_extra)
 
         # Initialize AutoFixEngine with Claude Opus 4.5 (outside session to avoid long transactions)
         from repotoire.autofix.engine import AutoFixEngine
@@ -1815,7 +1813,7 @@ def generate_fixes_for_analysis(
         # Clone repository to temp location for fix generation
         clone_dir = _clone_for_fixes(repo_full_name)
         if not clone_dir:
-            log.error("clone_failed")
+            logger.error("Clone failed", extra=log_extra)
             return {"status": "failed", "reason": "could_not_clone_repository"}
 
         try:
@@ -1862,7 +1860,7 @@ def generate_fixes_for_analysis(
                         loop.close()
 
                     if fix_proposal is None:
-                        log.debug("no_fix_generated", finding_id=str(db_finding.id))
+                        logger.debug(f"No fix generated for finding {db_finding.id}", extra=log_extra)
                         continue
 
                     # Store fix in database
@@ -1875,18 +1873,15 @@ def generate_fixes_for_analysis(
                         )
 
                     fixes_generated += 1
-                    log.info(
-                        "fix_generated",
-                        finding_id=str(db_finding.id),
-                        fix_type=fix_proposal.fix_type.value,
-                        confidence=fix_proposal.confidence.value,
+                    logger.info(
+                        f"Fix generated: finding={db_finding.id}, type={fix_proposal.fix_type.value}, confidence={fix_proposal.confidence.value}",
+                        extra=log_extra,
                     )
 
                 except Exception as e:
-                    log.warning(
-                        "fix_generation_failed",
-                        finding_id=str(db_finding.id),
-                        error=str(e),
+                    logger.warning(
+                        f"Fix generation failed for finding {db_finding.id}: {e}",
+                        extra=log_extra,
                     )
                     errors.append(f"Finding {db_finding.id}: {str(e)[:100]}")
 
@@ -1896,10 +1891,9 @@ def generate_fixes_for_analysis(
             if clone_dir and Path(clone_dir).exists():
                 shutil.rmtree(clone_dir, ignore_errors=True)
 
-        log.info(
-            "fix_generation_complete",
-            fixes_generated=fixes_generated,
-            errors_count=len(errors),
+        logger.info(
+            f"Fix generation complete: generated={fixes_generated}, errors={len(errors)}",
+            extra=log_extra,
         )
 
         return {
@@ -1909,7 +1903,7 @@ def generate_fixes_for_analysis(
         }
 
     except Exception as e:
-        log.exception("fix_generation_error", error=str(e))
+        logger.exception(f"Fix generation error: {e}", extra=log_extra)
         return {
             "status": "failed",
             "error": str(e),
