@@ -1771,6 +1771,16 @@ def generate_fixes_for_analysis(
 
             repo = analysis.repository
             repo_full_name = repo.full_name
+            
+            # Get organization's API key (BYOK)
+            org_anthropic_key = None
+            if repo.organization and repo.organization.anthropic_api_key_encrypted:
+                try:
+                    from repotoire.utils.encryption import decrypt_api_key
+                    org_anthropic_key = decrypt_api_key(repo.organization.anthropic_api_key_encrypted)
+                    logger.info(f"Using org's Anthropic API key for fixes", extra=log_extra)
+                except Exception as e:
+                    logger.warning(f"Failed to decrypt org API key: {e}", extra=log_extra)
 
             # Get findings to process
             if finding_ids:
@@ -1823,6 +1833,7 @@ def generate_fixes_for_analysis(
 
         engine = AutoFixEngine(
             graph_client=graph_client,
+            api_key=org_anthropic_key,  # Use org's BYOK key if available
             llm_backend="anthropic",  # Use Claude Opus 4.5 for best fix quality
             skip_runtime_validation=True,  # Skip sandbox validation for speed
         )

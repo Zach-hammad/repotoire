@@ -724,3 +724,241 @@ async def remove_member(
     await session.commit()
 
     logger.info(f"Member removed: {target_user.email} from {org.slug}")
+
+
+# =============================================================================
+# API Key Management (BYOK)
+# =============================================================================
+
+
+class APIKeyConfig(BaseModel):
+    """Request model for setting API keys."""
+
+    anthropic_api_key: Optional[str] = Field(
+        None, description="Anthropic API key for AI fixes"
+    )
+    openai_api_key: Optional[str] = Field(
+        None, description="OpenAI API key for embeddings"
+    )
+
+
+class APIKeyStatus(BaseModel):
+    """Response model showing which API keys are configured."""
+
+    anthropic_configured: bool = Field(
+        False, description="Whether Anthropic API key is set"
+    )
+    anthropic_masked: Optional[str] = Field(
+        None, description="Masked Anthropic API key (first 8 + last 4 chars)"
+    )
+    openai_configured: bool = Field(
+        False, description="Whether OpenAI API key is set"
+    )
+    openai_masked: Optional[str] = Field(
+        None, description="Masked OpenAI API key (first 8 + last 4 chars)"
+    )
+
+
+@router.get("/{org_id}/api-keys", response_model=APIKeyStatus)
+async def get_api_key_status(
+    org_id: UUID,
+    user: ClerkUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> APIKeyStatus:
+    """Get status of configured API keys (shows masked keys, not full keys).
+    
+    Requires admin or owner role in the organization.
+    """
+    from repotoire.utils.encryption import decrypt_api_key, mask_api_key
+
+    # Get org and verify membership
+    org = await session.get(Organization, org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    # Check membership and role
+    membership_result = await session.execute(
+        select(OrganizationMembership).where(
+            OrganizationMembership.organization_id == org_id,
+            OrganizationMembership.user_id == user.db_user.id,
+        )
+    )
+    membership = membership_result.scalar_one_or_none()
+
+    if not membership or membership.role not in [MemberRole.OWNER, MemberRole.ADMIN]:
+        raise HTTPException(
+            status_code=403, detail="Only admins and owners can view API key settings"
+        )
+
+    result = APIKeyStatus()
+
+    if org.anthropic_api_key_encrypted:
+        try:
+            decrypted = decrypt_api_key(org.anthropic_api_key_encrypted)
+            result.anthropic_configured = True
+            result.anthropic_masked = mask_api_key(decrypted)
+        except Exception:
+            logger.warning(f"Failed to decrypt Anthropic key for org {org_id}")
+
+    if org.openai_api_key_encrypted:
+        try:
+            decrypted = decrypt_api_key(org.openai_api_key_encrypted)
+            result.openai_configured = True
+            result.openai_masked = mask_api_key(decrypted)
+        except Exception:
+            logger.warning(f"Failed to decrypt OpenAI key for org {org_id}")
+
+    return result
+
+
+@router.put("/{org_id}/api-keys", response_model=APIKeyStatus)
+async def set_api_keys(
+    org_id: UUID,
+    config: APIKeyConfig,
+    user: ClerkUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> APIKeyStatus:
+    """Set or update API keys for the organization.
+    
+    Pass null/empty to clear a key. Requires admin or owner role.
+    """
+    from repotoire.utils.encryption import decrypt_api_key, encrypt_api_key, mask_api_key
+
+    # Get org and verify membership
+    org = await session.get(Organization, org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    # Check membership and role
+    membership_result = await session.execute(
+        select(OrganizationMembership).where(
+            OrganizationMembership.organization_id == org_id,
+            OrganizationMembership.user_id == user.db_user.id,
+        )
+    )
+    membership = membership_result.scalar_one_or_none()
+
+    if not membership or membership.role not in [MemberRole.OWNER, MemberRole.ADMIN]:
+        raise HTTPException(
+            status_code=403, detail="Only admins and owners can update API keys"
+        )
+
+    # Update keys
+    if config.anthropic_api_key is not None:
+        if config.anthropic_api_key:
+            # Validate key format
+            if not config.anthropic_api_key.startswith("sk-ant-"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid Anthropic API key format (should start with sk-ant-)",
+                )
+            org.anthropic_api_key_encrypted = encrypt_api_key(config.anthropic_api_key)
+            logger.info(f"Anthropic API key set for org {org.slug}")
+        else:
+            org.anthropic_api_key_encrypted = None
+            logger.info(f"Anthropic API key cleared for org {org.slug}")
+
+    if config.openai_api_key is not None:
+        if config.openai_api_key:
+            if not config.openai_api_key.startswith("sk-"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid OpenAI API key format (should start with sk-)",
+                )
+            org.openai_api_key_encrypted = encrypt_api_key(config.openai_api_key)
+            logger.info(f"OpenAI API key set for org {org.slug}")
+        else:
+            org.openai_api_key_encrypted = None
+            logger.info(f"OpenAI API key cleared for org {org.slug}")
+
+    await session.commit()
+
+    # Audit log
+    audit_service = get_audit_service()
+    await audit_service.log(
+        db=session,
+        event_type="api_keys.updated",
+        actor_id=user.db_user.id,
+        organization_id=org.id,
+        resource_type="organization",
+        resource_id=str(org.id),
+        action="update",
+        metadata={
+            "anthropic_set": config.anthropic_api_key is not None and bool(config.anthropic_api_key),
+            "openai_set": config.openai_api_key is not None and bool(config.openai_api_key),
+        },
+    )
+    await session.commit()
+
+    # Return updated status
+    result = APIKeyStatus()
+
+    if org.anthropic_api_key_encrypted:
+        try:
+            decrypted = decrypt_api_key(org.anthropic_api_key_encrypted)
+            result.anthropic_configured = True
+            result.anthropic_masked = mask_api_key(decrypted)
+        except Exception:
+            pass
+
+    if org.openai_api_key_encrypted:
+        try:
+            decrypted = decrypt_api_key(org.openai_api_key_encrypted)
+            result.openai_configured = True
+            result.openai_masked = mask_api_key(decrypted)
+        except Exception:
+            pass
+
+    return result
+
+
+@router.delete("/{org_id}/api-keys")
+async def delete_api_keys(
+    org_id: UUID,
+    user: ClerkUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete all API keys for the organization.
+    
+    Requires admin or owner role.
+    """
+    # Get org and verify membership
+    org = await session.get(Organization, org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    # Check membership and role
+    membership_result = await session.execute(
+        select(OrganizationMembership).where(
+            OrganizationMembership.organization_id == org_id,
+            OrganizationMembership.user_id == user.db_user.id,
+        )
+    )
+    membership = membership_result.scalar_one_or_none()
+
+    if not membership or membership.role not in [MemberRole.OWNER, MemberRole.ADMIN]:
+        raise HTTPException(
+            status_code=403, detail="Only admins and owners can delete API keys"
+        )
+
+    org.anthropic_api_key_encrypted = None
+    org.openai_api_key_encrypted = None
+    await session.commit()
+
+    # Audit log
+    audit_service = get_audit_service()
+    await audit_service.log(
+        db=session,
+        event_type="api_keys.deleted",
+        actor_id=user.db_user.id,
+        organization_id=org.id,
+        resource_type="organization",
+        resource_id=str(org.id),
+        action="delete",
+        metadata={},
+    )
+    await session.commit()
+
+    logger.info(f"All API keys deleted for org {org.slug}")
+
+    return {"status": "ok", "message": "API keys deleted"}

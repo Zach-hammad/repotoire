@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, List
 from uuid import UUID
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin, generate_repr
@@ -126,6 +126,18 @@ class Organization(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         nullable=True,
         default="falkordb",
         comment="Graph database backend: 'neo4j' or 'falkordb'",
+    )
+
+    # BYOK API keys (encrypted at rest)
+    anthropic_api_key_encrypted: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Encrypted Anthropic API key for AI fixes (BYOK)",
+    )
+    openai_api_key_encrypted: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Encrypted OpenAI API key for embeddings (BYOK)",
     )
 
     # Relationships
