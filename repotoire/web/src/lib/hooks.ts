@@ -512,13 +512,14 @@ export function useGenerateFixes() {
     { status: string; message: string; task_id?: string },
     Error,
     string,
-    { analysisRunId: string; maxFixes?: number; severityFilter?: string[] }
+    { analysisRunId: string; maxFixes?: number; severityFilter?: string[]; findingIds?: string[] }
   >(
     'generate-fixes',
     async (_key, { arg }) => {
       return fixesApi.generate(arg.analysisRunId, {
         maxFixes: arg.maxFixes,
         severityFilter: arg.severityFilter,
+        findingIds: arg.findingIds,
       });
     }
   );

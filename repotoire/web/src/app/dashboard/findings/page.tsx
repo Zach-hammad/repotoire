@@ -31,7 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useFindings, useFindingsSummary, useFindingsByDetector, useRepositories, useFixes, useBulkUpdateFindingStatus } from '@/lib/hooks';
+import { useFindings, useFindingsSummary, useFindingsByDetector, useRepositories, useFixes, useBulkUpdateFindingStatus, useGenerateFixes } from '@/lib/hooks';
 import type { LucideIcon } from 'lucide-react';
 import {
   AlertTriangle,
@@ -316,6 +316,7 @@ function confirmDialogReducer(state: ConfirmDialogState, action: ConfirmDialogAc
 function FindingsContent() {
   const searchParams = useSearchParams();
   const { trigger: bulkUpdateStatus, isMutating: isUpdatingStatus } = useBulkUpdateFindingStatus();
+  const { trigger: generateFixes, isMutating: isGeneratingFixes } = useGenerateFixes();
 
   // State
   const [page, setPage] = useState(() => {
@@ -497,6 +498,51 @@ function FindingsContent() {
 
     dispatchConfirmDialog({ type: 'CLOSE' });
     setStatusReason('');
+  };
+
+  // Handler for generating AI fixes for selected findings
+  const handleGenerateFixes = async () => {
+    if (selectedFindings.size === 0) return;
+
+    // Get the analysis_run_id from the first selected finding
+    const selectedFindingsList = findings?.items.filter(f => selectedFindings.has(f.id)) || [];
+    if (selectedFindingsList.length === 0) return;
+
+    // All findings should be from the same analysis run for this to work
+    const analysisRunId = (selectedFindingsList[0] as { analysis_run_id?: string }).analysis_run_id;
+    if (!analysisRunId) {
+      toast.error('Cannot generate fixes', {
+        description: 'Selected findings are missing analysis run information',
+      });
+      return;
+    }
+
+    try {
+      const result = await generateFixes({
+        analysisRunId,
+        findingIds: Array.from(selectedFindings),
+        maxFixes: selectedFindings.size,
+      });
+
+      if (result.status === 'queued') {
+        toast.success('🤖 AI fix generation started', {
+          description: `Generating fixes for ${selectedFindings.size} finding${selectedFindings.size !== 1 ? 's' : ''}. Check the Fixes tab soon!`,
+        });
+        setSelectedFindings(new Set());
+      } else if (result.status === 'skipped') {
+        toast.info('Fix generation skipped', {
+          description: result.message,
+        });
+      } else {
+        toast.error('Fix generation failed', {
+          description: result.message,
+        });
+      }
+    } catch (error) {
+      toast.error('Failed to generate fixes', {
+        description: getFriendlyErrorMessage(error),
+      });
+    }
   };
 
   // Group detectors by category
@@ -948,6 +994,24 @@ function FindingsContent() {
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>Issue has been fixed in the code</TooltipContent>
+                </Tooltip>
+
+                <div className="w-px h-6 bg-border mx-1" />
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={handleGenerateFixes}
+                      disabled={isGeneratingFixes || isUpdatingStatus}
+                      className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700"
+                    >
+                      {isGeneratingFixes ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <span className="mr-1">🤖</span>}
+                      Generate AI Fixes
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Generate AI-powered fix suggestions for selected findings</TooltipContent>
                 </Tooltip>
               </div>
             </CardContent>

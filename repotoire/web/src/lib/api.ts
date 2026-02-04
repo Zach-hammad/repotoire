@@ -269,7 +269,7 @@ export const fixesApi = {
   // Generate fixes for an analysis run
   generate: async (
     analysisRunId: string,
-    options?: { maxFixes?: number; severityFilter?: string[] }
+    options?: { maxFixes?: number; severityFilter?: string[]; findingIds?: string[] }
   ): Promise<{ status: string; message: string; task_id?: string }> => {
     if (!analysisRunId || analysisRunId.trim().length === 0) {
       throw new ApiError('Analysis run ID is required', 400);
@@ -284,6 +284,7 @@ export const fixesApi = {
       body: JSON.stringify({
         max_fixes: maxFixes,
         severity_filter: options?.severityFilter ?? ['critical', 'high'],
+        finding_ids: options?.findingIds,
       }),
     });
   },
