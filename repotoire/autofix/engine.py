@@ -858,7 +858,9 @@ Generate a fix for this issue. Provide your response in the following JSON forma
 - Preserve existing functionality
 - Follow {language_name} best practices
 - Keep changes minimal and focused
-- Ensure the fixed code is syntactically valid
+- Ensure the fixed code is syntactically valid and COMPLETE
+- **CRITICAL**: `fixed_code` must be valid, runnable code - include the COMPLETE function/class body, not just signatures
+- For type annotation fixes: include the full function with its body (def + body), not just the signature line
 - **Provide evidence**: Include similar patterns, documentation references, and best practices to justify the fix"""
 
         return prompt
