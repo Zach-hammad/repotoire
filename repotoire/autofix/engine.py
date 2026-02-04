@@ -1,6 +1,7 @@
 """Core auto-fix engine for generating code fixes."""
 
 import asyncio
+import difflib
 import hashlib
 import os
 import re
@@ -56,6 +57,66 @@ _PROMPT_INJECTION_PATTERNS = [
     re.compile(r"output\s+(your\s+)?(api\s*key|secret|password|credential)", re.IGNORECASE),
     re.compile(r"reveal\s+(your\s+)?(api\s*key|secret|password|credential)", re.IGNORECASE),
 ]
+
+
+def _normalize_code_for_matching(code: str) -> str:
+    """Normalize code for fuzzy matching.
+
+    Strips leading/trailing whitespace from each line, removes blank lines,
+    and normalizes multiple spaces to single spaces. This helps match code
+    even when there are minor whitespace differences.
+
+    Args:
+        code: Source code to normalize
+
+    Returns:
+        Normalized code string
+    """
+    lines = [line.strip() for line in code.strip().split("\n")]
+    lines = [line for line in lines if line]  # Remove empty lines
+    return "\n".join(lines)
+
+
+def _fuzzy_code_match(original_code: str, file_content: str, threshold: float = 0.85) -> bool:
+    """Check if original code approximately matches somewhere in file content.
+
+    Uses both exact matching (with normalization) and fuzzy matching via
+    difflib to handle minor whitespace and formatting differences.
+
+    Args:
+        original_code: The code snippet to find
+        file_content: The full file content to search in
+        threshold: Minimum similarity ratio for fuzzy match (0.0-1.0)
+
+    Returns:
+        True if a match is found, False otherwise
+    """
+    # First try exact match with normalization
+    norm_original = _normalize_code_for_matching(original_code)
+    norm_content = _normalize_code_for_matching(file_content)
+
+    if norm_original in norm_content:
+        return True
+
+    # Try line-by-line fuzzy matching - find the best matching window
+    original_lines = norm_original.split("\n")
+    content_lines = norm_content.split("\n")
+    window_size = len(original_lines)
+
+    if window_size == 0:
+        return False
+
+    # Slide window across content
+    best_ratio = 0.0
+    for i in range(max(1, len(content_lines) - window_size + 1)):
+        window = "\n".join(content_lines[i : i + window_size])
+        ratio = difflib.SequenceMatcher(None, norm_original, window).ratio()
+        best_ratio = max(best_ratio, ratio)
+        if ratio >= threshold:
+            return True
+
+    logger.debug(f"Best fuzzy match ratio: {best_ratio:.2f} (threshold: {threshold})")
+    return False
 
 
 def _sanitize_code_for_prompt(code: str, language: str = "python") -> str:
@@ -844,8 +905,8 @@ Generate a fix for this issue. Provide your response in the following JSON forma
     "changes": [
         {{
             "file_path": "{file_path}",
-            "original_code": "exact original code to replace",
-            "fixed_code": "new code",
+            "original_code": "exact original code to replace (copy from Current Code above)",
+            "fixed_code": "new code (must be complete and syntactically valid)",
             "start_line": line_number,
             "end_line": line_number,
             "description": "what this change does"
@@ -853,15 +914,15 @@ Generate a fix for this issue. Provide your response in the following JSON forma
     ]
 }}
 
-**Important**:
-- Only fix the specific issue mentioned
-- Preserve existing functionality
-- Follow {language_name} best practices
-- Keep changes minimal and focused
-- Ensure the fixed code is syntactically valid and COMPLETE
-- **CRITICAL**: `fixed_code` must be valid, runnable code - include the COMPLETE function/class body, not just signatures
-- For type annotation fixes: include the full function with its body (def + body), not just the signature line
-- **Provide evidence**: Include similar patterns, documentation references, and best practices to justify the fix"""
+**CRITICAL REQUIREMENTS**:
+1. `original_code` MUST be copied exactly from the "Current Code" section above - match whitespace and indentation
+2. `fixed_code` MUST be syntactically valid {language_name} that can be parsed without errors
+3. For function fixes, include the ENTIRE function definition with its body:
+   - WRONG: `def foo() -> int:` (incomplete - missing body)
+   - CORRECT: `def foo() -> int:\\n    return 42` (complete with body)
+4. Both `original_code` and `fixed_code` must have matching indentation levels
+5. Only fix the specific issue - preserve all existing functionality
+6. Keep changes minimal and focused"""
 
         return prompt
 
@@ -1057,13 +1118,13 @@ Generate a fix for this issue. Provide your response in the following JSON forma
                     all_valid = False
                     all_errors.extend(result.errors)
 
-                # Also verify original code exists
+                # Also verify original code exists (using fuzzy matching)
                 file_path = repository_path / change.file_path
                 if file_path.exists():
                     with open(file_path, "r", encoding="utf-8") as f:
                         content = f.read()
 
-                    if change.original_code.strip() not in content:
+                    if not _fuzzy_code_match(change.original_code, content):
                         all_errors.append(
                             ValError(
                                 level=ValidationLevel.SYNTAX.value,
