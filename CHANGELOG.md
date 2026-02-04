@@ -9,6 +9,322 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
+- Handle uv-secure JSON line wrapping in dependency scanner
+- **historical:** Allow git extraction from subdirectories
+- **api:** Correct historical router prefix
+- **historical:** Use existing Neo4j connection for Graphiti
+- **historical:** Use FalkorDriver for Graphiti connection
+- **security:** Address critical vulnerabilities and code quality issues
+- **launch:** Address remaining launch readiness issues
+- **tests:** Add tests __init__.py for proper package imports
+- Update homepage trial text from 14 to 7 days
+- Add /features and /how-it-works to public routes
+- **ingestion:** Revert slow size(split()) patterns to native CONTAINS
+- **ingestion:** Remove C++/Rust '::' filter from entities query
+- **ingestion:** Include class methods in community mapping + remove redundant :: filters
+- **graph:** KG-3 - connect internal CONTAINS relationships properly
+- **logging:** Remove duplicate log statements from falkordb_client
+- **api:** Add embedding backend env var support and tenant isolation
+- Sync version to 0.1.3 in __init__.py
+- **graph:** Address 7 issues from security/performance audit
+- **web:** Remove mock data and legacy routes causing multi-tenant data leak
+- **api:** Implement actual Graphiti queries for git history endpoints
+- **ci:** Add missing files for CI to pass
+- **billing:** Improve security, validation, and testability
+- **ci:** Remove timestamp from generated types header
+- Remove shadowing Path import and update neo4j->falkordb test
+- **tests:** Update tests for async fixtures and API changes
+- **api:** Enable preview_fix endpoint to work with database fixes
+- **tests:** Convert asset storage tests to async/await
+- **tests:** Update tests for refactored detectors and cloud client
+- **api:** Correctly await get_preview_cache in dependency
+- **tests:** Update test assertions for refactored implementations
+- **tests:** Fix GraphSAGE skip check and API key validation mock
+- **sandbox:** Ensure directories exist before creating __init__.py
+- **tests:** Update integration tests for refactored APIs
+- **sandbox:** Preserve absolute paths when creating __init__.py files
+- **tests:** Fix FalkorDB integration test connection issues
+- **web:** Handle missing Clerk key during CI builds
+- **web:** Use placeholder Clerk key for CI builds
+- **ci:** Add Clerk publishable key fallback in workflow
+- **security:** Harden Stripe integration with multiple security improvements
+- **security:** Address critical and high severity bugs across backend
+- Address critical bugs identified in E2E workflow analysis
+- **api:** Add stub billing endpoints for Clerk migration
+- Address security, UX, and reliability issues from comprehensive audit
+- **api:** Return null for payment-method stub endpoint
+- **web:** Use Clerk's openOrganizationProfile for billing
+- Comprehensive bug fixes from second audit round
+- Address critical audit findings for production readiness
+- Comprehensive launch readiness improvements
+- Resolve SQLAlchemy index and FastAPI dependency issues
+- Resolve 5 failing test cases
+- **db:** Add in_app_notifications table and fix conditional indexes
+- **web:** Make service worker resilient to missing files
+- **web:** Remove missing manifest.json and add Clerk redirect props
+- **security:** Prevent SQL injection in TimescaleDB INTERVAL clause
+- **a11y:** Add SheetTitle and aria-describedby to mobile navigation
+- **scoring:** Factor findings into health score calculation
+- **alembic:** Handle asyncpg URLs and sslmode for Neon migrations
+- **models:** Remove default value from issues_score for dataclass ordering
+- **db:** Add CANCELLED status to AnalysisStatus enum
+- **workers:** Remove duplicate _get_graph_client_for_org function
+- **detectors:** Rename metadata to graph_context in MiddleManDetector
+- **workers:** Increase task time limits for large analyses
+- **workers:** Reset Redis concurrency counters on cleanup
+- **workers:** Update repository health_score after analysis completes
+- **api:** Filter Repository lookup by organization_id
+- Add batch_get_file_metadata to CloudProxyClient
+- Add batch_delete_file_entities to CloudProxyClient
+- **api:** Use clerk_org_id instead of org_slug for organization lookups
+- **detectors:** FalkorDB IN operator type mismatch in DeadCodeDetector
+- **detectors:** Use list comprehension for FalkorDB IN operator
+- **detectors:** Use NOT any() for FalkorDB list membership check
+- **detectors:** Remove hardcoded path filters from DeadCodeDetector
+- Remove repo-specific hardcoding for universal compatibility
+- Use performance cpu_kind for fly.io worker
+- Route cloud clients through dedicated NLQ API endpoints
+- Pass user context to NLQ API handlers for tenant isolation
+- Worker permission error and DeadCodeDetector type mismatch
+- **detectors:** Handle empty exports list in FalkorDB any() check
+- **detectors:** Remove problematic exports check from FalkorDB queries
+- **detectors:** Remove Neo4j branches from DeadCodeDetector for FalkorDB-only usage
+- **detectors:** Remove label filter from GodClassDetector LCOM query
+- **detectors:** Move GodClassDetector pattern checks to Python
+- **worker:** Optimize Celery memory configuration for ML workloads
+- **dedup:** Unified grouping module to prevent duplicate findings
+- **detectors:** Resolve FalkorDB size() type mismatch in DeadCodeDetector
+- **detectors:** Move decorator check from Cypher to Python in DeadCodeDetector
+- **detectors:** Move is_method filter from Cypher to Python
+- **detectors:** Replace NOT patterns with OPTIONAL MATCH + IS NULL
+- **detectors:** Use count() = 0 instead of IS NULL for FalkorDB compatibility
+- **detectors:** Simplify dead class query - remove STARTS WITH clause
+- **detectors:** Fix JscpdDetector for multi-language support
+- **api:** Add API key auth to analysis and analytics routes
+- **detectors:** Add missing json import and remove duplicate metadata
+- Add response_model=None to report download endpoint
+- Use create_client instead of non-existent get_factory
+- Allow JWT auth for graph routes (frontend compatibility)
+- Update historical.py to use renamed GraphUser
+- **api:** Resolve OOM by caching CodeEmbedder singleton
+- **detectors:** Use direct CONTAINS relationship in god_class queries
+- **deploy:** Pin FalkorDB v4.14.10 and fix thread oversubscription
+- **stability:** Comprehensive REPO-500 stability improvements
+- **security:** Add Cypher query validation and complete REPO-500 reliability fixes
+- **api:** Add error handling for GitHub API calls in github routes
+- **sync:** Comprehensive thread-safety fixes across codebase
+- **sync:** Add thread-safety locks across 15 modules
+- **sync:** Add thread-safety locks across 15 modules
+- **billing:** Restore missing billing module and fix import errors
+- **tests:** Exclude sample repos from test collection
+- **parsers:** Extract type_parameters from TypeScript function declarations
+- **tests:** Sync tests with REPO-500 graph naming and env isolation
+- GitHub webhook CSRF exemption and improved JSON error logging
+- Worker memory optimization + profiling
+- Graph endpoint org lookup fallback to internal UUID
+- Remove invalid TCP health check from worker
+- Eagerly load subscription in get_org_by_clerk_id to avoid async lazy load error
+- Pass correct repo_id to analyze_repository in analyze_repo_by_id
+- Use correct node alias for isolation filter in edge queries
+- Use f1 isolation filter for call edge queries in CallChainDepthDetector
+- Link new orgs to Clerk org_id for API key validation
+- Set graph_database_name in Clerk webhook org creation
+- Replace structlog .bind() with standard logging in fix generation
+- Add anthropic extra to Dockerfile for AI fix generation
+- Configure LanceDB vector store for AutoFixEngine retriever
+- Add finding_ids to GenerateFixesRequest types (manual sync)
+- Eagerly load org.subscription to prevent async lazy load error
+- Align embedding backends and disable compression for dimension consistency
+- Instruct LLM to generate complete code, not just signatures
+- Fuzzy code matching + improved LLM prompt for autofix
+- Correct alembic revision ID
+- **api:** Accept Clerk org ID in BYOK api-keys endpoints
+- Exclude web/ from Docker context to speed up builds
+- **api:** Lookup DB user from Clerk ID in BYOK api-keys endpoints
+- **api:** Accept Clerk org ID in detector settings and rules endpoints
+- **web:** Use Clerk org ID instead of slug for API calls
+- **db:** Add missing in_app_notifications column to email_preferences
+
+### Build
+
+- **docker:** Switch from Node.js to Bun for faster JS tooling
+
+### CI/CD
+
+- Remove integration-neo4j job from test workflow
+- Add Rust toolchain and maturin for FalkorDB tests
+
+### Documentation
+
+- Update CLAUDE.md to reference FalkorDB instead of Neo4j
+- Add architecture-patterns.json to prevent /improve false positives
+- Add Multi-Tenant Architecture section to CLAUDE.md
+- Add security patterns to architecture-patterns.json
+- Add API patterns to architecture-patterns.json
+- Add frontend billing patterns to architecture-patterns.json
+- Update architecture-patterns with webhook security details
+
+### Features
+
+- Server-side embeddings + cloud mode CLI fixes
+- **historical:** Migrate from Neo4j to FalkorDB for Graphiti
+- Integrate git history into ingest flow automatically
+- Add graphiti-core to core dependencies
+- **provenance:** Add provenance settings UI and historical API tests
+- **billing:** Switch to 7-day free trial model with Clerk Billing
+- **embeddings:** Auto-generate embeddings for Pro/Enterprise plans
+- **embeddings:** Use DeepInfra Qwen3-Embedding-8B instead of OpenAI
+- **web:** Dashboard UX improvements and standardization
+- **web:** Findings page improvements with detail view and code viewer
+- **findings:** Add status workflow management
+- **dashboard:** Comprehensive UX and accessibility improvements
+- **repos:** Improve UX with smart routing and actionable overview
+- **fixes:** Enhance UX with friendly descriptions, tooltips, and confirmation dialogs
+- **fixes:** Add data consistency sync between findings and fixes
+- **web:** Add openapi-typescript for automated type generation
+- **docker:** Add sandbox extras for E2B support
+- **docker:** Add sandbox extras to Dockerfile.api for E2B support
+- **web:** Add comprehensive billing UI components
+- **web:** Integrate billing components into dashboard billing page
+- **stripe:** Complete Stripe integration with deduplication and Connect support
+- **web:** Enhance UI with animations, dashboard components, and marketing updates
+- Comprehensive UX/DX improvements across web and CLI
+- Add security hardening for SaaS launch
+- **workers:** Add automatic cleanup for stuck analyses
+- **workers:** Add automatic git history ingestion during analysis
+- Wire Rust speedups to frontend and CLI
+- **detectors:** Add incremental analysis and repo_id filtering
+- Replace Graphiti with GitHistoryRAG (99% cost reduction)
+- **parsers:** Add TypeScript and JavaScript parser support
+- **models:** Add language field to Finding for multi-language support
+- **detectors:** Add ESLint hybrid detector for TypeScript/JavaScript
+- **detectors:** Add TypeScript detectors with Bun runtime support
+- **mcp:** Add analysis trigger tools to MCP server (REPO-432)
+- **github:** Add GitHub Checks API integration for PR analysis
+- **parsers:** Complete TypeScript/JavaScript parser with 4 key improvements
+- **parsers:** Add Java parser with tree-sitter
+- **parsers:** Add Go parser with tree-sitter
+- **settings:** Add detector threshold configuration (REPO-430)
+- **rules:** Add custom rules management UI (REPO-431)
+- **analysis:** Add report download API endpoint (REPO-433)
+- **security:** Add secrets scanning UI and API (REPO-434)
+- **monorepo:** Add monorepo support to web UI (REPO-435)
+- **graph:** Add Cypher query playground for power users (REPO-436)
+- **settings:** Add pre-commit hook configuration wizard (REPO-437)
+- **rust:** Add batch performance optimizations (REPO-403 to REPO-408)
+- **rust:** Wire Rust performance functions into Python codebase
+- **rust:** Add SIMD-optimized similarity and parallel string operations
+- Wire SIMD-optimized Rust functions into Python codebase
+- **rust:** Add transitive closure cache for O(1) reachability queries
+- Integrate path expression cache into detectors (REPO-416)
+- **embeddings:** Add automatic memory optimizations for vector storage
+- **reporting:** Add new report formats and customization (Phases 1-2)
+- Comprehensive codebase improvements (Phases 1-8)
+- **config:** Consolidate configuration system with RepotoireConfig as single source of truth
+- **tenant:** Add async-safe TenantContext and middleware for multi-tenant isolation
+- **tenant:** Add automatic tenant resolution and tenant-aware logging
+- **tenant:** Add node-level tenant filtering for defense-in-depth isolation
+- **tenant:** Complete multi-tenant isolation + remove deprecated Graphiti
+- **api:** Add idempotency middleware, cursor pagination, and async fixes
+- **billing:** Enforce subscription limits across frontend and backend
+- **parsers:** Add modern language feature support and generic fallback parser
+- **taint:** Add backward taint analysis (find_taint_sources)
+- Add LanceDB persistent storage support
+- Add profiling to analysis tasks
+- Add finding_ids parameter for selective fix generation
+- Add 'Generate AI Fixes' button to findings page
+- Add retry mechanism with error feedback for fix generation
+- BYOK API keys for AI fixes
+- Add clear error when no API key configured for AI fixes
+- **frontend:** Add BYOK AI provider keys settings page
+
+### Fix
+
+- Add httpx[http2] for HTTP/2 support
+
+### Miscellaneous
+
+- Add npm lock files
+- Regenerate API types
+- Add .claude and .playwright-mcp to gitignore
+- **infra:** Increase worker memory to 8GB for embedding model
+- **detectors:** Add debug logging to DeadCodeDetector with version marker
+- **detectors:** Remove debug logging from DeadCodeDetector
+- Update uv.lock
+- **deploy:** Improve deployment flow with tests, security, and optimization
+- **fly:** Optimize for minimal cost when idle
+- Upgrade FalkorDB to v4.16.1
+
+### Performance
+
+- **api:** Parallel LLM calls + MCP server timeouts
+- Add Phase 1 performance optimizations for embeddings and git
+- Add Phase 2 tree-sitter parallel parsing (13x speedup)
+- **detectors:** Fix FalkorDB integration and optimize with Rust batch hashing
+- **detectors:** Leverage Rust for 10x+ speedups across detectors
+- Implement path_cache for dead code detectors and dynamic workers
+- Reduce FalkorDB pressure during ingestion
+- Further reduce FalkorDB pressure
+- Ultra-conservative FalkorDB settings (batch 10, 500ms delays)
+- Increase batch size to 100, reduce delays to 50ms (BGSAVE disabled)
+
+### Refactoring
+
+- **cli:** Remove legacy Neo4j options from cloud-only CLI
+- **cli:** Remove Neo4j options from cloud-first commands
+- **cli:** Convert monorepo and ml commands to cloud client
+- **cli:** Remove historical commands for server-side integration
+- Replace Neo4jClient references with FalkorDBClient
+- Remove neo4j_graphrag dependency, use OpenAI SDK directly
+- **web:** Rename middleware.ts to proxy.ts for Next.js 16
+- **voting:** Migrate to unified grouping module
+- Remove embeddings and vector store
+- Store embeddings in LanceDB only (not on graph nodes)
+
+### Testing
+
+- Update historical routes tests for new backfill behavior
+- **detectors:** Add comprehensive health delta calculator tests
+- **detectors:** Add integration tests for DeadCodeDetector decorator queries
+- **parsers:** Add comprehensive tests for TypeScript parser features
+- Add unit tests for encryption utility
+
+### Cleanup
+
+- Remove debug print statements, keep logger calls
+
+### Debug
+
+- Add diagnostic logging to path_cache building
+- Add print() statements to diagnose path_cache import
+- Log validation errors for fix generation
+
+### Revert
+
+- **web:** Restore purple color scheme to match logo
+- **web:** Restore Inter, Space Grotesk, and Geist Mono fonts
+
+### Ux
+
+- Better error messages for org mismatch and missing org context
+
+## [0.1.3] - 2025-12-29
+
+### Features
+
+- **cli:** Implement cloud-only architecture with API graph proxy
+- Cloud-only CLI with FalkorDB backend fixes
+
+## [0.1.2] - 2025-12-29
+
+### Bug Fixes
+
+- **build:** Include LICENSE file in source distribution
+
+## [0.1.1] - 2025-12-29
+
+### Bug Fixes
+
 - Resolve critical bugs in parser and graph relationship handling
 - Security hardening, batch relationships, and inheritance extraction
 - Add findings support and improve data ingestion robustness
@@ -65,6 +381,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci:** Consolidate release workflow for single package
 - **ci:** Use uv tool install instead of pip install --system
 - **ci:** Skip builds in dry run mode, update macOS runner
+- **ci:** Fix maturin cross-compilation for Linux targets
+- **ci:** Install OpenSSL for Linux builds, remove retired macOS Intel
+- **ci:** Disable Linux ARM64 cross-compilation for now
+- **ci:** Use native ARM runner and macos-15-intel for full platform coverage
+- **ci:** Fix publish conditions for tag push events
+- **ci:** Ensure publish jobs run for tag push events
 
 ### CI/CD
 
@@ -91,6 +413,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add query cookbook and prompt documentation
 - Remove stale internal documentation
 - Add reorganized documentation structure
+- Update changelog
 
 ### Features
 
