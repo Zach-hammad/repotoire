@@ -5,7 +5,7 @@ Analyzes codebases using knowledge graphs to detect code smells,
 architectural issues, and technical debt.
 """
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 from repotoire.pipeline import IngestionPipeline
 from repotoire.graph import FalkorDBClient
