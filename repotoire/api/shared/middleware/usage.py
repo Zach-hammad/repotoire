@@ -44,8 +44,11 @@ async def get_org_from_user_flexible(
             detail="Organization context required. Use an org-scoped API key or select an organization.",
         )
 
+    # Eagerly load subscription to avoid lazy loading in has_feature() check
     result = await db.execute(
-        select(Organization).where(Organization.clerk_org_id == user.org_id)
+        select(Organization)
+        .options(selectinload(Organization.subscription))
+        .where(Organization.clerk_org_id == user.org_id)
     )
     org = result.scalar_one_or_none()
 
@@ -80,8 +83,11 @@ async def get_org_from_user(
             detail="Organization context required",
         )
 
+    # Eagerly load subscription to avoid lazy loading in has_feature() check
     result = await db.execute(
-        select(Organization).where(Organization.clerk_org_id == user.org_id)
+        select(Organization)
+        .options(selectinload(Organization.subscription))
+        .where(Organization.clerk_org_id == user.org_id)
     )
     org = result.scalar_one_or_none()
 
