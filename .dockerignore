@@ -66,6 +66,8 @@ tests/integration/
 
 # Node modules (if any frontend)
 node_modules/
+**/node_modules/
+repotoire/web/
 
 # Misc
 *.bak
