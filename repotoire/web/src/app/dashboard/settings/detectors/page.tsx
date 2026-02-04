@@ -215,7 +215,8 @@ function ThresholdGroup({
 export default function DetectorSettingsPage() {
   const { organization, isLoaded: orgLoaded } = useOrganization();
   const { isAuthReady } = useApiAuth();
-  const orgSlug = organization?.slug;
+  // Use organization.id (org_xxx format) for API calls - the API accepts both Clerk org IDs and internal slugs
+  const orgSlug = organization?.id;
 
   // Expanded state for threshold groups
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});

@@ -610,7 +610,8 @@ function RuleTestDialog({
 export default function RulesPage() {
   const { organization, isLoaded: orgLoaded } = useOrganization();
   const { isAuthReady } = useApiAuth();
-  const orgSlug = organization?.slug;
+  // Use organization.id (org_xxx format) for API calls - the API accepts both Clerk org IDs and internal slugs
+  const orgSlug = organization?.id;
 
   // UI state
   const [searchQuery, setSearchQuery] = useState('');
