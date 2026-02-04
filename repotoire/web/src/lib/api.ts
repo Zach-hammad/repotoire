@@ -1032,5 +1032,49 @@ export const topologyApi = {
   },
 };
 
+// ==========================================
+// AI Provider Keys (BYOK) API
+// ==========================================
+
+export interface AIProviderKeyStatus {
+  anthropic_configured: boolean;
+  anthropic_masked: string | null;
+  openai_configured: boolean;
+  openai_masked: string | null;
+}
+
+export interface SetAIProviderKeysRequest {
+  anthropic_api_key?: string | null;
+  openai_api_key?: string | null;
+}
+
+export const aiProviderKeysApi = {
+  /**
+   * Get API key status (shows which keys are configured)
+   */
+  getStatus: async (orgId: string): Promise<AIProviderKeyStatus> => {
+    return request<AIProviderKeyStatus>(`/orgs/${orgId}/api-keys`);
+  },
+
+  /**
+   * Set or update API keys
+   */
+  setKeys: async (orgId: string, keys: SetAIProviderKeysRequest): Promise<AIProviderKeyStatus> => {
+    return request<AIProviderKeyStatus>(`/orgs/${orgId}/api-keys`, {
+      method: 'PUT',
+      body: JSON.stringify(keys),
+    });
+  },
+
+  /**
+   * Delete all API keys
+   */
+  deleteKeys: async (orgId: string): Promise<{ status: string }> => {
+    return request<{ status: string }>(`/orgs/${orgId}/api-keys`, {
+      method: 'DELETE',
+    });
+  },
+};
+
 // Export error class for use in components
 export { ApiError };

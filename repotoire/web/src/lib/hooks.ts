@@ -34,6 +34,8 @@ import {
 // NOTE: Removed billing types (CheckoutResponse, PlansResponse, PortalResponse, PriceCalculationResponse)
 // as part of Clerk Billing migration. These are no longer used by frontend hooks.
 import {
+  aiProviderKeysApi,
+  AIProviderKeyStatus,
   analyticsApi,
   billingApi,
   DeleteNotificationsResponse,
@@ -53,6 +55,7 @@ import {
   provenanceSettingsApi,
   repositoriesApi,
   request,
+  SetAIProviderKeysRequest,
   TopologyData,
   topologyApi,
   userPreferencesApi,
@@ -1392,6 +1395,46 @@ export function useHotspotsTerrain(repositoryId?: string, limit: number = 50) {
   );
 }
 
+// ==========================================
+// AI Provider Keys (BYOK) Hooks
+// ==========================================
+
+/**
+ * Hook to fetch AI provider key status for an organization.
+ * Shows which keys are configured (masked values).
+ */
+export function useAIProviderKeys(orgId: string | null) {
+  const { isAuthReady } = useApiAuth();
+
+  return useSWR<AIProviderKeyStatus>(
+    isAuthReady && orgId ? ['ai-provider-keys', orgId] : null,
+    () => aiProviderKeysApi.getStatus(orgId!),
+    {
+      revalidateOnFocus: false,
+    }
+  );
+}
+
+/**
+ * Hook to set/update AI provider API keys.
+ */
+export function useSetAIProviderKeys(orgId: string) {
+  return useSWRMutation<AIProviderKeyStatus, Error, string[], SetAIProviderKeysRequest>(
+    ['ai-provider-keys', orgId],
+    (_key, { arg }) => aiProviderKeysApi.setKeys(orgId, arg)
+  );
+}
+
+/**
+ * Hook to delete all AI provider API keys.
+ */
+export function useDeleteAIProviderKeys(orgId: string) {
+  return useSWRMutation<{ status: string }, Error, string[]>(
+    ['ai-provider-keys', orgId],
+    () => aiProviderKeysApi.deleteKeys(orgId)
+  );
+}
+
 // Re-export types for convenience
 export type {
   NotificationItem,
@@ -1401,4 +1444,5 @@ export type {
   WeeklyNarrativeResponse,
   TopologyData,
   HotspotTerrainData,
+  AIProviderKeyStatus,
 };

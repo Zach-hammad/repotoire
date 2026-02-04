@@ -555,6 +555,33 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
+        {/* AI Provider Keys (BYOK) */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5" />
+              AI Provider Keys
+            </CardTitle>
+            <CardDescription>
+              Use your own API keys for AI-powered code fixes
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              href="/dashboard/settings/ai-provider-keys"
+              className="flex items-center justify-between p-4 -m-4 rounded-lg hover:bg-muted/50 transition-colors"
+            >
+              <div>
+                <p className="font-medium">Configure API Keys</p>
+                <p className="text-sm text-muted-foreground">
+                  Add your Anthropic or OpenAI API keys for AI fix generation (BYOK)
+                </p>
+              </div>
+              <ChevronRight className="h-5 w-5 text-muted-foreground" />
+            </Link>
+          </CardContent>
+        </Card>
+
         {/* Privacy & Data */}
         <Card>
           <CardHeader>
