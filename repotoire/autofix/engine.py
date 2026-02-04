@@ -11,7 +11,8 @@ from typing import Any, Dict, List, Optional
 
 from repotoire.ai.embeddings import CodeEmbedder
 from repotoire.ai.llm import LLMBackend, LLMClient, LLMConfig
-from repotoire.ai.retrieval import GraphRAGRetriever
+from repotoire.ai.retrieval import GraphRAGRetriever, RetrieverConfig
+from repotoire.ai.vector_store import VectorStoreConfig
 from repotoire.autofix.languages import LanguageHandler, get_handler
 from repotoire.autofix.learning import AdaptiveConfidence, DecisionStore
 from repotoire.autofix.models import (
@@ -219,7 +220,17 @@ class AutoFixEngine:
         # Use OpenAI embeddings for RAG (separate from LLM generation)
         embeddings_api_key = effective_api_key or os.getenv("OPENAI_API_KEY")
         embedder = CodeEmbedder(api_key=embeddings_api_key)
-        self.rag_retriever = GraphRAGRetriever(graph_client, embedder)
+
+        # Configure vector store for retrieval (LanceDB for disk-backed vectors)
+        # Embeddings are stored in LanceDB, not on FalkorDB graph nodes (saves RAM)
+        vector_store_path = os.getenv("REPOTOIRE_VECTOR_STORE_PATH", "/data/vectors")
+        vector_store_config = VectorStoreConfig(
+            backend="lancedb",
+            path=vector_store_path,
+            table_name="code_embeddings",
+        )
+        retriever_config = RetrieverConfig(vector_store=vector_store_config)
+        self.rag_retriever = GraphRAGRetriever(graph_client, embedder, config=retriever_config)
 
         # Initialize template registry for fast, deterministic fixes
         self.template_registry = get_registry()
