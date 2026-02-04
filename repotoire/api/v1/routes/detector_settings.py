@@ -136,10 +136,22 @@ class PresetListResponse(BaseModel):
 
 
 async def get_org_by_slug(session: AsyncSession, slug: str) -> Organization | None:
-    """Get organization by slug."""
-    result = await session.execute(
-        select(Organization).where(Organization.slug == slug)
-    )
+    """Get organization by slug or Clerk org ID.
+    
+    Accepts either:
+    - Clerk org ID (org_xxx)
+    - Internal slug (e.g., 'repotoire')
+    """
+    if slug.startswith("org_"):
+        # Clerk org ID
+        result = await session.execute(
+            select(Organization).where(Organization.clerk_org_id == slug)
+        )
+    else:
+        # Internal slug
+        result = await session.execute(
+            select(Organization).where(Organization.slug == slug)
+        )
     return result.scalar_one_or_none()
 
 
