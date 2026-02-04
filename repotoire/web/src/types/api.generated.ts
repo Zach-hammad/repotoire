@@ -9046,6 +9046,11 @@ export interface components {
          */
         GenerateFixesRequest: {
             /**
+             * Finding Ids
+             * @description Specific finding IDs to generate fixes for. If provided, ignores severity_filter.
+             */
+            finding_ids?: string[] | null;
+            /**
              * Max Fixes
              * @description Maximum number of fixes to generate
              * @default 10
@@ -9053,7 +9058,7 @@ export interface components {
             max_fixes: number;
             /**
              * Severity Filter
-             * @description Severities to process (critical, high, medium, low, info)
+             * @description Severities to process (critical, high, medium, low, info). Ignored if finding_ids provided.
              * @default [
              *       "critical",
              *       "high"
