@@ -1831,9 +1831,22 @@ def generate_fixes_for_analysis(
         falkordb_password = os.environ.get("FALKORDB_PASSWORD", "")
         graph_client = create_falkordb_client(password=falkordb_password) if falkordb_password else create_falkordb_client()
 
+        # Check if we have an API key (BYOK or env var)
+        env_anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not org_anthropic_key and not env_anthropic_key:
+            logger.error(
+                "No Anthropic API key available. Configure BYOK in org settings or set ANTHROPIC_API_KEY env var.",
+                extra=log_extra,
+            )
+            return {
+                "status": "failed", 
+                "reason": "no_api_key",
+                "message": "AI fixes require an Anthropic API key. Please configure your API key in Organization Settings → API Keys.",
+            }
+
         engine = AutoFixEngine(
             graph_client=graph_client,
-            api_key=org_anthropic_key,  # Use org's BYOK key if available
+            api_key=org_anthropic_key,  # Use org's BYOK key if available (falls back to env var)
             llm_backend="anthropic",  # Use Claude Opus 4.5 for best fix quality
             skip_runtime_validation=True,  # Skip sandbox validation for speed
         )
