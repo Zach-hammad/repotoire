@@ -428,17 +428,37 @@ class AutoFixEngine:
             # Step 2: Determine fix type from finding
             fix_type = self._determine_fix_type(finding)
 
-            # Step 3: Generate fix using GPT-4
-            logger.info(f"Generating {fix_type.value} fix using {self.model}")
-            fix_proposal = await self._generate_fix_with_llm(
-                finding, context, fix_type, repository_path
-            )
+            # Step 3: Generate fix using GPT-4 (with retry on validation failure)
+            max_retries = 2
+            last_errors: List[str] = []
+            
+            for attempt in range(max_retries + 1):
+                if attempt == 0:
+                    logger.info(f"Generating {fix_type.value} fix using {self.model}")
+                else:
+                    logger.info(f"Retry {attempt}/{max_retries}: Regenerating fix with error feedback")
+                
+                fix_proposal = await self._generate_fix_with_llm(
+                    finding, context, fix_type, repository_path, 
+                    previous_errors=last_errors if attempt > 0 else None
+                )
 
-            # Step 4: Validate the fix (multi-level)
-            logger.info("Validating generated fix")
-            validation_result = await self._validate_fix_multilevel(
-                fix_proposal, repository_path, skip_validation
-            )
+                # Step 4: Validate the fix (multi-level)
+                logger.info("Validating generated fix")
+                validation_result = await self._validate_fix_multilevel(
+                    fix_proposal, repository_path, skip_validation
+                )
+
+                # Check if we should retry
+                if validation_result.is_valid or attempt >= max_retries:
+                    break
+                    
+                # Collect errors for retry feedback
+                last_errors = [
+                    f"{err.error_type}: {err.message}" 
+                    for err in validation_result.errors
+                ]
+                logger.info(f"Validation failed with {len(last_errors)} errors, will retry")
 
             # Log validation errors for debugging
             if validation_result.errors:
@@ -735,6 +755,7 @@ class AutoFixEngine:
         context: FixContext,
         fix_type: FixType,
         repository_path: Path,
+        previous_errors: Optional[List[str]] = None,
     ) -> FixProposal:
         """Generate fix using LLM.
 
@@ -743,6 +764,7 @@ class AutoFixEngine:
             context: Context for fix generation
             fix_type: Type of fix to generate
             repository_path: Path to repository (for style instructions)
+            previous_errors: Errors from previous attempt (for retry feedback)
 
         Returns:
             FixProposal with generated changes
@@ -755,6 +777,21 @@ class AutoFixEngine:
         prompt = self._build_fix_prompt(
             finding, context, fix_type, handler, repository_path
         )
+        
+        # Add error feedback for retries
+        if previous_errors:
+            error_feedback = "\n".join(f"- {err}" for err in previous_errors)
+            prompt += f"""
+
+## PREVIOUS ATTEMPT FAILED
+Your previous fix attempt had these validation errors:
+{error_feedback}
+
+Please fix these issues:
+- If "SyntaxError: expected an indented block": You only provided the function signature. Include the COMPLETE function body.
+- If "MatchError: Original code not found": Copy the `original_code` exactly from the Current Code section above, preserving whitespace.
+
+Generate a corrected fix that passes validation."""
 
         # Call LLM with language-specific system prompt
         response_text = self.llm_client.generate(
