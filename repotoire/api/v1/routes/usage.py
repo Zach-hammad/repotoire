@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from repotoire.api.shared.auth import ClerkUser, get_current_user
+from repotoire.api.shared.auth import ClerkUser, get_current_user_or_api_key
 from repotoire.api.shared.services.billing import (
     PLAN_LIMITS,
     get_current_tier,
@@ -39,7 +39,7 @@ class UsageResponse(BaseModel):
 
 @router.get("", response_model=UsageResponse)
 async def get_usage(
-    user: ClerkUser = Depends(get_current_user),
+    user: ClerkUser = Depends(get_current_user_or_api_key),
     db: AsyncSession = Depends(get_db),
 ) -> UsageResponse:
     """Get current usage for the authenticated user's organization.
@@ -152,7 +152,7 @@ class UsageIncrementResponse(BaseModel):
 @router.post("/increment", response_model=UsageIncrementResponse)
 async def increment_usage_counter(
     request: UsageIncrementRequest,
-    user: ClerkUser = Depends(get_current_user),
+    user: ClerkUser = Depends(get_current_user_or_api_key),
     db: AsyncSession = Depends(get_db),
 ) -> UsageIncrementResponse:
     """Increment a usage counter for the organization.

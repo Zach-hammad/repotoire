@@ -104,7 +104,7 @@ class TierLimits:
             try:
                 response = await client.get(
                     f"{self.auth.api_url}/api/v1/usage",
-                    headers={"Authorization": f"Bearer {credentials.access_token}"},
+                    headers={"X-API-Key": credentials.access_token},
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -135,7 +135,7 @@ class TierLimits:
             try:
                 response = client.get(
                     f"{self.auth.api_url}/api/v1/usage",
-                    headers={"Authorization": f"Bearer {credentials.access_token}"},
+                    headers={"X-API-Key": credentials.access_token},
                 )
                 response.raise_for_status()
                 data = response.json()

@@ -186,7 +186,7 @@ class MarketplaceAPIClient:
     def _get_headers(self) -> dict[str, str]:
         """Get headers for API requests."""
         return {
-            "Authorization": f"Bearer {self.api_key}",
+            "X-API-Key": self.api_key,
             "Content-Type": "application/json",
             "Accept": "application/json",
             "X-CLI-Version": CLI_VERSION,
