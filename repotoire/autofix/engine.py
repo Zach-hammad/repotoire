@@ -379,6 +379,11 @@ class AutoFixEngine:
                 fix_proposal, repository_path, skip_validation
             )
 
+            # Log validation errors for debugging
+            if validation_result.errors:
+                for err in validation_result.errors:
+                    logger.warning(f"Validation error: {err.level} - {err.error_type}: {err.message}")
+
             # Populate validation fields
             fix_proposal.syntax_valid = validation_result.syntax_valid
             fix_proposal.import_valid = validation_result.import_valid
