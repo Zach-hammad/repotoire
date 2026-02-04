@@ -1719,6 +1719,7 @@ def generate_fixes_for_analysis(
     analysis_run_id: str,
     max_fixes: int = 10,
     severity_filter: list[str] | None = None,
+    finding_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Generate AI fixes for findings from an analysis run.
 
@@ -1729,6 +1730,9 @@ def generate_fixes_for_analysis(
         analysis_run_id: UUID of the AnalysisRun with findings.
         max_fixes: Maximum number of fixes to generate (default 10).
         severity_filter: Optional list of severities to process (default: critical, high).
+            Ignored if finding_ids is provided.
+        finding_ids: Optional list of specific finding IDs to generate fixes for.
+            If provided, only these findings are processed (ignores severity_filter).
 
     Returns:
         dict with status, fixes_generated count, and errors.
@@ -1769,18 +1773,31 @@ def generate_fixes_for_analysis(
             repo_full_name = repo.full_name
 
             # Get findings to process
-            severity_enums = [
-                FindingSeverity(s) for s in severity_filter
-                if s in [e.value for e in FindingSeverity]
-            ]
+            if finding_ids:
+                # User selected specific findings - ignore severity filter
+                finding_uuids = [UUID(fid) for fid in finding_ids]
+                findings_query = (
+                    select(FindingDB)
+                    .where(FindingDB.analysis_run_id == analysis.id)
+                    .where(FindingDB.id.in_(finding_uuids))
+                    .order_by(FindingDB.severity.asc())  # Critical first
+                    .limit(max_fixes)
+                )
+                logger.info(f"Filtering by {len(finding_ids)} specific finding IDs", extra=log_extra)
+            else:
+                # No specific findings - use severity filter
+                severity_enums = [
+                    FindingSeverity(s) for s in severity_filter
+                    if s in [e.value for e in FindingSeverity]
+                ]
+                findings_query = (
+                    select(FindingDB)
+                    .where(FindingDB.analysis_run_id == analysis.id)
+                    .where(FindingDB.severity.in_(severity_enums))
+                    .order_by(FindingDB.severity.asc())  # Critical first
+                    .limit(max_fixes)
+                )
 
-            findings_query = (
-                select(FindingDB)
-                .where(FindingDB.analysis_run_id == analysis.id)
-                .where(FindingDB.severity.in_(severity_enums))
-                .order_by(FindingDB.severity.asc())  # Critical first
-                .limit(max_fixes)
-            )
             findings_result = session.execute(findings_query)
             db_findings = list(findings_result.scalars().all())
 

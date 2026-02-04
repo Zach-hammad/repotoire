@@ -1938,10 +1938,14 @@ async def select_best_of_n_fix(
 class GenerateFixesRequest(BaseModel):
     """Request to generate fixes for an analysis run."""
 
+    finding_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Specific finding IDs to generate fixes for. If provided, ignores severity_filter."
+    )
     max_fixes: int = Field(default=10, ge=1, le=50, description="Maximum number of fixes to generate")
     severity_filter: Optional[List[str]] = Field(
         default=["critical", "high"],
-        description="Severities to process (critical, high, medium, low, info)"
+        description="Severities to process (critical, high, medium, low, info). Ignored if finding_ids provided."
     )
 
 
@@ -2015,6 +2019,7 @@ async def generate_fixes(
             analysis_run_id=analysis_run_id,
             max_fixes=request.max_fixes,
             severity_filter=request.severity_filter,
+            finding_ids=request.finding_ids,
         )
 
         logger.info(
