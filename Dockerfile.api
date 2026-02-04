@@ -51,7 +51,7 @@ RUN uv pip install dist/*.whl --no-cache-dir
 
 # Install remaining dependencies (saas + sandbox + lancedb extras for production)
 # Note: ruff is included in core dependencies for hybrid detectors
-RUN uv pip install ".[saas,sandbox,lancedb]" --no-cache-dir --no-build-isolation
+RUN uv pip install ".[saas,sandbox,lancedb,anthropic]" --no-cache-dir --no-build-isolation
 
 # =============================================================================
 # Stage 2: Runtime
