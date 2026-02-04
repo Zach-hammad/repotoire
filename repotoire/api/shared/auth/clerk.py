@@ -159,10 +159,37 @@ async def get_optional_user(
 def require_org(user: ClerkUser = Depends(get_current_user)) -> ClerkUser:
     """
     Dependency that requires the user to be part of an organization.
+    
+    NOTE: Only supports JWT authentication. For API key support, use require_org_api_key.
 
     Usage:
         @router.get("/org-only")
         async def org_route(user: ClerkUser = Depends(require_org)):
+            return {"org_id": user.org_id}
+    """
+    if not user.org_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "ORG_REQUIRED",
+                "message": "Organization membership required. Your current session is not associated with an organization.",
+                "user_id": user.user_id,
+                "hint": "Please select an organization in the web UI, or use 'repotoire login' to authenticate with an org-scoped API key."
+            },
+        )
+    return user
+
+
+def require_org_api_key(user: ClerkUser = Depends(get_current_user_or_api_key)) -> ClerkUser:
+    """
+    Dependency that requires the user to be part of an organization.
+    
+    Supports both JWT tokens and API keys. Use this for endpoints that need to
+    support CLI/API key access.
+
+    Usage:
+        @router.get("/org-only")
+        async def org_route(user: ClerkUser = Depends(require_org_api_key)):
             return {"org_id": user.org_id}
     """
     if not user.org_id:

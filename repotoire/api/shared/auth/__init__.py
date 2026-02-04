@@ -18,6 +18,7 @@ from repotoire.api.shared.auth.clerk import (
     get_optional_user_or_api_key,
     require_org,
     require_org_admin,
+    require_org_api_key,
     require_scope,
 )
 
@@ -49,6 +50,7 @@ __all__ = [
     "get_optional_user_or_api_key",
     "require_org",
     "require_org_admin",
+    "require_org_api_key",
     "require_scope",
     # State store
     "StateTokenStore",
