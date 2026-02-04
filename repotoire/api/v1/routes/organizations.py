@@ -761,25 +761,38 @@ class APIKeyStatus(BaseModel):
 
 @router.get("/{org_id}/api-keys", response_model=APIKeyStatus)
 async def get_api_key_status(
-    org_id: UUID,
+    org_id: str,
     user: ClerkUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> APIKeyStatus:
     """Get status of configured API keys (shows masked keys, not full keys).
     
     Requires admin or owner role in the organization.
+    Accepts either internal UUID or Clerk org ID (org_xxx).
     """
     from repotoire.utils.encryption import decrypt_api_key, mask_api_key
 
-    # Get org and verify membership
-    org = await session.get(Organization, org_id)
+    # Get org - try clerk_org_id first, then internal UUID
+    if org_id.startswith("org_"):
+        # Clerk org ID
+        result = await session.execute(
+            select(Organization).where(Organization.clerk_org_id == org_id)
+        )
+        org = result.scalar_one_or_none()
+    else:
+        # Try as UUID
+        try:
+            org = await session.get(Organization, UUID(org_id))
+        except (ValueError, TypeError):
+            org = None
+    
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
     # Check membership and role
     membership_result = await session.execute(
         select(OrganizationMembership).where(
-            OrganizationMembership.organization_id == org_id,
+            OrganizationMembership.organization_id == org.id,
             OrganizationMembership.user_id == user.db_user.id,
         )
     )
@@ -813,7 +826,7 @@ async def get_api_key_status(
 
 @router.put("/{org_id}/api-keys", response_model=APIKeyStatus)
 async def set_api_keys(
-    org_id: UUID,
+    org_id: str,
     config: APIKeyConfig,
     user: ClerkUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
@@ -821,18 +834,31 @@ async def set_api_keys(
     """Set or update API keys for the organization.
     
     Pass null/empty to clear a key. Requires admin or owner role.
+    Accepts either internal UUID or Clerk org ID (org_xxx).
     """
     from repotoire.utils.encryption import decrypt_api_key, encrypt_api_key, mask_api_key
 
-    # Get org and verify membership
-    org = await session.get(Organization, org_id)
+    # Get org - try clerk_org_id first, then internal UUID
+    if org_id.startswith("org_"):
+        # Clerk org ID
+        result = await session.execute(
+            select(Organization).where(Organization.clerk_org_id == org_id)
+        )
+        org = result.scalar_one_or_none()
+    else:
+        # Try as UUID
+        try:
+            org = await session.get(Organization, UUID(org_id))
+        except (ValueError, TypeError):
+            org = None
+    
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
     # Check membership and role
     membership_result = await session.execute(
         select(OrganizationMembership).where(
-            OrganizationMembership.organization_id == org_id,
+            OrganizationMembership.organization_id == org.id,
             OrganizationMembership.user_id == user.db_user.id,
         )
     )
@@ -914,23 +940,36 @@ async def set_api_keys(
 
 @router.delete("/{org_id}/api-keys")
 async def delete_api_keys(
-    org_id: UUID,
+    org_id: str,
     user: ClerkUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
     """Delete all API keys for the organization.
     
     Requires admin or owner role.
+    Accepts either internal UUID or Clerk org ID (org_xxx).
     """
-    # Get org and verify membership
-    org = await session.get(Organization, org_id)
+    # Get org - try clerk_org_id first, then internal UUID
+    if org_id.startswith("org_"):
+        # Clerk org ID
+        result = await session.execute(
+            select(Organization).where(Organization.clerk_org_id == org_id)
+        )
+        org = result.scalar_one_or_none()
+    else:
+        # Try as UUID
+        try:
+            org = await session.get(Organization, UUID(org_id))
+        except (ValueError, TypeError):
+            org = None
+    
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
     # Check membership and role
     membership_result = await session.execute(
         select(OrganizationMembership).where(
-            OrganizationMembership.organization_id == org_id,
+            OrganizationMembership.organization_id == org.id,
             OrganizationMembership.user_id == user.db_user.id,
         )
     )
