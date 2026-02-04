@@ -301,13 +301,16 @@ def analyze_repository(
 
         # Run ingestion pipeline with repo context for multi-tenant isolation
         # Enable embeddings for Pro/Enterprise plans (graph_embeddings feature)
+        # Use same embedding backend across all ingestion for dimension consistency
+        embedding_backend = os.environ.get("REPOTOIRE_EMBEDDING_BACKEND", "local")
         pipeline = IngestionPipeline(
             repo_path=str(clone_dir),
             graph_client=graph_client,
             repo_id=repo_id,  # Pass repo UUID for node tagging
             repo_slug=repo_full_name,  # Pass full name (owner/repo)
             generate_embeddings=enable_embeddings,
-            embedding_backend="deepinfra",  # Qwen3-Embedding-8B (best quality, cheap)
+            embedding_backend=embedding_backend,
+            compress_embeddings=False,  # Disable compression for dimension consistency
         )
 
         def ingestion_progress(pct: float) -> None:
@@ -555,13 +558,16 @@ def analyze_pr(
 
             # Run incremental ingestion on changed files only
             # Enable embeddings for Pro/Enterprise plans (graph_embeddings feature)
+            # Use same embedding backend across all ingestion for dimension consistency
+            embedding_backend = os.environ.get("REPOTOIRE_EMBEDDING_BACKEND", "local")
             pipeline = IngestionPipeline(
                 repo_path=str(clone_dir),
                 graph_client=graph_client,
                 repo_id=repo_id,  # Pass repo UUID for node tagging
                 repo_slug=repo_full_name,  # Pass full name (owner/repo)
                 generate_embeddings=enable_embeddings,
-                embedding_backend="deepinfra",  # Qwen3-Embedding-8B (best quality, cheap)
+                embedding_backend=embedding_backend,
+                compress_embeddings=False,  # Disable compression for dimension consistency
             )
 
             # Ingest only changed files

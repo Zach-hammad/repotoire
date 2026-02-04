@@ -217,9 +217,9 @@ class AutoFixEngine:
         self.model = self.llm_client.model
 
         # Initialize RAG retriever for context gathering
-        # Use OpenAI embeddings for RAG (separate from LLM generation)
-        embeddings_api_key = effective_api_key or os.getenv("OPENAI_API_KEY")
-        embedder = CodeEmbedder(api_key=embeddings_api_key)
+        # Use same embedding backend as ingestion (local Qwen by default) for dimension compatibility
+        embeddings_backend = os.getenv("REPOTOIRE_EMBEDDINGS_BACKEND", "local")
+        embedder = CodeEmbedder(backend=embeddings_backend)
 
         # Configure vector store for retrieval (LanceDB for disk-backed vectors)
         # Embeddings are stored in LanceDB, not on FalkorDB graph nodes (saves RAM)
