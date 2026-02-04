@@ -424,7 +424,7 @@ class GitHistoryRAG:
                 response = await http_client.post(
                     f"{api_url}/api/v1/historical/nlq-api/search",
                     json=payload,
-                    headers={"Authorization": f"Bearer {api_key}"},
+                    headers={"X-API-Key": api_key},
                 )
 
                 if response.status_code >= 400:
@@ -921,7 +921,7 @@ class GitHistoryRAG:
                 response = await http_client.post(
                     f"{api_url}/api/v1/historical/nlq-api",
                     json=payload,
-                    headers={"Authorization": f"Bearer {api_key}"},
+                    headers={"X-API-Key": api_key},
                 )
 
                 if response.status_code >= 400:

@@ -239,7 +239,7 @@ class MarketplaceMCPServer:
                 # Verify API key and get user info
                 response = await client.get(
                     f"{API_BASE_URL}/api/v1/auth/me",
-                    headers={"Authorization": f"Bearer {api_key}"},
+                    headers={"X-API-Key": api_key},
                 )
 
                 if response.status_code != 200:
@@ -251,7 +251,7 @@ class MarketplaceMCPServer:
                 # Get installed assets
                 assets_response = await client.get(
                     f"{API_BASE_URL}/api/v1/marketplace/installed",
-                    headers={"Authorization": f"Bearer {api_key}"},
+                    headers={"X-API-Key": api_key},
                 )
 
                 if assets_response.status_code != 200:
@@ -404,7 +404,7 @@ class MarketplaceMCPServer:
             async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
                 response = await client.post(
                     f"{API_BASE_URL}/api/v1/marketplace/skills/{asset.publisher_slug}/{asset.slug}/execute",
-                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    headers={"X-API-Key": self.api_key},
                     json={"arguments": arguments, "version": asset.version},
                 )
 

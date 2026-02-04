@@ -4,12 +4,16 @@ This module provides database session management using SQLAlchemy's
 async and sync engines and session factories. It's designed for use with:
 - FastAPI's dependency injection system (async)
 - Celery workers (sync)
+
+LAZY INITIALIZATION: Engines are created on first use, not at import time.
+This allows CLI commands that don't need the database to run without DATABASE_URL.
 """
 
 import os
 import ssl
+import threading
 from contextlib import contextmanager
-from typing import AsyncGenerator, Generator
+from typing import AsyncGenerator, Generator, Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from sqlalchemy import create_engine, text
@@ -20,18 +24,29 @@ from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# Database URL from environment (required)
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError(
-        "DATABASE_URL environment variable is required.\n"
-        "Example: postgresql://user:password@localhost:5432/repotoire\n"
-        "See .env.example for configuration details."
-    )
+# Lazy initialization - engines created on first use
+_engine: Optional[object] = None
+_async_session_factory: Optional[object] = None
+_sync_engine: Optional[object] = None
+_sync_session_factory: Optional[object] = None
+_init_lock = threading.Lock()
+_initialized = False
 
-# Convert postgresql:// to postgresql+asyncpg:// if needed
-if DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+def _get_database_url() -> str:
+    """Get DATABASE_URL from environment, raising if not set.
+    
+    Raises:
+        RuntimeError: If DATABASE_URL is not set
+    """
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError(
+            "DATABASE_URL environment variable is required.\n"
+            "Example: postgresql://user:password@localhost:5432/repotoire\n"
+            "See .env.example for configuration details."
+        )
+    return database_url
 
 
 def _parse_database_url(url: str) -> tuple[str, dict]:
@@ -74,41 +89,6 @@ def _parse_database_url(url: str) -> tuple[str, dict]:
     return cleaned_url, connect_args
 
 
-# Parse URL and get connect_args for SSL
-_cleaned_url, _connect_args = _parse_database_url(DATABASE_URL)
-
-# Create async engine
-# Production-ready pool settings (conservative defaults for multi-instance deployments):
-# - pool_size=5: Base connections per instance (Neon default pool is 20 total)
-# - max_overflow=5: Limited burst capacity (total max 10 per instance)
-# - pool_timeout=30: Wait up to 30s for a connection
-# - pool_recycle=1800: Recycle connections after 30 minutes to prevent stale connections
-#
-# For single-instance deployments, increase via env vars:
-#   DATABASE_POOL_SIZE=15 DATABASE_MAX_OVERFLOW=15
-engine = create_async_engine(
-    _cleaned_url,
-    echo=os.getenv("DATABASE_ECHO", "false").lower() == "true",
-    pool_size=int(os.getenv("DATABASE_POOL_SIZE", "5")),
-    max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "5")),
-    pool_timeout=int(os.getenv("DATABASE_POOL_TIMEOUT", "30")),
-    pool_recycle=int(os.getenv("DATABASE_POOL_RECYCLE", "1800")),
-    pool_pre_ping=True,  # Enable connection health checks
-    connect_args=_connect_args,
-)
-
-# Create async session factory
-async_session_factory = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autoflush=False,
-)
-
-# Sync database URL - convert asyncpg back to psycopg2
-SYNC_DATABASE_URL = _cleaned_url.replace("postgresql+asyncpg://", "postgresql://", 1)
-
-
 def _parse_sync_database_url(url: str) -> tuple[str, dict]:
     """Parse sync DATABASE_URL and extract connect_args.
 
@@ -128,28 +108,146 @@ def _parse_sync_database_url(url: str) -> tuple[str, dict]:
     return url, connect_args
 
 
-_sync_url, _sync_connect_args = _parse_sync_database_url(SYNC_DATABASE_URL)
+def _ensure_initialized():
+    """Lazily initialize database engines on first use.
+    
+    Thread-safe initialization using double-checked locking.
+    """
+    global _engine, _async_session_factory, _sync_engine, _sync_session_factory, _initialized
+    
+    if _initialized:
+        return
+    
+    with _init_lock:
+        if _initialized:
+            return
+        
+        # Get and validate DATABASE_URL
+        database_url = _get_database_url()
+        
+        # Convert postgresql:// to postgresql+asyncpg:// if needed
+        if database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        
+        # Parse URL and get connect_args for SSL
+        cleaned_url, connect_args = _parse_database_url(database_url)
+        
+        # Create async engine
+        # Production-ready pool settings (conservative defaults for multi-instance deployments):
+        # - pool_size=5: Base connections per instance (Neon default pool is 20 total)
+        # - max_overflow=5: Limited burst capacity (total max 10 per instance)
+        # - pool_timeout=30: Wait up to 30s for a connection
+        # - pool_recycle=1800: Recycle connections after 30 minutes to prevent stale connections
+        #
+        # For single-instance deployments, increase via env vars:
+        #   DATABASE_POOL_SIZE=15 DATABASE_MAX_OVERFLOW=15
+        _engine = create_async_engine(
+            cleaned_url,
+            echo=os.getenv("DATABASE_ECHO", "false").lower() == "true",
+            pool_size=int(os.getenv("DATABASE_POOL_SIZE", "5")),
+            max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "5")),
+            pool_timeout=int(os.getenv("DATABASE_POOL_TIMEOUT", "30")),
+            pool_recycle=int(os.getenv("DATABASE_POOL_RECYCLE", "1800")),
+            pool_pre_ping=True,  # Enable connection health checks
+            connect_args=connect_args,
+        )
+        
+        # Create async session factory
+        _async_session_factory = async_sessionmaker(
+            _engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+            autoflush=False,
+        )
+        
+        # Sync database URL - convert asyncpg back to psycopg2
+        sync_database_url = cleaned_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+        sync_url, sync_connect_args = _parse_sync_database_url(sync_database_url)
+        
+        # Create sync engine for Celery workers
+        # Production-ready pool settings (conservative defaults for multi-instance deployments)
+        _sync_engine = create_engine(
+            sync_url,
+            echo=os.getenv("DATABASE_ECHO", "false").lower() == "true",
+            pool_size=int(os.getenv("DATABASE_POOL_SIZE", "5")),
+            max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "5")),
+            pool_timeout=int(os.getenv("DATABASE_POOL_TIMEOUT", "30")),
+            pool_recycle=int(os.getenv("DATABASE_POOL_RECYCLE", "1800")),
+            pool_pre_ping=True,
+            connect_args=sync_connect_args,
+        )
+        
+        # Create sync session factory for Celery workers
+        _sync_session_factory = sessionmaker(
+            _sync_engine,
+            class_=Session,
+            expire_on_commit=False,
+            autoflush=False,
+        )
+        
+        _initialized = True
+        logger.debug("Database engines initialized")
 
-# Create sync engine for Celery workers
-# Production-ready pool settings (conservative defaults for multi-instance deployments)
-sync_engine = create_engine(
-    _sync_url,
-    echo=os.getenv("DATABASE_ECHO", "false").lower() == "true",
-    pool_size=int(os.getenv("DATABASE_POOL_SIZE", "5")),
-    max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "5")),
-    pool_timeout=int(os.getenv("DATABASE_POOL_TIMEOUT", "30")),
-    pool_recycle=int(os.getenv("DATABASE_POOL_RECYCLE", "1800")),
-    pool_pre_ping=True,
-    connect_args=_sync_connect_args,
-)
 
-# Create sync session factory for Celery workers
-sync_session_factory = sessionmaker(
-    sync_engine,
-    class_=Session,
-    expire_on_commit=False,
-    autoflush=False,
-)
+# Property-like accessors for backward compatibility
+def _get_engine():
+    """Get async engine, initializing if needed."""
+    _ensure_initialized()
+    return _engine
+
+
+def _get_async_session_factory():
+    """Get async session factory, initializing if needed."""
+    _ensure_initialized()
+    return _async_session_factory
+
+
+def _get_sync_engine():
+    """Get sync engine, initializing if needed."""
+    _ensure_initialized()
+    return _sync_engine
+
+
+def _get_sync_session_factory():
+    """Get sync session factory, initializing if needed."""
+    _ensure_initialized()
+    return _sync_session_factory
+
+
+# Backward-compatible module-level names (now properties via __getattr__)
+# For code that accesses session.engine directly
+class _LazyModule:
+    """Wrapper to provide lazy attribute access."""
+    
+    @property
+    def engine(self):
+        return _get_engine()
+    
+    @property
+    def async_session_factory(self):
+        return _get_async_session_factory()
+    
+    @property
+    def sync_engine(self):
+        return _get_sync_engine()
+    
+    @property
+    def sync_session_factory(self):
+        return _get_sync_session_factory()
+
+
+# For direct attribute access like `from repotoire.db.session import engine`
+# We use module __getattr__ (Python 3.7+)
+def __getattr__(name):
+    if name == "engine":
+        return _get_engine()
+    elif name == "async_session_factory":
+        return _get_async_session_factory()
+    elif name == "sync_engine":
+        return _get_sync_engine()
+    elif name == "sync_session_factory":
+        return _get_sync_session_factory()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 @contextmanager
@@ -167,7 +265,8 @@ def get_sync_session() -> Generator[Session, None, None]:
         Session: A sync database session that is automatically closed
             after the context exits.
     """
-    session = sync_session_factory()
+    factory = _get_sync_session_factory()
+    session = factory()
     try:
         yield session
         session.commit()
@@ -191,7 +290,8 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         AsyncSession: An async database session that is automatically closed
             after the request completes.
     """
-    async with async_session_factory() as session:
+    factory = _get_async_session_factory()
+    async with factory() as session:
         try:
             yield session
             await session.commit()
@@ -209,6 +309,7 @@ async def init_db() -> None:
     the database is reachable.
     """
     try:
+        engine = _get_engine()
         async with engine.begin() as conn:
             # Simple connectivity check
             await conn.execute(text("SELECT 1"))
@@ -223,8 +324,10 @@ async def close_db() -> None:
 
     This should be called during application shutdown.
     """
-    await engine.dispose()
-    sync_engine.dispose()
+    if _engine:
+        await _engine.dispose()
+    if _sync_engine:
+        _sync_engine.dispose()
     logger.info("Database connections closed")
 
 
@@ -233,7 +336,8 @@ def close_sync_db() -> None:
 
     This should be called when Celery workers shut down.
     """
-    sync_engine.dispose()
+    if _sync_engine:
+        _sync_engine.dispose()
     logger.info("Sync database connections closed")
 
 
@@ -284,7 +388,7 @@ def init_from_config(config=None):
         config = load_config()
         init_from_config(config)
     """
-    global engine, async_session_factory, sync_engine, sync_session_factory
+    global _engine, _async_session_factory, _sync_engine, _sync_session_factory, _initialized
 
     try:
         from repotoire.config import load_config, RepotoireConfig
@@ -314,44 +418,47 @@ def init_from_config(config=None):
     # Parse and create engines
     cleaned_url, connect_args = _parse_database_url(async_url)
 
-    engine = create_async_engine(
-        cleaned_url,
-        echo=pg.echo,
-        pool_size=pg.pool_size,
-        max_overflow=pg.max_overflow,
-        pool_timeout=pg.pool_timeout,
-        pool_recycle=pg.pool_recycle,
-        pool_pre_ping=True,
-        connect_args=connect_args,
-    )
+    with _init_lock:
+        _engine = create_async_engine(
+            cleaned_url,
+            echo=pg.echo,
+            pool_size=pg.pool_size,
+            max_overflow=pg.max_overflow,
+            pool_timeout=pg.pool_timeout,
+            pool_recycle=pg.pool_recycle,
+            pool_pre_ping=True,
+            connect_args=connect_args,
+        )
 
-    async_session_factory = async_sessionmaker(
-        engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-        autoflush=False,
-    )
+        _async_session_factory = async_sessionmaker(
+            _engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+            autoflush=False,
+        )
 
-    # Sync engine
-    sync_url = cleaned_url.replace("postgresql+asyncpg://", "postgresql://", 1)
-    _sync_url, _sync_connect_args = _parse_sync_database_url(sync_url)
+        # Sync engine
+        sync_url = cleaned_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+        _sync_url, _sync_connect_args = _parse_sync_database_url(sync_url)
 
-    sync_engine = create_engine(
-        _sync_url,
-        echo=pg.echo,
-        pool_size=pg.pool_size,
-        max_overflow=pg.max_overflow,
-        pool_timeout=pg.pool_timeout,
-        pool_recycle=pg.pool_recycle,
-        pool_pre_ping=True,
-        connect_args=_sync_connect_args,
-    )
+        _sync_engine = create_engine(
+            _sync_url,
+            echo=pg.echo,
+            pool_size=pg.pool_size,
+            max_overflow=pg.max_overflow,
+            pool_timeout=pg.pool_timeout,
+            pool_recycle=pg.pool_recycle,
+            pool_pre_ping=True,
+            connect_args=_sync_connect_args,
+        )
 
-    sync_session_factory = sessionmaker(
-        sync_engine,
-        class_=Session,
-        expire_on_commit=False,
-        autoflush=False,
-    )
+        _sync_session_factory = sessionmaker(
+            _sync_engine,
+            class_=Session,
+            expire_on_commit=False,
+            autoflush=False,
+        )
+
+        _initialized = True
 
     logger.info("Database engines reinitialized from config")

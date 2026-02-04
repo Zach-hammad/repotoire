@@ -56,7 +56,7 @@ class CloudProxyClient(DatabaseClient):
         if not hasattr(self._local, 'client') or self._local.client is None:
             self._local.client = httpx.Client(
                 base_url=f"{self.api_url}/api/v1/graph",
-                headers={"Authorization": f"Bearer {self.api_key}"},
+                headers={"X-API-Key": self.api_key},
                 timeout=self.timeout,
             )
         return self._local.client

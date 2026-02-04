@@ -57,7 +57,7 @@ async def get_user_context(api_key: str) -> dict[str, Any] | None:
             # Verify API key and get user info
             response = await client.get(
                 f"{API_BASE_URL}/api/v1/auth/me",
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers={"X-API-Key": api_key},
             )
 
             if response.status_code != 200:
@@ -68,7 +68,7 @@ async def get_user_context(api_key: str) -> dict[str, Any] | None:
             # Get installed assets
             assets_response = await client.get(
                 f"{API_BASE_URL}/api/v1/marketplace/installed",
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers={"X-API-Key": api_key},
             )
 
             installed_assets = []
@@ -169,7 +169,7 @@ def create_user_server(user_context: dict[str, Any]) -> Server:
             async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
                 response = await client.post(
                     f"{API_BASE_URL}/api/v1/marketplace/skills/{asset['publisher_slug']}/{asset['slug']}/execute",
-                    headers={"Authorization": f"Bearer {api_key}"},
+                    headers={"X-API-Key": api_key},
                     json={"arguments": arguments, "version": asset["version"]},
                 )
 
