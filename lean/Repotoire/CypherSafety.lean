@@ -114,16 +114,14 @@ theorem invalid_semicolon : is_safe_identifier "foo;bar" = false := by native_de
 theorem invalid_brace : is_safe_identifier "foo{bar" = false := by native_decide
 
 -- Helper lemma: String.all means all chars in toList satisfy predicate
+-- Uses String.all_iff from Batteries library
 private theorem string_all_imp {s : String} {p : Char → Bool} (h : s.all p = true) :
     ∀ c ∈ s.toList, p c = true := by
   intro c hc
-  -- s.toList = s.data, and String.all checks all chars in data
-  have hdata : c ∈ s.data := by simp only [String.toList] at hc; exact hc
-  -- Use the fact that String.all p = s.data.all p
-  have hall : s.data.all p = true := by
-    unfold String.all at h
-    exact h
-  exact List.all_iff_forall.mp hall c hdata
+  -- Use String.all_iff from Batteries: s.all p ↔ ∀ c ∈ s.data, p c
+  -- Note: s.toList = s.data
+  rw [String.all_iff] at h
+  exact h c hc
 
 -- Theorem 5: Safe identifier contains no injection chars
 theorem no_injection_chars (s : String) (h : is_safe_identifier s = true) :
