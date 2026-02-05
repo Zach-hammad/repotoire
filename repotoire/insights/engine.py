@@ -341,13 +341,16 @@ class InsightsEngine:
             logger.debug(f"Coupling query failed: {e}")
         
         # Count dead code (functions with no callers and not entry points)
+        # Use OPTIONAL MATCH + WHERE null pattern for FalkorDB compatibility
         try:
             dead_code_query = """
             MATCH (f:Function)
-            WHERE NOT EXISTS { MATCH ()-[:CALLS]->(f) }
-              AND NOT f.qualifiedName STARTS WITH 'test_'
+            WHERE NOT f.qualifiedName STARTS WITH 'test_'
               AND NOT f.qualifiedName CONTAINS '.test_'
               AND NOT f.name IN ['main', '__init__', '__main__']
+            OPTIONAL MATCH (caller)-[:CALLS]->(f)
+            WITH f, caller
+            WHERE caller IS NULL
             RETURN COUNT(f) AS dead_count
             """
             result = self.client.execute_query(dead_code_query)
