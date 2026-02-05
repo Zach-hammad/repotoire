@@ -165,8 +165,6 @@ anthropic = [
 repotoire = "repotoire.cli:main"
 repotoire-pre-commit = "repotoire.hooks.pre_commit:main"
 repotoire-mcp = "repotoire.mcp.api_server:main"
-repotoire-marketplace-mcp = "repotoire.mcp_marketplace.server:run_server"
-repotoire-marketplace-mcp-http = "repotoire.mcp_marketplace.http_server:run_http_server"
 
 [project.urls]
 Homepage = "https://github.com/yourusername/repotoire"

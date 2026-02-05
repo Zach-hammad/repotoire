@@ -41,7 +41,6 @@ from .github import GitHubAppClient, get_github_client
 from .stripe_service import (
     PRICE_IDS,
     SEAT_PRICE_IDS,
-    StripeConnectService,
     StripeService,
     price_id_to_tier,
 )
@@ -75,10 +74,9 @@ __all__ = [
     "get_plan_limits",
     "has_feature",
     "increment_usage",
-    # Stripe (legacy webhook handling + Connect)
+    # Stripe (legacy webhook handling)
     "PRICE_IDS",
     "SEAT_PRICE_IDS",
-    "StripeConnectService",
     "StripeService",
     "price_id_to_tier",
     # GDPR
