@@ -4954,6 +4954,139 @@ def fix_finding(
 import difflib
 
 
+@cli.command("findings")
+@click.argument("source", type=click.Path(exists=True))
+@click.argument("index", required=False, type=int)
+@click.option("--severity", "-s", type=click.Choice(["critical", "high", "medium", "low"]), help="Filter by severity")
+@click.option("--top", "-n", type=int, help="Show only top N findings")
+def show_findings(
+    source: str,
+    index: Optional[int],
+    severity: Optional[str],
+    top: Optional[int],
+) -> None:
+    """View findings from a JSON file.
+
+    SOURCE is a JSON file from 'repotoire analyze --json -o findings.json'
+    INDEX (optional) shows details for a specific finding.
+
+    Examples:
+        # List all findings
+        repotoire findings findings.json
+
+        # Show top 5 critical/high findings
+        repotoire findings findings.json --top 5 --severity high
+
+        # Show details for finding #3
+        repotoire findings findings.json 3
+    """
+    import json
+    from rich.syntax import Syntax
+    
+    try:
+        with open(source) as f:
+            data = json.load(f)
+        
+        findings_list = data.get("findings", data) if isinstance(data, dict) else data
+        
+        if not findings_list:
+            console.print("[yellow]No findings in file[/yellow]")
+            return
+        
+        # Filter by severity if specified
+        if severity:
+            findings_list = [f for f in findings_list if f.get("severity", "").lower() == severity]
+        
+        # Sort by severity (critical first)
+        severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        findings_list = sorted(findings_list, key=lambda f: severity_order.get(f.get("severity", "low").lower(), 4))
+        
+        # Limit if --top specified
+        if top:
+            findings_list = findings_list[:top]
+        
+        # Show specific finding details
+        if index is not None:
+            # Re-read original list for index lookup
+            with open(source) as f:
+                data = json.load(f)
+            all_findings = data.get("findings", data) if isinstance(data, dict) else data
+            
+            if 1 <= index <= len(all_findings):
+                f = all_findings[index - 1]
+                
+                sev = f.get("severity", "medium").upper()
+                sev_colors = {"CRITICAL": "red bold", "HIGH": "red", "MEDIUM": "yellow", "LOW": "blue"}
+                sev_style = sev_colors.get(sev, "white")
+                
+                console.print(f"\n[bold]Finding #{index}[/bold]")
+                console.print(f"[{sev_style}]● {sev}[/{sev_style}] {f.get('title', 'Unknown')}\n")
+                
+                console.print(f"[dim]📁 File:[/dim] {f.get('file_path', 'unknown')}")
+                console.print(f"[dim]📍 Line:[/dim] {f.get('line_start', '?')}")
+                console.print(f"[dim]🔍 Detector:[/dim] {f.get('detector', 'unknown')}")
+                
+                if f.get("description"):
+                    console.print(f"\n[bold]Description:[/bold]\n{f['description']}")
+                
+                if f.get("code_snippet"):
+                    console.print(f"\n[bold]Code:[/bold]")
+                    # Detect language from file extension
+                    file_path = f.get("file_path", "")
+                    lang = "python" if file_path.endswith(".py") else "javascript" if file_path.endswith((".js", ".ts")) else "text"
+                    syntax = Syntax(f["code_snippet"], lang, line_numbers=True, start_line=f.get("line_start", 1))
+                    console.print(syntax)
+                
+                if f.get("suggestion"):
+                    console.print(f"\n[bold green]💡 Suggestion:[/bold green]\n{f['suggestion']}")
+                
+                console.print(f"\n[dim]Fix with: repotoire fix {index} -f {source}[/dim]")
+            else:
+                console.print(f"[red]Finding #{index} not found (have {len(all_findings)} findings)[/red]")
+            return
+        
+        # List findings in a table
+        table = Table(title=f"Findings ({len(findings_list)} total)", box=box.ROUNDED)
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Sev", width=8)
+        table.add_column("Title", no_wrap=False)
+        table.add_column("File", style="dim", no_wrap=True)
+        table.add_column("Line", style="dim", width=6)
+        
+        # Get original indices
+        with open(source) as f:
+            data = json.load(f)
+        all_findings = data.get("findings", data) if isinstance(data, dict) else data
+        
+        for f in findings_list:
+            # Find original index
+            try:
+                orig_idx = all_findings.index(f) + 1
+            except ValueError:
+                orig_idx = "?"
+            
+            sev = f.get("severity", "medium").upper()
+            sev_colors = {"CRITICAL": "red bold", "HIGH": "red", "MEDIUM": "yellow", "LOW": "blue"}
+            sev_icon = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🔵"}
+            
+            table.add_row(
+                str(orig_idx),
+                f"[{sev_colors.get(sev, 'white')}]{sev_icon.get(sev, '⚪')} {sev[:4]}[/{sev_colors.get(sev, 'white')}]",
+                f.get("title", "Unknown")[:60],
+                f.get("file_path", "?")[-40:],
+                str(f.get("line_start", "?")),
+            )
+        
+        console.print(table)
+        console.print(f"\n[dim]View details: repotoire findings {source} <number>[/dim]")
+        console.print(f"[dim]Fix finding:  repotoire fix <number> -f {source}[/dim]")
+    
+    except json.JSONDecodeError:
+        console.print(f"[red]Invalid JSON file: {source}[/red]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+
+
 @cli.command()
 @click.argument("repository", type=click.Path(exists=True))
 @click.option("--max-files", type=int, default=500, help="Maximum Python files to analyze")
