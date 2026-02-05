@@ -1,15 +1,14 @@
 name: Lean Proofs
 
-# Temporarily disabled - needs Lean version compatibility fix
-# TODO: Fix String.all_iff proof for newer Lean versions
 on:
-  workflow_dispatch:  # Manual trigger only
-  # push:
-  #   paths:
-  #     - 'lean/**'
-  # pull_request:
-  #   paths:
-  #     - 'lean/**'
+  push:
+    paths:
+      - 'lean/**'
+      - '.github/workflows/lean.yml'
+  pull_request:
+    paths:
+      - 'lean/**'
+  workflow_dispatch:
 
 jobs:
   verify:
