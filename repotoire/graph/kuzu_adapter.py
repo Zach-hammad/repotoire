@@ -145,6 +145,33 @@ class KuzuQueryAdapter:
             flags=re.IGNORECASE
         )
         
+        # reduce() for sum: reduce(sum = 0.0, d IN list | sum + d) → list_sum(list)
+        # Matches: reduce(acc = init, var IN list | acc + var)
+        query = re.sub(
+            r'\breduce\s*\(\s*\w+\s*=\s*[\d.]+\s*,\s*\w+\s+IN\s+(\w+)\s*\|\s*\w+\s*\+\s*\w+\s*\)',
+            r'list_sum(\1)',
+            query,
+            flags=re.IGNORECASE
+        )
+        
+        # reduce() for max: reduce(max = 0, d IN list | CASE WHEN d > max THEN d ELSE max END)
+        # → list_sort(list, "DESC")[1]
+        query = re.sub(
+            r'\breduce\s*\(\s*max\s*=\s*[\d.]+\s*,\s*\w+\s+IN\s+(\w+)\s*\|\s*CASE\s+WHEN.*?END\s*\)',
+            r'list_sort(\1, "DESC")[1]',
+            query,
+            flags=re.IGNORECASE | re.DOTALL
+        )
+        
+        # reduce() for string concat: reduce(s='', p IN list | s + '/' + p)
+        # → list_to_string('/', list) (Kuzu uses reversed arg order)
+        query = re.sub(
+            r"\breduce\s*\(\s*\w+\s*=\s*['\"]'*['\"]?\s*,\s*\w+\s+IN\s+(\w+)\s*\|\s*\w+\s*\+\s*['\"]([^'\"]+)['\"]\s*\+\s*\w+\s*\)",
+            r"list_to_string('\2', \1)",
+            query,
+            flags=re.IGNORECASE
+        )
+        
         return query
 
     def _fix_syntax(self, query: str) -> str:

@@ -454,8 +454,8 @@ class AnalysisEngine:
             "degreecentrality",        # SET operations not supported
             # "shotgunsurgery",        # Slice syntax now auto-converted
             # "middleman",             # Fixed: rewrote without pattern comprehension
-            "typehintcoverage",        # Type mismatch: STRING vs MAP
-            "packagestability",        # Uses reduce() - no Kuzu equivalent
+            # "typehintcoverage",      # Fixed: removed COALESCE with map literal, handle JSON in Python
+            # "packagestability",      # Fixed: reduce() now auto-converted to list_sum/list_sort
             "changecoupling",          # Commit table doesn't exist
             # "asyncantipattern",      # Fixed: removed relationship property access
             # "featureenvy",           # Fixed: removed labels() check

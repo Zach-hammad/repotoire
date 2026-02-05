@@ -165,7 +165,7 @@ class PackageStabilityDetector(CodeSmellDetector):
         WHERE true {self._get_isolation_filter('c')}
         OPTIONAL MATCH (f:File)-[:CONTAINS]->(c)
         RETURN f.filePath AS file_path,
-               c.isAbstract AS is_abstract
+               c.is_abstract AS is_abstract
         """
 
         class_results = self.db.execute_query(abstract_query, self._get_query_params())

@@ -148,7 +148,7 @@ class TypeHintCoverageDetector(CodeSmellDetector):
         OPTIONAL MATCH (file:File)-[:CONTAINS*]->(f)
         WITH f, file,
              f.parameters AS params,
-             COALESCE(f.parameter_types, {}) AS param_types,
+             f.parameter_types AS param_types,
              f.return_type AS return_type
         RETURN f.qualifiedName AS func_name,
                f.name AS func_simple_name,
@@ -179,7 +179,20 @@ class TypeHintCoverageDetector(CodeSmellDetector):
 
             # Analyze type hint coverage for this function
             params = record.get("params") or []
-            param_types = record.get("param_types") or {}
+            param_types_raw = record.get("param_types")
+            # Handle param_types as dict, JSON string, or None
+            if param_types_raw is None:
+                param_types = {}
+            elif isinstance(param_types_raw, dict):
+                param_types = param_types_raw
+            elif isinstance(param_types_raw, str):
+                import json
+                try:
+                    param_types = json.loads(param_types_raw) if param_types_raw else {}
+                except json.JSONDecodeError:
+                    param_types = {}
+            else:
+                param_types = {}
             return_type = record.get("return_type")
 
             # Count parameters that should have type hints
@@ -441,7 +454,7 @@ class TypeHintCoverageDetector(CodeSmellDetector):
                ELSE 0
              END AS has_return_type,
              CASE
-               WHEN size(keys(COALESCE(f.parameter_types, {}))) > 0 THEN 1
+               WHEN f.parameter_types IS NOT NULL AND f.parameter_types <> '' AND f.parameter_types <> '{}' THEN 1
                ELSE 0
              END AS has_param_types
         WITH file,
