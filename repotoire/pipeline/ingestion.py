@@ -1275,10 +1275,11 @@ class IngestionPipeline:
             # Create External* entities for unresolved imports (Kuzu local mode)
             # This enables call resolution to work across file boundaries
             is_kuzu = type(self.db).__name__ == "KuzuClient"
+            existing_qnames = {e.qualified_name for e in entities}  # Define at outer scope
+            seen_external = set()  # Define at outer scope
+            
             if is_kuzu and relationships:
-                existing_qnames = {e.qualified_name for e in entities}
                 external_entities = []
-                seen_external = set()
                 
                 # Standard library modules to skip
                 stdlib = {'os', 'sys', 'json', 'logging', 're', 'time', 'typing', 'collections',
@@ -1332,6 +1333,49 @@ class IngestionPipeline:
                     logger.info(f"Created {len(ext_mapping)} external entity nodes for imports")
                 else:
                     logger.info(f"Created 0 external entity nodes for imports (checked {import_count} imports)")
+
+            # Handle CALLS_EXTERNAL relationships (Kuzu local mode)
+            # Convert them to proper External* entities and relationship types
+            if is_kuzu and relationships:
+                external_call_entities = []
+                external_calls_seen = set()
+                converted_rels = []
+                
+                for rel in relationships:
+                    if rel.rel_type == RelationshipType.CALLS_EXTERNAL:
+                        callee = rel.target_id
+                        if callee not in external_calls_seen and callee not in existing_qnames and callee not in seen_external:
+                            external_calls_seen.add(callee)
+                            # Determine if it looks like a class (PascalCase)
+                            is_class = callee and len(callee) > 0 and callee[0].isupper() and not callee.isupper()
+                            node_type = NodeType.EXTERNAL_CLASS if is_class else NodeType.EXTERNAL_FUNCTION
+                            ext_entity = Entity(
+                                qualified_name=callee,
+                                name=callee.split('.')[-1] if '.' in callee else callee,
+                                file_path="",
+                                line_start=0,
+                                line_end=0,
+                                node_type=node_type,
+                            )
+                            external_call_entities.append(ext_entity)
+                        
+                        # Convert to proper CALLS relationship type
+                        is_class = callee and len(callee) > 0 and callee[0].isupper() and not callee.isupper()
+                        new_rel_type = RelationshipType.CALLS if not is_class else RelationshipType.CALLS
+                        converted_rels.append(Relationship(
+                            source_id=rel.source_id,
+                            target_id=callee,
+                            rel_type=new_rel_type,
+                            properties=rel.properties,
+                        ))
+                    else:
+                        converted_rels.append(rel)
+                
+                if external_call_entities:
+                    self.db.batch_create_nodes(external_call_entities)
+                    logger.info(f"Created {len(external_call_entities)} external entity nodes for calls")
+                
+                relationships = converted_rels
 
             # Batch create all relationships
             # Note: batch_create_relationships now accepts qualified names directly
@@ -2510,43 +2554,108 @@ class IngestionPipeline:
             batch_start = time_module.time()
             if resolutions:
                 BATCH_SIZE = 10000  # Chunk to avoid memory issues with huge batches
-                resolve_query = """
-                UNWIND $resolutions AS res
-                MATCH (caller:Function {qualifiedName: res.caller_qn})-[r:CALLS]->(old_target {qualifiedName: res.old_target_qn})
-                MATCH (new_target {qualifiedName: res.new_target_qn})
-                DELETE r
-                MERGE (caller)-[r2:CALLS]->(new_target)
-                ON CREATE SET r2.line = res.line, r2.call_name = res.call_name, r2.is_self_call = res.is_self_call, r2.resolved = true
-                RETURN count(r2) as created
-                """
-                try:
-                    for i in range(0, len(resolutions), BATCH_SIZE):
-                        chunk = resolutions[i:i + BATCH_SIZE]
-                        if len(resolutions) > BATCH_SIZE:
-                            logger.debug(f"Processing resolution batch {i // BATCH_SIZE + 1}: {len(chunk)} calls")
-                        result = self.db.execute_query(resolve_query, {"resolutions": chunk})
-                        if result and result[0]["created"] > 0:
-                            calls_resolved += result[0]["created"]
-                    logger.info(f"Batch resolved {calls_resolved} calls to internal entities")
-                except Exception as e:
-                    logger.warning(f"Batch call resolution failed: {e}")
-                    # Fall back to individual queries for debugging
-                    logger.debug("Attempting individual call resolution for debugging...")
-                    for res in resolutions[:10]:  # Try first 10 to diagnose
+                
+                if is_kuzu:
+                    # Kuzu requires individual queries with explicit labels and relationship tables
+                    # Group resolutions by target type for efficient processing
+                    for res in resolutions:
                         try:
-                            single_query = """
-                            MATCH (caller:Function {qualifiedName: $caller_qn})-[r:CALLS]->(old_target {qualifiedName: $old_target_qn})
-                            MATCH (new_target {qualifiedName: $new_target_qn})
+                            # Determine target type (Function or Class)
+                            target_qn = res["new_target_qn"]
+                            target_label = "Function"  # Default
+                            for cand in name_to_qualified.get(res["call_name"] or target_qn.split("::")[-1].split(":")[0], []):
+                                if cand["qualified_name"] == target_qn:
+                                    target_label = cand["label"]
+                                    break
+                            
+                            # Determine old relationship table based on target type
+                            old_target_qn = res["old_target_qn"]
+                            old_rel_table = "CALLS_EXT_FUNC"
+                            if "ExternalClass" in old_target_qn or old_target_qn[0].isupper():
+                                old_rel_table = "CALLS_EXT_CLASS"
+                            
+                            # New relationship table
+                            new_rel_table = "CALLS" if target_label == "Function" else "CALLS_CLASS"
+                            
+                            # Delete old external relationship
+                            delete_query = f"""
+                            MATCH (caller:Function {{qualifiedName: $caller_qn}})-[r:{old_rel_table}]->(old:ExternalFunction {{qualifiedName: $old_target_qn}})
                             DELETE r
-                            MERGE (caller)-[r2:CALLS]->(new_target)
-                            ON CREATE SET r2.line = $line, r2.call_name = $call_name, r2.is_self_call = $is_self_call, r2.resolved = true
-                            RETURN count(r2) as created
                             """
-                            single_result = self.db.execute_query(single_query, res)
-                            if single_result and single_result[0]["created"] > 0:
-                                calls_resolved += 1
-                        except Exception as inner_e:
-                            logger.debug(f"Individual resolution failed for {res['caller_qn']}: {inner_e}")
+                            try:
+                                self.db.execute_query(delete_query, {
+                                    "caller_qn": res["caller_qn"],
+                                    "old_target_qn": res["old_target_qn"]
+                                })
+                            except Exception:
+                                # Try ExternalClass table
+                                delete_query2 = f"""
+                                MATCH (caller:Function {{qualifiedName: $caller_qn}})-[r:CALLS_EXT_CLASS]->(old:ExternalClass {{qualifiedName: $old_target_qn}})
+                                DELETE r
+                                """
+                                try:
+                                    self.db.execute_query(delete_query2, {
+                                        "caller_qn": res["caller_qn"],
+                                        "old_target_qn": res["old_target_qn"]
+                                    })
+                                except Exception:
+                                    pass  # Old relationship may not exist
+                            
+                            # Create new internal relationship with properties
+                            create_query = f"""
+                            MATCH (caller:Function {{qualifiedName: $caller_qn}}), (target:{target_label} {{qualifiedName: $new_target_qn}})
+                            CREATE (caller)-[:{new_rel_table} {{line: $line, call_name: $call_name, is_self_call: $is_self_call}}]->(target)
+                            """
+                            self.db.execute_query(create_query, {
+                                "caller_qn": res["caller_qn"],
+                                "new_target_qn": res["new_target_qn"],
+                                "line": res.get("line") or 0,
+                                "call_name": res.get("call_name") or "",
+                                "is_self_call": res.get("is_self_call", False)
+                            })
+                            calls_resolved += 1
+                        except Exception as e:
+                            logger.debug(f"Kuzu call resolution failed for {res.get('caller_qn', 'unknown')}: {e}")
+                    logger.info(f"Kuzu resolved {calls_resolved} calls to internal entities")
+                else:
+                    # FalkorDB/Neo4j: Use batch UNWIND query
+                    resolve_query = """
+                    UNWIND $resolutions AS res
+                    MATCH (caller:Function {qualifiedName: res.caller_qn})-[r:CALLS]->(old_target {qualifiedName: res.old_target_qn})
+                    MATCH (new_target {qualifiedName: res.new_target_qn})
+                    DELETE r
+                    MERGE (caller)-[r2:CALLS]->(new_target)
+                    ON CREATE SET r2.line = res.line, r2.call_name = res.call_name, r2.is_self_call = res.is_self_call, r2.resolved = true
+                    RETURN count(r2) as created
+                    """
+                    try:
+                        for i in range(0, len(resolutions), BATCH_SIZE):
+                            chunk = resolutions[i:i + BATCH_SIZE]
+                            if len(resolutions) > BATCH_SIZE:
+                                logger.debug(f"Processing resolution batch {i // BATCH_SIZE + 1}: {len(chunk)} calls")
+                            result = self.db.execute_query(resolve_query, {"resolutions": chunk})
+                            if result and result[0]["created"] > 0:
+                                calls_resolved += result[0]["created"]
+                        logger.info(f"Batch resolved {calls_resolved} calls to internal entities")
+                    except Exception as e:
+                        logger.warning(f"Batch call resolution failed: {e}")
+                        # Fall back to individual queries for debugging
+                        logger.debug("Attempting individual call resolution for debugging...")
+                        for res in resolutions[:10]:  # Try first 10 to diagnose
+                            try:
+                                single_query = """
+                                MATCH (caller:Function {qualifiedName: $caller_qn})-[r:CALLS]->(old_target {qualifiedName: $old_target_qn})
+                                MATCH (new_target {qualifiedName: $new_target_qn})
+                                DELETE r
+                                MERGE (caller)-[r2:CALLS]->(new_target)
+                                ON CREATE SET r2.line = $line, r2.call_name = $call_name, r2.is_self_call = $is_self_call, r2.resolved = true
+                                RETURN count(r2) as created
+                                """
+                                single_result = self.db.execute_query(single_query, res)
+                                if single_result and single_result[0]["created"] > 0:
+                                    calls_resolved += 1
+                            except Exception as inner_e:
+                                logger.debug(f"Individual resolution failed for {res['caller_qn']}: {inner_e}")
             logger.info(f"[TIMING] Batch resolution: {calls_resolved} resolved in {time_module.time() - batch_start:.1f}s")
 
             # Log resolution quality metrics

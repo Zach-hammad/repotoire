@@ -205,6 +205,7 @@ class RelationshipType(str, Enum):
     """
     IMPORTS = "IMPORTS"
     CALLS = "CALLS"
+    CALLS_EXTERNAL = "CALLS_EXTERNAL"  # Function calls external (unresolved) function
     CONTAINS = "CONTAINS"
     INHERITS = "INHERITS"
     USES = "USES"

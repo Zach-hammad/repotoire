@@ -1468,13 +1468,21 @@ class PythonParser(CodeParser):
         # Call Rust resolver
         results = resolve_calls_indexed(entities_list, rust_calls)
 
+        # Track which calls were resolved
+        resolved_callers = set()
+        
         # Create relationships from results
         for caller_qname, target_qname, confidence in results:
+            resolved_callers.add(caller_qname)
             # Find the line number from metadata
             line = 0
+            callee_name = ""
+            is_self_call = False
             for (callee, cfile, is_self, cclass), (stored_caller, stored_line) in call_metadata.items():
                 if stored_caller == caller_qname:
                     line = stored_line
+                    callee_name = callee
+                    is_self_call = is_self
                     break
 
             relationships.append(
@@ -1484,11 +1492,29 @@ class PythonParser(CodeParser):
                     rel_type=RelationshipType.CALLS,
                     properties={
                         "line": line,
+                        "call_name": callee_name,
+                        "is_self_call": is_self_call,
                         "confidence": confidence,
                         "resolved_by": "rust_indexed",
                     },
                 )
             )
+        
+        # Create CALLS_EXTERNAL for unresolved calls
+        for caller, callee, line, is_self_call in calls:
+            if caller not in resolved_callers:
+                relationships.append(
+                    Relationship(
+                        source_id=caller,
+                        target_id=callee,
+                        rel_type=RelationshipType.CALLS_EXTERNAL,
+                        properties={
+                            "line": line,
+                            "call_name": callee,
+                            "is_self_call": is_self_call,
+                        },
+                    )
+                )
 
     def _resolve_calls_python(
         self,
@@ -1554,7 +1580,24 @@ class PythonParser(CodeParser):
                         rel_type=RelationshipType.CALLS,
                         properties={
                             "line": line,
+                            "call_name": callee,
+                            "is_self_call": is_self_call,
                             "resolved_by": "python_fallback",
+                        },
+                    )
+                )
+            else:
+                # Unresolved call - create external call relationship
+                # This will be resolved later in ingestion or linked to External* entities
+                relationships.append(
+                    Relationship(
+                        source_id=caller,
+                        target_id=callee,  # Simple name, will be resolved later
+                        rel_type=RelationshipType.CALLS_EXTERNAL,
+                        properties={
+                            "line": line,
+                            "call_name": callee,
+                            "is_self_call": is_self_call,
                         },
                     )
                 )

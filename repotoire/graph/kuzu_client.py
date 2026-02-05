@@ -48,6 +48,7 @@ NODE_TYPE_TO_TABLE = {
 # Map our RelationshipTypes to Kuzu rel table names
 REL_TYPE_TO_TABLE = {
     RelationshipType.CALLS: "CALLS",
+    RelationshipType.CALLS_EXTERNAL: "CALLS",  # Converted to CALLS before storage
     RelationshipType.IMPORTS: "IMPORTS",
     RelationshipType.INHERITS: "INHERITS",
     RelationshipType.CONTAINS: "CONTAINS",
