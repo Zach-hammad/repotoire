@@ -1689,9 +1689,12 @@ def _display_insights(insights) -> None:
             insights_content.append(f"  [yellow]{file}[/yellow] → {coupled} files")
         insights_content.append("")
     
-    # High-risk entities (from bug prediction)
+    # High-risk entities (from bug prediction or heuristics)
     if insights.high_risk_entities:
-        insights_content.append("[bold]⚠️  High Bug Risk[/bold] (ML-predicted)")
+        # Check if any are from ML model
+        has_ml = any(r.get("source") == "ml_model" for r in insights.high_risk_entities)
+        source_label = "ML-predicted" if has_ml else "heuristic-scored"
+        insights_content.append(f"[bold]⚠️  High Bug Risk[/bold] ({source_label})")
         for r in insights.high_risk_entities[:5]:
             entity = r.get("entity", "unknown")
             prob = r.get("bug_probability", 0)
@@ -1699,7 +1702,20 @@ def _display_insights(insights) -> None:
                 entity = "..." + entity[-47:]
             pct = int(prob * 100)
             color = "red" if pct >= 80 else "yellow"
-            insights_content.append(f"  [{color}]{entity}[/{color}] ({pct}% risk)")
+            # Show factors if available (heuristic scoring)
+            factors = r.get("factors", {})
+            factor_hint = ""
+            if factors:
+                hints = []
+                if factors.get("complexity", 0) > 15:
+                    hints.append(f"complexity={factors['complexity']}")
+                if factors.get("fan_in", 0) > 10:
+                    hints.append(f"callers={factors['fan_in']}")
+                if not factors.get("has_tests"):
+                    hints.append("no tests")
+                if hints:
+                    factor_hint = f" [dim]({', '.join(hints[:2])})[/dim]"
+            insights_content.append(f"  [{color}]{entity}[/{color}] ({pct}% risk){factor_hint}")
         insights_content.append("")
     
     # High-impact entities
@@ -1722,7 +1738,10 @@ def _display_insights(insights) -> None:
     if gi.avg_fan_out > 0:
         stats.append(f"📊 Avg fan-out: {gi.avg_fan_out:.1f}")
     if insights.findings_enriched > 0:
-        stats.append(f"🧠 {insights.findings_enriched} findings enriched with ML")
+        # Check source - ML or heuristic
+        has_ml = any(r.get("source") == "ml_model" for r in insights.high_risk_entities)
+        method = "ML" if has_ml else "heuristics"
+        stats.append(f"🧠 {insights.findings_enriched} findings scored ({method})")
     
     if stats:
         insights_content.append("[dim]" + " | ".join(stats) + "[/dim]")
