@@ -5,7 +5,47 @@ All notable changes to Repotoire will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.6] - 2026-02-05
+
+### Bug Fixes
+
+- **cli:** Lazy-load database + use X-API-Key header for graph API
+- **api:** Support API key auth for /usage endpoint + fix CLI headers
+- Move require_org_api_key after get_current_user_or_api_key definition
+- Remove FK constraint on audit_logs.organization_id
+- Correct BugPredictor.load() call signature and predict() usage
+- Train-bug-predictor accepts multi-project training data format
+- Update Lean proof to work with newer String.all definition
+- Alternative proof for string_all_imp lemma
+- Use stable Lean 4.14.0 instead of RC version
+- Restore original proof with stable Lean version
+
+### CI/CD
+
+- Disable Lean workflow temporarily
+
+### Documentation
+
+- Highlight graph-powered detectors in CLI and README
+
+### Features
+
+- **auth:** Add require_org_api_key dependency for API key support
+- Integrate InsightsEngine for ML enrichment and graph metrics (REPO-501)
+- Add heuristic risk scoring as ML fallback
+- Add universal model training script + improve risk display
+- Support local FalkorDB fallback when no API key
+
+### Miscellaneous
+
+- Cache bust
+- Remove marketplace feature
+
+### Performance
+
+- Move heavy ML deps to optional [local-embeddings]
+
+## [0.1.4] - 2026-02-04
 
 ### Bug Fixes
 
@@ -163,6 +203,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add API patterns to architecture-patterns.json
 - Add frontend billing patterns to architecture-patterns.json
 - Update architecture-patterns with webhook security details
+- Update changelog
 
 ### Features
 
