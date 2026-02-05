@@ -211,13 +211,20 @@ class FixApplicator:
                 with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
 
-                # Verify original code exists
+                # Verify original code exists (with fuzzy matching for line drift)
                 original = change.original_code.strip()
                 if original not in content:
-                    return (
-                        False,
-                        f"Original code not found in {change.file_path}. File may have changed.",
-                    )
+                    # Try fuzzy matching to handle line drift
+                    match_result = self._fuzzy_find_code(content, original)
+                    if match_result:
+                        matched_code, similarity = match_result
+                        logger.info(f"Fuzzy matched code ({similarity:.0%} similar) despite line drift")
+                        original = matched_code
+                    else:
+                        return (
+                            False,
+                            f"Original code not found in {change.file_path}. File may have changed.",
+                        )
 
                 # Apply the change
                 new_content = content.replace(original, change.fixed_code.strip(), 1)
@@ -233,6 +240,75 @@ class FixApplicator:
             error_msg = f"Error applying change to {change.file_path}: {str(e)}"
             logger.error(error_msg, exc_info=True)
             return False, error_msg
+
+    def _fuzzy_find_code(
+        self, content: str, target: str, threshold: float = 0.85
+    ) -> Optional[Tuple[str, float]]:
+        """Find code in content using fuzzy matching to handle line drift.
+        
+        Uses sliding window to find the best match for the target code,
+        accounting for whitespace differences and minor edits.
+        
+        Args:
+            content: Full file content to search
+            target: Code snippet to find
+            threshold: Minimum similarity ratio (0-1) to accept match
+            
+        Returns:
+            Tuple of (matched_code, similarity_ratio) or None if no match
+        """
+        import difflib
+        
+        target_lines = target.strip().splitlines()
+        content_lines = content.splitlines()
+        
+        if not target_lines or not content_lines:
+            return None
+        
+        target_len = len(target_lines)
+        best_match = None
+        best_ratio = 0.0
+        
+        # Slide window through content
+        for i in range(len(content_lines) - target_len + 1):
+            window = content_lines[i:i + target_len]
+            window_text = "\n".join(window)
+            
+            # Quick rejection: if line counts differ wildly, skip detailed comparison
+            ratio = difflib.SequenceMatcher(
+                None, 
+                target.strip(), 
+                window_text.strip()
+            ).ratio()
+            
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_match = window_text
+        
+        # Also try with some flexibility on window size (±2 lines)
+        for delta in [1, 2, -1]:
+            adjusted_len = target_len + delta
+            if adjusted_len < 1 or adjusted_len > len(content_lines):
+                continue
+                
+            for i in range(len(content_lines) - adjusted_len + 1):
+                window = content_lines[i:i + adjusted_len]
+                window_text = "\n".join(window)
+                
+                ratio = difflib.SequenceMatcher(
+                    None,
+                    target.strip(),
+                    window_text.strip()
+                ).ratio()
+                
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_match = window_text
+        
+        if best_ratio >= threshold and best_match:
+            return (best_match, best_ratio)
+        
+        return None
 
     def _create_branch(self, fix: FixProposal) -> None:
         """Create git branch for fix.
