@@ -4833,11 +4833,20 @@ def auto_fix(
                 test_timeout=test_timeout,
             )
 
+            # Use parallel Rust-accelerated batch apply when available (faster)
+            use_parallel = hasattr(applicator, 'apply_batch_parallel')
             if not quiet_mode:
-                with console.status("[bold]Applying fixes..."):
-                    successful, failed = applicator.apply_batch(approved_fixes, commit_each=False)
+                mode = "parallel" if use_parallel else "sequential"
+                with console.status(f"[bold]Applying fixes ({mode})..."):
+                    if use_parallel:
+                        successful, failed = applicator.apply_batch_parallel(approved_fixes, commit=True)
+                    else:
+                        successful, failed = applicator.apply_batch(approved_fixes, commit_each=False)
             else:
-                successful, failed = applicator.apply_batch(approved_fixes, commit_each=False)
+                if use_parallel:
+                    successful, failed = applicator.apply_batch_parallel(approved_fixes, commit=True)
+                else:
+                    successful, failed = applicator.apply_batch(approved_fixes, commit_each=False)
 
             if not quiet_mode:
                 console.print(f"[green]✓[/green] Applied {len(successful)} fix(es)")

@@ -25,6 +25,21 @@ from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Try to import Rust-accelerated functions
+try:
+    from repotoire_fast import (
+        apply_changes_parallel as _rust_apply_changes,
+        fuzzy_find_in_file as _rust_fuzzy_find,
+        batch_verify_originals as _rust_batch_verify,
+        code_similarity as _rust_code_similarity,
+        CodeChange as RustCodeChange,
+    )
+    HAS_RUST_APPLICATOR = True
+    logger.debug("Rust fix applicator available")
+except ImportError:
+    HAS_RUST_APPLICATOR = False
+    logger.debug("Rust fix applicator not available, using Python fallback")
+
 
 # =============================================================================
 # Test Result Model (for backward compatibility)
@@ -164,6 +179,97 @@ class FixApplicator:
 
         return successful, failed
 
+    def apply_batch_parallel(
+        self, fixes: List[FixProposal], commit: bool = True, threshold: float = 0.85
+    ) -> Tuple[List[FixProposal], List[Tuple[FixProposal, str]]]:
+        """Apply multiple fixes in parallel using Rust.
+
+        This is significantly faster than apply_batch() for large batches
+        because it uses Rust + rayon for parallel file I/O and fuzzy matching.
+
+        Args:
+            fixes: List of approved fixes
+            commit: Create a single commit for all fixes
+            threshold: Fuzzy matching threshold (0.85 = 85% similarity)
+
+        Returns:
+            Tuple of (successful_fixes, failed_fixes_with_errors)
+        """
+        if not HAS_RUST_APPLICATOR:
+            logger.warning("Rust applicator not available, falling back to sequential apply")
+            return self.apply_batch(fixes, commit_each=False)
+
+        # Filter to approved fixes
+        approved_fixes = [f for f in fixes if f.status == FixStatus.APPROVED]
+        if not approved_fixes:
+            return [], []
+
+        # Collect all changes with fix references
+        all_changes = []
+        change_to_fix: Dict[int, FixProposal] = {}
+        
+        for fix in approved_fixes:
+            for change in fix.changes:
+                idx = len(all_changes)
+                all_changes.append(
+                    RustCodeChange(
+                        file_path=str(change.file_path),
+                        original_code=change.original_code,
+                        fixed_code=change.fixed_code,
+                    )
+                )
+                change_to_fix[idx] = fix
+
+        if not all_changes:
+            return [], []
+
+        logger.info(f"Applying {len(all_changes)} changes across {len(approved_fixes)} fixes (parallel)")
+
+        # Apply all changes in parallel via Rust
+        results = _rust_apply_changes(
+            str(self.repository_path),
+            all_changes,
+            threshold,
+        )
+
+        # Process results
+        successful_fixes = set()
+        failed_fixes: Dict[str, Tuple[FixProposal, str]] = {}
+
+        for idx, result in enumerate(results):
+            fix = change_to_fix.get(idx)
+            if not fix:
+                continue
+
+            if result.success:
+                successful_fixes.add(fix.id)
+                if result.similarity < 1.0:
+                    logger.info(
+                        f"Applied change to {result.file_path} "
+                        f"(fuzzy match: {result.similarity:.0%})"
+                    )
+            else:
+                error = result.error or "Unknown error"
+                failed_fixes[fix.id] = (fix, f"{result.file_path}: {error}")
+                fix.status = FixStatus.FAILED
+
+        # Update successful fix statuses
+        successful = []
+        for fix in approved_fixes:
+            if fix.id in successful_fixes and fix.id not in failed_fixes:
+                fix.status = FixStatus.APPLIED
+                fix.applied_at = datetime.utcnow()
+                successful.append(fix)
+
+        # Create commit for successful fixes
+        if successful and commit and self.repo:
+            self._create_batch_commit(successful)
+
+        failed = list(failed_fixes.values())
+        logger.info(f"Applied {len(successful)} fixes, {len(failed)} failed")
+        
+        return successful, failed
+
     def _get_file_lock(self, file_path: Path) -> threading.Lock:
         """Get or create a lock for a specific file.
 
@@ -246,8 +352,8 @@ class FixApplicator:
     ) -> Optional[Tuple[str, float]]:
         """Find code in content using fuzzy matching to handle line drift.
         
-        Uses sliding window to find the best match for the target code,
-        accounting for whitespace differences and minor edits.
+        Uses Rust-accelerated LCS similarity when available, falling back
+        to Python difflib for compatibility.
         
         Args:
             content: Full file content to search
@@ -257,6 +363,56 @@ class FixApplicator:
         Returns:
             Tuple of (matched_code, similarity_ratio) or None if no match
         """
+        # Use Rust implementation when available (faster LCS algorithm)
+        if HAS_RUST_APPLICATOR:
+            return self._fuzzy_find_code_rust(content, target, threshold)
+        return self._fuzzy_find_code_python(content, target, threshold)
+
+    def _fuzzy_find_code_rust(
+        self, content: str, target: str, threshold: float = 0.85
+    ) -> Optional[Tuple[str, float]]:
+        """Rust-accelerated fuzzy code matching using LCS similarity."""
+        target_lines = target.strip().splitlines()
+        content_lines = content.splitlines()
+        
+        if not target_lines or not content_lines:
+            return None
+        
+        target_len = len(target_lines)
+        target_text = target.strip()
+        best_match = None
+        best_ratio = 0.0
+        
+        # Try exact window size and ±1,2 lines
+        for delta in [0, 1, 2, -1]:
+            adjusted_len = target_len + delta
+            if adjusted_len < 1 or adjusted_len > len(content_lines):
+                continue
+            
+            for i in range(len(content_lines) - adjusted_len + 1):
+                window = content_lines[i:i + adjusted_len]
+                window_text = "\n".join(window)
+                
+                # Use Rust LCS-based similarity
+                ratio = _rust_code_similarity(target_text, window_text.strip())
+                
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_match = window_text
+                    
+                    # Early exit on very high match
+                    if ratio > 0.98:
+                        return (best_match, best_ratio)
+        
+        if best_ratio >= threshold and best_match:
+            return (best_match, best_ratio)
+        
+        return None
+    
+    def _fuzzy_find_code_python(
+        self, content: str, target: str, threshold: float = 0.85
+    ) -> Optional[Tuple[str, float]]:
+        """Python fallback for fuzzy code matching using difflib."""
         import difflib
         
         target_lines = target.strip().splitlines()
@@ -274,7 +430,6 @@ class FixApplicator:
             window = content_lines[i:i + target_len]
             window_text = "\n".join(window)
             
-            # Quick rejection: if line counts differ wildly, skip detailed comparison
             ratio = difflib.SequenceMatcher(
                 None, 
                 target.strip(), 

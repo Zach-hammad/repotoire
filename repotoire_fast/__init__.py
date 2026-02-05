@@ -152,6 +152,14 @@ from .repotoire_fast import (
     find_cycles_cached,               # Find cycles using cache (100-1000x faster)
     batch_can_reach,                  # Batch reachability queries
     batch_reachable_from,             # Batch reachable-from queries
+    # Fix applicator - parallel code changes (REPO-525)
+    ApplyResult,                      # Result of applying a single change
+    CodeChange,                       # Code change to apply
+    apply_changes_parallel,           # Apply multiple changes in parallel
+    fuzzy_find_in_file,               # Fuzzy find code in file
+    batch_verify_originals,           # Batch verify original code exists
+    code_similarity,                  # Calculate code similarity
+    batch_validate_syntax,            # Batch syntax validation
 )
 
 __all__ = [
@@ -307,4 +315,12 @@ __all__ = [
     "find_cycles_cached",               # Find cycles using cache (100-1000x faster)
     "batch_can_reach",                  # Batch reachability queries
     "batch_reachable_from",             # Batch reachable-from queries
+    # Fix applicator - parallel code changes (REPO-525)
+    "ApplyResult",                      # Result of applying a single change
+    "CodeChange",                       # Code change to apply
+    "apply_changes_parallel",           # Apply multiple changes in parallel
+    "fuzzy_find_in_file",               # Fuzzy find code in file
+    "batch_verify_originals",           # Batch verify original code exists
+    "code_similarity",                  # Calculate code similarity
+    "batch_validate_syntax",            # Batch syntax validation
 ]

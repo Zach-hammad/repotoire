@@ -31,6 +31,7 @@ pub mod traversal;
 pub mod findings_serde;
 pub mod string_ops;
 pub mod path_cache;
+pub mod fix_applicator;
 
 // Convert GraphError to Python ValueError (REPO-227)
 impl From<errors::GraphError> for PyErr {
@@ -5027,6 +5028,14 @@ fn repotoire_fast(n: &Bound<'_, PyModule>) -> PyResult<()> {
     n.add_function(wrap_pyfunction!(find_cycles_cached, n)?)?;
     n.add_function(wrap_pyfunction!(batch_can_reach, n)?)?;
     n.add_function(wrap_pyfunction!(batch_reachable_from, n)?)?;
+    // Fix applicator - parallel code changes (REPO-525)
+    n.add_class::<fix_applicator::ApplyResult>()?;
+    n.add_class::<fix_applicator::CodeChange>()?;
+    n.add_function(wrap_pyfunction!(fix_applicator::apply_changes_parallel, n)?)?;
+    n.add_function(wrap_pyfunction!(fix_applicator::fuzzy_find_in_file, n)?)?;
+    n.add_function(wrap_pyfunction!(fix_applicator::batch_verify_originals, n)?)?;
+    n.add_function(wrap_pyfunction!(fix_applicator::code_similarity, n)?)?;
+    n.add_function(wrap_pyfunction!(fix_applicator::batch_validate_syntax, n)?)?;
     Ok(())
 }
 
