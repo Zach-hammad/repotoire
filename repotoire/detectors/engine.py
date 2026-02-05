@@ -449,28 +449,22 @@ class AnalysisEngine:
         # Kuzu mode: disable graph-dependent detectors (Cypher compatibility issues)
         # These detectors require features not available in Kuzu (shortestPath, ORDER BY id, etc.)
         kuzu_disabled_detectors = {
-            "circulardependency",      # Uses shortestPath
-            "godclass",                # Complex pattern comprehensions
-            "modulecohesion",          # Uses ORDER BY id() for Rust algorithms
+            # Graph algorithm detectors (require ORDER BY id() for Rust integration)
+            "circulardependency",      # Uses shortestPath - no Kuzu equivalent
+            "modulecohesion",          # Uses ORDER BY id() for Rust algorithms  
             "coreutility",             # Uses ORDER BY id() for harmonic centrality
             "influentialcode",         # Uses ORDER BY id() for PageRank
-            "degreecentrality",        # SET operations
-            "shotgunsurgery",          # Slice syntax [0..5]
-            "middleman",               # Pattern comprehensions
-            # "inappropriateintimacy", # elementId() - now handled by adapter
-            "dataclumps",              # CONTAINS relationship issues
-            "asyncantipattern",        # Relationship properties
-            "typehintcoverage",        # COALESCE with empty map
-            # "lazyclass",             # toFloat() - now handled by adapter
-            # "refusedbequest",        # toFloat() - now handled by adapter
-            "packagestability",        # Slice syntax
-            "technicaldebthotspot",    # Property name issues
-            "layeredarchitecture",     # Property name issues
-            "hubdependency",           # Property name issues
-            "changecoupling",          # Commit table
-            "deadcode",                # CONTAINS relationship
             "architecturalbottleneck", # ORDER BY id() for betweenness
-            "featureenvy",             # labels() function issues
+            # Syntax incompatibilities
+            "degreecentrality",        # SET operations not supported
+            "shotgunsurgery",          # Slice syntax [0..5]
+            "middleman",               # Pattern comprehensions with WHERE
+            "typehintcoverage",        # COALESCE with empty map {}
+            "packagestability",        # Slice syntax [..-1]
+            "changecoupling",          # Commit table doesn't exist
+            # Function incompatibilities  
+            "asyncantipattern",        # Relationship property access (c.line_number)
+            "featureenvy",             # 'X' IN labels(n) syntax
         }
 
         filtered = []
