@@ -388,7 +388,7 @@ class InsightsEngine:
             # Try to load from configured path or default location
             model_path = self.config.bug_model_path
             if model_path and Path(model_path).exists():
-                self._bug_predictor = BugPredictor.load(model_path)
+                self._bug_predictor = BugPredictor.load(Path(model_path), self.client)
                 self._model_loaded = True
                 logger.info(f"Loaded bug predictor from {model_path}")
             else:
@@ -399,7 +399,7 @@ class InsightsEngine:
                 ]
                 for path in default_paths:
                     if path.exists():
-                        self._bug_predictor = BugPredictor.load(str(path))
+                        self._bug_predictor = BugPredictor.load(path, self.client)
                         self._model_loaded = True
                         logger.info(f"Loaded bug predictor from {path}")
                         break
@@ -415,9 +415,9 @@ class InsightsEngine:
             return None
             
         try:
-            result = self._bug_predictor.predict([entity])
+            result = self._bug_predictor.predict(entity, risk_threshold=self.config.high_risk_threshold)
             if result:
-                return result[0].bug_probability
+                return result.bug_probability
         except Exception as e:
             logger.debug(f"Bug prediction failed for {entity}: {e}")
         
