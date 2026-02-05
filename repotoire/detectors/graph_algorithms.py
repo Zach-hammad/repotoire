@@ -1562,35 +1562,74 @@ class GraphAlgorithms:
         try:
             # Filter by repoId for multi-tenant isolation
             repo_filter = self._get_isolation_filter("f")
-            # Calculate both in-degree and out-degree with pure Cypher
-            query = f"""
-            MATCH (f:File)
-            WHERE true {repo_filter}
-            OPTIONAL MATCH (importer:File)-[:IMPORTS]->(f)
-            OPTIONAL MATCH (f)-[:IMPORTS]->(imported:File)
-            WITH f,
-                 count(DISTINCT importer) AS in_degree,
-                 count(DISTINCT imported) AS out_degree
-            SET f.in_degree = in_degree, f.out_degree = out_degree
-            RETURN count(f) AS nodes_updated
-            """
+            
+            # Check if client is read-only (CloudProxyClient or Kuzu)
+            client_type = type(self.client).__name__
+            is_read_only = client_type in ("CloudProxyClient", "KuzuClient")
+            
+            if is_read_only:
+                # For read-only clients, compute and cache in memory
+                query = f"""
+                MATCH (f:File)
+                WHERE true {repo_filter}
+                OPTIONAL MATCH (importer:File)-[:IMPORTS]->(f)
+                OPTIONAL MATCH (f)-[:IMPORTS]->(imported:File)
+                WITH f,
+                     count(DISTINCT importer) AS in_degree,
+                     count(DISTINCT imported) AS out_degree
+                RETURN f.qualifiedName AS name, in_degree, out_degree
+                """
+                result = self.client.execute_query(query, self._get_query_params())
+                
+                if result:
+                    # Cache results in memory
+                    global _degree_cache
+                    with _cache_lock:
+                        for row in result:
+                            name = row.get("name")
+                            if name:
+                                _degree_cache[name] = {
+                                    "in_degree": row.get("in_degree", 0),
+                                    "out_degree": row.get("out_degree", 0)
+                                }
+                    
+                    elapsed_ms = int((time.time() - start_time) * 1000)
+                    logger.info(f"Degree centrality cached: {len(result)} files in {elapsed_ms}ms")
+                    return {
+                        "in_degree_nodes": len(result),
+                        "out_degree_nodes": len(result),
+                        "compute_millis": elapsed_ms
+                    }
+                return None
+            else:
+                # For writable clients, update nodes directly
+                query = f"""
+                MATCH (f:File)
+                WHERE true {repo_filter}
+                OPTIONAL MATCH (importer:File)-[:IMPORTS]->(f)
+                OPTIONAL MATCH (f)-[:IMPORTS]->(imported:File)
+                WITH f,
+                     count(DISTINCT importer) AS in_degree,
+                     count(DISTINCT imported) AS out_degree
+                SET f.in_degree = in_degree, f.out_degree = out_degree
+                RETURN count(f) AS nodes_updated
+                """
+                result = self.client.execute_query(query, self._get_query_params())
 
-            result = self.client.execute_query(query, self._get_query_params())
+                elapsed_ms = int((time.time() - start_time) * 1000)
 
-            elapsed_ms = int((time.time() - start_time) * 1000)
-
-            if result:
-                nodes = result[0]["nodes_updated"]
-                logger.info(
-                    f"Degree centrality complete (Cypher): "
-                    f"{nodes} files updated in {elapsed_ms}ms"
-                )
-                return {
-                    "in_degree_nodes": nodes,
-                    "out_degree_nodes": nodes,
-                    "compute_millis": elapsed_ms
-                }
-            return None
+                if result:
+                    nodes = result[0]["nodes_updated"]
+                    logger.info(
+                        f"Degree centrality complete (Cypher): "
+                        f"{nodes} files updated in {elapsed_ms}ms"
+                    )
+                    return {
+                        "in_degree_nodes": nodes,
+                        "out_degree_nodes": nodes,
+                        "compute_millis": elapsed_ms
+                    }
+                return None
 
         except Exception as e:
             logger.warning(f"Failed to calculate degree centrality: {e}")
