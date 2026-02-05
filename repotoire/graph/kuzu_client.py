@@ -40,9 +40,9 @@ NODE_TYPE_TO_TABLE = {
     NodeType.ATTRIBUTE: "Variable",
     NodeType.IMPORT: "Module",
     NodeType.CONCEPT: "Concept",
-    NodeType.EXTERNAL_FUNCTION: "Function",
-    NodeType.EXTERNAL_CLASS: "Class",
-    NodeType.BUILTIN_FUNCTION: "Function",
+    NodeType.EXTERNAL_FUNCTION: "ExternalFunction",
+    NodeType.EXTERNAL_CLASS: "ExternalClass",
+    NodeType.BUILTIN_FUNCTION: "BuiltinFunction",
 }
 
 # Map our RelationshipTypes to Kuzu rel table names
@@ -249,6 +249,15 @@ class KuzuClient(DatabaseClient):
                     PRIMARY KEY(qualifiedName)
                 )
             """,
+            "BuiltinFunction": """
+                CREATE NODE TABLE IF NOT EXISTS BuiltinFunction(
+                    qualifiedName STRING,
+                    name STRING,
+                    module STRING,
+                    repoId STRING,
+                    PRIMARY KEY(qualifiedName)
+                )
+            """,
         }
         
         for table_name, schema in node_schemas.items():
@@ -295,9 +304,11 @@ class KuzuClient(DatabaseClient):
         
         # Individual relationship tables for specific patterns
         rel_schemas = [
-            # Imports
+            # Imports - various targets
             "CREATE REL TABLE IF NOT EXISTS IMPORTS(FROM File TO Module)",
             "CREATE REL TABLE IF NOT EXISTS IMPORTS_FILE(FROM File TO File)",
+            "CREATE REL TABLE IF NOT EXISTS IMPORTS_EXT_CLASS(FROM File TO ExternalClass)",
+            "CREATE REL TABLE IF NOT EXISTS IMPORTS_EXT_FUNC(FROM File TO ExternalFunction)",
             
             # Inheritance
             "CREATE REL TABLE IF NOT EXISTS INHERITS(FROM Class TO Class)",
@@ -314,6 +325,11 @@ class KuzuClient(DatabaseClient):
             
             # Tests
             "CREATE REL TABLE IF NOT EXISTS TESTS(FROM Function TO Function)",
+            
+            # Calls to external entities
+            "CREATE REL TABLE IF NOT EXISTS CALLS_EXT_FUNC(FROM Function TO ExternalFunction)",
+            "CREATE REL TABLE IF NOT EXISTS CALLS_EXT_CLASS(FROM Function TO ExternalClass)",
+            "CREATE REL TABLE IF NOT EXISTS CALLS_BUILTIN(FROM Function TO BuiltinFunction)",
         ]
         
         for schema in rel_schemas:

@@ -617,11 +617,7 @@ class AnalysisEngine:
         import time as time_module
         start_time = time_module.time()
         
-        # Skip for Kuzu - uses label-less MATCH which Kuzu doesn't support
-        client_type = type(self.db).__name__
-        if client_type == "KuzuClient":
-            logger.debug("Skipping path cache build for Kuzu (uses label-less MATCH)")
-            return None
+        is_kuzu = type(self.db).__name__ == "KuzuClient"
         
         # REPO-524: Try to load from cache first
         cached_data = self._load_cached_graph_data()
@@ -652,12 +648,24 @@ class AnalysisEngine:
 
             # Query all nodes with qualified names
             # REPO-500: Added repo_id filter and explicit timeout (120s)
-            nodes_query = f"""
-            MATCH (n)
-            WHERE n.qualifiedName IS NOT NULL {repo_filter}
-            RETURN n.qualifiedName AS name
-            ORDER BY name
-            """
+            # Kuzu needs UNION of separate label queries (no label-less MATCH)
+            if is_kuzu:
+                nodes_query = """
+                MATCH (n:File) WHERE n.qualifiedName IS NOT NULL RETURN n.qualifiedName AS name
+                UNION ALL
+                MATCH (n:Class) WHERE n.qualifiedName IS NOT NULL RETURN n.qualifiedName AS name
+                UNION ALL
+                MATCH (n:Function) WHERE n.qualifiedName IS NOT NULL RETURN n.qualifiedName AS name
+                UNION ALL
+                MATCH (n:Module) WHERE n.qualifiedName IS NOT NULL RETURN n.qualifiedName AS name
+                """
+            else:
+                nodes_query = f"""
+                MATCH (n)
+                WHERE n.qualifiedName IS NOT NULL {repo_filter}
+                RETURN n.qualifiedName AS name
+                ORDER BY name
+                """
             query_start = time_module.time()
             # REPO-500: Explicit 120s timeout for nodes query (large graphs)
             nodes_result = self.db.execute_query(nodes_query, repo_params, timeout=120.0)
@@ -687,14 +695,37 @@ class AnalysisEngine:
             # Build cache for each relationship type
             total_edges = 0
             edges_by_type: Dict[str, list] = {}  # REPO-524: Collect for caching
+            
+            # Kuzu needs explicit labels on nodes
+            kuzu_edge_queries = {
+                "CALLS": """
+                    MATCH (a:Function)-[:CALLS]->(b:Function)
+                    WHERE a.qualifiedName IS NOT NULL AND b.qualifiedName IS NOT NULL
+                    RETURN a.qualifiedName AS src, b.qualifiedName AS dst
+                """,
+                "IMPORTS": """
+                    MATCH (a:File)-[:IMPORTS]->(b:Module)
+                    WHERE a.qualifiedName IS NOT NULL AND b.qualifiedName IS NOT NULL
+                    RETURN a.qualifiedName AS src, b.qualifiedName AS dst
+                """,
+                "INHERITS": """
+                    MATCH (a:Class)-[:INHERITS]->(b:Class)
+                    WHERE a.qualifiedName IS NOT NULL AND b.qualifiedName IS NOT NULL
+                    RETURN a.qualifiedName AS src, b.qualifiedName AS dst
+                """,
+            }
+            
             for rel_type in ["CALLS", "IMPORTS", "INHERITS"]:
                 # REPO-500: Added repo_id filter for edges
-                edges_query = f"""
-                MATCH (a)-[:{rel_type}]->(b)
-                WHERE a.qualifiedName IS NOT NULL AND b.qualifiedName IS NOT NULL
-                {repo_filter.replace('n.', 'a.')}
-                RETURN a.qualifiedName AS src, b.qualifiedName AS dst
-                """
+                if is_kuzu:
+                    edges_query = kuzu_edge_queries[rel_type]
+                else:
+                    edges_query = f"""
+                    MATCH (a)-[:{rel_type}]->(b)
+                    WHERE a.qualifiedName IS NOT NULL AND b.qualifiedName IS NOT NULL
+                    {repo_filter.replace('n.', 'a.')}
+                    RETURN a.qualifiedName AS src, b.qualifiedName AS dst
+                    """
                 rel_start = time_module.time()
                 # REPO-500: Explicit 300s timeout for edges query (IMPORTS can be dense)
                 edges_result = self.db.execute_query(edges_query, repo_params, timeout=300.0)

@@ -1272,6 +1272,11 @@ class IngestionPipeline:
             # Minimal delay - BGSAVE disabled so no fork crashes
             time.sleep(0.05)
 
+            # TODO: External* entity creation for Kuzu local mode
+            # This would enable call resolution across file boundaries
+            # For now, this is skipped - requires relationship table changes
+            # See: ExternalClass, ExternalFunction tables in kuzu_client.py schema
+
             # Batch create all relationships
             # Note: batch_create_relationships now accepts qualified names directly
             if relationships:
@@ -2593,23 +2598,31 @@ class IngestionPipeline:
             logger.debug("repotoire_fast path cache not available, skipping cache build")
             return None
 
-        # Skip for Kuzu - uses label-less MATCH which Kuzu doesn't support
-        client_type = type(self.db).__name__
-        if client_type == "KuzuClient":
-            logger.debug("Skipping path cache build for Kuzu (uses label-less MATCH)")
-            return None
+        is_kuzu = type(self.db).__name__ == "KuzuClient"
 
         try:
             cache_start = time.time()
             cache = PyPathCache()
 
             # Step 1: Get all nodes with their IDs and qualified names
-            nodes_query = """
-            MATCH (n)
-            WHERE n.qualifiedName IS NOT NULL
-              AND (n:File OR n:Class OR n:Function OR n:Module)
-            RETURN id(n) AS id, n.qualifiedName AS qn
-            """
+            # Kuzu needs UNION of separate label queries (no label-less MATCH)
+            if is_kuzu:
+                nodes_query = """
+                MATCH (n:File) WHERE n.qualifiedName IS NOT NULL RETURN n.qualifiedName AS qn
+                UNION ALL
+                MATCH (n:Class) WHERE n.qualifiedName IS NOT NULL RETURN n.qualifiedName AS qn
+                UNION ALL
+                MATCH (n:Function) WHERE n.qualifiedName IS NOT NULL RETURN n.qualifiedName AS qn
+                UNION ALL
+                MATCH (n:Module) WHERE n.qualifiedName IS NOT NULL RETURN n.qualifiedName AS qn
+                """
+            else:
+                nodes_query = """
+                MATCH (n)
+                WHERE n.qualifiedName IS NOT NULL
+                  AND (n:File OR n:Class OR n:Function OR n:Module)
+                RETURN id(n) AS id, n.qualifiedName AS qn
+                """
             nodes_result = self.db.execute_query(nodes_query)
 
             if not nodes_result:
@@ -2617,20 +2630,39 @@ class IngestionPipeline:
                 return cache
 
             # Register all nodes with the cache
-            nodes = [(int(row["id"]), row["qn"]) for row in nodes_result]
+            # For Kuzu: use index as ID since we don't have graph IDs
+            # For FalkorDB/Neo4j: use actual graph IDs
+            if is_kuzu:
+                qn_to_id = {row["qn"]: i for i, row in enumerate(nodes_result)}
+                nodes = [(i, row["qn"]) for i, row in enumerate(nodes_result)]
+                num_nodes = len(nodes_result)
+            else:
+                nodes = [(int(row["id"]), row["qn"]) for row in nodes_result]
+                num_nodes = max(row["id"] for row in nodes_result) + 1
             cache.register_nodes(nodes)
 
-            # Build ID lookup for edge queries
-            num_nodes = max(row["id"] for row in nodes_result) + 1
-
             # Step 2: Build cache for CALLS relationships
-            calls_query = """
-            MATCH (caller)-[:CALLS]->(callee)
-            WHERE caller.qualifiedName IS NOT NULL AND callee.qualifiedName IS NOT NULL
-            RETURN id(caller) AS src, id(callee) AS dst
-            """
-            calls_result = self.db.execute_query(calls_query)
-            calls_edges = [(int(row["src"]), int(row["dst"])) for row in calls_result]
+            # Kuzu: use qualified names and map to IDs
+            if is_kuzu:
+                calls_query = """
+                MATCH (caller:Function)-[:CALLS]->(callee:Function)
+                WHERE caller.qualifiedName IS NOT NULL AND callee.qualifiedName IS NOT NULL
+                RETURN caller.qualifiedName AS src_qn, callee.qualifiedName AS dst_qn
+                """
+                calls_result = self.db.execute_query(calls_query)
+                calls_edges = [
+                    (qn_to_id[row["src_qn"]], qn_to_id[row["dst_qn"]])
+                    for row in calls_result
+                    if row["src_qn"] in qn_to_id and row["dst_qn"] in qn_to_id
+                ]
+            else:
+                calls_query = """
+                MATCH (caller)-[:CALLS]->(callee)
+                WHERE caller.qualifiedName IS NOT NULL AND callee.qualifiedName IS NOT NULL
+                RETURN id(caller) AS src, id(callee) AS dst
+                """
+                calls_result = self.db.execute_query(calls_query)
+                calls_edges = [(int(row["src"]), int(row["dst"])) for row in calls_result]
 
             if calls_edges:
                 cache.build_cache("CALLS", calls_edges, num_nodes)
@@ -2642,13 +2674,26 @@ class IngestionPipeline:
                     )
 
             # Step 3: Build cache for IMPORTS relationships
-            imports_query = """
-            MATCH (importer)-[:IMPORTS]->(imported)
-            WHERE importer.qualifiedName IS NOT NULL AND imported.qualifiedName IS NOT NULL
-            RETURN id(importer) AS src, id(imported) AS dst
-            """
-            imports_result = self.db.execute_query(imports_query)
-            imports_edges = [(int(row["src"]), int(row["dst"])) for row in imports_result]
+            if is_kuzu:
+                imports_query = """
+                MATCH (importer:File)-[:IMPORTS]->(imported:Module)
+                WHERE importer.qualifiedName IS NOT NULL AND imported.qualifiedName IS NOT NULL
+                RETURN importer.qualifiedName AS src_qn, imported.qualifiedName AS dst_qn
+                """
+                imports_result = self.db.execute_query(imports_query)
+                imports_edges = [
+                    (qn_to_id[row["src_qn"]], qn_to_id[row["dst_qn"]])
+                    for row in imports_result
+                    if row["src_qn"] in qn_to_id and row["dst_qn"] in qn_to_id
+                ]
+            else:
+                imports_query = """
+                MATCH (importer)-[:IMPORTS]->(imported)
+                WHERE importer.qualifiedName IS NOT NULL AND imported.qualifiedName IS NOT NULL
+                RETURN id(importer) AS src, id(imported) AS dst
+                """
+                imports_result = self.db.execute_query(imports_query)
+                imports_edges = [(int(row["src"]), int(row["dst"])) for row in imports_result]
 
             if imports_edges:
                 cache.build_cache("IMPORTS", imports_edges, num_nodes)
@@ -2660,13 +2705,26 @@ class IngestionPipeline:
                     )
 
             # Step 4: Build cache for INHERITS relationships
-            inherits_query = """
-            MATCH (child)-[:INHERITS]->(parent)
-            WHERE child.qualifiedName IS NOT NULL AND parent.qualifiedName IS NOT NULL
-            RETURN id(child) AS src, id(parent) AS dst
-            """
-            inherits_result = self.db.execute_query(inherits_query)
-            inherits_edges = [(int(row["src"]), int(row["dst"])) for row in inherits_result]
+            if is_kuzu:
+                inherits_query = """
+                MATCH (child:Class)-[:INHERITS]->(parent:Class)
+                WHERE child.qualifiedName IS NOT NULL AND parent.qualifiedName IS NOT NULL
+                RETURN child.qualifiedName AS src_qn, parent.qualifiedName AS dst_qn
+                """
+                inherits_result = self.db.execute_query(inherits_query)
+                inherits_edges = [
+                    (qn_to_id[row["src_qn"]], qn_to_id[row["dst_qn"]])
+                    for row in inherits_result
+                    if row["src_qn"] in qn_to_id and row["dst_qn"] in qn_to_id
+                ]
+            else:
+                inherits_query = """
+                MATCH (child)-[:INHERITS]->(parent)
+                WHERE child.qualifiedName IS NOT NULL AND parent.qualifiedName IS NOT NULL
+                RETURN id(child) AS src, id(parent) AS dst
+                """
+                inherits_result = self.db.execute_query(inherits_query)
+                inherits_edges = [(int(row["src"]), int(row["dst"])) for row in inherits_result]
 
             if inherits_edges:
                 cache.build_cache("INHERITS", inherits_edges, num_nodes)
