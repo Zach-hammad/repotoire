@@ -75,6 +75,13 @@ from .status import (
 from .uptime import UptimeRecord
 from .user import User
 from .webhook import DeliveryStatus, Webhook, WebhookDelivery, WebhookEvent
+from .team_analytics import (
+    Developer,
+    CodeOwnership,
+    OwnershipType,
+    Collaboration,
+    TeamInsight,
+)
 
 __all__ = [
     # Base classes
@@ -153,4 +160,10 @@ __all__ = [
     "CLIToken",
     "generate_token",
     "hash_token",
+    # Team Analytics (cloud-only)
+    "Developer",
+    "CodeOwnership",
+    "OwnershipType",
+    "Collaboration",
+    "TeamInsight",
 ]

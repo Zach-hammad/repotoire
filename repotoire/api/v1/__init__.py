@@ -33,6 +33,7 @@ from repotoire.api.v1.routes import (
     security,
     status,
     team,
+    team_analytics,
     usage,
     webhooks,
 )
@@ -262,6 +263,7 @@ v1_app.include_router(rules.router)
 v1_app.include_router(sandbox.router)
 v1_app.include_router(security.router)
 v1_app.include_router(team.router)
+v1_app.include_router(team_analytics.router)
 v1_app.include_router(usage.router)
 v1_app.include_router(webhooks.router)
 v1_app.include_router(status.router)

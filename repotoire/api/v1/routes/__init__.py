@@ -28,6 +28,7 @@ from repotoire.api.v1.routes import (
     security,
     status,
     team,
+    team_analytics,
     usage,
     webhooks,
 )
@@ -60,6 +61,7 @@ __all__ = [
     "security",
     "status",
     "team",
+    "team_analytics",
     "usage",
     "webhooks",
 ]
