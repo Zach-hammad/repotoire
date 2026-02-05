@@ -393,9 +393,12 @@ class KuzuClient(DatabaseClient):
             "qualifiedName": entity.qualified_name,
             "name": entity.name,
             "filePath": entity.file_path,
-            "lineStart": entity.line_start,
-            "lineEnd": entity.line_end,
         }
+        
+        # lineStart/lineEnd not in File schema
+        if entity.node_type != NodeType.FILE:
+            props["lineStart"] = entity.line_start
+            props["lineEnd"] = entity.line_end
         
         # Add type-specific properties
         if hasattr(entity, 'complexity') and entity.complexity is not None:
@@ -543,6 +546,44 @@ class KuzuClient(DatabaseClient):
         except Exception:
             return None
 
+    def batch_get_file_metadata(self, file_paths: list) -> Dict[str, Dict[str, Any]]:
+        """Get file metadata for multiple files in a single query.
+        
+        Args:
+            file_paths: List of file paths to fetch metadata for
+            
+        Returns:
+            Dict mapping file_path to metadata dict (hash, loc).
+            Files not found in database are not included in result.
+        """
+        if not file_paths:
+            return {}
+        
+        # Kuzu supports UNWIND for batch operations
+        try:
+            result = self._conn.execute(
+                "UNWIND $paths AS path MATCH (f:File {filePath: path}) RETURN f.filePath AS filePath, f.hash AS hash, f.loc AS loc",
+                {"paths": file_paths}
+            )
+            metadata = {}
+            while result.has_next():
+                row = result.get_next()
+                file_path = row[0]
+                if file_path:
+                    metadata[file_path] = {
+                        "hash": row[1],
+                        "loc": row[2]
+                    }
+            return metadata
+        except Exception:
+            # Fall back to single-file queries
+            metadata = {}
+            for path in file_paths:
+                meta = self.get_file_metadata(path)
+                if meta:
+                    metadata[path] = meta
+            return metadata
+
     def delete_file_entities(self, file_path: str) -> int:
         """Delete a file and all its related entities."""
         deleted = 0
@@ -581,6 +622,24 @@ class KuzuClient(DatabaseClient):
             pass
         
         return deleted
+
+    def batch_delete_file_entities(self, file_paths: list) -> int:
+        """Delete multiple files and their related entities.
+        
+        Args:
+            file_paths: List of file paths to delete
+            
+        Returns:
+            Total count of deleted nodes
+        """
+        if not file_paths:
+            return 0
+        
+        total_deleted = 0
+        for path in file_paths:
+            total_deleted += self.delete_file_entities(path)
+        
+        return total_deleted
 
 
 def create_kuzu_client(

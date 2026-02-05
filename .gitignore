@@ -98,3 +98,4 @@ benchmarks/
 
 # Playwright MCP
 .playwright-mcp/
+.repotoire/
