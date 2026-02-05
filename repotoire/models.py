@@ -1028,6 +1028,7 @@ class Finding:
     created_at: datetime = field(default_factory=datetime.now)
     collaboration_metadata: List[CollaborationMetadata] = field(default_factory=list)
     language: Optional[str] = None  # Primary language of affected files (e.g., "python", "typescript")
+    why_it_matters: Optional[str] = None  # Human-friendly explanation of why this issue is important
 
     # Deduplication fields (REPO-152 Phase 3)
     is_duplicate: bool = False

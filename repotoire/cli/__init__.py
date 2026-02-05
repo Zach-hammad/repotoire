@@ -1560,6 +1560,69 @@ def analyze(
         raise click.Abort()
 
 
+# Why It Matters explanations by detector type (REPO-521)
+WHY_IT_MATTERS = {
+    "bandit": "🔒 **Security vulnerabilities** can lead to data breaches, system compromise, or exploitation. These issues should be prioritized based on exposure (public-facing code is higher risk).",
+    "security": "🔒 **Security vulnerabilities** can lead to data breaches, system compromise, or exploitation. These issues should be prioritized based on exposure (public-facing code is higher risk).",
+    "circular": "🔄 **Circular dependencies** make code hard to test, refactor, and reason about. They often indicate architectural confusion and can cause import errors or unpredictable behavior.",
+    "god_class": "👹 **God classes** violate the Single Responsibility Principle. They're hard to test, prone to bugs when modified, and create bottlenecks for team collaboration.",
+    "dead_code": "💀 **Dead code** clutters the codebase, confuses developers, and can mask real bugs. It also increases cognitive load and maintenance burden.",
+    "complexity": "🧠 **High complexity** makes code hard to understand, test, and maintain. Complex code has more bugs and takes longer to modify safely.",
+    "coupling": "🔗 **High coupling** means changes ripple through many files. This increases the risk of regressions and makes refactoring expensive.",
+    "bottleneck": "🎯 **Architectural bottlenecks** are functions that many others depend on. Bugs here have wide blast radius; changes require careful coordination.",
+    "async": "⚡ **Async anti-patterns** can cause performance issues (blocking the event loop), deadlocks, or race conditions that are hard to debug.",
+    "duplicate": "📋 **Duplicated code** means bugs must be fixed in multiple places. It's a maintenance burden and a common source of inconsistencies.",
+    "type_hint": "📝 **Missing type hints** reduce code clarity and disable static analysis benefits. Type hints catch bugs before runtime.",
+    "test_smell": "🧪 **Test smells** reduce test reliability and maintainability. Flaky or poorly structured tests give false confidence.",
+    "feature_envy": "👀 **Feature envy** suggests misplaced logic. When a method uses another class's data heavily, it probably belongs in that class.",
+    "data_clump": "📦 **Data clumps** (groups of parameters that always appear together) often indicate a missing abstraction or class.",
+    "long_parameter": "📜 **Long parameter lists** are hard to use correctly, easy to get wrong, and usually indicate the function does too much.",
+    "lazy_class": "😴 **Lazy classes** add indirection without value. If a class doesn't do enough to justify its existence, consider inlining it.",
+    "inappropriate_intimacy": "💔 **Inappropriate intimacy** between classes indicates poor encapsulation. These classes are tightly coupled and hard to change independently.",
+    "message_chain": "⛓️ **Message chains** (a.b.c.d) violate the Law of Demeter. They create tight coupling and make code fragile to structural changes.",
+    "middle_man": "🔀 **Middle man** classes just delegate to others. They add complexity without value; consider removing the indirection.",
+    "shotgun_surgery": "💥 **Shotgun surgery** means one change requires editing many files. This is error-prone and slows development.",
+    "refused_bequest": "🚫 **Refused bequest** (subclass ignores parent methods) suggests the inheritance hierarchy is wrong. Consider composition instead.",
+    "radon": "📊 **Complexity metrics** from Radon indicate code that's statistically more likely to contain bugs and harder to maintain.",
+    "pylint": "🐍 **Pylint issues** catch common Python mistakes, style violations, and potential bugs early.",
+    "mypy": "🔍 **Type errors** from mypy indicate potential runtime crashes. These are real bugs waiting to happen.",
+    "eslint": "📏 **ESLint issues** catch JavaScript/TypeScript bugs, security issues, and maintainability problems.",
+    "semgrep": "🔎 **Semgrep findings** detect security vulnerabilities and bug patterns using semantic code analysis.",
+    "ruff": "⚡ **Ruff findings** are fast Python lint issues — style, imports, and potential bugs.",
+    "vulture": "🦅 **Unused code** detected by Vulture is dead weight. Remove it to reduce confusion and maintenance burden.",
+    "taint": "☠️ **Taint analysis** traces untrusted input to dangerous operations. These are potential security vulnerabilities.",
+    "infinite_loop": "♾️ **Potential infinite loops** can hang your application or consume resources indefinitely.",
+    "generator_misuse": "🔄 **Generator misuse** (e.g., list() on large generators) defeats the memory benefits and can cause OOM errors.",
+}
+
+
+def _get_why_it_matters(detector: str, severity: str = "medium") -> str:
+    """Get a 'why it matters' explanation for a finding.
+    
+    Args:
+        detector: Detector name (e.g., 'BanditDetector', 'circular_dependency')
+        severity: Severity level for context
+        
+    Returns:
+        Human-friendly explanation of why this finding matters
+    """
+    detector_lower = detector.lower().replace("detector", "").replace("_", "").replace("-", "")
+    
+    # Try exact matches first
+    for key, explanation in WHY_IT_MATTERS.items():
+        if key in detector_lower:
+            return explanation
+    
+    # Generic fallback based on severity
+    severity_impact = {
+        "critical": "🚨 **Critical issues** need immediate attention — they may cause security breaches, data loss, or system failures.",
+        "high": "⚠️ **High-severity issues** should be fixed soon — they significantly impact code quality, security, or maintainability.",
+        "medium": "📋 **Medium-severity issues** are worth addressing — they add technical debt and make the codebase harder to work with.",
+        "low": "💡 **Low-severity issues** are opportunities for improvement — good to fix when working in the area.",
+    }
+    return severity_impact.get(severity.lower(), "This issue affects code quality or maintainability.")
+
+
 def _display_health_report(health) -> None:
     """Display health report in terminal with enhanced formatting."""
     from repotoire.models import Severity
@@ -5103,6 +5166,10 @@ def show_findings(
                 
                 if f.get("description"):
                     console.print(f"\n[bold]Description:[/bold]\n{f['description']}")
+                
+                # Show "Why It Matters" explanation (REPO-521)
+                why = f.get("why_it_matters") or _get_why_it_matters(f.get("detector", ""), sev)
+                console.print(f"\n[bold cyan]Why It Matters:[/bold cyan]\n{why}")
                 
                 if f.get("code_snippet"):
                     console.print(f"\n[bold]Code:[/bold]")
