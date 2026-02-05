@@ -2077,12 +2077,8 @@ class IngestionPipeline:
         Returns:
             Number of calls resolved to internal entities
         """
-        # Skip for Kuzu - external entities (ExternalFunction, ExternalClass) aren't tracked
-        # in local mode, and the resolution queries use relationship properties not in schema
-        client_type = type(self.db).__name__
-        if client_type == "KuzuClient":
-            logger.debug("Skipping internal call resolution for Kuzu (no external entities)")
-            return 0
+        # Kuzu now supports External* entities and CALLS relationship properties
+        is_kuzu = type(self.db).__name__ == "KuzuClient"
 
         calls_resolved = 0
         type_inferred_count = 0
@@ -2118,29 +2114,48 @@ class IngestionPipeline:
                 # Use Rust for fast O(n) matching instead of slow O(n²) Cypher queries
                 import_edges = []
                 
-                # Skip for Kuzu - external entities aren't tracked in local mode
-                is_kuzu = type(self.db).__name__ == "KuzuClient"
-                if is_kuzu:
-                    logger.debug("Skipping import edge matching for Kuzu (no external entities)")
-                else:
-                    try:
-                        logger.info(f"[TIMING] Running import edge matching (Rust)...")
-                        query_start = time_module.time()
+                # Kuzu now supports External* entities
+                is_kuzu_import = type(self.db).__name__ == "KuzuClient"
+                try:
+                    logger.info(f"[TIMING] Running import edge matching (Rust)...")
+                    query_start = time_module.time()
 
-                        # Get imports: (src_file, imported_name)
+                    # Get imports: (src_file, imported_name)
+                    # Kuzu needs UNION of separate queries (no label-less OR)
+                    if is_kuzu_import:
+                        imports_query = """
+                        MATCH (f:File)-[:IMPORTS_EXT_CLASS]->(ext:ExternalClass)
+                        WHERE ext.qualifiedName IS NOT NULL
+                        RETURN f.filePath as src, STRING_SPLIT(ext.qualifiedName, '.')[-1] as name
+                        UNION ALL
+                        MATCH (f:File)-[:IMPORTS_EXT_FUNC]->(ext:ExternalFunction)
+                        WHERE ext.qualifiedName IS NOT NULL
+                        RETURN f.filePath as src, STRING_SPLIT(ext.qualifiedName, '.')[-1] as name
+                        """
+                    else:
                         imports_query = """
                         MATCH (f:File)-[:IMPORTS]->(ext)
                         WHERE (ext:ExternalClass OR ext:ExternalFunction)
                           AND ext.qualifiedName IS NOT NULL
                         RETURN f.filePath as src, split(ext.qualifiedName, '.')[-1] as name
                         """
-                        imports_data = self.db.execute_query(imports_query)
-                        imports = [(r["src"], r["name"]) for r in imports_data if r["src"] and r["name"]]
-                        logger.info(f"[TIMING] Fetched {len(imports)} imports in {time_module.time() - query_start:.1f}s")
+                    imports_data = self.db.execute_query(imports_query)
+                    imports = [(r["src"], r["name"]) for r in imports_data if r["src"] and r["name"]]
+                    logger.info(f"[TIMING] Fetched {len(imports)} imports in {time_module.time() - query_start:.1f}s")
 
-                        # Get entities: (dst_file, entity_name)
-                        # Note: Don't filter by '::' - Python uses '.' separators
-                        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
+                    # Get entities: (dst_file, entity_name)
+                    # Kuzu needs UNION of separate queries
+                    if is_kuzu_import:
+                        entities_query = """
+                        MATCH (f:File)-[:CONTAINS]->(e:Function)
+                        WHERE e.qualifiedName IS NOT NULL AND e.name IS NOT NULL
+                        RETURN f.filePath as dst, e.name as name
+                        UNION ALL
+                        MATCH (f:File)-[:CONTAINS]->(e:Class)
+                        WHERE e.qualifiedName IS NOT NULL AND e.name IS NOT NULL
+                        RETURN f.filePath as dst, e.name as name
+                        """
+                    else:
                         entities_query = """
                         MATCH (f:File)-[:CONTAINS]->(e)
                         WHERE ('Function' IN labels(e) OR 'Class' IN labels(e))
@@ -2148,19 +2163,19 @@ class IngestionPipeline:
                           AND e.name IS NOT NULL
                         RETURN f.filePath as dst, e.name as name
                         """
-                        entity_start = time_module.time()
-                        entities_data = self.db.execute_query(entities_query)
-                        entities = [(r["dst"], r["name"]) for r in entities_data if r["dst"] and r["name"]]
-                        logger.info(f"[TIMING] Fetched {len(entities)} entities in {time_module.time() - entity_start:.1f}s")
+                    entity_start = time_module.time()
+                    entities_data = self.db.execute_query(entities_query)
+                    entities = [(r["dst"], r["name"]) for r in entities_data if r["dst"] and r["name"]]
+                    logger.info(f"[TIMING] Fetched {len(entities)} entities in {time_module.time() - entity_start:.1f}s")
 
-                        # Match in Rust (O(n) with HashMap vs O(n²) in Cypher)
-                        match_start = time_module.time()
-                        matched_edges = rf.match_import_edges_parallel(imports, entities)
-                        import_edges = [{"src": src, "dst": dst} for src, dst in matched_edges]
-                        logger.info(f"[TIMING] Rust matching: {len(import_edges)} edges in {time_module.time() - match_start:.3f}s")
-                        logger.info(f"[TIMING] Total import_edges: {time_module.time() - query_start:.1f}s")
-                    except Exception as e:
-                        logger.warning(f"Import edges matching failed (non-critical): {e}")
+                    # Match in Rust (O(n) with HashMap vs O(n²) in Cypher)
+                    match_start = time_module.time()
+                    matched_edges = rf.match_import_edges_parallel(imports, entities)
+                    import_edges = [{"src": src, "dst": dst} for src, dst in matched_edges]
+                    logger.info(f"[TIMING] Rust matching: {len(import_edges)} edges in {time_module.time() - match_start:.3f}s")
+                    logger.info(f"[TIMING] Total import_edges: {time_module.time() - query_start:.1f}s")
+                except Exception as e:
+                    logger.warning(f"Import edges matching failed (non-critical): {e}")
                 edges = []
                 for e in import_edges:
                     if e["src"] in file_to_idx and e["dst"] in file_to_idx:
@@ -2275,41 +2290,77 @@ class IngestionPipeline:
             logger.debug(f"Built import map for {len(file_import_modules)} files, {len(module_to_file)} module mappings")
 
             # Step 2: Find CALLS relationships where target is External*
-            # Note: Use UNION instead of WHERE label checks for FalkorDB compatibility
-            external_calls_query = """
-            MATCH (caller:Function)-[r:CALLS]->(target:ExternalFunction)
-            WHERE target.name IS NOT NULL
-            RETURN
-                caller.qualifiedName as caller_qn,
-                target.name as target_name,
-                target.qualifiedName as target_qn,
-                'ExternalFunction' as target_label,
-                r.line as line,
-                r.call_name as call_name,
-                r.is_self_call as is_self_call
-            UNION
-            MATCH (caller:Function)-[r:CALLS]->(target:ExternalClass)
-            WHERE target.name IS NOT NULL
-            RETURN
-                caller.qualifiedName as caller_qn,
-                target.name as target_name,
-                target.qualifiedName as target_qn,
-                'ExternalClass' as target_label,
-                r.line as line,
-                r.call_name as call_name,
-                r.is_self_call as is_self_call
-            UNION
-            MATCH (caller:Function)-[r:CALLS]->(target:BuiltinFunction)
-            WHERE target.name IS NOT NULL
-            RETURN
-                caller.qualifiedName as caller_qn,
-                target.name as target_name,
-                target.qualifiedName as target_qn,
-                'BuiltinFunction' as target_label,
-                r.line as line,
-                r.call_name as call_name,
-                r.is_self_call as is_self_call
-            """
+            # Kuzu uses specific relationship tables; FalkorDB/Neo4j use generic CALLS
+            if is_kuzu:
+                external_calls_query = """
+                MATCH (caller:Function)-[r:CALLS_EXT_FUNC]->(target:ExternalFunction)
+                WHERE target.name IS NOT NULL
+                RETURN
+                    caller.qualifiedName as caller_qn,
+                    target.name as target_name,
+                    target.qualifiedName as target_qn,
+                    'ExternalFunction' as target_label,
+                    r.line as line,
+                    r.call_name as call_name,
+                    r.is_self_call as is_self_call
+                UNION ALL
+                MATCH (caller:Function)-[r:CALLS_EXT_CLASS]->(target:ExternalClass)
+                WHERE target.name IS NOT NULL
+                RETURN
+                    caller.qualifiedName as caller_qn,
+                    target.name as target_name,
+                    target.qualifiedName as target_qn,
+                    'ExternalClass' as target_label,
+                    r.line as line,
+                    r.call_name as call_name,
+                    r.is_self_call as is_self_call
+                UNION ALL
+                MATCH (caller:Function)-[r:CALLS_BUILTIN]->(target:BuiltinFunction)
+                WHERE target.name IS NOT NULL
+                RETURN
+                    caller.qualifiedName as caller_qn,
+                    target.name as target_name,
+                    target.qualifiedName as target_qn,
+                    'BuiltinFunction' as target_label,
+                    r.line as line,
+                    r.call_name as call_name,
+                    r.is_self_call as is_self_call
+                """
+            else:
+                external_calls_query = """
+                MATCH (caller:Function)-[r:CALLS]->(target:ExternalFunction)
+                WHERE target.name IS NOT NULL
+                RETURN
+                    caller.qualifiedName as caller_qn,
+                    target.name as target_name,
+                    target.qualifiedName as target_qn,
+                    'ExternalFunction' as target_label,
+                    r.line as line,
+                    r.call_name as call_name,
+                    r.is_self_call as is_self_call
+                UNION
+                MATCH (caller:Function)-[r:CALLS]->(target:ExternalClass)
+                WHERE target.name IS NOT NULL
+                RETURN
+                    caller.qualifiedName as caller_qn,
+                    target.name as target_name,
+                    target.qualifiedName as target_qn,
+                    'ExternalClass' as target_label,
+                    r.line as line,
+                    r.call_name as call_name,
+                    r.is_self_call as is_self_call
+                UNION
+                MATCH (caller:Function)-[r:CALLS]->(target:BuiltinFunction)
+                WHERE target.name IS NOT NULL
+                RETURN
+                    caller.qualifiedName as caller_qn,
+                    target.name as target_name,
+                    target.qualifiedName as target_qn,
+                    'BuiltinFunction' as target_label,
+                    r.line as line,
+                    r.call_name as call_name,
+                    r.is_self_call as is_self_call
+                """
             query_start = time_module.time()
             external_calls = self.db.execute_query(external_calls_query)
             logger.info(f"[TIMING] external_calls_query: {len(external_calls)} calls in {time_module.time() - query_start:.1f}s")

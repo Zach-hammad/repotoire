@@ -277,10 +277,19 @@ class KuzuClient(DatabaseClient):
                 FROM File TO Function,
                 FROM Class TO Function
             )""",
-            # CALLS: Function->Function, Function->Class
-            """CREATE REL TABLE GROUP IF NOT EXISTS CALLS(
+            # CALLS: Function->Function, Function->Class (with properties)
+            # Note: REL TABLE GROUP doesn't support properties, using individual tables
+            """CREATE REL TABLE IF NOT EXISTS CALLS(
                 FROM Function TO Function,
-                FROM Function TO Class
+                line INT64,
+                call_name STRING,
+                is_self_call BOOLEAN
+            )""",
+            """CREATE REL TABLE IF NOT EXISTS CALLS_CLASS(
+                FROM Function TO Class,
+                line INT64,
+                call_name STRING,
+                is_self_call BOOLEAN
             )""",
             # USES: Function->Variable, Function->Function
             """CREATE REL TABLE GROUP IF NOT EXISTS USES(
@@ -326,10 +335,25 @@ class KuzuClient(DatabaseClient):
             # Tests
             "CREATE REL TABLE IF NOT EXISTS TESTS(FROM Function TO Function)",
             
-            # Calls to external entities
-            "CREATE REL TABLE IF NOT EXISTS CALLS_EXT_FUNC(FROM Function TO ExternalFunction)",
-            "CREATE REL TABLE IF NOT EXISTS CALLS_EXT_CLASS(FROM Function TO ExternalClass)",
-            "CREATE REL TABLE IF NOT EXISTS CALLS_BUILTIN(FROM Function TO BuiltinFunction)",
+            # Calls to external entities (with properties)
+            """CREATE REL TABLE IF NOT EXISTS CALLS_EXT_FUNC(
+                FROM Function TO ExternalFunction,
+                line INT64,
+                call_name STRING,
+                is_self_call BOOLEAN
+            )""",
+            """CREATE REL TABLE IF NOT EXISTS CALLS_EXT_CLASS(
+                FROM Function TO ExternalClass,
+                line INT64,
+                call_name STRING,
+                is_self_call BOOLEAN
+            )""",
+            """CREATE REL TABLE IF NOT EXISTS CALLS_BUILTIN(
+                FROM Function TO BuiltinFunction,
+                line INT64,
+                call_name STRING,
+                is_self_call BOOLEAN
+            )""",
         ]
         
         for schema in rel_schemas:
@@ -483,32 +507,48 @@ class KuzuClient(DatabaseClient):
         
         # If types not provided, try to look them up
         if not src_type:
-            src_type = self._find_node_type(rel.source)
+            src_type = self._find_node_type(rel.source_id)
         if not dst_type:
-            dst_type = self._find_node_type(rel.target)
+            dst_type = self._find_node_type(rel.target_id)
         
         if not src_type or not dst_type:
-            logger.debug(f"Could not find node types for relationship {rel.source} -> {rel.target}")
+            logger.debug(f"Could not find node types for relationship {rel.source_id} -> {rel.target_id}")
             return
         
-        # Build query with explicit labels
-        query = f"""
-        MATCH (a:{src_type} {{qualifiedName: $src}}), (b:{dst_type} {{qualifiedName: $dst}})
-        CREATE (a)-[:{rel_type}]->(b)
-        """
-        try:
-            self._conn.execute(query, {"src": rel.source, "dst": rel.target})
-        except Exception as e:
-            # Try with relationship table specific to these types
-            specific_rel = self._get_specific_rel_table(rel_type, src_type, dst_type)
-            if specific_rel and specific_rel != rel_type:
-                query = f"""
-                MATCH (a:{src_type} {{qualifiedName: $src}}), (b:{dst_type} {{qualifiedName: $dst}})
-                CREATE (a)-[:{specific_rel}]->(b)
-                """
-                self._conn.execute(query, {"src": rel.source, "dst": rel.target})
-            else:
-                raise
+        # Get specific relationship table for this type combination
+        specific_rel = self._get_specific_rel_table(rel_type, src_type, dst_type)
+        final_rel = specific_rel if specific_rel else rel_type
+        
+        # Build relationship properties for CALLS
+        rel_props = {}
+        params = {"src": rel.source_id, "dst": rel.target_id}
+        
+        if rel_type == "CALLS" and hasattr(rel, 'properties') and rel.properties:
+            # Add CALLS-specific properties
+            if 'line' in rel.properties:
+                rel_props['line'] = rel.properties['line']
+                params['line'] = rel.properties['line']
+            if 'call_name' in rel.properties:
+                rel_props['call_name'] = rel.properties['call_name']
+                params['call_name'] = rel.properties['call_name']
+            if 'is_self_call' in rel.properties:
+                rel_props['is_self_call'] = rel.properties['is_self_call']
+                params['is_self_call'] = rel.properties['is_self_call']
+        
+        # Build query with explicit labels and properties
+        if rel_props:
+            prop_str = ", ".join(f"{k}: ${k}" for k in rel_props.keys())
+            query = f"""
+            MATCH (a:{src_type} {{qualifiedName: $src}}), (b:{dst_type} {{qualifiedName: $dst}})
+            CREATE (a)-[:{final_rel} {{{prop_str}}}]->(b)
+            """
+        else:
+            query = f"""
+            MATCH (a:{src_type} {{qualifiedName: $src}}), (b:{dst_type} {{qualifiedName: $dst}})
+            CREATE (a)-[:{final_rel}]->(b)
+            """
+        
+        self._conn.execute(query, params)
 
     def _find_node_type(self, qualified_name: str) -> Optional[str]:
         """Find which table a node belongs to."""
@@ -532,6 +572,8 @@ class KuzuClient(DatabaseClient):
         specific_tables = {
             ("IMPORTS", "File", "ExternalClass"): "IMPORTS_EXT_CLASS",
             ("IMPORTS", "File", "ExternalFunction"): "IMPORTS_EXT_FUNC",
+            ("CALLS", "Function", "Function"): "CALLS",
+            ("CALLS", "Function", "Class"): "CALLS_CLASS",
             ("CALLS", "Function", "ExternalFunction"): "CALLS_EXT_FUNC",
             ("CALLS", "Function", "ExternalClass"): "CALLS_EXT_CLASS",
             ("CALLS", "Function", "BuiltinFunction"): "CALLS_BUILTIN",
