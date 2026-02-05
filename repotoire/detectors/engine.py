@@ -188,6 +188,8 @@ class AnalysisEngine:
         self.max_workers = max_workers
         # Check if using FalkorDB (no GDS support)
         self.is_falkordb = getattr(graph_client, "is_falkordb", False) or type(graph_client).__name__ == "FalkorDBClient"
+        # Check if using Kuzu (limited Cypher support - external tools only)
+        self.is_kuzu = getattr(graph_client, "is_kuzu", False) or type(graph_client).__name__ == "KuzuClient"
         config = detector_config or {}
 
         # Path expression cache for O(1) reachability queries (REPO-416)
@@ -444,11 +446,44 @@ class AnalysisEngine:
         if enabled is not None:
             enabled_set = {normalize_name(e) for e in enabled}
 
+        # Kuzu mode: disable graph-dependent detectors (Cypher compatibility issues)
+        # These detectors require features not available in Kuzu (shortestPath, ORDER BY id, etc.)
+        kuzu_disabled_detectors = {
+            "circulardependency",      # Uses shortestPath
+            "godclass",                # Complex pattern comprehensions
+            "modulecohesion",          # Uses ORDER BY id() for Rust algorithms
+            "coreutility",             # Uses ORDER BY id() for harmonic centrality
+            "influentialcode",         # Uses ORDER BY id() for PageRank
+            "degreecentrality",        # SET operations
+            "shotgunsurgery",          # Slice syntax [0..5]
+            "middleman",               # Pattern comprehensions
+            "inappropriateintimacy",   # elementId()
+            "dataclumps",              # CONTAINS relationship issues
+            "asyncantipattern",        # Relationship properties
+            "typehintcoverage",        # COALESCE with empty map
+            "lazyclass",               # toFloat()
+            "refusedbequest",          # toFloat()
+            "packagestability",        # Slice syntax
+            "technicaldebthotspot",    # Property name issues
+            "layeredarchitecture",     # Property name issues
+            "hubdependency",           # Property name issues
+            "changecoupling",          # Commit table
+            "deadcode",                # CONTAINS relationship
+            "architecturalbottleneck", # ORDER BY id() for betweenness
+            "featureenvy",             # labels() function issues
+        }
+
         filtered = []
         skipped = []
+        kuzu_skipped = []
         for detector in self.detectors:
             name = detector.__class__.__name__
             normalized = normalize_name(name)
+
+            # Kuzu mode: skip graph-dependent detectors
+            if self.is_kuzu and normalized in kuzu_disabled_detectors:
+                kuzu_skipped.append(name)
+                continue
 
             # Check if explicitly disabled
             if normalized in disabled_set or name in disabled_set:
@@ -463,6 +498,8 @@ class AnalysisEngine:
 
             filtered.append(detector)
 
+        if kuzu_skipped:
+            logger.info(f"Kuzu mode: disabled {len(kuzu_skipped)} graph detectors (external tools active)")
         if skipped:
             logger.info(f"Disabled {len(skipped)} detectors: {', '.join(skipped)}")
 
