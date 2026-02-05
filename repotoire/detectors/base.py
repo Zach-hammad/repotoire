@@ -49,6 +49,9 @@ class CodeSmellDetector(ABC):
         self.confidence_threshold = self.config.get("confidence_threshold", 0.0)
         self.min_severity = self._parse_min_severity(self.config.get("min_severity"))
         self.weight = self.config.get("weight", 1.0)
+        
+        # REPO-522: Node data cache for O(1) property lookups in cloud mode
+        self._node_data_cache = self.config.get("node_data_cache", {})
 
     @property
     def tenant_id(self) -> Optional[str]:
@@ -152,6 +155,20 @@ class CodeSmellDetector(ABC):
         if self.repo_id:
             return f"AND {node_alias}.repoId = $repo_id"
         return ""
+
+    def _get_cached_node(self, qualified_name: str) -> Optional[Dict]:
+        """Get node data from prefetch cache (REPO-522).
+        
+        In cloud mode, this avoids an HTTP round-trip per node lookup.
+        Falls back to None if not cached (detector should query DB).
+        
+        Args:
+            qualified_name: Node's qualified name
+            
+        Returns:
+            Dict with node properties or None if not cached
+        """
+        return self._node_data_cache.get(qualified_name)
 
     def _get_tenant_filter(self, node_alias: str = "n") -> str:
         """Get Cypher WHERE clause fragment for tenant_id filtering.

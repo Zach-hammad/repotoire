@@ -201,6 +201,10 @@ class AnalysisEngine:
         else:
             logger.warning("Path cache NOT enabled - detectors will use slower Cypher queries")
 
+        # REPO-522: Prefetch node data to reduce HTTP round-trips in cloud mode
+        self.node_data_cache: Dict[str, Dict[str, Any]] = {}
+        self._prefetch_node_data()
+
         # Initialize GraphEnricher for cross-detector collaboration (REPO-151 Phase 2)
         self.enricher = GraphEnricher(graph_client)
 
@@ -230,6 +234,9 @@ class AnalysisEngine:
             # Include path cache for O(1) reachability queries (REPO-416)
             if self.path_cache is not None:
                 base["path_cache"] = self.path_cache
+            # Include node data cache for O(1) property lookups (REPO-522)
+            if self.node_data_cache:
+                base["node_data_cache"] = self.node_data_cache
             if specific_config:
                 base.update(specific_config)
             return base
@@ -593,6 +600,93 @@ class AnalysisEngine:
                 logger.warning(f"Failed to build path cache: {e}")
                 logger.debug(f"Path cache traceback: {traceback.format_exc()}")
             return None
+
+    def _prefetch_node_data(self) -> None:
+        """Prefetch Class and Function node data to reduce HTTP round-trips (REPO-522).
+        
+        In cloud mode, each detector query is an HTTP round-trip (~200ms).
+        This prefetches all node properties in 2 queries, storing in memory
+        for O(1) lookup by detectors.
+        """
+        import time as time_module
+        start = time_module.time()
+        
+        # Build repo filter
+        repo_filter = ""
+        repo_params: Dict[str, Any] = {}
+        if self.repo_id:
+            repo_filter = "WHERE n.repoId = $repo_id"
+            repo_params["repo_id"] = self.repo_id
+        
+        try:
+            # Prefetch Class nodes with all properties detectors need
+            class_query = f"""
+            MATCH (n:Class)
+            {repo_filter}
+            RETURN n.qualifiedName AS name,
+                   n.complexity AS complexity,
+                   n.loc AS loc,
+                   n.decorators AS decorators,
+                   n.is_abstract AS is_abstract,
+                   n.nesting_level AS nesting_level,
+                   n.file_path AS file_path,
+                   n.line_start AS line_start,
+                   n.line_end AS line_end
+            """
+            class_results = self.db.execute_query(class_query, repo_params, timeout=60.0)
+            for r in class_results:
+                name = r.get("name")
+                if name:
+                    self.node_data_cache[name] = {
+                        "type": "Class",
+                        "complexity": r.get("complexity", 0),
+                        "loc": r.get("loc", 0),
+                        "decorators": r.get("decorators", []),
+                        "is_abstract": r.get("is_abstract", False),
+                        "nesting_level": r.get("nesting_level", 0),
+                        "file_path": r.get("file_path"),
+                        "line_start": r.get("line_start"),
+                        "line_end": r.get("line_end"),
+                    }
+            
+            # Prefetch Function nodes
+            func_query = f"""
+            MATCH (n:Function)
+            {repo_filter}
+            RETURN n.qualifiedName AS name,
+                   n.complexity AS complexity,
+                   n.loc AS loc,
+                   n.parameters AS parameters,
+                   n.return_type AS return_type,
+                   n.is_async AS is_async,
+                   n.decorators AS decorators,
+                   n.file_path AS file_path,
+                   n.line_start AS line_start,
+                   n.line_end AS line_end
+            """
+            func_results = self.db.execute_query(func_query, repo_params, timeout=60.0)
+            for r in func_results:
+                name = r.get("name")
+                if name:
+                    self.node_data_cache[name] = {
+                        "type": "Function",
+                        "complexity": r.get("complexity", 0),
+                        "loc": r.get("loc", 0),
+                        "parameters": r.get("parameters", []),
+                        "return_type": r.get("return_type"),
+                        "is_async": r.get("is_async", False),
+                        "decorators": r.get("decorators", []),
+                        "file_path": r.get("file_path"),
+                        "line_start": r.get("line_start"),
+                        "line_end": r.get("line_end"),
+                    }
+            
+            elapsed = time_module.time() - start
+            logger.info(f"Prefetched {len(self.node_data_cache)} nodes in {elapsed:.2f}s (REPO-522)")
+            
+        except Exception as e:
+            logger.warning(f"Node data prefetch failed: {e}. Detectors will query individually.")
+            self.node_data_cache = {}
 
     def analyze(self, progress_callback=None) -> CodebaseHealth:
         """Run complete analysis and generate health report.
