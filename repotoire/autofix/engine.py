@@ -240,7 +240,7 @@ class AutoFixEngine:
 
     def __init__(
         self,
-        graph_client: FalkorDBClient,
+        graph_client: Optional[FalkorDBClient] = None,
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         llm_backend: LLMBackend = "anthropic",
@@ -253,7 +253,7 @@ class AutoFixEngine:
         """Initialize auto-fix engine.
 
         Args:
-            graph_client: FalkorDB client for RAG context
+            graph_client: FalkorDB client for RAG context (optional for BYOK mode)
             api_key: API key for LLM backend (or use env var)
             model: Model to use for fix generation (uses backend default if not specified)
             llm_backend: LLM backend to use ("anthropic" or "openai")
@@ -277,21 +277,25 @@ class AutoFixEngine:
         self.llm_client = LLMClient(config=llm_config, api_key=effective_api_key)
         self.model = self.llm_client.model
 
-        # Initialize RAG retriever for context gathering
-        # Use same embedding backend as ingestion (local Qwen by default) for dimension compatibility
-        embeddings_backend = os.getenv("REPOTOIRE_EMBEDDINGS_BACKEND", "local")
-        embedder = CodeEmbedder(backend=embeddings_backend)
+        # Initialize RAG retriever for context gathering (only when graph_client provided)
+        # BYOK mode works without graph context - file content is sufficient
+        if graph_client:
+            # Use same embedding backend as ingestion (local Qwen by default) for dimension compatibility
+            embeddings_backend = os.getenv("REPOTOIRE_EMBEDDINGS_BACKEND", "local")
+            embedder = CodeEmbedder(backend=embeddings_backend)
 
-        # Configure vector store for retrieval (LanceDB for disk-backed vectors)
-        # Embeddings are stored in LanceDB, not on FalkorDB graph nodes (saves RAM)
-        vector_store_path = os.getenv("REPOTOIRE_VECTOR_STORE_PATH", "/data/vectors")
-        vector_store_config = VectorStoreConfig(
-            backend="lancedb",
-            path=vector_store_path,
-            table_name="code_embeddings",
-        )
-        retriever_config = RetrieverConfig(vector_store=vector_store_config)
-        self.rag_retriever = GraphRAGRetriever(graph_client, embedder, config=retriever_config)
+            # Configure vector store for retrieval (LanceDB for disk-backed vectors)
+            # Embeddings are stored in LanceDB, not on FalkorDB graph nodes (saves RAM)
+            vector_store_path = os.getenv("REPOTOIRE_VECTOR_STORE_PATH", "/data/vectors")
+            vector_store_config = VectorStoreConfig(
+                backend="lancedb",
+                path=vector_store_path,
+                table_name="code_embeddings",
+            )
+            retriever_config = RetrieverConfig(vector_store=vector_store_config)
+            self.rag_retriever = GraphRAGRetriever(graph_client, embedder, config=retriever_config)
+        else:
+            self.rag_retriever = None
 
         # Initialize template registry for fast, deterministic fixes
         self.template_registry = get_registry()
@@ -538,8 +542,8 @@ class AutoFixEngine:
         context = FixContext(finding=finding)
 
         try:
-            # Use RAG to find related code
-            if finding.affected_files:
+            # Use RAG to find related code (if graph client available)
+            if finding.affected_files and self.rag_retriever:
                 file_path = finding.affected_files[0]  # Use first affected file
                 query = f"code related to {finding.title} in {file_path}"
                 search_results = self.rag_retriever.retrieve(

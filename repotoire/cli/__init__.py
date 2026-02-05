@@ -4809,17 +4809,25 @@ def fix_finding(
             if 0 <= idx < len(findings_list):
                 from repotoire.models import Finding, Severity
                 f_data = findings_list[idx]
+                # Extract file path and line from finding data
+                affected_files = f_data.get("affected_files", [])
+                graph_ctx = f_data.get("graph_context", {})
+                line_start = f_data.get("line_start") or graph_ctx.get("start_line")
+                line_end = f_data.get("line_end") or graph_ctx.get("end_line")
+                
                 finding = Finding(
                     id=f_data.get("id", f"finding-{idx}"),
                     title=f_data.get("title", "Unknown"),
                     description=f_data.get("description", ""),
-                    file_path=f_data.get("file_path", ""),
-                    line_start=f_data.get("line_start", 1),
-                    line_end=f_data.get("line_end"),
+                    affected_files=affected_files,
+                    affected_nodes=f_data.get("affected_nodes", []),
+                    line_start=line_start,
+                    line_end=line_end,
                     severity=Severity(f_data.get("severity", "medium")),
                     detector=f_data.get("detector", "unknown"),
-                    issues=f_data.get("issues", []),
-                    code_snippet=f_data.get("code_snippet"),
+                    graph_context=graph_ctx,
+                    suggested_fix=f_data.get("suggested_fix"),
+                    estimated_effort=f_data.get("estimated_effort"),
                 )
             else:
                 console.print(f"[red]Finding #{target} not found (have {len(findings_list)} findings)[/red]")
@@ -4865,7 +4873,9 @@ def fix_finding(
         
         console.print(f"\n[bold cyan]🔧 Generating fix for:[/bold cyan]")
         console.print(f"  [bold]{finding.title}[/bold]")
-        console.print(f"  📁 {finding.file_path}:{finding.line_start}")
+        file_display = finding.affected_files[0] if finding.affected_files else "unknown"
+        line_display = finding.line_start or "?"
+        console.print(f"  📁 {file_display}:{line_display}")
         console.print(f"  🏷️  {finding.severity.value.upper()}\n")
         
         # Initialize AutoFixEngine
@@ -4897,18 +4907,20 @@ def fix_finding(
         console.print(f"\n[bold green]✅ Fix generated:[/bold green] {fix_proposal.title}")
         console.print(f"[dim]Confidence: {fix_proposal.confidence.value}[/dim]\n")
         
-        if fix_proposal.explanation:
-            console.print(Panel(fix_proposal.explanation, title="Explanation", border_style="blue"))
+        if fix_proposal.description:
+            console.print(Panel(fix_proposal.description, title="Explanation", border_style="blue"))
+        if fix_proposal.rationale:
+            console.print(Panel(fix_proposal.rationale, title="Rationale", border_style="dim"))
         
         # Show diff
         for change in fix_proposal.changes:
             console.print(f"\n[bold]📝 {change.file_path}[/bold]")
             
             # Create diff
-            if change.original_code and change.new_code:
+            if change.original_code and change.fixed_code:
                 diff = difflib.unified_diff(
                     change.original_code.splitlines(keepends=True),
-                    change.new_code.splitlines(keepends=True),
+                    change.fixed_code.splitlines(keepends=True),
                     fromfile=f"a/{change.file_path}",
                     tofile=f"b/{change.file_path}",
                 )

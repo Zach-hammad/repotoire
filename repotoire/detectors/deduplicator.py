@@ -65,7 +65,7 @@ class FindingDeduplicator:
             >>> deduplicated = deduplicator.merge_duplicates(findings)
         """
         if not findings:
-            return []
+            return [], {"original_count": 0, "deduplicated_count": 0, "duplicate_count": 0, "reduction_pct": 0.0}
 
         # Group findings by duplicate key
         duplicate_groups = self._identify_duplicates(findings)

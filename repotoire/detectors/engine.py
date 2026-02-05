@@ -424,9 +424,9 @@ class AnalysisEngine:
         enabled = config.get("enabled_detectors")  # None means all enabled
         disabled = config.get("disabled_detectors", [])
 
-        # Normalize detector names (remove "Detector" suffix for easier matching)
+        # Normalize detector names (remove "Detector" suffix, lowercase for case-insensitive matching)
         def normalize_name(name: str) -> str:
-            return name.replace("Detector", "")
+            return name.replace("Detector", "").replace("-", "").replace("_", "").lower()
 
         # Build set of disabled detector names (normalized)
         disabled_set = {normalize_name(d) for d in disabled}
