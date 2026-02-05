@@ -130,9 +130,8 @@ class AuditLog(Base, UUIDPrimaryKeyMixin):
         nullable=True,
     )
 
-    # Organization context
+    # Organization context (no FK - audit logs can reference orgs that don't exist yet or were deleted)
     organization_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("organizations.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -183,10 +182,8 @@ class AuditLog(Base, UUIDPrimaryKeyMixin):
         "User",
         foreign_keys=[actor_id],
     )
-    organization: Mapped["Organization | None"] = relationship(
-        "Organization",
-        foreign_keys=[organization_id],
-    )
+    # Note: organization relationship removed - no FK constraint on organization_id
+    # to allow audit logs for orgs that don't exist yet or were deleted
 
     __table_args__ = (
         # Composite indexes for common query patterns
