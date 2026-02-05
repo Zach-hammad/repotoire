@@ -427,17 +427,25 @@ class KuzuClient(DatabaseClient):
         """Create a node in the graph."""
         table = NODE_TYPE_TO_TABLE.get(entity.node_type, "Function")
         
+        # External* and Builtin* nodes have minimal schema
+        is_external = entity.node_type in (NodeType.EXTERNAL_CLASS, NodeType.EXTERNAL_FUNCTION, NodeType.BUILTIN_FUNCTION)
+        
         # Build properties dict with camelCase names to match schema
         props = {
             "qualifiedName": entity.qualified_name,
             "name": entity.name,
-            "filePath": entity.file_path,
         }
         
-        # lineStart/lineEnd not in File schema
-        if entity.node_type != NodeType.FILE:
-            props["lineStart"] = entity.line_start
-            props["lineEnd"] = entity.line_end
+        # External entities don't have filePath, lineStart, lineEnd
+        if not is_external:
+            props["filePath"] = entity.file_path
+            # lineStart/lineEnd not in File schema
+            if entity.node_type != NodeType.FILE:
+                props["lineStart"] = entity.line_start
+                props["lineEnd"] = entity.line_end
+        else:
+            # External entities have module property
+            props["module"] = entity.metadata.get("module", "")
         
         # Add type-specific properties
         if hasattr(entity, 'complexity') and entity.complexity is not None:
@@ -463,17 +471,72 @@ class KuzuClient(DatabaseClient):
         self._conn.execute(query, props)
         return entity.qualified_name
 
-    def create_relationship(self, rel: Relationship) -> None:
-        """Create a relationship between nodes."""
-        # Kuzu requires knowing the node types for relationships
-        # This is a simplified version - production would need type lookup
+    def create_relationship(self, rel: Relationship, src_type: Optional[str] = None, dst_type: Optional[str] = None) -> None:
+        """Create a relationship between nodes.
+        
+        Args:
+            rel: Relationship to create
+            src_type: Source node table name (optional, will be looked up if not provided)
+            dst_type: Destination node table name (optional, will be looked up if not provided)
+        """
         rel_type = REL_TYPE_TO_TABLE.get(rel.rel_type, "CALLS")
         
+        # If types not provided, try to look them up
+        if not src_type:
+            src_type = self._find_node_type(rel.source)
+        if not dst_type:
+            dst_type = self._find_node_type(rel.target)
+        
+        if not src_type or not dst_type:
+            logger.debug(f"Could not find node types for relationship {rel.source} -> {rel.target}")
+            return
+        
+        # Build query with explicit labels
         query = f"""
-        MATCH (a {{qualifiedName: $src}}), (b {{qualifiedName: $dst}})
+        MATCH (a:{src_type} {{qualifiedName: $src}}), (b:{dst_type} {{qualifiedName: $dst}})
         CREATE (a)-[:{rel_type}]->(b)
         """
-        self._conn.execute(query, {"src": rel.source, "dst": rel.target})
+        try:
+            self._conn.execute(query, {"src": rel.source, "dst": rel.target})
+        except Exception as e:
+            # Try with relationship table specific to these types
+            specific_rel = self._get_specific_rel_table(rel_type, src_type, dst_type)
+            if specific_rel and specific_rel != rel_type:
+                query = f"""
+                MATCH (a:{src_type} {{qualifiedName: $src}}), (b:{dst_type} {{qualifiedName: $dst}})
+                CREATE (a)-[:{specific_rel}]->(b)
+                """
+                self._conn.execute(query, {"src": rel.source, "dst": rel.target})
+            else:
+                raise
+
+    def _find_node_type(self, qualified_name: str) -> Optional[str]:
+        """Find which table a node belongs to."""
+        tables = ["File", "Function", "Class", "Module", "Variable", 
+                  "ExternalClass", "ExternalFunction", "BuiltinFunction"]
+        for table in tables:
+            try:
+                result = self._conn.execute(
+                    f"MATCH (n:{table} {{qualifiedName: $qn}}) RETURN n.qualifiedName",
+                    {"qn": qualified_name}
+                )
+                if result.has_next():
+                    return table
+            except Exception:
+                continue
+        return None
+
+    def _get_specific_rel_table(self, base_rel: str, src_type: str, dst_type: str) -> Optional[str]:
+        """Get specific relationship table for given node types."""
+        # Map (base_rel, src, dst) -> specific table
+        specific_tables = {
+            ("IMPORTS", "File", "ExternalClass"): "IMPORTS_EXT_CLASS",
+            ("IMPORTS", "File", "ExternalFunction"): "IMPORTS_EXT_FUNC",
+            ("CALLS", "Function", "ExternalFunction"): "CALLS_EXT_FUNC",
+            ("CALLS", "Function", "ExternalClass"): "CALLS_EXT_CLASS",
+            ("CALLS", "Function", "BuiltinFunction"): "CALLS_BUILTIN",
+        }
+        return specific_tables.get((base_rel, src_type, dst_type))
 
     def batch_create_nodes(self, entities: List[Entity]) -> Dict[str, str]:
         """Create multiple nodes efficiently."""

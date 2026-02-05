@@ -130,7 +130,7 @@ from repotoire.graph import FalkorDBClient, GraphSchema
 from repotoire.graph.base import DatabaseClient
 from repotoire.parsers import CodeParser, PythonParser
 from repotoire.parsers import GenericFallbackParser, EXTENSION_TO_LANGUAGE
-from repotoire.models import Entity, Relationship, SecretsPolicy, RelationshipType
+from repotoire.models import Entity, Relationship, SecretsPolicy, RelationshipType, NodeType
 
 # Optional TypeScript/JavaScript parsers
 try:
@@ -1272,10 +1272,66 @@ class IngestionPipeline:
             # Minimal delay - BGSAVE disabled so no fork crashes
             time.sleep(0.05)
 
-            # TODO: External* entity creation for Kuzu local mode
-            # This would enable call resolution across file boundaries
-            # For now, this is skipped - requires relationship table changes
-            # See: ExternalClass, ExternalFunction tables in kuzu_client.py schema
+            # Create External* entities for unresolved imports (Kuzu local mode)
+            # This enables call resolution to work across file boundaries
+            is_kuzu = type(self.db).__name__ == "KuzuClient"
+            if is_kuzu and relationships:
+                existing_qnames = {e.qualified_name for e in entities}
+                external_entities = []
+                seen_external = set()
+                
+                # Standard library modules to skip
+                stdlib = {'os', 'sys', 'json', 'logging', 're', 'time', 'typing', 'collections',
+                          'functools', 'itertools', 'pathlib', 'dataclasses', 'abc', 'io',
+                          'math', 'random', 'datetime', 'copy', 'pickle', 'hashlib', 'ast',
+                          'inspect', 'traceback', 'threading', 'multiprocessing', 'subprocess',
+                          'unittest', 'pytest', 'argparse', 'configparser', 'tempfile', 'shutil',
+                          'glob', 'fnmatch', 'stat', 'errno', 'socket', 'http', 'urllib',
+                          'email', 'html', 'xml', 'base64', 'binascii', 'struct', 'codecs',
+                          'unicodedata', 'locale', 'gettext', 'warnings', 'contextlib',
+                          'weakref', 'types', 'operator', 'string', 'textwrap', 'difflib',
+                          'heapq', 'bisect', 'array', 'queue', 'enum', 'graphlib'}
+                
+                import_count = 0
+                for rel in relationships:
+                    if rel.rel_type == RelationshipType.IMPORTS:
+                        import_count += 1
+                        target = rel.target_id
+                        # Skip if target exists or already seen
+                        if target in existing_qnames or target in seen_external:
+                            logger.debug(f"Skipping {target}: already exists")
+                            continue
+                        # Skip standard library modules
+                        first_part = target.split('.')[0] if '.' in target else target
+                        if first_part in stdlib:
+                            logger.debug(f"Skipping {target}: stdlib")
+                            continue
+                        
+                        seen_external.add(target)
+                        # Determine if it looks like a class (PascalCase) or function
+                        name = target.split('.')[-1] if '.' in target else target
+                        is_class = name and len(name) > 0 and name[0].isupper() and not name.isupper()
+                        
+                        # Use ExternalClass or ExternalFunction node types
+                        node_type = NodeType.EXTERNAL_CLASS if is_class else NodeType.EXTERNAL_FUNCTION
+                        module = target.rsplit('.', 1)[0] if '.' in target else ""
+                        ext_entity = Entity(
+                            qualified_name=target,
+                            name=name,
+                            file_path="",  # External entities have no file
+                            line_start=0,
+                            line_end=0,
+                            node_type=node_type,
+                        )
+                        ext_entity.metadata["module"] = module
+                        external_entities.append(ext_entity)
+                
+                logger.info(f"External entity scan: {import_count} IMPORTS, {len(external_entities)} external targets")
+                if external_entities:
+                    ext_mapping = self.db.batch_create_nodes(external_entities)
+                    logger.info(f"Created {len(ext_mapping)} external entity nodes for imports")
+                else:
+                    logger.info(f"Created 0 external entity nodes for imports (checked {import_count} imports)")
 
             # Batch create all relationships
             # Note: batch_create_relationships now accepts qualified names directly
