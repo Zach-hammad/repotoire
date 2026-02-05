@@ -61,7 +61,7 @@ _config_lock = threading.Lock()
 
 
 def _get_db_client(quiet: bool = False):
-    """Get database client. Requires REPOTOIRE_API_KEY.
+    """Get database client. Uses cloud API if logged in, local FalkorDB otherwise.
 
     Args:
         quiet: Suppress connection messages
@@ -70,9 +70,31 @@ def _get_db_client(quiet: bool = False):
         DatabaseClient instance
 
     Raises:
-        ConfigurationError: If API key is not set
+        ConfigurationError: If neither API key nor local FalkorDB is available
     """
-    return create_client(show_cloud_indicator=not quiet)
+    from repotoire.graph.factory import get_api_key, create_falkordb_client
+    
+    # Try cloud mode first
+    if get_api_key():
+        return create_client(show_cloud_indicator=not quiet)
+    
+    # Fall back to local FalkorDB if configured
+    host = os.getenv("FALKORDB_HOST", "localhost")
+    port = int(os.getenv("FALKORDB_PORT", "6379"))
+    
+    try:
+        client = create_falkordb_client(host=host, port=port)
+        if not quiet:
+            console.print(f"[dim]🗄️  Connected to local FalkorDB ({host}:{port})[/dim]")
+        return client
+    except Exception as e:
+        from repotoire.graph.factory import ConfigurationError
+        raise ConfigurationError(
+            f"No API key and cannot connect to local FalkorDB at {host}:{port}.\n\n"
+            "Either:\n"
+            "  1. Login: repotoire login ak_your_key\n"
+            "  2. Or start local FalkorDB: docker run -p 6379:6379 falkordb/falkordb"
+        ) from e
 
 
 def _is_cloud_mode() -> bool:
