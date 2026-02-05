@@ -67,6 +67,11 @@ class GraphEnricher:
             ... )
             'detector-metadata-uuid-123'
         """
+        # Skip for Kuzu mode - the query uses label-less MATCH which Kuzu doesn't support
+        client_type = type(self.db).__name__
+        if client_type == "KuzuClient":
+            return f"detector-metadata-{uuid.uuid4()}"
+        
         metadata_id = f"detector-metadata-{uuid.uuid4()}"
         timestamp = datetime.now().isoformat()
 

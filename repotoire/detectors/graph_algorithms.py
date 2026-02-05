@@ -1920,6 +1920,31 @@ class GraphAlgorithms:
         Returns:
             List of high in-degree nodes with metrics
         """
+        # For Kuzu mode, read from cache
+        client_type = type(self.client).__name__
+        if client_type == "KuzuClient":
+            global _degree_cache
+            with _cache_lock:
+                if not _degree_cache:
+                    return []
+                # Filter and sort by in_degree
+                items = [
+                    (name, data.get("in_degree", 0))
+                    for name, data in _degree_cache.items()
+                    if data.get("in_degree", 0) >= min_degree
+                ]
+                if not items:
+                    return []
+                items.sort(key=lambda x: x[1], reverse=True)
+                # Get threshold at percentile
+                threshold_idx = int(len(items) * (1 - percentile / 100.0))
+                threshold = items[threshold_idx][1] if threshold_idx < len(items) else 0
+                return [
+                    {"qualified_name": name, "in_degree": deg, "out_degree": _degree_cache[name].get("out_degree", 0), "threshold": threshold}
+                    for name, deg in items[:100]
+                    if deg >= threshold
+                ]
+
         validated_label = validate_identifier(node_label, "node label")
 
         # Filter by repoId for multi-tenant isolation
@@ -1977,6 +2002,31 @@ class GraphAlgorithms:
         Returns:
             List of high out-degree nodes with metrics
         """
+        # For Kuzu mode, read from cache
+        client_type = type(self.client).__name__
+        if client_type == "KuzuClient":
+            global _degree_cache
+            with _cache_lock:
+                if not _degree_cache:
+                    return []
+                # Filter and sort by out_degree
+                items = [
+                    (name, data.get("out_degree", 0))
+                    for name, data in _degree_cache.items()
+                    if data.get("out_degree", 0) >= min_degree
+                ]
+                if not items:
+                    return []
+                items.sort(key=lambda x: x[1], reverse=True)
+                # Get threshold at percentile
+                threshold_idx = int(len(items) * (1 - percentile / 100.0))
+                threshold = items[threshold_idx][1] if threshold_idx < len(items) else 0
+                return [
+                    {"qualified_name": name, "out_degree": deg, "in_degree": _degree_cache[name].get("in_degree", 0), "threshold": threshold}
+                    for name, deg in items[:100]
+                    if deg >= threshold
+                ]
+
         validated_label = validate_identifier(node_label, "node label")
 
         # Filter by repoId for multi-tenant isolation

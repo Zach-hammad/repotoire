@@ -48,6 +48,17 @@ from repotoire_fast import (
 logger = get_logger(__name__)
 
 
+def _normalize_graph_id(raw_id):
+    """Convert Kuzu dict id to hashable tuple, pass through ints.
+    
+    Kuzu returns id() as a dict like {'offset': 0, 'table': 2}.
+    FalkorDB/Neo4j return integers. This normalizes both to hashable types.
+    """
+    if isinstance(raw_id, dict):
+        return (raw_id.get("table", 0), raw_id.get("offset", 0))
+    return raw_id
+
+
 class PackageStabilityDetector(CodeSmellDetector):
     """Detects packages with poor stability metrics (Robert Martin's metrics).
 
@@ -503,18 +514,21 @@ class LayeredArchitectureDetector(CodeSmellDetector):
 
         results = self.db.execute_query(query, self._get_query_params())
 
-        file_paths: Dict[int, str] = {}
-        file_layers: Dict[int, int] = {}
+        file_paths = {}
+        file_layers = {}
+        id_map = {}  # raw_id -> normalized_id
 
-        for record in results:
-            file_id = record["id"]
+        for idx, record in enumerate(results):
+            raw_id = record["id"]
+            norm_id = _normalize_graph_id(raw_id)
+            id_map[norm_id] = idx
             file_path = record["path"]
-            file_paths[file_id] = file_path
+            file_paths[idx] = file_path
 
             # Assign layer based on path patterns
             layer_id = self._classify_layer(file_path)
             if layer_id is not None:
-                file_layers[file_id] = layer_id
+                file_layers[idx] = layer_id
 
         # Get import edges (use f1 for isolation filter)
         edge_filter = self._get_isolation_filter("f1")
@@ -526,7 +540,12 @@ class LayeredArchitectureDetector(CodeSmellDetector):
 
         import_results = self.db.execute_query(import_query, self._get_query_params())
 
-        edges = [(r["source"], r["target"]) for r in import_results]
+        edges = []
+        for r in import_results:
+            src_idx = id_map.get(_normalize_graph_id(r["source"]))
+            tgt_idx = id_map.get(_normalize_graph_id(r["target"]))
+            if src_idx is not None and tgt_idx is not None:
+                edges.append((src_idx, tgt_idx))
 
         # Build layer definitions for Rust
         layer_defs = [
@@ -732,10 +751,10 @@ class CallChainDepthDetector(CodeSmellDetector):
         results = self.db.execute_query(func_query, self._get_query_params())
 
         function_names: Dict[int, str] = {}
-        id_to_idx: Dict[int, int] = {}
+        id_to_idx = {}  # Can be dict with int or tuple keys
 
         for i, record in enumerate(results):
-            func_id = record["id"]
+            func_id = _normalize_graph_id(record["id"])
             function_names[i] = record["name"]
             id_to_idx[func_id] = i
 
@@ -751,8 +770,8 @@ class CallChainDepthDetector(CodeSmellDetector):
 
         call_edges = []
         for record in call_results:
-            caller_idx = id_to_idx.get(record["caller"])
-            callee_idx = id_to_idx.get(record["callee"])
+            caller_idx = id_to_idx.get(_normalize_graph_id(record["caller"]))
+            callee_idx = id_to_idx.get(_normalize_graph_id(record["callee"]))
             if caller_idx is not None and callee_idx is not None:
                 call_edges.append((caller_idx, callee_idx))
 
@@ -938,10 +957,10 @@ class HubDependencyDetector(CodeSmellDetector):
         results = self.db.execute_query(node_query, self._get_query_params())
 
         node_names: Dict[int, str] = {}
-        id_to_idx: Dict[int, int] = {}
+        id_to_idx = {}
 
         for i, record in enumerate(results):
-            node_id = record["id"]
+            node_id = _normalize_graph_id(record["id"])
             node_names[i] = record["name"]
             id_to_idx[node_id] = i
 
@@ -957,8 +976,8 @@ class HubDependencyDetector(CodeSmellDetector):
 
         edges = []
         for record in edge_results:
-            src_idx = id_to_idx.get(record["source"])
-            dst_idx = id_to_idx.get(record["target"])
+            src_idx = id_to_idx.get(_normalize_graph_id(record["source"]))
+            dst_idx = id_to_idx.get(_normalize_graph_id(record["target"]))
             if src_idx is not None and dst_idx is not None:
                 edges.append((src_idx, dst_idx))
 
