@@ -324,17 +324,49 @@ def _convert_parsed_file(
                 # For method calls like self.method(), try to resolve within the class
                 callee = call.callee
 
-                # Create CALLS relationship
-                relationships.append(Relationship(
-                    source_id=caller_qn,
-                    target_id=callee,
-                    rel_type=RelationshipType.CALLS,
-                    properties={
-                        'line': call.line,
-                        'is_method_call': call.is_method_call,
-                        'receiver': call.receiver,
-                    },
-                ))
+                # Try to resolve the callee to an internal entity
+                resolved_target = None
+                
+                # Check if callee matches any known function
+                if callee in func_qn_by_name:
+                    # Prefer functions in the same file
+                    candidates = func_qn_by_name[callee]
+                    for cand in candidates:
+                        if cand.startswith(rel_path):
+                            resolved_target = cand
+                            break
+                    if not resolved_target and candidates:
+                        resolved_target = candidates[0]
+                
+                # Check class constructors
+                if not resolved_target and callee in class_qn_map:
+                    resolved_target = class_qn_map[callee]
+                
+                # Create appropriate relationship type
+                if resolved_target:
+                    # Resolved internal call
+                    relationships.append(Relationship(
+                        source_id=caller_qn,
+                        target_id=resolved_target,
+                        rel_type=RelationshipType.CALLS,
+                        properties={
+                            'line': call.line,
+                            'call_name': callee,
+                            'is_self_call': call.is_method_call and call.receiver == 'self',
+                        },
+                    ))
+                else:
+                    # Unresolved external call
+                    relationships.append(Relationship(
+                        source_id=caller_qn,
+                        target_id=callee,
+                        rel_type=RelationshipType.CALLS_EXTERNAL,
+                        properties={
+                            'line': call.line,
+                            'call_name': callee,
+                            'is_self_call': call.is_method_call and call.receiver == 'self',
+                        },
+                    ))
 
     return entities, relationships
 
