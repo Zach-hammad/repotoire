@@ -5,10 +5,45 @@ allowing the CLI to work without direct database access.
 """
 
 import os
+import re
 import threading
 from typing import Any, Dict, List, Optional
 
 import httpx
+
+
+def _strip_cypher_comments(query: str) -> str:
+    """Strip comments from Cypher queries.
+    
+    Removes:
+    - Single-line comments: // ... or -- ...
+    - Multi-line comments: /* ... */
+    
+    Preserves strings (won't strip // inside quoted strings).
+    """
+    # Remove multi-line comments first
+    query = re.sub(r'/\*.*?\*/', '', query, flags=re.DOTALL)
+    
+    # Remove single-line comments (// and --)
+    # Be careful not to remove // in strings - simple approach: line by line
+    lines = []
+    for line in query.split('\n'):
+        # Find // or -- not inside quotes (simplified: just strip from first occurrence)
+        # This is safe because Cypher strings use single quotes primarily
+        comment_pos = -1
+        for pattern in ['//', '--']:
+            pos = line.find(pattern)
+            if pos != -1 and (comment_pos == -1 or pos < comment_pos):
+                # Check if it's inside a string (simple heuristic: count quotes before)
+                before = line[:pos]
+                if before.count("'") % 2 == 0 and before.count('"') % 2 == 0:
+                    comment_pos = pos
+        
+        if comment_pos != -1:
+            line = line[:comment_pos]
+        lines.append(line)
+    
+    return '\n'.join(lines).strip()
 
 from repotoire.graph.base import DatabaseClient
 from repotoire.logging_config import get_logger
@@ -117,11 +152,14 @@ class CloudProxyClient(DatabaseClient):
         timeout: Optional[float] = None,
     ) -> List[Dict]:
         """Execute a Cypher query via the API."""
+        # Strip comments from query - API rejects queries with comments
+        clean_query = _strip_cypher_comments(query)
+        
         response = self._request(
             "POST",
             "/query",
             json={
-                "query": query,
+                "query": clean_query,
                 "parameters": parameters,
                 "timeout": timeout,
             },

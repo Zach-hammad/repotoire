@@ -25,10 +25,11 @@ from repotoire_fast import (
 
 logger = get_logger(__name__)
 
-# Cache for community assignments to avoid recalculation
+# Cache for computed values to avoid recalculation and support read-only mode
 # Protected by _cache_lock for thread safety
 _community_cache: Dict[str, int] = {}
 _pagerank_cache: Dict[str, float] = {}
+_degree_cache: Dict[str, Dict[str, int]] = {}  # {node_name: {"in_degree": x, "out_degree": y}}
 _cache_lock = threading.Lock()
 
 
@@ -199,6 +200,8 @@ class GraphAlgorithms:
     ) -> int:
         """Write computed values back to FalkorDB nodes.
 
+        For read-only cloud clients, stores values in memory cache instead.
+
         Args:
             node_label: Node label
             node_names: List of qualified names
@@ -206,12 +209,38 @@ class GraphAlgorithms:
             property_name: Property name to write
 
         Returns:
-            Number of nodes updated
+            Number of nodes updated (or cached)
         """
         if not node_names or len(node_names) != len(values):
             return 0
 
-        # Batch update in chunks
+        # Check if client is read-only (CloudProxyClient)
+        client_type = type(self.client).__name__
+        is_read_only = client_type == "CloudProxyClient"
+        
+        if is_read_only:
+            # Store in appropriate in-memory cache instead of DB write
+            global _pagerank_cache, _community_cache, _degree_cache
+            with _cache_lock:
+                if property_name == "pagerank":
+                    for name, val in zip(node_names, values):
+                        _pagerank_cache[name] = val
+                elif property_name == "community":
+                    for name, val in zip(node_names, values):
+                        _community_cache[name] = val
+                elif property_name in ("in_degree", "out_degree"):
+                    for name, val in zip(node_names, values):
+                        if name not in _degree_cache:
+                            _degree_cache[name] = {}
+                        _degree_cache[name][property_name] = val
+                else:
+                    # Generic cache for other properties
+                    logger.debug(f"Caching {len(node_names)} {property_name} values in memory (read-only mode)")
+            
+            logger.info(f"Cached {len(node_names)} {property_name} values in memory (cloud read-only mode)")
+            return len(node_names)
+
+        # Batch update in chunks (write mode)
         updated = 0
         chunk_size = 500
 

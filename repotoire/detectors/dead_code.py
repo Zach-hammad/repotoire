@@ -551,9 +551,9 @@ class DeadCodeDetector(CodeSmellDetector):
         WHERE NOT (f.name STARTS WITH 'test_')
           AND NOT f.name IN ['main', '__main__', '__init__', 'setUp', 'tearDown']
           {repo_filter}
-        OPTIONAL MATCH (f)<-[call:CALLS]-()
+        OPTIONAL MATCH (f)<-[rel:CALLS]-()
         OPTIONAL MATCH (f)<-[use:USES]-()
-        WITH f, count(call) AS call_count, count(use) AS use_count
+        WITH f, count(rel) AS call_count, count(use) AS use_count
         WHERE call_count = 0 AND use_count = 0
         OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
         WITH f, file
@@ -758,10 +758,10 @@ class DeadCodeDetector(CodeSmellDetector):
         query = f"""
         MATCH (file:File)-[:CONTAINS]->(c:Class)
         WHERE 1=1 {repo_filter}
-        OPTIONAL MATCH (c)<-[call:CALLS]-()
+        OPTIONAL MATCH (c)<-[rel:CALLS]-()
         OPTIONAL MATCH (c)<-[inherit:INHERITS]-()
         OPTIONAL MATCH (c)<-[use:USES]-()
-        WITH c, file, count(call) AS call_count, count(inherit) AS inherit_count, count(use) AS use_count
+        WITH c, file, count(rel) AS call_count, count(inherit) AS inherit_count, count(use) AS use_count
         WHERE call_count = 0 AND inherit_count = 0 AND use_count = 0
         RETURN c.qualifiedName AS qualified_name,
                c.name AS name,

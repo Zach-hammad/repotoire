@@ -560,9 +560,11 @@ class AnalysisEngine:
                     cache.build_cache(rel_type, edges, num_nodes)
                     total_edges += len(edges)
                     stats = cache.stats(rel_type)
+                    # PyCacheStats is a Rust struct, use attribute access not .get()
+                    density = getattr(stats, 'density', 0) if stats else 0
                     logger.info(
                         f"Built {rel_type} cache: {len(edges)} edges in {rel_query_time:.2f}s, "
-                        f"density={stats.get('density', 0):.4f}"
+                        f"density={density:.4f}"
                     )
                 else:
                     logger.info(f"No {rel_type} edges found ({rel_query_time:.2f}s)")
