@@ -138,6 +138,7 @@ class KuzuClient(DatabaseClient):
                     loc INT64,
                     hash STRING,
                     repoId STRING,
+                    churn INT64,
                     churnCount INT64,
                     complexity DOUBLE,
                     codeHealth DOUBLE,
@@ -158,6 +159,8 @@ class KuzuClient(DatabaseClient):
                     is_abstract BOOLEAN,
                     nesting_level INT64,
                     decorators STRING[],
+                    churn INT64,
+                    num_authors INT64,
                     repoId STRING,
                     PRIMARY KEY(qualifiedName)
                 )
@@ -183,6 +186,8 @@ class KuzuClient(DatabaseClient):
                     decorators STRING[],
                     in_degree INT64,
                     out_degree INT64,
+                    churn INT64,
+                    num_authors INT64,
                     repoId STRING,
                     PRIMARY KEY(qualifiedName)
                 )
@@ -222,6 +227,24 @@ class KuzuClient(DatabaseClient):
                 CREATE NODE TABLE IF NOT EXISTS Concept(
                     qualifiedName STRING,
                     name STRING,
+                    repoId STRING,
+                    PRIMARY KEY(qualifiedName)
+                )
+            """,
+            "ExternalClass": """
+                CREATE NODE TABLE IF NOT EXISTS ExternalClass(
+                    qualifiedName STRING,
+                    name STRING,
+                    module STRING,
+                    repoId STRING,
+                    PRIMARY KEY(qualifiedName)
+                )
+            """,
+            "ExternalFunction": """
+                CREATE NODE TABLE IF NOT EXISTS ExternalFunction(
+                    qualifiedName STRING,
+                    name STRING,
+                    module STRING,
                     repoId STRING,
                     PRIMARY KEY(qualifiedName)
                 )

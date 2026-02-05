@@ -617,6 +617,12 @@ class AnalysisEngine:
         import time as time_module
         start_time = time_module.time()
         
+        # Skip for Kuzu - uses label-less MATCH which Kuzu doesn't support
+        client_type = type(self.db).__name__
+        if client_type == "KuzuClient":
+            logger.debug("Skipping path cache build for Kuzu (uses label-less MATCH)")
+            return None
+        
         # REPO-524: Try to load from cache first
         cached_data = self._load_cached_graph_data()
         if cached_data:
@@ -1593,8 +1599,9 @@ class AnalysisEngine:
             Modularity score (0-1, typically 0.3-0.7 for well-modularized code)
         """
         try:
-            # Skip GDS for FalkorDB (no GDS plugin support)
-            if not self.is_falkordb:
+            # Skip GDS for FalkorDB and Kuzu (no GDS plugin support)
+            is_kuzu = type(self.db).__name__ == "KuzuClient"
+            if not self.is_falkordb and not is_kuzu:
                 # Try using Neo4j GDS Louvain algorithm if available
                 gds_query = """
                 CALL gds.graph.exists('codeGraph') YIELD exists

@@ -2016,6 +2016,13 @@ class IngestionPipeline:
         Returns:
             Number of calls resolved to internal entities
         """
+        # Skip for Kuzu - external entities (ExternalFunction, ExternalClass) aren't tracked
+        # in local mode, and the resolution queries use relationship properties not in schema
+        client_type = type(self.db).__name__
+        if client_type == "KuzuClient":
+            logger.debug("Skipping internal call resolution for Kuzu (no external entities)")
+            return 0
+
         calls_resolved = 0
         type_inferred_count = 0
         import time as time_module
@@ -2049,44 +2056,50 @@ class IngestionPipeline:
                 # File A imports module X, File B defines module X -> A imports B
                 # Use Rust for fast O(n) matching instead of slow O(n²) Cypher queries
                 import_edges = []
-                try:
-                    logger.info(f"[TIMING] Running import edge matching (Rust)...")
-                    query_start = time_module.time()
+                
+                # Skip for Kuzu - external entities aren't tracked in local mode
+                is_kuzu = type(self.db).__name__ == "KuzuClient"
+                if is_kuzu:
+                    logger.debug("Skipping import edge matching for Kuzu (no external entities)")
+                else:
+                    try:
+                        logger.info(f"[TIMING] Running import edge matching (Rust)...")
+                        query_start = time_module.time()
 
-                    # Get imports: (src_file, imported_name)
-                    imports_query = """
-                    MATCH (f:File)-[:IMPORTS]->(ext)
-                    WHERE (ext:ExternalClass OR ext:ExternalFunction)
-                      AND ext.qualifiedName IS NOT NULL
-                    RETURN f.filePath as src, split(ext.qualifiedName, '.')[-1] as name
-                    """
-                    imports_data = self.db.execute_query(imports_query)
-                    imports = [(r["src"], r["name"]) for r in imports_data if r["src"] and r["name"]]
-                    logger.info(f"[TIMING] Fetched {len(imports)} imports in {time_module.time() - query_start:.1f}s")
+                        # Get imports: (src_file, imported_name)
+                        imports_query = """
+                        MATCH (f:File)-[:IMPORTS]->(ext)
+                        WHERE (ext:ExternalClass OR ext:ExternalFunction)
+                          AND ext.qualifiedName IS NOT NULL
+                        RETURN f.filePath as src, split(ext.qualifiedName, '.')[-1] as name
+                        """
+                        imports_data = self.db.execute_query(imports_query)
+                        imports = [(r["src"], r["name"]) for r in imports_data if r["src"] and r["name"]]
+                        logger.info(f"[TIMING] Fetched {len(imports)} imports in {time_module.time() - query_start:.1f}s")
 
-                    # Get entities: (dst_file, entity_name)
-                    # Note: Don't filter by '::' - Python uses '.' separators
-                    # Note: FalkorDB uses labels() function for label checks instead of inline syntax
-                    entities_query = """
-                    MATCH (f:File)-[:CONTAINS]->(e)
-                    WHERE ('Function' IN labels(e) OR 'Class' IN labels(e))
-                      AND e.qualifiedName IS NOT NULL
-                      AND e.name IS NOT NULL
-                    RETURN f.filePath as dst, e.name as name
-                    """
-                    entity_start = time_module.time()
-                    entities_data = self.db.execute_query(entities_query)
-                    entities = [(r["dst"], r["name"]) for r in entities_data if r["dst"] and r["name"]]
-                    logger.info(f"[TIMING] Fetched {len(entities)} entities in {time_module.time() - entity_start:.1f}s")
+                        # Get entities: (dst_file, entity_name)
+                        # Note: Don't filter by '::' - Python uses '.' separators
+                        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
+                        entities_query = """
+                        MATCH (f:File)-[:CONTAINS]->(e)
+                        WHERE ('Function' IN labels(e) OR 'Class' IN labels(e))
+                          AND e.qualifiedName IS NOT NULL
+                          AND e.name IS NOT NULL
+                        RETURN f.filePath as dst, e.name as name
+                        """
+                        entity_start = time_module.time()
+                        entities_data = self.db.execute_query(entities_query)
+                        entities = [(r["dst"], r["name"]) for r in entities_data if r["dst"] and r["name"]]
+                        logger.info(f"[TIMING] Fetched {len(entities)} entities in {time_module.time() - entity_start:.1f}s")
 
-                    # Match in Rust (O(n) with HashMap vs O(n²) in Cypher)
-                    match_start = time_module.time()
-                    matched_edges = rf.match_import_edges_parallel(imports, entities)
-                    import_edges = [{"src": src, "dst": dst} for src, dst in matched_edges]
-                    logger.info(f"[TIMING] Rust matching: {len(import_edges)} edges in {time_module.time() - match_start:.3f}s")
-                    logger.info(f"[TIMING] Total import_edges: {time_module.time() - query_start:.1f}s")
-                except Exception as e:
-                    logger.warning(f"Import edges matching failed (non-critical): {e}")
+                        # Match in Rust (O(n) with HashMap vs O(n²) in Cypher)
+                        match_start = time_module.time()
+                        matched_edges = rf.match_import_edges_parallel(imports, entities)
+                        import_edges = [{"src": src, "dst": dst} for src, dst in matched_edges]
+                        logger.info(f"[TIMING] Rust matching: {len(import_edges)} edges in {time_module.time() - match_start:.3f}s")
+                        logger.info(f"[TIMING] Total import_edges: {time_module.time() - query_start:.1f}s")
+                    except Exception as e:
+                        logger.warning(f"Import edges matching failed (non-critical): {e}")
                 edges = []
                 for e in import_edges:
                     if e["src"] in file_to_idx and e["dst"] in file_to_idx:
@@ -2578,6 +2591,12 @@ class IngestionPipeline:
         """
         if not _HAS_PATH_CACHE:
             logger.debug("repotoire_fast path cache not available, skipping cache build")
+            return None
+
+        # Skip for Kuzu - uses label-less MATCH which Kuzu doesn't support
+        client_type = type(self.db).__name__
+        if client_type == "KuzuClient":
+            logger.debug("Skipping path cache build for Kuzu (uses label-less MATCH)")
             return None
 
         try:

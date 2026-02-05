@@ -121,7 +121,7 @@ class ArchitecturalBottleneckDetector(CodeSmellDetector):
             # Get betweenness statistics to determine thresholds
             stats = graph_algo.get_betweenness_statistics()
             if not stats:
-                logger.error("Failed to get betweenness statistics")
+                logger.warning("No betweenness statistics available (may be no call edges)")
                 return findings
 
             total_functions = stats['total_functions']
