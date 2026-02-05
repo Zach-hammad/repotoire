@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "repotoire"
-version = "0.1.31"
+version = "0.1.32"
 description = "Graph-Powered Code Health Platform"
 readme = "README.md"
 requires-python = ">=3.11"
