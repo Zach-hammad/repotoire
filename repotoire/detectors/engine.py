@@ -449,22 +449,21 @@ class AnalysisEngine:
         # Kuzu mode: disable graph-dependent detectors (Cypher compatibility issues)
         # These detectors require features not available in Kuzu (shortestPath, ORDER BY id, etc.)
         kuzu_disabled_detectors = {
-            # Graph algorithm detectors (require ORDER BY id() for Rust integration)
+            # Cypher syntax incompatibilities
             "circulardependency",      # Uses shortestPath - no Kuzu equivalent
-            "modulecohesion",          # Uses ORDER BY id() for Rust algorithms  
-            "coreutility",             # Uses ORDER BY id() for harmonic centrality
-            "influentialcode",         # Uses ORDER BY id() for PageRank
-            "architecturalbottleneck", # ORDER BY id() for betweenness
-            # Syntax incompatibilities
             "degreecentrality",        # SET operations not supported
-            "shotgunsurgery",          # Slice syntax [0..5]
+            # "shotgunsurgery",        # Slice syntax now auto-converted
             "middleman",               # Pattern comprehensions with WHERE
             "typehintcoverage",        # COALESCE with empty map {}
-            "packagestability",        # Slice syntax [..-1]
+            "packagestability",        # Uses reduce() - no Kuzu equivalent
             "changecoupling",          # Commit table doesn't exist
-            # Function incompatibilities  
             "asyncantipattern",        # Relationship property access (c.line_number)
             "featureenvy",             # 'X' IN labels(n) syntax
+            # Require SET + read pattern (need refactor for read-only backends)
+            "modulecohesion",          # Reads computed community_id from graph
+            "coreutility",             # Reads computed harmonic_centrality from graph
+            "influentialcode",         # Reads computed pagerank from graph
+            "architecturalbottleneck", # Reads computed betweenness_score from graph
         }
 
         filtered = []

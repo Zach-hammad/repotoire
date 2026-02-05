@@ -154,38 +154,41 @@ class GraphAlgorithms:
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_isolation_filter("n")
         repo_filter_a = self._get_isolation_filter("a")
-        query = f"""
+
+        # Query nodes and edges separately for Kuzu compatibility
+        # (Kuzu doesn't support ORDER BY id())
+        node_query = f"""
         MATCH (n:{node_label})
         WHERE true {repo_filter}
-        WITH collect(n) AS nodes
-        UNWIND nodes AS n
-        WITH n, id(n) AS neo_id
-        ORDER BY neo_id
-        WITH collect({{neo_id: neo_id, name: n.qualifiedName}}) AS node_list
+        RETURN n.qualifiedName AS name
+        ORDER BY n.qualifiedName
+        """
+        edge_query = f"""
         MATCH (a:{node_label})-[r:{rel_type}]->(b:{node_label})
         WHERE true {repo_filter_a}
-        WITH node_list, collect({{src: id(a), dst: id(b)}}) AS edges
-        RETURN node_list, edges
+        RETURN a.qualifiedName AS src, b.qualifiedName AS dst
         """
-        result = self.client.execute_query(query, self._get_query_params())
 
-        if not result or not result[0]['node_list']:
+        node_result = self.client.execute_query(node_query, self._get_query_params())
+        edge_result = self.client.execute_query(edge_query, self._get_query_params())
+
+        if not node_result:
             return [], []
 
-        # Build node ID mapping (graph ID -> sequential ID)
-        node_list = result[0]['node_list']
-        neo_to_seq: Dict[int, int] = {}
+        # Build node name mapping (name -> sequential ID)
+        name_to_seq: Dict[str, int] = {}
         node_names: List[str] = []
 
-        for seq_id, node in enumerate(node_list):
-            neo_to_seq[node['neo_id']] = seq_id
-            node_names.append(node['name'] or f"unknown_{seq_id}")
+        for seq_id, row in enumerate(node_result):
+            name = row.get('name') or f"unknown_{seq_id}"
+            name_to_seq[name] = seq_id
+            node_names.append(name)
 
-        # Convert edges to sequential IDs
+        # Convert edges to sequential IDs using name mapping
         edges: List[tuple[int, int]] = []
-        for edge in result[0]['edges']:
-            src = neo_to_seq.get(edge['src'])
-            dst = neo_to_seq.get(edge['dst'])
+        for edge in edge_result:
+            src = name_to_seq.get(edge.get('src'))
+            dst = name_to_seq.get(edge.get('dst'))
             if src is not None and dst is not None:
                 edges.append((src, dst))
 
@@ -214,10 +217,10 @@ class GraphAlgorithms:
         if not node_names or len(node_names) != len(values):
             return 0
 
-        # Check if client is read-only (CloudProxyClient)
+        # Check if client is read-only (CloudProxyClient) or Kuzu (no SET support)
         client_type = type(self.client).__name__
-        is_read_only = client_type == "CloudProxyClient"
-        
+        is_read_only = client_type in ("CloudProxyClient", "KuzuClient")
+
         if is_read_only:
             # Store in appropriate in-memory cache instead of DB write
             global _pagerank_cache, _community_cache, _degree_cache
@@ -236,7 +239,7 @@ class GraphAlgorithms:
                 else:
                     # Generic cache for other properties
                     logger.debug(f"Caching {len(node_names)} {property_name} values in memory (read-only mode)")
-            
+
             logger.info(f"Cached {len(node_names)} {property_name} values in memory (cloud read-only mode)")
             return len(node_names)
 

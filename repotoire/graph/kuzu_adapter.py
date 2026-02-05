@@ -95,11 +95,8 @@ class KuzuQueryAdapter:
         if re.search(r'size\s*\(\s*\[\s*\([^]]+WHERE', query):
             return "size([pattern WHERE ...])"
         
-        # Slice syntax [..-1] not supported
-        if re.search(r'\[\s*\.\.\s*-?\d+\s*\]', query):
-            return "slice syntax [..-1]"
-        if re.search(r'\[\s*\d+\s*\.\.\s*\d*\s*\]', query):
-            return "slice syntax [0..5]"
+        # Slice syntax is now auto-converted in _fix_syntax()
+        # [0..5] → [0:5], [..-1] → [:-1]
         
         # Empty map literal {} in COALESCE
         if re.search(r'COALESCE\s*\([^,]+,\s*\{\s*\}\s*\)', query, re.IGNORECASE):
@@ -142,12 +139,32 @@ class KuzuQueryAdapter:
             flags=re.IGNORECASE
         )
         
+        # split(str, delim) → STRING_SPLIT(str, delim)
+        query = re.sub(
+            r'\bsplit\s*\(',
+            'STRING_SPLIT(',
+            query,
+            flags=re.IGNORECASE
+        )
+        
         return query
 
     def _fix_syntax(self, query: str) -> str:
         """Fix general syntax differences."""
-        # 'X' IN labels(n) → Kuzu doesn't support labels() the same way
-        # For now, leave it - specific queries may need manual fixes
+        # Convert Cypher slice [0..5] to Kuzu slice [0:5]
+        # Match patterns like var[0..5] or expr[start..end]
+        query = re.sub(
+            r'\[(\d+)\.\.(\d+)\]',
+            r'[\1:\2]',
+            query
+        )
+        
+        # Convert [..-1] to [:-1] (slice to end minus 1)
+        query = re.sub(
+            r'\[\.\.(-?\d+)\]', 
+            r'[:\1]',
+            query
+        )
         
         return query
 
