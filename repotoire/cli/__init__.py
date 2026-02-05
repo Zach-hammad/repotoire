@@ -1162,9 +1162,11 @@ def analyze(
     """Analyze codebase health and generate a comprehensive report.
 
     \b
-    Runs 8+ detectors to identify code smells, security issues, and
-    architectural problems. Combines graph-based analysis with external
-    tools (ruff, pylint, mypy, bandit, radon, jscpd, vulture, semgrep).
+    Runs 30+ detectors powered by graph-based code analysis.
+    
+    Unlike traditional linters that check files in isolation, Repotoire
+    builds a knowledge graph of your codebase to detect cross-file issues:
+    circular dependencies, dead code, architectural violations, and more.
 
     \b
     EXAMPLES:
@@ -1198,15 +1200,24 @@ def analyze(
       info       Informational only
 
     \b
-    DETECTORS:
-      ruff       400+ linting rules (fast)
-      pylint     Python-specific checks
-      mypy       Type checking errors
-      bandit     Security vulnerabilities
-      radon      Complexity metrics
-      jscpd      Duplicate code detection
-      vulture    Dead code detection
-      semgrep    Advanced security patterns
+    DETECTORS (30+):
+      Graph-Native (unique to Repotoire):
+        circular-deps      Import cycle detection via SCC algorithm
+        dead-code          Cross-file unused function/class detection
+        god-class          Classes with too many responsibilities
+        feature-envy       Methods that use other classes more than their own
+        shotgun-surgery    Changes that require edits across many files
+        hub-dependency     Fragile central nodes everything depends on
+        architectural      Bottlenecks, layering violations, coupling
+        change-coupling    Files that always change together
+        ... and 20+ more graph-powered detectors
+
+      Hybrid (external tools + graph context):
+        ruff       400+ linting rules (fast)
+        pylint     Python-specific checks  
+        mypy       Type checking errors
+        bandit     Security vulnerabilities
+        semgrep    Advanced security patterns
 
     \b
     PARALLEL EXECUTION:

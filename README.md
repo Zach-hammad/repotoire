@@ -19,12 +19,30 @@ This enables detection of complex issues like circular dependencies, architectur
 
 ## Features
 
-### 🔍 Detection Capabilities
-- **Circular Dependencies** - Find import cycles using Tarjan's algorithm
-- **God Classes** - Detect classes with too many responsibilities
-- **Dead Code** - Identify unused functions and classes
-- **Tight Coupling** - Find architectural bottlenecks
-- **Modularity Analysis** - Suggest module boundaries using community detection
+### 🔍 30+ Graph-Powered Detectors
+
+**Architectural Issues**
+- **Circular Dependencies** - Import cycles via Tarjan's SCC algorithm
+- **Hub Dependencies** - Fragile central nodes everything depends on
+- **Layered Architecture Violations** - Cross-layer dependency detection
+- **Change Coupling** - Files that always change together (temporal coupling)
+- **Architectural Bottlenecks** - Single points of failure in call graphs
+
+**Code Smells (Cross-File)**
+- **Dead Code** - Functions/classes nothing in the codebase calls
+- **God Classes** - Classes with too many responsibilities
+- **Feature Envy** - Methods using other classes more than their own
+- **Shotgun Surgery** - Changes requiring edits across many files
+- **Inappropriate Intimacy** - Classes too tightly coupled
+- **Middle Man** - Classes that just delegate everything
+
+**Quality Metrics**
+- **Module Cohesion** - How well modules stick together
+- **Degree Centrality** - Most connected code (complexity hotspots)
+- **Technical Debt Hotspots** - Areas with compounding issues
+- **Package Stability** - Dependency direction analysis
+
+**Plus:** Data clumps, long parameter lists, message chains, lazy classes, refused bequest, async antipatterns, generator misuse, test smells, type hint coverage, and more.
 
 ### 🤖 AI-Powered Insights
 - Semantic concept extraction from code
