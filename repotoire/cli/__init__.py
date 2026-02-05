@@ -60,40 +60,44 @@ _config: FalkorConfig | None = None
 _config_lock = threading.Lock()
 
 
-def _get_db_client(quiet: bool = False):
-    """Get database client. Uses cloud API if logged in, local FalkorDB otherwise.
+def _get_db_client(quiet: bool = False, repository_path: str = "."):
+    """Get database client. Uses local Kuzu by default, cloud if logged in.
 
     Args:
         quiet: Suppress connection messages
+        repository_path: Path to repository (used for local Kuzu db path)
 
     Returns:
         DatabaseClient instance
 
     Raises:
-        ConfigurationError: If neither API key nor local FalkorDB is available
+        ConfigurationError: If Kuzu cannot be initialized
     """
-    from repotoire.graph.factory import get_api_key, create_falkordb_client
+    from repotoire.graph.factory import get_api_key, create_kuzu_client
     
-    # Try cloud mode first
+    # Cloud mode if API key is set
     if get_api_key():
         return create_client(show_cloud_indicator=not quiet)
     
-    # Fall back to local FalkorDB if configured
-    host = os.getenv("FALKORDB_HOST", "localhost")
-    port = int(os.getenv("FALKORDB_PORT", "6379"))
-    
+    # Default: Local Kuzu (no Docker, no server required)
     try:
-        client = create_falkordb_client(host=host, port=port)
+        client = create_kuzu_client(repository_path=repository_path)
         if not quiet:
-            console.print(f"[dim]🗄️  Connected to local FalkorDB ({host}:{port})[/dim]")
+            console.print(f"[dim]📦 Using local graph database (.repotoire/kuzu_db)[/dim]")
         return client
+    except ImportError:
+        from repotoire.graph.factory import ConfigurationError
+        raise ConfigurationError(
+            "Kuzu is not installed.\n\n"
+            "Install with: pip install kuzu\n\n"
+            "Or login to use Repotoire Cloud:\n"
+            "  repotoire login ak_your_key"
+        )
     except Exception as e:
         from repotoire.graph.factory import ConfigurationError
         raise ConfigurationError(
-            f"No API key and cannot connect to local FalkorDB at {host}:{port}.\n\n"
-            "Either:\n"
-            "  1. Login: repotoire login ak_your_key\n"
-            "  2. Or start local FalkorDB: docker run -p 6379:6379 falkordb/falkordb"
+            f"Failed to initialize local graph database: {e}\n\n"
+            "Try: repotoire login ak_your_key (to use cloud instead)"
         ) from e
 
 
@@ -842,8 +846,8 @@ def ingest(
         with LogContext(operation="ingest", repo_path=repo_path):
             logger.info("Starting ingestion")
 
-            # Create database client (connects to Repotoire Cloud)
-            db = _get_db_client(quiet=quiet)
+            # Create database client (local Kuzu by default, cloud if logged in)
+            db = _get_db_client(quiet=quiet, repository_path=str(repo_path))
 
             try:
                 # Clear database if force-full is requested
@@ -1329,8 +1333,8 @@ def analyze(
         with LogContext(operation="analyze", repo_path=repo_path):
             logger.info("Starting analysis")
 
-            # Create database client (requires API key)
-            db = _get_db_client(quiet=quiet)
+            # Create database client (local Kuzu by default, cloud if logged in)
+            db = _get_db_client(quiet=quiet, repository_path=str(repo_path))
             try:
                 # Convert detector config to dict for detectors
                 detector_config_dict = asdict(config.detectors)

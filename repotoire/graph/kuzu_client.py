@@ -102,6 +102,10 @@ class KuzuClient(DatabaseClient):
         self.db_path = Path(db_path)
         self.read_only = read_only
         
+        # Ensure parent directory exists (Kuzu creates the db directory itself)
+        if not read_only:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        
         # Create database
         self._db = kuzu.Database(
             str(self.db_path),
@@ -118,18 +122,27 @@ class KuzuClient(DatabaseClient):
         logger.info(f"Kùzu database opened at {self.db_path}")
 
     def _init_schema(self) -> None:
-        """Create node and relationship tables if they don't exist."""
-        # Node tables with common properties
+        """Create node and relationship tables if they don't exist.
+        
+        Property names use camelCase to match existing Cypher queries.
+        Relationship tables use REL TABLE GROUP for polymorphic relationships.
+        """
+        # Node tables with properties matching existing query expectations
         node_schemas = {
             "File": """
                 CREATE NODE TABLE IF NOT EXISTS File(
                     qualifiedName STRING,
                     name STRING,
-                    file_path STRING,
+                    filePath STRING,
                     language STRING,
                     loc INT64,
                     hash STRING,
                     repoId STRING,
+                    churnCount INT64,
+                    complexity DOUBLE,
+                    codeHealth DOUBLE,
+                    lineCount INT64,
+                    is_test BOOLEAN,
                     PRIMARY KEY(qualifiedName)
                 )
             """,
@@ -137,11 +150,13 @@ class KuzuClient(DatabaseClient):
                 CREATE NODE TABLE IF NOT EXISTS Class(
                     qualifiedName STRING,
                     name STRING,
-                    file_path STRING,
-                    line_start INT64,
-                    line_end INT64,
+                    filePath STRING,
+                    lineStart INT64,
+                    lineEnd INT64,
                     complexity INT64,
+                    loc INT64,
                     is_abstract BOOLEAN,
+                    nesting_level INT64,
                     decorators STRING[],
                     repoId STRING,
                     PRIMARY KEY(qualifiedName)
@@ -151,15 +166,23 @@ class KuzuClient(DatabaseClient):
                 CREATE NODE TABLE IF NOT EXISTS Function(
                     qualifiedName STRING,
                     name STRING,
-                    file_path STRING,
-                    line_start INT64,
-                    line_end INT64,
+                    filePath STRING,
+                    lineStart INT64,
+                    lineEnd INT64,
                     complexity INT64,
+                    loc INT64,
                     is_async BOOLEAN,
                     is_method BOOLEAN,
+                    has_yield BOOLEAN,
+                    yield_count INT64,
+                    max_chain_depth INT64,
+                    chain_example STRING,
                     parameters STRING[],
+                    parameter_types STRING,
                     return_type STRING,
                     decorators STRING[],
+                    in_degree INT64,
+                    out_degree INT64,
                     repoId STRING,
                     PRIMARY KEY(qualifiedName)
                 )
@@ -178,8 +201,8 @@ class KuzuClient(DatabaseClient):
                 CREATE NODE TABLE IF NOT EXISTS Variable(
                     qualifiedName STRING,
                     name STRING,
-                    file_path STRING,
-                    line_start INT64,
+                    filePath STRING,
+                    lineStart INT64,
                     var_type STRING,
                     repoId STRING,
                     PRIMARY KEY(qualifiedName)
@@ -195,6 +218,14 @@ class KuzuClient(DatabaseClient):
                     PRIMARY KEY(qualifiedName)
                 )
             """,
+            "Concept": """
+                CREATE NODE TABLE IF NOT EXISTS Concept(
+                    qualifiedName STRING,
+                    name STRING,
+                    repoId STRING,
+                    PRIMARY KEY(qualifiedName)
+                )
+            """,
         }
         
         for table_name, schema in node_schemas.items():
@@ -202,15 +233,45 @@ class KuzuClient(DatabaseClient):
                 self._conn.execute(schema)
                 logger.debug(f"Created/verified node table: {table_name}")
             except Exception as e:
-                logger.warning(f"Failed to create node table {table_name}: {e}")
+                if "already exists" not in str(e).lower():
+                    logger.warning(f"Failed to create node table {table_name}: {e}")
         
-        # Relationship tables
-        # Kuzu requires FROM and TO node types to be specified
+        # Create REL TABLE GROUPs for polymorphic relationships
+        # This allows queries to use :CONTAINS without specifying exact types
+        rel_table_groups = [
+            # CONTAINS: File->Class, File->Function, Class->Function
+            """CREATE REL TABLE GROUP IF NOT EXISTS CONTAINS(
+                FROM File TO Class,
+                FROM File TO Function,
+                FROM Class TO Function
+            )""",
+            # CALLS: Function->Function, Function->Class
+            """CREATE REL TABLE GROUP IF NOT EXISTS CALLS(
+                FROM Function TO Function,
+                FROM Function TO Class
+            )""",
+            # USES: Function->Variable, Function->Function
+            """CREATE REL TABLE GROUP IF NOT EXISTS USES(
+                FROM Function TO Variable,
+                FROM Function TO Function,
+                FROM Function TO Class
+            )""",
+            # FLAGGED_BY: Function->DetectorMetadata, Class->DetectorMetadata
+            """CREATE REL TABLE GROUP IF NOT EXISTS FLAGGED_BY(
+                FROM Function TO DetectorMetadata,
+                FROM Class TO DetectorMetadata
+            )""",
+        ]
+        
+        for schema in rel_table_groups:
+            try:
+                self._conn.execute(schema)
+            except Exception as e:
+                if "already exists" not in str(e).lower():
+                    logger.debug(f"Rel table group note: {e}")
+        
+        # Individual relationship tables for specific patterns
         rel_schemas = [
-            # Function calls
-            "CREATE REL TABLE IF NOT EXISTS CALLS(FROM Function TO Function)",
-            "CREATE REL TABLE IF NOT EXISTS CALLS_CLASS(FROM Function TO Class)",
-            
             # Imports
             "CREATE REL TABLE IF NOT EXISTS IMPORTS(FROM File TO Module)",
             "CREATE REL TABLE IF NOT EXISTS IMPORTS_FILE(FROM File TO File)",
@@ -218,29 +279,24 @@ class KuzuClient(DatabaseClient):
             # Inheritance
             "CREATE REL TABLE IF NOT EXISTS INHERITS(FROM Class TO Class)",
             
-            # Contains (file -> class/function)
-            "CREATE REL TABLE IF NOT EXISTS CONTAINS_CLASS(FROM File TO Class)",
-            "CREATE REL TABLE IF NOT EXISTS CONTAINS_FUNC(FROM File TO Function)",
-            "CREATE REL TABLE IF NOT EXISTS CLASS_CONTAINS(FROM Class TO Function)",
-            
             # Defines
             "CREATE REL TABLE IF NOT EXISTS DEFINES(FROM Class TO Function)",
             "CREATE REL TABLE IF NOT EXISTS DEFINES_VAR(FROM Function TO Variable)",
             
-            # Uses
-            "CREATE REL TABLE IF NOT EXISTS USES(FROM Function TO Variable)",
-            "CREATE REL TABLE IF NOT EXISTS USES_FUNC(FROM Function TO Function)",
+            # Overrides
+            "CREATE REL TABLE IF NOT EXISTS OVERRIDES(FROM Function TO Function)",
             
-            # Flagged by detector
-            "CREATE REL TABLE IF NOT EXISTS FLAGGED_BY(FROM Function TO DetectorMetadata)",
-            "CREATE REL TABLE IF NOT EXISTS CLASS_FLAGGED_BY(FROM Class TO DetectorMetadata)",
+            # Decorates
+            "CREATE REL TABLE IF NOT EXISTS DECORATES(FROM Function TO Function)",
+            
+            # Tests
+            "CREATE REL TABLE IF NOT EXISTS TESTS(FROM Function TO Function)",
         ]
         
         for schema in rel_schemas:
             try:
                 self._conn.execute(schema)
             except Exception as e:
-                # Ignore "already exists" errors
                 if "already exists" not in str(e).lower():
                     logger.debug(f"Rel table creation note: {e}")
 
@@ -295,44 +351,83 @@ class KuzuClient(DatabaseClient):
     def _adapt_query(self, query: str) -> str:
         """Adapt FalkorDB/Neo4j Cypher to Kuzu Cypher.
         
-        Kuzu has some differences in Cypher syntax.
+        Handles key differences:
+        - Removes comments (Kuzu is stricter)
+        - Checks for unsupported features and raises clear errors
         """
-        # Remove comments (Kuzu may not support all comment styles)
+        import re
+        
+        # Remove comments
         lines = []
         for line in query.split('\n'):
             line = line.split('//')[0]  # Remove line comments
             lines.append(line)
         query = '\n'.join(lines)
         
-        # Kuzu uses different syntax for some operations
-        # Most basic Cypher should work as-is
+        # Check for unsupported features and raise clear errors
+        unsupported_patterns = [
+            (r'shortestPath\s*\(', "shortestPath() is not supported in Kuzu"),
+            (r'ORDER\s+BY\s+\w*id\s*\(', "ORDER BY id() is not supported in Kuzu"),
+            (r'ORDER\s+BY\s+neo_id', "ORDER BY neo_id is not supported in Kuzu"),
+            (r'\[\s*\.\.\s*-?\d+\s*\]', "Slice syntax [..-1] is not supported in Kuzu"),
+            (r'\[\s*\d+\s*\.\.\s*\d*\s*\]', "Slice syntax [0..5] is not supported in Kuzu"),
+            (r'size\s*\(\s*\[\s*\([^]]+WHERE', "Pattern comprehension size([...WHERE...]) not supported"),
+            (r'COALESCE\s*\([^,]+,\s*\{\s*\}\s*\)', "COALESCE with empty map {} not supported"),
+        ]
+        
+        for pattern, message in unsupported_patterns:
+            if re.search(pattern, query, re.IGNORECASE):
+                raise RuntimeError(f"Kuzu compatibility: {message}")
         
         return query
+    
+    def execute_query_safe(
+        self,
+        query: str,
+        parameters: Optional[Dict] = None,
+        default: Optional[List[Dict]] = None,
+    ) -> List[Dict]:
+        """Execute query with graceful fallback for unsupported features.
+        
+        Returns default (empty list) if query uses unsupported Kuzu features.
+        """
+        try:
+            return self.execute_query(query, parameters)
+        except RuntimeError as e:
+            if "Kuzu compatibility" in str(e) or "Binder exception" in str(e):
+                logger.warning(f"Query not supported in Kuzu: {e}")
+                return default if default is not None else []
+            raise
 
     def create_node(self, entity: Entity) -> str:
         """Create a node in the graph."""
         table = NODE_TYPE_TO_TABLE.get(entity.node_type, "Function")
         
-        # Build properties dict
+        # Build properties dict with camelCase names to match schema
         props = {
             "qualifiedName": entity.qualified_name,
             "name": entity.name,
-            "file_path": entity.file_path,
-            "line_start": entity.line_start,
-            "line_end": entity.line_end,
+            "filePath": entity.file_path,
+            "lineStart": entity.line_start,
+            "lineEnd": entity.line_end,
         }
         
         # Add type-specific properties
-        if hasattr(entity, 'complexity'):
+        if hasattr(entity, 'complexity') and entity.complexity is not None:
             props["complexity"] = entity.complexity
-        if hasattr(entity, 'is_async'):
+        if hasattr(entity, 'is_async') and entity.is_async is not None:
             props["is_async"] = entity.is_async
-        if hasattr(entity, 'is_abstract'):
+        if hasattr(entity, 'is_abstract') and entity.is_abstract is not None:
             props["is_abstract"] = entity.is_abstract
-        if hasattr(entity, 'language'):
+        if hasattr(entity, 'language') and entity.language is not None:
             props["language"] = entity.language
-        if hasattr(entity, 'loc'):
+        if hasattr(entity, 'loc') and entity.loc is not None:
             props["loc"] = entity.loc
+        if hasattr(entity, 'is_method') and entity.is_method is not None:
+            props["is_method"] = entity.is_method
+        
+        # Filter out None values (Kuzu doesn't like explicit NULLs in CREATE)
+        props = {k: v for k, v in props.items() if v is not None}
         
         # Build CREATE query
         prop_str = ", ".join(f"{k}: ${k}" for k in props.keys())
@@ -437,7 +532,7 @@ class KuzuClient(DatabaseClient):
         """Get all file paths currently in the graph."""
         try:
             result = self._conn.execute(
-                "MATCH (f:File) RETURN f.file_path AS path"
+                "MATCH (f:File) RETURN f.filePath AS path"
             )
             paths = []
             while result.has_next():
@@ -453,7 +548,7 @@ class KuzuClient(DatabaseClient):
         """Get file metadata for incremental ingestion."""
         try:
             result = self._conn.execute(
-                "MATCH (f:File {file_path: $path}) RETURN f.hash AS hash, f.loc AS loc",
+                "MATCH (f:File {filePath: $path}) RETURN f.hash AS hash, f.loc AS loc",
                 {"path": file_path}
             )
             if result.has_next():
@@ -470,7 +565,7 @@ class KuzuClient(DatabaseClient):
         # Delete functions in file
         try:
             result = self._conn.execute(
-                "MATCH (n:Function {file_path: $path}) DELETE n RETURN count(*) AS cnt",
+                "MATCH (n:Function {filePath: $path}) DELETE n RETURN count(*) AS cnt",
                 {"path": file_path}
             )
             if result.has_next():
@@ -481,7 +576,7 @@ class KuzuClient(DatabaseClient):
         # Delete classes in file
         try:
             result = self._conn.execute(
-                "MATCH (n:Class {file_path: $path}) DELETE n RETURN count(*) AS cnt",
+                "MATCH (n:Class {filePath: $path}) DELETE n RETURN count(*) AS cnt",
                 {"path": file_path}
             )
             if result.has_next():
@@ -492,7 +587,7 @@ class KuzuClient(DatabaseClient):
         # Delete file itself
         try:
             result = self._conn.execute(
-                "MATCH (f:File {file_path: $path}) DELETE f RETURN count(*) AS cnt",
+                "MATCH (f:File {filePath: $path}) DELETE f RETURN count(*) AS cnt",
                 {"path": file_path}
             )
             if result.has_next():

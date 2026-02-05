@@ -24,6 +24,7 @@ classifiers = [
 ]
 
 dependencies = [
+    "kuzu>=0.8.0",  # Embedded graph database (local-first, no Docker)
     "falkordb>=1.0.0",  # Cloud graph database client
     "openai>=1.0.0",
     "spacy>=3.7.0",
