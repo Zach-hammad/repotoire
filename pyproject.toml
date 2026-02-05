@@ -241,7 +241,7 @@ dev = [
 
 # Bump My Version configuration for semantic versioning
 [tool.bumpversion]
-current_version = "0.1.4"
+current_version = "0.1.5"
 commit = true
 commit_args = "--no-verify"
 tag = true
