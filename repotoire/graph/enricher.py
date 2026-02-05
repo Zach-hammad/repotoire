@@ -113,7 +113,11 @@ class GraphEnricher:
 
             if result:
                 logger.debug(f"Flagged entity {entity_qualified_name} by {detector}")
-                return result[0]["metadata_id"]
+                # Handle different response formats (FalkorDB vs Neo4j)
+                first = result[0]
+                if isinstance(first, dict):
+                    return first.get("metadata_id", metadata_id)
+                return metadata_id
             else:
                 logger.debug(f"Entity not found for flagging: {entity_qualified_name}")
                 return metadata_id
