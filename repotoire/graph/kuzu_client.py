@@ -351,35 +351,20 @@ class KuzuClient(DatabaseClient):
     def _adapt_query(self, query: str) -> str:
         """Adapt FalkorDB/Neo4j Cypher to Kuzu Cypher.
         
-        Handles key differences:
-        - Removes comments (Kuzu is stricter)
-        - Checks for unsupported features and raises clear errors
+        Uses KuzuQueryAdapter to:
+        - Transform functions (toFloat → CAST, elementId → id)
+        - Check for unsupported features
+        - Remove comments
         """
-        import re
+        from repotoire.graph.kuzu_adapter import KuzuQueryAdapter
         
-        # Remove comments
-        lines = []
-        for line in query.split('\n'):
-            line = line.split('//')[0]  # Remove line comments
-            lines.append(line)
-        query = '\n'.join(lines)
+        adapter = KuzuQueryAdapter()
+        adapted, error = adapter.adapt(query)
         
-        # Check for unsupported features and raise clear errors
-        unsupported_patterns = [
-            (r'shortestPath\s*\(', "shortestPath() is not supported in Kuzu"),
-            (r'ORDER\s+BY\s+\w*id\s*\(', "ORDER BY id() is not supported in Kuzu"),
-            (r'ORDER\s+BY\s+neo_id', "ORDER BY neo_id is not supported in Kuzu"),
-            (r'\[\s*\.\.\s*-?\d+\s*\]', "Slice syntax [..-1] is not supported in Kuzu"),
-            (r'\[\s*\d+\s*\.\.\s*\d*\s*\]', "Slice syntax [0..5] is not supported in Kuzu"),
-            (r'size\s*\(\s*\[\s*\([^]]+WHERE', "Pattern comprehension size([...WHERE...]) not supported"),
-            (r'COALESCE\s*\([^,]+,\s*\{\s*\}\s*\)', "COALESCE with empty map {} not supported"),
-        ]
+        if error:
+            raise RuntimeError(f"Kuzu compatibility: {error}")
         
-        for pattern, message in unsupported_patterns:
-            if re.search(pattern, query, re.IGNORECASE):
-                raise RuntimeError(f"Kuzu compatibility: {message}")
-        
-        return query
+        return adapted
     
     def execute_query_safe(
         self,

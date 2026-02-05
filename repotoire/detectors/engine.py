@@ -457,12 +457,12 @@ class AnalysisEngine:
             "degreecentrality",        # SET operations
             "shotgunsurgery",          # Slice syntax [0..5]
             "middleman",               # Pattern comprehensions
-            "inappropriateintimacy",   # elementId()
+            # "inappropriateintimacy", # elementId() - now handled by adapter
             "dataclumps",              # CONTAINS relationship issues
             "asyncantipattern",        # Relationship properties
             "typehintcoverage",        # COALESCE with empty map
-            "lazyclass",               # toFloat()
-            "refusedbequest",          # toFloat()
+            # "lazyclass",             # toFloat() - now handled by adapter
+            # "refusedbequest",        # toFloat() - now handled by adapter
             "packagestability",        # Slice syntax
             "technicaldebthotspot",    # Property name issues
             "layeredarchitecture",     # Property name issues
@@ -786,9 +786,9 @@ class AnalysisEngine:
                    n.decorators AS decorators,
                    n.is_abstract AS is_abstract,
                    n.nesting_level AS nesting_level,
-                   n.file_path AS file_path,
-                   n.line_start AS line_start,
-                   n.line_end AS line_end
+                   n.filePath AS file_path,
+                   n.lineStart AS line_start,
+                   n.lineEnd AS line_end
             """
             class_results = self.db.execute_query(class_query, repo_params, timeout=60.0)
             for r in class_results:
@@ -817,9 +817,9 @@ class AnalysisEngine:
                    n.return_type AS return_type,
                    n.is_async AS is_async,
                    n.decorators AS decorators,
-                   n.file_path AS file_path,
-                   n.line_start AS line_start,
-                   n.line_end AS line_end
+                   n.filePath AS file_path,
+                   n.lineStart AS line_start,
+                   n.lineEnd AS line_end
             """
             func_results = self.db.execute_query(func_query, repo_params, timeout=60.0)
             for r in func_results:
