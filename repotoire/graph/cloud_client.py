@@ -151,10 +151,34 @@ class CloudProxyClient(DatabaseClient):
         parameters: Optional[Dict] = None,
         timeout: Optional[float] = None,
     ) -> List[Dict]:
-        """Execute a Cypher query via the API."""
+        """Execute a Cypher query via the API.
+        
+        Routes write operations (CREATE, DELETE, SET, MERGE) to /write endpoint
+        if they involve DetectorMetadata or FLAGGED_BY. Other writes still fail
+        on the read-only /query endpoint.
+        """
         # Strip comments from query - API rejects queries with comments
         clean_query = _strip_cypher_comments(query)
         
+        # Check if this is a write operation for detector metadata
+        query_upper = clean_query.upper()
+        is_write = any(op in query_upper for op in ["CREATE", "DELETE", "SET", "MERGE"])
+        is_metadata = "DETECTORMETADATA" in clean_query.upper() or "FLAGGED_BY" in clean_query.upper()
+        
+        # Route to /write endpoint for detector metadata operations
+        if is_write and is_metadata:
+            response = self._request(
+                "POST",
+                "/write",
+                json={
+                    "query": clean_query,
+                    "parameters": parameters,
+                },
+            )
+            # Write endpoint returns {success, affected} not {results}
+            return [{"affected": response.get("affected", 0)}] if response.get("success") else []
+        
+        # Normal read query
         response = self._request(
             "POST",
             "/query",

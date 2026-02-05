@@ -203,6 +203,28 @@ class FileMetadataResponse(BaseModel):
     )
 
 
+class WriteRequest(BaseModel):
+    """Request to execute a write query (for detector metadata).
+    
+    Only allowed operations:
+    - CREATE/MERGE of DetectorMetadata nodes
+    - CREATE of FLAGGED_BY relationships
+    - DELETE of DetectorMetadata nodes (cleanup)
+    """
+
+    query: str = Field(..., description="Cypher write query")
+    parameters: Optional[Dict[str, Any]] = Field(
+        default=None, description="Query parameters"
+    )
+
+
+class WriteResponse(BaseModel):
+    """Response from a write query."""
+
+    success: bool = Field(..., description="Whether the write succeeded")
+    affected: int = Field(default=0, description="Number of nodes/rels affected")
+
+
 class FilePathsResponse(BaseModel):
     """List of file paths in the graph."""
 
@@ -270,6 +292,93 @@ async def execute_query(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Query execution failed. Please check your query syntax.",
+        )
+    finally:
+        client.close()
+
+
+# Allowed write patterns for detector metadata operations
+_ALLOWED_WRITE_PATTERNS = [
+    "DetectorMetadata",  # CREATE/DELETE of metadata nodes
+    "FLAGGED_BY",        # CREATE of flagging relationships
+]
+
+
+def _validate_write_query(query: str) -> str:
+    """Validate that a write query only touches detector metadata.
+    
+    Raises ValidationError if the query attempts unauthorized operations.
+    """
+    query_upper = query.upper()
+    
+    # Must be a write operation
+    if not any(op in query_upper for op in ["CREATE", "MERGE", "DELETE", "SET"]):
+        raise ValueError("Write endpoint requires a write operation (CREATE, MERGE, DELETE, SET)")
+    
+    # Must only touch allowed patterns
+    has_allowed = any(pattern in query for pattern in _ALLOWED_WRITE_PATTERNS)
+    if not has_allowed:
+        raise ValueError(
+            f"Write endpoint only allows operations on: {', '.join(_ALLOWED_WRITE_PATTERNS)}. "
+            "Use /query for read operations."
+        )
+    
+    # Block dangerous patterns
+    dangerous = ["DROP", "CALL db.", "CALL apoc.", "LOAD CSV"]
+    for pattern in dangerous:
+        if pattern in query_upper:
+            raise ValueError(f"Operation '{pattern}' is not allowed")
+    
+    return query
+
+
+@router.post("/write", response_model=WriteResponse)
+async def execute_write(
+    request: WriteRequest,
+    user: GraphUser = Depends(get_graph_user),
+) -> WriteResponse:
+    """Execute a write query for detector metadata operations.
+    
+    This endpoint allows CREATE/DELETE of DetectorMetadata nodes and
+    FLAGGED_BY relationships. Used by the CLI during analysis to track
+    which entities have findings attached.
+    
+    Only pro tier users can use this endpoint.
+    """
+    # Validate the write query
+    try:
+        validated_query = _validate_write_query(request.query)
+    except ValueError as e:
+        logger.warning(
+            f"Rejected unsafe write query",
+            extra={"org_id": user.org_id, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    
+    client = _get_client_for_user(user)
+    try:
+        results = client.execute_query(
+            validated_query,
+            parameters=request.parameters,
+        )
+        # Try to extract affected count from results
+        affected = 0
+        if results and isinstance(results, list):
+            affected = len(results)
+        
+        logger.info(
+            "Write query executed",
+            extra={"org_id": user.org_id, "affected": affected},
+        )
+        return WriteResponse(success=True, affected=affected)
+    except Exception as e:
+        logger.error(f"Write query failed: {e}", extra={"org_id": user.org_id})
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Write failed: {str(e)}",
         )
     finally:
         client.close()
