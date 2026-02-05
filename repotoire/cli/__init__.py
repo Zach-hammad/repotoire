@@ -5006,6 +5006,28 @@ def fix_finding(
 import difflib
 
 
+def _extract_finding_location(f: dict) -> tuple[str, str]:
+    """Extract file path and line number from finding dict.
+    
+    Handles multiple formats:
+    - file_path / line_start (direct)
+    - affected_files[0] / graph_context.start_line (JSON export format)
+    """
+    # Try direct fields first
+    file_path = f.get("file_path") or ""
+    line_start = f.get("line_start")
+    
+    # Fall back to affected_files
+    if not file_path and f.get("affected_files"):
+        file_path = f["affected_files"][0] if f["affected_files"] else ""
+    
+    # Fall back to graph_context for line
+    if not line_start and f.get("graph_context"):
+        line_start = f["graph_context"].get("start_line")
+    
+    return file_path or "?", str(line_start) if line_start else "?"
+
+
 @cli.command("findings")
 @click.argument("source", type=click.Path(exists=True))
 @click.argument("index", required=False, type=int)
@@ -5074,8 +5096,9 @@ def show_findings(
                 console.print(f"\n[bold]Finding #{index}[/bold]")
                 console.print(f"[{sev_style}]● {sev}[/{sev_style}] {f.get('title', 'Unknown')}\n")
                 
-                console.print(f"[dim]📁 File:[/dim] {f.get('file_path', 'unknown')}")
-                console.print(f"[dim]📍 Line:[/dim] {f.get('line_start', '?')}")
+                file_path, line_str = _extract_finding_location(f)
+                console.print(f"[dim]📁 File:[/dim] {file_path}")
+                console.print(f"[dim]📍 Line:[/dim] {line_str}")
                 console.print(f"[dim]🔍 Detector:[/dim] {f.get('detector', 'unknown')}")
                 
                 if f.get("description"):
@@ -5121,12 +5144,13 @@ def show_findings(
             sev_colors = {"CRITICAL": "red bold", "HIGH": "red", "MEDIUM": "yellow", "LOW": "blue"}
             sev_icon = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🔵"}
             
+            file_path, line_str = _extract_finding_location(f)
             table.add_row(
                 str(orig_idx),
                 f"[{sev_colors.get(sev, 'white')}]{sev_icon.get(sev, '⚪')} {sev[:4]}[/{sev_colors.get(sev, 'white')}]",
                 f.get("title", "Unknown")[:60],
-                f.get("file_path", "?")[-40:],
-                str(f.get("line_start", "?")),
+                file_path[-40:] if file_path != "?" else "?",
+                line_str,
             )
         
         console.print(table)
