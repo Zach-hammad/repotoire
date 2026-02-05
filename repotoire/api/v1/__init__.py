@@ -22,7 +22,6 @@ from repotoire.api.v1.routes import (
     github,
     graph,
     historical,
-    marketplace,
     monorepo,
     narratives,
     notifications,
@@ -39,8 +38,6 @@ from repotoire.api.v1.routes import (
 )
 from repotoire.api.v1.routes.admin import changelog as admin_changelog
 from repotoire.api.v1.routes.admin import overrides as admin_overrides
-from repotoire.api.v1.routes.admin import reports as admin_reports
-from repotoire.api.v1.routes.admin import reviews as admin_reviews
 from repotoire.api.v1.routes.admin import status as admin_status
 
 # v1-specific OpenAPI tags
@@ -156,11 +153,6 @@ V1_OPENAPI_TAGS = [
         "bug fixes, and subscribe to updates. No authentication required for public endpoints.",
     },
     {
-        "name": "marketplace",
-        "description": "Repotoire Marketplace for AI skills, commands, styles, and prompts. "
-        "Browse, install, publish, and manage marketplace assets.",
-    },
-    {
         "name": "narratives",
         "description": "AI-powered narrative generation. Executive summaries, metric insights, "
         "weekly changelogs, and contextual tooltips using natural language.",
@@ -260,7 +252,6 @@ v1_app.include_router(fixes.router)
 v1_app.include_router(github.router)
 v1_app.include_router(graph.router)
 v1_app.include_router(historical.router)
-v1_app.include_router(marketplace.router)
 v1_app.include_router(monorepo.router)
 v1_app.include_router(narratives.router)
 v1_app.include_router(notifications.router)
@@ -276,9 +267,6 @@ v1_app.include_router(webhooks.router)
 v1_app.include_router(status.router)
 v1_app.include_router(changelog.router)
 v1_app.include_router(admin_overrides.router)
-v1_app.include_router(admin_reports.router)
-v1_app.include_router(admin_reports.admin_router)  # Admin report management endpoints
-v1_app.include_router(admin_reviews.router)
 v1_app.include_router(admin_status.router)
 v1_app.include_router(admin_changelog.router)
 

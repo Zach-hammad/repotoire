@@ -67,7 +67,6 @@ celery_app = Celery(
         "repotoire.workers.webhook_delivery",
         "repotoire.workers.health_checks",
         "repotoire.workers.changelog",
-        "repotoire.workers.analytics_tasks",
         "repotoire.workers.cleanup",
     ],
 )
@@ -169,30 +168,6 @@ celery_app.conf.update(
         "send-monthly-changelog-digest": {
             "task": "repotoire.workers.changelog.send_monthly_digest",
             "schedule": crontab(hour=9, minute=0, day_of_month=1),  # 1st of month 9 AM UTC
-            "options": {"queue": "default"},
-        },
-        # Marketplace Analytics: Daily stats aggregation - runs at 1 AM UTC
-        "aggregate-daily-analytics-stats": {
-            "task": "repotoire.workers.analytics_tasks.aggregate_daily_stats",
-            "schedule": crontab(hour=1, minute=0),  # 1 AM UTC daily
-            "options": {"queue": "default"},
-        },
-        # Marketplace Analytics: Rolling window update - runs at 2 AM UTC
-        "update-rolling-analytics-stats": {
-            "task": "repotoire.workers.analytics_tasks.update_rolling_stats",
-            "schedule": crontab(hour=2, minute=0),  # 2 AM UTC daily
-            "options": {"queue": "default"},
-        },
-        # Marketplace Analytics: Publisher stats update - runs at 3 AM UTC
-        "update-publisher-analytics-stats": {
-            "task": "repotoire.workers.analytics_tasks.update_publisher_stats",
-            "schedule": crontab(hour=3, minute=0),  # 3 AM UTC daily
-            "options": {"queue": "default"},
-        },
-        # Marketplace Analytics: Event cleanup - runs Sundays at 4 AM UTC
-        "cleanup-old-analytics-events": {
-            "task": "repotoire.workers.analytics_tasks.cleanup_old_events",
-            "schedule": crontab(hour=4, minute=0, day_of_week=0),  # Sunday 4 AM UTC
             "options": {"queue": "default"},
         },
     },
