@@ -29,8 +29,37 @@ logger = get_logger(__name__)
 # Protected by _cache_lock for thread safety
 _community_cache: Dict[str, int] = {}
 _pagerank_cache: Dict[str, float] = {}
+_harmonic_cache: Dict[str, float] = {}  # Harmonic centrality scores
+_betweenness_cache: Dict[str, float] = {}  # Betweenness centrality scores
 _degree_cache: Dict[str, Dict[str, int]] = {}  # {node_name: {"in_degree": x, "out_degree": y}}
+_scc_cache: Dict[str, int] = {}  # {node_name: component_id} for Kuzu mode
+_scc_components: List[List[str]] = []  # List of components (each is list of node names)
 _cache_lock = threading.Lock()
+
+
+def get_top_from_cache(cache: Dict[str, float], limit: int = 50, percentile: float = 90) -> List[Dict[str, Any]]:
+    """Get top-scoring items from a cache.
+    
+    Args:
+        cache: Dict mapping name to score
+        limit: Max results
+        percentile: Return items above this percentile (default top 10%)
+    
+    Returns:
+        List of dicts with 'name' and 'score'
+    """
+    if not cache:
+        return []
+    
+    sorted_items = sorted(cache.items(), key=lambda x: x[1], reverse=True)
+    threshold_idx = int(len(sorted_items) * (100 - percentile) / 100)
+    threshold = sorted_items[threshold_idx][1] if threshold_idx < len(sorted_items) else 0
+    
+    results = []
+    for name, score in sorted_items[:limit]:
+        if score >= threshold:
+            results.append({"name": name, "score": score})
+    return results
 
 
 class GraphAlgorithms:
@@ -223,14 +252,20 @@ class GraphAlgorithms:
 
         if is_read_only:
             # Store in appropriate in-memory cache instead of DB write
-            global _pagerank_cache, _community_cache, _degree_cache
+            global _pagerank_cache, _community_cache, _degree_cache, _harmonic_cache, _betweenness_cache
             with _cache_lock:
                 if property_name == "pagerank":
                     for name, val in zip(node_names, values):
                         _pagerank_cache[name] = val
-                elif property_name == "community":
+                elif property_name == "community" or property_name == "communityId":
                     for name, val in zip(node_names, values):
                         _community_cache[name] = val
+                elif property_name == "harmonic_centrality":
+                    for name, val in zip(node_names, values):
+                        _harmonic_cache[name] = val
+                elif property_name == "betweenness_score":
+                    for name, val in zip(node_names, values):
+                        _betweenness_cache[name] = val
                 elif property_name in ("in_degree", "out_degree"):
                     for name, val in zip(node_names, values):
                         if name not in _degree_cache:
@@ -533,6 +568,8 @@ class GraphAlgorithms:
     ) -> List[Dict[str, Any]]:
         """Get functions with high harmonic centrality scores.
 
+        For Kuzu mode, reads from in-memory cache.
+
         Args:
             threshold: Minimum harmonic centrality score (0.0 = all functions)
             limit: Maximum number of results
@@ -540,6 +577,18 @@ class GraphAlgorithms:
         Returns:
             List of function data with harmonic centrality scores
         """
+        # Check if we're in Kuzu mode - use cached results
+        client_type = type(self.client).__name__
+        if client_type == "KuzuClient":
+            global _harmonic_cache
+            with _cache_lock:
+                results = [
+                    {"qualified_name": name, "harmonic_centrality": score}
+                    for name, score in sorted(_harmonic_cache.items(), key=lambda x: x[1], reverse=True)
+                    if score > threshold
+                ][:limit]
+            return results
+
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_isolation_filter("f")
         query = f"""
@@ -602,9 +651,32 @@ class GraphAlgorithms:
     def get_harmonic_statistics(self) -> Optional[Dict[str, float]]:
         """Get statistical summary of harmonic centrality scores.
 
+        For Kuzu mode, computes from in-memory cache.
+
         Returns:
             Dictionary with min, max, avg, stdev of harmonic centrality scores
         """
+        # Check if we're in Kuzu mode - use cached results
+        client_type = type(self.client).__name__
+        if client_type == "KuzuClient":
+            global _harmonic_cache
+            with _cache_lock:
+                if not _harmonic_cache:
+                    return None
+                values = list(_harmonic_cache.values())
+                if not values:
+                    return None
+                import statistics
+                return {
+                    "min_harmonic": min(values),
+                    "max_harmonic": max(values),
+                    "avg_harmonic": sum(values) / len(values),
+                    "stdev_harmonic": statistics.stdev(values) if len(values) > 1 else 0,
+                    "total_functions": len(values),
+                    "p95_harmonic": sorted(values)[int(len(values) * 0.95)] if values else 0,
+                    "p10_harmonic": sorted(values)[int(len(values) * 0.1)] if values else 0,
+                }
+
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_isolation_filter("f")
         query = f"""
@@ -934,6 +1006,81 @@ class GraphAlgorithms:
         except Exception as e:
             logger.debug(f"Failed to get community assignments: {e}")
             return {}
+
+    def get_high_pagerank_from_cache(self, limit: int = 50, percentile: float = 90) -> List[Dict[str, Any]]:
+        """Get high PageRank functions from cache (for Kuzu mode).
+        
+        Args:
+            limit: Maximum results
+            percentile: Return items above this percentile (default top 10%)
+        
+        Returns:
+            List of functions with PageRank scores
+        """
+        global _pagerank_cache
+        return get_top_from_cache(_pagerank_cache, limit, percentile)
+
+    def get_high_harmonic_from_cache(self, limit: int = 50, percentile: float = 90) -> List[Dict[str, Any]]:
+        """Get high harmonic centrality functions from cache (for Kuzu mode).
+        
+        Args:
+            limit: Maximum results
+            percentile: Return items above this percentile (default top 10%)
+        
+        Returns:
+            List of functions with harmonic centrality scores
+        """
+        global _harmonic_cache
+        return get_top_from_cache(_harmonic_cache, limit, percentile)
+
+    def get_high_betweenness_from_cache(self, limit: int = 50, percentile: float = 90) -> List[Dict[str, Any]]:
+        """Get high betweenness functions from cache (for Kuzu mode).
+        
+        Args:
+            limit: Maximum results
+            percentile: Return items above this percentile (default top 10%)
+        
+        Returns:
+            List of functions with betweenness scores
+        """
+        global _betweenness_cache
+        return get_top_from_cache(_betweenness_cache, limit, percentile)
+
+    def get_god_modules_from_cache(self, threshold_percent: float = 20.0) -> List[Dict[str, Any]]:
+        """Get oversized communities from cache (for Kuzu mode).
+        
+        Args:
+            threshold_percent: Percentage threshold for god module detection
+        
+        Returns:
+            List of communities exceeding threshold
+        """
+        global _community_cache
+        with _cache_lock:
+            if not _community_cache:
+                return []
+            
+            # Count members per community
+            community_counts: Dict[int, List[str]] = {}
+            for name, community_id in _community_cache.items():
+                if community_id not in community_counts:
+                    community_counts[community_id] = []
+                community_counts[community_id].append(name)
+            
+            total = len(_community_cache)
+            threshold = total * threshold_percent / 100
+            
+            results = []
+            for community_id, members in community_counts.items():
+                if len(members) >= threshold:
+                    results.append({
+                        "community_id": community_id,
+                        "size": len(members),
+                        "percentage": len(members) / total * 100,
+                        "members": members[:10]  # First 10 for display
+                    })
+            
+            return sorted(results, key=lambda x: x["size"], reverse=True)
 
     # -------------------------------------------------------------------------
     # PageRank Importance Scoring (REPO-152)
@@ -1459,13 +1606,25 @@ class GraphAlgorithms:
             # Run Rust SCC algorithm
             sccs = graph_find_sccs(edges, len(node_names))
 
-            # Assign component IDs to nodes
+            # Assign component IDs to nodes and build component name lists
             component_ids = [0] * len(node_names)
+            component_name_lists: List[List[str]] = [[] for _ in range(len(sccs))]
             for component_id, scc in enumerate(sccs):
                 for node_id in scc:
                     component_ids[node_id] = component_id
+                    if node_id < len(node_names):
+                        component_name_lists[component_id].append(node_names[node_id])
 
-            # Write back to FalkorDB
+            # Cache SCC results for read-only mode (Kuzu)
+            global _scc_cache, _scc_components
+            with _cache_lock:
+                _scc_cache.clear()
+                for name, comp_id in zip(node_names, component_ids):
+                    _scc_cache[name] = comp_id
+                _scc_components = component_name_lists
+                logger.debug(f"Cached SCC: {len(_scc_cache)} nodes, {len(_scc_components)} components")
+
+            # Write back to FalkorDB (or cache for read-only)
             updated = self._write_property_to_nodes(
                 "File", node_names, component_ids, validated_property
             )
@@ -1499,6 +1658,8 @@ class GraphAlgorithms:
         Components with size > 1 are cycles. Returns cycle details including
         all files involved and the cycle size.
 
+        For Kuzu/read-only mode, reads from in-memory cache populated by calculate_scc().
+
         Args:
             min_cycle_size: Minimum number of files in a cycle (default 2)
             max_results: Maximum cycles to return
@@ -1506,7 +1667,14 @@ class GraphAlgorithms:
         Returns:
             List of cycles with their member files
         """
-        # Filter by repoId for multi-tenant isolation
+        # Check if we're in Kuzu mode - use cached results
+        client_type = type(self.client).__name__
+        is_kuzu = client_type == "KuzuClient"
+
+        if is_kuzu:
+            return self._get_scc_cycles_from_cache(min_cycle_size, max_results)
+
+        # For FalkorDB, query the database
         repo_filter = self._get_isolation_filter("f")
         query = f"""
         MATCH (f:File)
@@ -1531,6 +1699,43 @@ class GraphAlgorithms:
             min_size=min_cycle_size,
             limit=max_results
         ))
+
+    def _get_scc_cycles_from_cache(
+        self,
+        min_cycle_size: int = 2,
+        max_results: int = 100
+    ) -> List[Dict[str, Any]]:
+        """Get SCC cycles from in-memory cache (for Kuzu mode).
+
+        Args:
+            min_cycle_size: Minimum number of files in a cycle (default 2)
+            max_results: Maximum cycles to return
+
+        Returns:
+            List of cycles with their member files
+        """
+        global _scc_components
+        results = []
+
+        with _cache_lock:
+            for component_id, members in enumerate(_scc_components):
+                if len(members) < min_cycle_size:
+                    continue
+
+                results.append({
+                    "component_id": component_id,
+                    "cycle_size": len(members),
+                    "file_names": members,
+                    "file_paths": members,  # Same as names for cache (no filePath lookup)
+                    "edges": []  # Edges not tracked in simple cache
+                })
+
+                if len(results) >= max_results:
+                    break
+
+        # Sort by cycle size descending
+        results.sort(key=lambda x: x["cycle_size"], reverse=True)
+        return results
 
     # -------------------------------------------------------------------------
     # Degree Centrality - REPO-171
@@ -1753,12 +1958,21 @@ class GraphAlgorithms:
         Useful for determining appropriate thresholds and understanding
         the overall dependency structure.
 
+        For Kuzu mode, reads from in-memory cache.
+
         Args:
             node_label: Node label to analyze
 
         Returns:
             Statistics including mean, max, percentiles for in/out degree
         """
+        # Check if we're in Kuzu mode - use cached results
+        client_type = type(self.client).__name__
+        is_kuzu = client_type == "KuzuClient"
+
+        if is_kuzu:
+            return self._get_degree_statistics_from_cache()
+
         validated_label = validate_identifier(node_label, "node label")
 
         # Filter by repoId for multi-tenant isolation
@@ -1780,3 +1994,28 @@ class GraphAlgorithms:
         """
         result = self.client.execute_query(query, self._get_query_params())
         return result[0] if result else {}
+
+    def _get_degree_statistics_from_cache(self) -> Dict[str, Any]:
+        """Get degree statistics from in-memory cache (for Kuzu mode).
+
+        Returns:
+            Statistics computed from cached degree values
+        """
+        global _degree_cache
+        with _cache_lock:
+            if not _degree_cache:
+                return {}
+
+            in_degrees = [d.get("in_degree", 0) for d in _degree_cache.values()]
+            out_degrees = [d.get("out_degree", 0) for d in _degree_cache.values()]
+
+            if not in_degrees:
+                return {}
+
+            return {
+                "node_count": len(in_degrees),
+                "avg_in_degree": sum(in_degrees) / len(in_degrees) if in_degrees else 0,
+                "max_in_degree": max(in_degrees) if in_degrees else 0,
+                "avg_out_degree": sum(out_degrees) / len(out_degrees) if out_degrees else 0,
+                "max_out_degree": max(out_degrees) if out_degrees else 0,
+            }

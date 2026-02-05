@@ -450,8 +450,8 @@ class AnalysisEngine:
         # These detectors require features not available in Kuzu (shortestPath, ORDER BY id, etc.)
         kuzu_disabled_detectors = {
             # Cypher syntax incompatibilities
-            "circulardependency",      # Uses shortestPath - no Kuzu equivalent
-            "degreecentrality",        # SET operations not supported
+            # "circulardependency",    # Fixed: uses Rust SCC + memory cache
+            # "degreecentrality",      # Fixed: computes + caches in memory, reads from cache
             # "shotgunsurgery",        # Slice syntax now auto-converted
             # "middleman",             # Fixed: rewrote without pattern comprehension
             # "typehintcoverage",      # Fixed: removed COALESCE with map literal, handle JSON in Python
@@ -459,11 +459,11 @@ class AnalysisEngine:
             "changecoupling",          # Commit table doesn't exist
             # "asyncantipattern",      # Fixed: removed relationship property access
             # "featureenvy",           # Fixed: removed labels() check
-            # Require SET + read pattern (need refactor for read-only backends)
-            "modulecohesion",          # Reads computed community_id from graph
-            "coreutility",             # Reads computed harmonic_centrality from graph
-            "influentialcode",         # Reads computed pagerank from graph
-            "architecturalbottleneck", # Reads computed betweenness_score from graph
+            # Partially fixed - compute + cache + read from cache
+            "modulecohesion",          # Needs more work on god module detection
+            # "coreutility",           # Fixed: reads from harmonic cache (warns on empty)
+            "influentialcode",         # Has query syntax issues in _get_bloated_code
+            "architecturalbottleneck", # Needs betweenness cache reading
         }
 
         filtered = []

@@ -99,6 +99,8 @@ class InfluentialCodeDetector(CodeSmellDetector):
     ) -> List[dict]:
         """Get functions with high PageRank scores.
 
+        For Kuzu mode, reads from in-memory cache.
+
         Args:
             graph_algo: GraphAlgorithms instance
             limit: Maximum results
@@ -106,6 +108,13 @@ class InfluentialCodeDetector(CodeSmellDetector):
         Returns:
             List of high PageRank functions with metrics
         """
+        # Check if we're in Kuzu mode - use cached results
+        client_type = type(self.db).__name__
+        if client_type == "KuzuClient":
+            cached = graph_algo.get_high_pagerank_from_cache(limit=limit, percentile=90)
+            # Convert cache format to expected format
+            return [{"qualified_name": r["name"], "pagerank": r["score"]} for r in cached]
+
         # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
         repo_filter = self._get_isolation_filter("f")
         query = f"""
