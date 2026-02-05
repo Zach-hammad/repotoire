@@ -24,6 +24,7 @@ class InsightsConfig:
     
     Attributes:
         enable_bug_prediction: Use ML model to predict bug probability
+        enable_heuristic_risk: Use heuristic-based risk scoring (no ML needed)
         enable_impact_analysis: Calculate downstream impact radius
         enable_graph_metrics: Compute coupling and bottleneck metrics
         bug_model_path: Path to trained bug predictor model (optional)
@@ -31,6 +32,7 @@ class InsightsConfig:
         impact_depth: Max depth for impact traversal (default: 3)
     """
     enable_bug_prediction: bool = True
+    enable_heuristic_risk: bool = True  # Fallback when no ML model
     enable_impact_analysis: bool = True
     enable_graph_metrics: bool = True
     bug_model_path: Optional[str] = None
@@ -204,7 +206,8 @@ class InsightsEngine:
                         enriched = True
                         break  # Use first entity with impact
             
-            # Add bug probability if model available
+            # Add bug probability - try ML model first, fall back to heuristics
+            risk_added = False
             if self._model_loaded and self.config.enable_bug_prediction:
                 for entity in finding.affected_nodes[:3]:
                     if entity not in bug_prob_cache:
@@ -219,7 +222,29 @@ class InsightsEngine:
                     if entity in bug_prob_cache:
                         prob = bug_prob_cache[entity]
                         finding.graph_context["bug_probability"] = round(prob, 3)
+                        finding.graph_context["risk_source"] = "ml_model"
                         finding.graph_context["high_risk"] = prob >= self.config.high_risk_threshold
+                        enriched = True
+                        risk_added = True
+                        break
+            
+            # Fallback to heuristic risk if no ML model
+            if not risk_added and self.config.enable_heuristic_risk:
+                for entity in finding.affected_nodes[:3]:
+                    if entity not in bug_prob_cache:
+                        try:
+                            risk = self._compute_heuristic_risk(entity)
+                            if risk is not None:
+                                bug_prob_cache[entity] = risk
+                        except Exception as e:
+                            logger.debug(f"Failed to compute heuristic risk for {entity}: {e}")
+                            continue
+                    
+                    if entity in bug_prob_cache:
+                        risk = bug_prob_cache[entity]
+                        finding.graph_context["bug_probability"] = round(risk, 3)
+                        finding.graph_context["risk_source"] = "heuristic"
+                        finding.graph_context["high_risk"] = risk >= self.config.high_risk_threshold
                         enriched = True
                         break
             
@@ -229,11 +254,31 @@ class InsightsEngine:
         insights.findings_enriched = enriched_count
         
         # 4. Identify high-risk and high-impact entities
+        # First, use entities from findings
         insights.high_risk_entities = [
-            {"entity": e, "bug_probability": round(p, 3)}
+            {"entity": e, "bug_probability": round(p, 3), "source": "finding"}
             for e, p in sorted(bug_prob_cache.items(), key=lambda x: -x[1])[:20]
             if p >= self.config.high_risk_threshold
         ]
+        
+        # If we don't have many high-risk from findings, scan graph for more
+        if len(insights.high_risk_entities) < 10 and self.config.enable_heuristic_risk:
+            try:
+                top_risky = self._find_top_risky_functions(limit=20)
+                for entry in top_risky:
+                    # Skip if already in list
+                    if any(e["entity"] == entry["entity"] for e in insights.high_risk_entities):
+                        continue
+                    if entry["bug_probability"] >= self.config.high_risk_threshold:
+                        entry["source"] = "graph_scan"
+                        insights.high_risk_entities.append(entry)
+                # Re-sort and limit
+                insights.high_risk_entities = sorted(
+                    insights.high_risk_entities, 
+                    key=lambda x: -x["bug_probability"]
+                )[:20]
+            except Exception as e:
+                logger.debug(f"Failed to scan for risky functions: {e}")
         
         insights.high_impact_entities = [
             {"entity": e, **i.to_dict()}
@@ -422,3 +467,165 @@ class InsightsEngine:
             logger.debug(f"Bug prediction failed for {entity}: {e}")
         
         return None
+    
+    def _find_top_risky_functions(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Find functions with highest heuristic risk scores from the graph.
+        
+        Queries for functions with high complexity, coupling, and no tests.
+        """
+        # Query for functions with risk-indicating metrics
+        query = """
+        MATCH (f:Function)
+        WHERE f.complexity IS NOT NULL
+        OPTIONAL MATCH (caller:Function)-[:CALLS]->(f)
+        OPTIONAL MATCH (f)-[:CALLS]->(callee:Function)
+        OPTIONAL MATCH (t:Function)-[:TESTS]->(f)
+        WITH f, 
+             f.complexity AS complexity,
+             f.loc AS loc,
+             COUNT(DISTINCT caller) AS fan_in,
+             COUNT(DISTINCT callee) AS fan_out,
+             COUNT(DISTINCT t) > 0 AS has_tests
+        WHERE complexity > 10 OR fan_in > 10 OR fan_out > 5
+        RETURN 
+            f.qualifiedName AS name,
+            f.filePath AS file,
+            complexity,
+            loc,
+            fan_in,
+            fan_out,
+            has_tests
+        ORDER BY complexity DESC, fan_in DESC
+        LIMIT $limit
+        """
+        
+        results = []
+        try:
+            result = self.client.execute_query(query, {"limit": limit * 2})  # Get more, filter later
+            for row in result.result_set:
+                if not row[0]:
+                    continue
+                    
+                name = row[0]
+                complexity = row[2] or 1
+                loc = row[3] or 10
+                fan_in = row[4] or 0
+                fan_out = row[5] or 0
+                has_tests = row[6] or False
+                
+                # Compute heuristic risk (same formula as _compute_heuristic_risk)
+                complexity_score = min(1.0, (complexity - 1) / 30)
+                loc_score = min(1.0, (loc - 10) / 300)
+                fan_in_score = min(1.0, fan_in / 20)
+                fan_out_score = min(1.0, fan_out / 15)
+                test_penalty = 0.15 if not has_tests else 0
+                
+                risk = (
+                    complexity_score * 0.30 +
+                    loc_score * 0.15 +
+                    fan_in_score * 0.25 +
+                    fan_out_score * 0.15 +
+                    test_penalty
+                )
+                risk = max(0.0, min(1.0, risk))
+                
+                results.append({
+                    "entity": name,
+                    "file": row[1],
+                    "bug_probability": round(risk, 3),
+                    "factors": {
+                        "complexity": complexity,
+                        "fan_in": fan_in,
+                        "fan_out": fan_out,
+                        "has_tests": has_tests,
+                    }
+                })
+            
+            # Sort by risk and return top
+            results = sorted(results, key=lambda x: -x["bug_probability"])[:limit]
+            
+        except Exception as e:
+            logger.debug(f"Top risky functions query failed: {e}")
+        
+        return results
+    
+    def _compute_heuristic_risk(self, entity: str) -> Optional[float]:
+        """Compute heuristic-based risk score using graph metrics.
+        
+        No ML model needed - uses weighted combination of:
+        - Cyclomatic complexity (higher = riskier)
+        - Fan-in (callers) - high centrality = risky
+        - Fan-out (dependencies) - high coupling = risky  
+        - Lines of code (larger = riskier)
+        - Has tests (no tests = riskier)
+        
+        Returns risk score 0.0-1.0
+        """
+        query = """
+        MATCH (f:Function {qualifiedName: $entity})
+        OPTIONAL MATCH (caller:Function)-[:CALLS]->(f)
+        OPTIONAL MATCH (f)-[:CALLS]->(callee:Function)
+        OPTIONAL MATCH (t:Function)-[:TESTS]->(f)
+        RETURN 
+            f.complexity AS complexity,
+            f.loc AS loc,
+            COUNT(DISTINCT caller) AS fan_in,
+            COUNT(DISTINCT callee) AS fan_out,
+            COUNT(DISTINCT t) > 0 AS has_tests,
+            f.churn AS churn,
+            f.num_authors AS num_authors
+        """
+        
+        try:
+            result = self.client.execute_query(query, {"entity": entity})
+            if not result.result_set or not result.result_set[0]:
+                return None
+            
+            row = result.result_set[0]
+            complexity = row[0] or 1
+            loc = row[1] or 10
+            fan_in = row[2] or 0
+            fan_out = row[3] or 0
+            has_tests = row[4] or False
+            churn = row[5] or 0
+            num_authors = row[6] or 1
+            
+            # Normalize and weight each factor (0-1 scale)
+            # Complexity: 1-10 low risk, 10-20 medium, 20+ high
+            complexity_score = min(1.0, (complexity - 1) / 30)
+            
+            # LOC: <50 low, 50-200 medium, 200+ high  
+            loc_score = min(1.0, (loc - 10) / 300)
+            
+            # Fan-in: 0-5 low, 5-15 medium, 15+ high (central = risky)
+            fan_in_score = min(1.0, fan_in / 20)
+            
+            # Fan-out: 0-3 low, 3-10 medium, 10+ high (coupled = risky)
+            fan_out_score = min(1.0, fan_out / 15)
+            
+            # Churn: changes in git history (if available)
+            churn_score = min(1.0, churn / 50) if churn else 0
+            
+            # Multiple authors = more coordination risk
+            author_score = min(1.0, (num_authors - 1) / 5) if num_authors else 0
+            
+            # No tests = higher risk
+            test_penalty = 0.15 if not has_tests else 0
+            
+            # Weighted combination
+            risk = (
+                complexity_score * 0.25 +
+                loc_score * 0.10 +
+                fan_in_score * 0.20 +
+                fan_out_score * 0.15 +
+                churn_score * 0.15 +
+                author_score * 0.05 +
+                test_penalty
+            )
+            
+            # Clamp to 0-1
+            return max(0.0, min(1.0, risk))
+            
+        except Exception as e:
+            logger.debug(f"Heuristic risk computation failed for {entity}: {e}")
+            return None
