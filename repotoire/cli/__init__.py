@@ -980,6 +980,7 @@ def ingest(
                         repo_id=repo_id,
                         parallel=True,
                         max_workers=_get_optimal_workers(),
+                        enable_insights=True,
                     )
 
                     # Run analysis with progress indication
@@ -1142,6 +1143,11 @@ def ingest(
     default=None,
     help="Comma-separated list of detectors to enable (all others disabled). Takes precedence over config file.",
 )
+@click.option(
+    "--insights/--no-insights",
+    default=True,
+    help="Enable graph insights and ML enrichment (bottlenecks, coupling, bug risk). Default: enabled.",
+)
 @click.pass_context
 def analyze(
     ctx: click.Context,
@@ -1158,6 +1164,7 @@ def analyze(
     fail_on_grade: str | None,
     disable_detectors: str | None,
     enable_detectors: str | None,
+    insights: bool,
 ) -> None:
     """Analyze codebase health and generate a comprehensive report.
 
@@ -1307,6 +1314,7 @@ def analyze(
                     keep_metadata=keep_metadata,
                     parallel=parallel,
                     max_workers=workers,
+                    enable_insights=insights,
                 )
 
                 # Run analysis with progress indication
@@ -1641,9 +1649,91 @@ def _display_health_report(health) -> None:
 
         console.print(findings_table)
 
-        # Findings note
-        if health.findings:
-            console.print(f"\n[dim]📋 {len(health.findings)} findings detected. Use HTML/JSON output for details.[/dim]")
+    # Display insights if available (REPO-501)
+    if health.insights:
+        _display_insights(health.insights)
+
+    # Findings note
+    if health.findings_summary.total > 0 and health.findings:
+        console.print(f"\n[dim]📋 {len(health.findings)} findings detected. Use HTML/JSON output for details.[/dim]")
+
+
+def _display_insights(insights) -> None:
+    """Display insights from ML and graph analysis (REPO-501)."""
+    gi = insights.graph_insights
+    
+    # Graph insights panel
+    insights_content = []
+    
+    # Bottlenecks
+    if gi.bottlenecks:
+        insights_content.append("[bold]🎯 Bottlenecks[/bold] (high fan-in functions)")
+        for b in gi.bottlenecks[:5]:
+            name = b.get("name", "unknown")
+            fan_in = b.get("fan_in", 0)
+            # Truncate long names
+            if len(name) > 50:
+                name = "..." + name[-47:]
+            insights_content.append(f"  [cyan]{name}[/cyan] ← {fan_in} callers")
+        insights_content.append("")
+    
+    # Coupling hotspots
+    if gi.coupling_hotspots:
+        insights_content.append("[bold]🔗 Coupling Hotspots[/bold] (files with many cross-deps)")
+        for h in gi.coupling_hotspots[:5]:
+            file = h.get("file", "unknown")
+            coupled = h.get("coupled_to", 0)
+            # Truncate long paths
+            if len(file) > 50:
+                file = "..." + file[-47:]
+            insights_content.append(f"  [yellow]{file}[/yellow] → {coupled} files")
+        insights_content.append("")
+    
+    # High-risk entities (from bug prediction)
+    if insights.high_risk_entities:
+        insights_content.append("[bold]⚠️  High Bug Risk[/bold] (ML-predicted)")
+        for r in insights.high_risk_entities[:5]:
+            entity = r.get("entity", "unknown")
+            prob = r.get("bug_probability", 0)
+            if len(entity) > 50:
+                entity = "..." + entity[-47:]
+            pct = int(prob * 100)
+            color = "red" if pct >= 80 else "yellow"
+            insights_content.append(f"  [{color}]{entity}[/{color}] ({pct}% risk)")
+        insights_content.append("")
+    
+    # High-impact entities
+    if insights.high_impact_entities:
+        insights_content.append("[bold]💥 High Impact[/bold] (large blast radius)")
+        for e in insights.high_impact_entities[:5]:
+            entity = e.get("entity", "unknown")
+            radius = e.get("blast_radius", 0)
+            if len(entity) > 50:
+                entity = "..." + entity[-47:]
+            insights_content.append(f"  [magenta]{entity}[/magenta] → {radius} dependents")
+        insights_content.append("")
+    
+    # Summary stats
+    stats = []
+    if gi.dead_code_count > 0:
+        stats.append(f"💀 {gi.dead_code_count} dead functions")
+    if gi.circular_dep_count > 0:
+        stats.append(f"🔁 {gi.circular_dep_count} circular deps")
+    if gi.avg_fan_out > 0:
+        stats.append(f"📊 Avg fan-out: {gi.avg_fan_out:.1f}")
+    if insights.findings_enriched > 0:
+        stats.append(f"🧠 {insights.findings_enriched} findings enriched with ML")
+    
+    if stats:
+        insights_content.append("[dim]" + " | ".join(stats) + "[/dim]")
+    
+    if insights_content:
+        console.print(Panel(
+            "\n".join(insights_content),
+            title="🔬 Graph Insights",
+            border_style="cyan",
+            box=box.ROUNDED,
+        ))
 
 
 def _display_findings_tree(findings, severity_colors, severity_emoji):
@@ -4412,7 +4502,7 @@ def auto_fix(
             console.print("[bold]Step 1: Analyzing codebase...[/bold]")
 
         graph_client = _get_db_client()
-        engine = AnalysisEngine(graph_client)
+        engine = AnalysisEngine(graph_client, enable_insights=True)
 
         if not quiet_mode:
             with console.status("[bold]Running code analysis..."):

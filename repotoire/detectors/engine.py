@@ -24,6 +24,15 @@ from repotoire.models import (
     MetricsBreakdown,
     Severity,
 )
+
+# Insights engine for ML and graph enrichment (REPO-501)
+try:
+    from repotoire.insights import InsightsEngine, InsightsConfig
+    _HAS_INSIGHTS = True
+except ImportError:
+    _HAS_INSIGHTS = False
+    InsightsEngine = None  # type: ignore
+    InsightsConfig = None  # type: ignore
 from repotoire.detectors.circular_dependency import CircularDependencyDetector
 from repotoire.detectors.dead_code import DeadCodeDetector
 from repotoire.detectors.god_class import GodClassDetector
@@ -146,6 +155,8 @@ class AnalysisEngine:
         max_workers: int = 4,
         changed_files: Optional[List[str]] = None,
         path_cache: Optional["PyPathCache"] = None,
+        enable_insights: bool = True,
+        insights_config: Optional[Dict] = None,
     ):
         """Initialize analysis engine.
 
@@ -162,12 +173,16 @@ class AnalysisEngine:
             max_workers: Maximum thread pool workers for parallel execution (default: 4)
             changed_files: List of relative file paths that changed (for incremental hybrid detector analysis)
             path_cache: Optional prebuilt path expression cache for O(1) reachability queries (REPO-416)
+            enable_insights: Enable insights engine for ML enrichment and graph metrics (REPO-501)
+            insights_config: Optional insights engine configuration dict
         """
         self.db = graph_client
         self.repository_path = repository_path
         self.repo_id = repo_id
         self.keep_metadata = keep_metadata
         self.enable_voting = enable_voting
+        self.enable_insights = enable_insights and _HAS_INSIGHTS
+        self.insights_config = insights_config or {}
         self.parallel = parallel
         self.max_workers = max_workers
         # Check if using FalkorDB (no GDS support)
@@ -682,6 +697,16 @@ class AnalysisEngine:
                         f"(prioritized by severity)"
                     )
 
+                # REPO-501: Run insights engine for ML enrichment and graph metrics
+                self.codebase_insights = None
+                if self.enable_insights:
+                    try:
+                        insights_cfg = InsightsConfig(**self.insights_config) if self.insights_config else InsightsConfig()
+                        insights_engine = InsightsEngine(self.db, insights_cfg)
+                        findings, self.codebase_insights = insights_engine.enrich(findings)
+                    except Exception as e:
+                        logger.warning(f"Insights engine failed (non-fatal): {e}")
+
                 # Calculate metrics (incorporating detector findings)
                 metrics = self._calculate_metrics(findings)
 
@@ -724,6 +749,7 @@ class AnalysisEngine:
                     dedup_stats=getattr(self, 'dedup_stats', None),
                     root_cause_summary=getattr(self, 'root_cause_summary', None),
                     voting_stats=getattr(self, 'voting_stats', None),
+                    insights=getattr(self, 'codebase_insights', None),
                 )
 
             finally:

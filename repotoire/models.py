@@ -1495,6 +1495,9 @@ class CodebaseHealth:
     # Voting engine statistics (REPO-156)
     voting_stats: Optional[Dict] = None
 
+    # Insights from ML and graph analysis (REPO-501)
+    insights: Optional[Any] = None
+
     # Timestamp
     analyzed_at: datetime = field(default_factory=datetime.now)
 
@@ -1523,6 +1526,7 @@ class CodebaseHealth:
             },
             "findings": findings_serialized,
             "analyzed_at": self.analyzed_at.isoformat(),
+            "insights": self.insights.to_dict() if self.insights else None,
         }
 
     def _serialize_findings(self) -> List[Dict]:
