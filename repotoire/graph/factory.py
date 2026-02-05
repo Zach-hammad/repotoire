@@ -597,6 +597,69 @@ def _log_cloud_connection(
     thread.start()
 
 
+def create_kuzu_client(
+    db_path: Optional[str] = None,
+    repository_path: Optional[str] = None,
+) -> DatabaseClient:
+    """Create a Kùzu embedded graph database client for local-first analysis.
+
+    Kùzu is a lightweight, embedded graph database that:
+    - Requires no Docker or external server
+    - Uses Cypher queries (same as FalkorDB)
+    - Disk-based storage (low RAM usage)
+    - Runs in-process (fast, no network latency)
+
+    Args:
+        db_path: Explicit path for Kùzu database directory
+        repository_path: Repository path (used to auto-detect db_path)
+
+    Returns:
+        KuzuClient instance
+
+    Examples:
+        # Auto-detect from repository
+        client = create_kuzu_client(repository_path="./my-repo")
+
+        # Explicit path
+        client = create_kuzu_client(db_path="/path/to/kuzu_db")
+    """
+    try:
+        from repotoire.graph.kuzu_client import KuzuClient, create_kuzu_client as _create
+        return _create(db_path=db_path, repository_path=repository_path)
+    except ImportError:
+        raise ConfigurationError(
+            "Kùzu is not installed.\n\n"
+            "Install with: pip install kuzu\n\n"
+            "Then run: repotoire analyze ./your-repo --local"
+        )
+
+
+def create_local_client(
+    repository_path: str = ".",
+    backend: str = "kuzu",
+) -> DatabaseClient:
+    """Create a local graph database client (no cloud required).
+
+    This is the entry point for local-first analysis without API key.
+
+    Args:
+        repository_path: Path to repository being analyzed
+        backend: Backend to use ('kuzu' or 'falkordb')
+
+    Returns:
+        DatabaseClient for local analysis
+
+    Examples:
+        client = create_local_client("./my-repo")
+    """
+    if backend == "kuzu":
+        return create_kuzu_client(repository_path=repository_path)
+    elif backend == "falkordb":
+        return create_falkordb_client()
+    else:
+        raise ConfigurationError(f"Unknown local backend: {backend}")
+
+
 def create_falkordb_client(
     config: Optional["RepotoireConfig"] = None,
     graph_name: str = "repotoire",
