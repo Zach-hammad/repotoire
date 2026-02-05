@@ -62,7 +62,23 @@ This enables detection of complex issues like circular dependencies, architectur
 
 ## Quick Start
 
-Get started in 60 seconds:
+### Local Mode (No Account Required)
+
+Run completely offline with the embedded Kuzu graph database:
+
+```bash
+# 1. Install
+pip install repotoire
+
+# 2. Ingest and analyze (no API key needed!)
+repotoire ingest .
+```
+
+That's it! Your codebase is analyzed locally with 40+ detectors. Data stays on your machine.
+
+### Cloud Mode (Team Features)
+
+For team dashboards, PR blocking, and cross-repo analysis:
 
 ```bash
 # 1. Install
@@ -75,7 +91,7 @@ export REPOTOIRE_API_KEY=ak_your_key_here
 repotoire analyze .
 ```
 
-That's it! View your results at [repotoire.com/dashboard](https://repotoire.com/dashboard).
+View your results at [repotoire.com/dashboard](https://repotoire.com/dashboard).
 
 ## Installation
 
