@@ -4995,13 +4995,13 @@ def fix_finding(
                 finding = Finding(
                     id=f"manual-{file_path}:{line_num}",
                     title=f"Issue at {file_path}:{line_num}",
-                    description="Manual fix request at this location",
-                    file_path=file_path,
+                    description=f"Manual fix request at this location.\n\nCode:\n```\n{snippet}\n```",
+                    affected_files=[file_path],
+                    affected_nodes=[],
                     line_start=line_num,
                     severity=Severity.MEDIUM,
                     detector="manual",
-                    issues=["manual_fix_request"],
-                    code_snippet=snippet,
+                    graph_context={"code_snippet": snippet},
                 )
         
         if finding is None:
