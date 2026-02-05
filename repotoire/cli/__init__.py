@@ -1182,6 +1182,12 @@ def ingest(
     default=None,
     help="Filter findings to this severity or higher (e.g., --severity high shows critical+high)",
 )
+@click.option(
+    "--changed",
+    type=str,
+    default=None,
+    help="Only analyze files changed since ref (e.g., --changed main, --changed HEAD~3, --changed abc123)",
+)
 @click.pass_context
 def analyze(
     ctx: click.Context,
@@ -1201,6 +1207,7 @@ def analyze(
     insights: bool,
     top: int | None,
     severity: str | None,
+    changed: str | None,
 ) -> None:
     """Analyze codebase health and generate a comprehensive report.
 
@@ -1343,6 +1350,29 @@ def analyze(
                     if not quiet:
                         console.print(f"[dim]Disabled detectors: {', '.join(disabled_list)}[/dim]")
 
+                # REPO-523: Get changed files for incremental analysis
+                changed_files = None
+                if changed:
+                    try:
+                        import subprocess
+                        # Get files changed since the specified ref
+                        result = subprocess.run(
+                            ["git", "diff", "--name-only", changed],
+                            cwd=str(repo_path),
+                            capture_output=True,
+                            text=True,
+                            check=True,
+                        )
+                        changed_files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
+                        if changed_files:
+                            console.print(f"[dim]Incremental: analyzing {len(changed_files)} changed files since {changed}[/dim]")
+                        else:
+                            console.print(f"[yellow]No files changed since {changed}[/yellow]")
+                    except subprocess.CalledProcessError as e:
+                        console.print(f"[yellow]⚠️ Could not get git diff: {e.stderr.strip()}[/yellow]")
+                    except FileNotFoundError:
+                        console.print("[yellow]⚠️ git not found, running full analysis[/yellow]")
+
                 engine = AnalysisEngine(
                     db,
                     detector_config=detector_config_dict,
@@ -1351,6 +1381,7 @@ def analyze(
                     parallel=parallel,
                     max_workers=workers,
                     enable_insights=insights,
+                    changed_files=changed_files,
                 )
 
                 # Run analysis with progress indication
