@@ -223,6 +223,7 @@ class WriteResponse(BaseModel):
 
     success: bool = Field(..., description="Whether the write succeeded")
     affected: int = Field(default=0, description="Number of nodes/rels affected")
+    results: List[Dict[str, Any]] = Field(default_factory=list, description="Query results (for RETURN clauses)")
 
 
 class FilePathsResponse(BaseModel):
@@ -373,7 +374,7 @@ async def execute_write(
             "Write query executed",
             extra={"org_id": user.org_id, "affected": affected},
         )
-        return WriteResponse(success=True, affected=affected)
+        return WriteResponse(success=True, affected=affected, results=results or [])
     except Exception as e:
         logger.error(f"Write query failed: {e}", extra={"org_id": user.org_id})
         raise HTTPException(

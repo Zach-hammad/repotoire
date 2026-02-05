@@ -175,8 +175,11 @@ class CloudProxyClient(DatabaseClient):
                     "parameters": parameters,
                 },
             )
-            # Write endpoint returns {success, affected} not {results}
-            return [{"affected": response.get("affected", 0)}] if response.get("success") else []
+            # Write endpoint returns {success, affected, results}
+            if response.get("success"):
+                # Return full results if available (for RETURN clauses), otherwise affected count
+                return response.get("results", []) or [{"affected": response.get("affected", 0)}]
+            return []
         
         # Normal read query
         response = self._request(
