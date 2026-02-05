@@ -1170,6 +1170,18 @@ def ingest(
     default=True,
     help="Enable graph insights and ML enrichment (bottlenecks, coupling, bug risk). Default: enabled.",
 )
+@click.option(
+    "--top",
+    type=int,
+    default=None,
+    help="Limit output to top N findings by severity (e.g., --top 10)",
+)
+@click.option(
+    "--severity",
+    type=click.Choice(["critical", "high", "medium", "low", "info"], case_sensitive=False),
+    default=None,
+    help="Filter findings to this severity or higher (e.g., --severity high shows critical+high)",
+)
 @click.pass_context
 def analyze(
     ctx: click.Context,
@@ -1187,6 +1199,8 @@ def analyze(
     disable_detectors: str | None,
     enable_detectors: str | None,
     insights: bool,
+    top: int | None,
+    severity: str | None,
 ) -> None:
     """Analyze codebase health and generate a comprehensive report.
 
@@ -1383,6 +1397,32 @@ def analyze(
                     console.print(f"[green]Ran {total_detectors} detectors[/green]\n")
                 else:
                     health = engine.analyze()
+
+                # Filter findings by severity and/or top N (REPO-520)
+                original_count = len(health.findings)
+                if severity or top:
+                    from repotoire.models import Severity
+                    severity_order = {
+                        Severity.CRITICAL: 0, Severity.HIGH: 1, Severity.MEDIUM: 2,
+                        Severity.LOW: 3, Severity.INFO: 4
+                    }
+                    
+                    # Sort by severity first
+                    health.findings.sort(key=lambda f: severity_order.get(f.severity, 5))
+                    
+                    # Filter by minimum severity
+                    if severity:
+                        min_severity = Severity(severity.lower())
+                        min_order = severity_order.get(min_severity, 5)
+                        health.findings = [f for f in health.findings if severity_order.get(f.severity, 5) <= min_order]
+                    
+                    # Limit to top N
+                    if top and len(health.findings) > top:
+                        health.findings = health.findings[:top]
+                    
+                    # Show filtering message
+                    if len(health.findings) < original_count:
+                        console.print(f"[dim]Showing {len(health.findings)} of {original_count} findings[/dim]\n")
 
                 logger.info("Analysis complete", extra={
                     "grade": health.grade,
