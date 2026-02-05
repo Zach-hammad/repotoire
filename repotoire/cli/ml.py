@@ -1036,8 +1036,9 @@ def train_bug_predictor(
         repotoire ml train-bug-predictor -d data.json --n-estimators 200 --max-depth 15
     """
     from repotoire.ml.bug_predictor import BugPredictor, BugPredictorConfig
-    from repotoire.ml.training_data import TrainingDataset
+    from repotoire.ml.training_data import TrainingDataset, TrainingExample
     from repotoire.graph.factory import create_client
+    from datetime import datetime
 
     console.print("[bold blue]Training bug prediction model[/bold blue]\n")
 
@@ -1045,7 +1046,40 @@ def train_bug_predictor(
         # Load training data
         with open(training_data) as f:
             data = json.load(f)
-        dataset = TrainingDataset(**data)
+        
+        # Handle both single-project and multi-project formats
+        if "examples" in data:
+            # Standard TrainingDataset format
+            dataset = TrainingDataset(**data)
+        elif "labels" in data:
+            # Multi-project format from extract-multi-project-labels
+            console.print("[dim]Converting multi-project format...[/dim]")
+            examples = []
+            for label in data["labels"]:
+                examples.append(TrainingExample(
+                    qualified_name=label["qualified_name"],
+                    file_path=label["file_path"],
+                    label="buggy" if label["label"] == 1 else "clean",
+                    confidence=label.get("confidence", 1.0),
+                    commit_sha=label.get("commit_sha"),
+                    commit_message=label.get("commit_message"),
+                ))
+            
+            # Get unique projects
+            projects = list(set(l.get("project", "unknown") for l in data["labels"]))
+            
+            dataset = TrainingDataset(
+                examples=examples,
+                repository=", ".join(projects),
+                extracted_at=datetime.now().isoformat(),
+                date_range=(data.get("config", {}).get("since", "2020-01-01"), datetime.now().strftime("%Y-%m-%d")),
+                statistics={
+                    "total_examples": len(examples),
+                    "projects": len(projects),
+                }
+            )
+        else:
+            raise ValueError("Unknown training data format. Expected 'examples' or 'labels' key.")
 
         console.print(f"[dim]Training examples: {len(dataset.examples)}[/dim]")
         buggy_count = sum(1 for ex in dataset.examples if ex.label == "buggy")
