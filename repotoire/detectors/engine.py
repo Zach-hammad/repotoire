@@ -459,11 +459,11 @@ class AnalysisEngine:
             "changecoupling",          # Commit table doesn't exist
             # "asyncantipattern",      # Fixed: removed relationship property access
             # "featureenvy",           # Fixed: removed labels() check
-            # Partially fixed - compute + cache + read from cache
-            "modulecohesion",          # Needs more work on god module detection
-            # "coreutility",           # Fixed: reads from harmonic cache (warns on empty)
-            "influentialcode",         # Has query syntax issues in _get_bloated_code
-            "architecturalbottleneck", # Needs betweenness cache reading
+            # Fully fixed - compute + cache + read from cache
+            # "modulecohesion",        # Fixed: uses get_god_modules_from_cache
+            # "coreutility",           # Fixed: reads from harmonic cache
+            # "influentialcode",       # Fixed: _get_bloated_code reads from cache
+            # "architecturalbottleneck", # Fixed: betweenness cache reading
         }
 
         filtered = []

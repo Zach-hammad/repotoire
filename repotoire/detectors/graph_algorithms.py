@@ -445,6 +445,8 @@ class GraphAlgorithms:
     ) -> List[Dict[str, Any]]:
         """Get functions with high betweenness centrality scores.
 
+        For Kuzu mode, reads from in-memory cache.
+
         Args:
             threshold: Minimum betweenness score (0.0 = all functions)
             limit: Maximum number of results
@@ -452,6 +454,18 @@ class GraphAlgorithms:
         Returns:
             List of function data with betweenness scores
         """
+        # Check if we're in Kuzu mode - use cached results
+        client_type = type(self.client).__name__
+        if client_type == "KuzuClient":
+            global _betweenness_cache
+            with _cache_lock:
+                results = [
+                    {"qualified_name": name, "betweenness": score}
+                    for name, score in sorted(_betweenness_cache.items(), key=lambda x: x[1], reverse=True)
+                    if score > threshold
+                ][:limit]
+            return results
+
         # Use parameterized query to prevent injection
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_isolation_filter("f")
@@ -478,9 +492,30 @@ class GraphAlgorithms:
     def get_betweenness_statistics(self) -> Optional[Dict[str, float]]:
         """Get statistical summary of betweenness scores.
 
+        For Kuzu mode, computes from in-memory cache.
+
         Returns:
             Dictionary with min, max, avg, stdev of betweenness scores
         """
+        # Check if we're in Kuzu mode - use cached results
+        client_type = type(self.client).__name__
+        if client_type == "KuzuClient":
+            global _betweenness_cache
+            with _cache_lock:
+                if not _betweenness_cache:
+                    return None
+                values = list(_betweenness_cache.values())
+                if not values:
+                    return None
+                import statistics
+                return {
+                    "min_betweenness": min(values),
+                    "max_betweenness": max(values),
+                    "avg_betweenness": sum(values) / len(values),
+                    "stdev_betweenness": statistics.stdev(values) if len(values) > 1 else 0,
+                    "total_functions": len(values),
+                }
+
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_isolation_filter("f")
         query = f"""
@@ -1475,9 +1510,17 @@ class GraphAlgorithms:
         These represent coupling between modules and potential
         architectural issues.
 
+        For Kuzu mode, returns empty (requires complex join not in cache).
+
         Returns:
             List of inter-community edges with source/target communities
         """
+        # Check if we're in Kuzu mode - skip (complex query not worth caching)
+        client_type = type(self.client).__name__
+        if client_type == "KuzuClient":
+            logger.debug("Skipping inter-community edge detection in Kuzu mode")
+            return []
+
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_isolation_filter("f1")
         query = f"""
@@ -1503,9 +1546,19 @@ class GraphAlgorithms:
         A file is considered potentially misplaced if most of its
         imports are from a different community than its own.
 
+        For Kuzu mode, returns empty (requires import analysis not in cache).
+
         Returns:
             List of potentially misplaced files with metrics
         """
+        # Check if we're in Kuzu mode - skip (complex query not worth caching)
+        client_type = type(self.client).__name__
+        if client_type == "KuzuClient":
+            # Would need to cache import relationships + communities
+            # For now, skip misplaced file detection in Kuzu mode
+            logger.debug("Skipping misplaced file detection in Kuzu mode")
+            return []
+
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_isolation_filter("f")
         query = f"""
@@ -1539,12 +1592,19 @@ class GraphAlgorithms:
     def get_god_modules(self, threshold_percent: float = 20.0) -> List[Dict[str, Any]]:
         """Find communities that are too large (god modules).
 
+        For Kuzu mode, reads from in-memory cache.
+
         Args:
             threshold_percent: Percentage of total files to be a god module
 
         Returns:
             List of oversized communities
         """
+        # Check if we're in Kuzu mode - use cached results
+        client_type = type(self.client).__name__
+        if client_type == "KuzuClient":
+            return self.get_god_modules_from_cache(threshold_percent)
+
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_isolation_filter("f")
         repo_filter_f2 = self._get_isolation_filter("f2")

@@ -162,6 +162,8 @@ class InfluentialCodeDetector(CodeSmellDetector):
         These are candidates for refactoring - they're complex but not
         legitimately important to the codebase.
 
+        For Kuzu mode, reads from in-memory cache.
+
         Args:
             graph_algo: GraphAlgorithms instance
             limit: Maximum results
@@ -169,6 +171,20 @@ class InfluentialCodeDetector(CodeSmellDetector):
         Returns:
             List of bloated functions
         """
+        # Check if we're in Kuzu mode - use cached results
+        client_type = type(self.db).__name__
+        if client_type == "KuzuClient":
+            # Get low PageRank functions from cache (bottom 50%)
+            from repotoire.detectors.graph_algorithms import _pagerank_cache, _cache_lock
+            with _cache_lock:
+                if not _pagerank_cache:
+                    return []
+                sorted_items = sorted(_pagerank_cache.items(), key=lambda x: x[1])
+                median_idx = len(sorted_items) // 2
+                # Return bottom 50% (low PageRank = potentially bloated)
+                low_pr = sorted_items[:median_idx]
+                return [{"qualified_name": name, "pagerank": score} for name, score in low_pr[:limit]]
+
         # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
         repo_filter = self._get_isolation_filter("f")
         query = f"""
