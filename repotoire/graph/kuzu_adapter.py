@@ -98,9 +98,7 @@ class KuzuQueryAdapter:
         # Slice syntax is now auto-converted in _fix_syntax()
         # [0..5] → [0:5], [..-1] → [:-1]
         
-        # Empty map literal {} in COALESCE
-        if re.search(r'COALESCE\s*\([^,]+,\s*\{\s*\}\s*\)', query, re.IGNORECASE):
-            return "COALESCE with empty map {}"
+        # Empty map literal {} is now auto-converted to map([],[]) in _fix_syntax()
         
         return None
 
@@ -163,6 +161,14 @@ class KuzuQueryAdapter:
         query = re.sub(
             r'\[\.\.(-?\d+)\]', 
             r'[:\1]',
+            query
+        )
+        
+        # Convert empty map literal {} to map([],[])
+        # Match COALESCE(x, {}) or standalone {}
+        query = re.sub(
+            r'\{\s*\}',
+            'map([],[])',
             query
         )
         

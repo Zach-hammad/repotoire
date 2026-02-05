@@ -454,7 +454,7 @@ class AnalysisEngine:
             "degreecentrality",        # SET operations not supported
             # "shotgunsurgery",        # Slice syntax now auto-converted
             "middleman",               # Pattern comprehensions with WHERE
-            "typehintcoverage",        # COALESCE with empty map {}
+            "typehintcoverage",        # Type mismatch: STRING vs MAP
             "packagestability",        # Uses reduce() - no Kuzu equivalent
             "changecoupling",          # Commit table doesn't exist
             "asyncantipattern",        # Relationship property access (c.line_number)
