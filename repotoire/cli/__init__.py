@@ -50,6 +50,17 @@ from repotoire.validation import (
     validate_batch_size,
     validate_retry_config,
 )
+from repotoire.cli.errors import (
+    CLIError,
+    DatabaseError,
+    AuthError,
+    NetworkError,
+    EmbeddingError,
+    ResourceError,
+    handle_errors,
+    print_error,
+    fail,
+)
 
 console = Console()
 logger = get_logger(__name__)
@@ -700,6 +711,7 @@ def whoami() -> None:
     help="Maximum USD to spend on context generation (default: unlimited)",
 )
 @click.pass_context
+@handle_errors()
 def ingest(
     ctx: click.Context,
     repo_path: str,
@@ -1050,69 +1062,37 @@ def ingest(
                 db.close()
 
     except ValueError as e:
-        logger.error(f"Validation error: {e}")
-        console.print(f"\n[red]❌ Error: {e}[/red]")
-        raise click.Abort()
+        fail(str(e))
     except ConnectionError as e:
-        # Enhanced error message for connection failures
-        logger.error(f"Connection error: {e}")
         api_key = os.getenv("REPOTOIRE_API_KEY")
         if api_key:
-            # Cloud mode
-            console.print("\n[red]❌ Cannot connect to Repotoire API[/red]")
-            console.print(f"  API: {os.getenv('REPOTOIRE_API_URL', 'https://api.repotoire.io')}")
-            console.print("\n[yellow]Troubleshooting:[/yellow]")
-            console.print("  • Check your internet connection")
-            console.print("  • Verify API key: [dim]repotoire login[/dim]")
-            console.print("  • Or use local mode by unsetting REPOTOIRE_API_KEY")
+            raise NetworkError(
+                message="Cannot connect to Repotoire API",
+                hint=f"API: {os.getenv('REPOTOIRE_API_URL', 'https://api.repotoire.io')}",
+                fix="Check your internet connection, or unset REPOTOIRE_API_KEY for local mode",
+            )
         else:
-            # Local mode - Kuzu is embedded, so connection errors are rare
-            console.print("\n[red]❌ Database error[/red]")
-            console.print(f"  Error: {e}")
-            console.print("\n[yellow]Troubleshooting:[/yellow]")
-            console.print("  • Check .repotoire directory permissions")
-            console.print("  • Try: [dim]rm -rf .repotoire/ && repotoire ingest .[/dim]")
-        raise click.Abort()
+            raise DatabaseError(
+                message=f"Database error: {e}",
+                hint="Local database may be corrupted.",
+                fix="rm -rf .repotoire/ && repotoire ingest .",
+            )
     except PermissionError as e:
-        # Enhanced error message for permission failures
-        logger.error(f"Permission error: {e}")
         filename = getattr(e, 'filename', 'unknown file')
-        console.print(f"\n[red]❌ Permission denied: {filename}[/red]")
-        console.print("\n[yellow]Troubleshooting:[/yellow]")
-        console.print(f"  • Check file permissions: [dim]ls -la {filename}[/dim]")
-        console.print(f"  • Grant read access: [dim]chmod 644 {filename}[/dim]")
-        console.print(f"  • Or exclude the file via patterns in config")
-        raise click.Abort()
+        fail(
+            f"Permission denied: {filename}",
+            hint="Check file permissions or exclude the file.",
+            fix=f"chmod 644 {filename}",
+        )
     except MemoryError:
-        # Enhanced error message for memory issues (Phase 5 CLI UX)
-        logger.error("Out of memory during ingestion")
-        console.print("\n[red]❌ Out of memory[/red]")
-        console.print("\n[yellow]Troubleshooting:[/yellow]")
-        console.print("  • Reduce batch size: [dim]repotoire ingest --batch-size 50[/dim]")
-        console.print("  • Exclude large files: [dim]--max-file-size 5[/dim]")
-        console.print("  • Split repository into smaller chunks")
-        console.print("  • Increase system memory or swap space")
-        raise click.Abort()
+        raise ResourceError(
+            message="Out of memory during ingestion",
+            hint="The repository may be too large to process in one batch.",
+            fix="repotoire ingest --batch-size 50 --max-file-size 5",
+        )
     except Exception as e:
-        logger.exception("Unexpected error during ingestion")
-        error_str = str(e)
-        # Simplify common error messages
-        if "table does not exist" in error_str.lower():
-            console.print("\n[red]❌ Database schema error[/red]")
-            console.print("  The database may be corrupted or from an older version.")
-            console.print("\n[yellow]Fix:[/yellow]")
-            console.print("  [dim]rm -rf .repotoire/ && repotoire ingest .[/dim]")
-        elif "parser exception" in error_str.lower():
-            console.print("\n[red]❌ Query syntax error[/red]")
-            console.print(f"  {error_str[:200]}...")
-            console.print("\n[yellow]This is likely a bug. Please report it:[/yellow]")
-            console.print("  [dim]https://github.com/Zach-hammad/repotoire/issues[/dim]")
-        else:
-            console.print(f"\n[red]❌ Unexpected error: {error_str[:300]}[/red]")
-            console.print("\n[yellow]Troubleshooting:[/yellow]")
-            console.print("  • Try: [dim]rm -rf .repotoire/ && repotoire ingest .[/dim]")
-            console.print("  • Run with --log-level DEBUG for details")
-        raise click.Abort()
+        # Let the error handler classify and display the error
+        raise
 
 
 @cli.command()
@@ -1213,6 +1193,7 @@ def ingest(
     help="Only analyze files changed since ref (e.g., --changed main, --changed HEAD~3, --changed abc123)",
 )
 @click.pass_context
+@handle_errors()
 def analyze(
     ctx: click.Context,
     repo_path: str,
@@ -1576,65 +1557,35 @@ def analyze(
         # Let Click handle its own exceptions (preserves command context)
         raise
     except ConnectionError as e:
-        # Enhanced error message for connection failures
-        logger.error(f"Connection error: {e}")
         api_key = os.getenv("REPOTOIRE_API_KEY")
         if api_key:
-            console.print("\n[red]❌ Cannot connect to Repotoire API[/red]")
-            console.print(f"  API: {os.getenv('REPOTOIRE_API_URL', 'https://api.repotoire.io')}")
-            console.print("\n[yellow]Troubleshooting:[/yellow]")
-            console.print("  • Check your internet connection")
-            console.print("  • Verify API key: [dim]repotoire login[/dim]")
+            raise NetworkError(
+                message="Cannot connect to Repotoire API",
+                hint=f"API: {os.getenv('REPOTOIRE_API_URL', 'https://api.repotoire.io')}",
+                fix="Check your internet connection, or unset REPOTOIRE_API_KEY for local mode",
+            )
         else:
-            console.print("\n[red]❌ Database error[/red]")
-            console.print(f"  Error: {e}")
-            console.print("\n[yellow]Troubleshooting:[/yellow]")
-            console.print("  • Check .repotoire directory permissions")
-            console.print("  • Try: [dim]rm -rf .repotoire/ && repotoire analyze .[/dim]")
-        raise click.Abort()
+            raise DatabaseError(
+                message=f"Database error: {e}",
+                hint="Local database may be corrupted.",
+                fix="rm -rf .repotoire/ && repotoire ingest .",
+            )
     except PermissionError as e:
-        # Enhanced error message for permission failures
-        logger.error(f"Permission error: {e}")
         filename = getattr(e, 'filename', 'unknown file')
-        console.print(f"\n[red]❌ Permission denied: {filename}[/red]")
-        console.print("\n[yellow]Troubleshooting:[/yellow]")
-        console.print(f"  • Check file permissions: [dim]ls -la {filename}[/dim]")
-        console.print(f"  • Grant read access: [dim]chmod 644 {filename}[/dim]")
-        raise click.Abort()
+        fail(
+            f"Permission denied: {filename}",
+            hint="Check file permissions or exclude the file.",
+            fix=f"chmod 644 {filename}",
+        )
     except MemoryError:
-        # Enhanced error message for memory issues (Phase 5 CLI UX)
-        logger.error("Out of memory during analysis")
-        console.print("\n[red]❌ Out of memory[/red]")
-        console.print("\n[yellow]Troubleshooting:[/yellow]")
-        console.print("  • Enable parallel mode with fewer workers: [dim]--workers 2[/dim]")
-        console.print("  • Disable some detectors: [dim]--disable-detectors semgrep,jscpd[/dim]")
-        console.print("  • Increase system memory or swap space")
-        raise click.Abort()
+        raise ResourceError(
+            message="Out of memory during analysis",
+            hint="The analysis may require too much memory.",
+            fix="repotoire analyze --workers 2 --disable-detectors semgrep,jscpd",
+        )
     except Exception as e:
-        # Check for ConfigurationError (no database configured)
-        from repotoire.graph.factory import ConfigurationError
-        if isinstance(e, ConfigurationError):
-            console.print(f"\n[yellow]⚠️  {e}[/yellow]")
-            raise click.Abort()
-        logger.exception("Error during analysis")
-        error_str = str(e)
-        # Simplify common error messages
-        if "table does not exist" in error_str.lower():
-            console.print("\n[red]❌ Database schema error[/red]")
-            console.print("  Run ingestion first or reset the database.")
-            console.print("\n[yellow]Fix:[/yellow]")
-            console.print("  [dim]rm -rf .repotoire/ && repotoire ingest .[/dim]")
-        elif "no nodes found" in error_str.lower():
-            console.print("\n[red]❌ No code found in database[/red]")
-            console.print("  Run ingestion before analysis.")
-            console.print("\n[yellow]Fix:[/yellow]")
-            console.print("  [dim]repotoire ingest .[/dim]")
-        else:
-            console.print(f"\n[red]❌ Error: {error_str[:300]}[/red]")
-            console.print("\n[yellow]Troubleshooting:[/yellow]")
-            console.print("  • Try: [dim]rm -rf .repotoire/ && repotoire ingest .[/dim]")
-            console.print("  • Run with --log-level DEBUG for details")
-        raise click.Abort()
+        # Let the error handler classify and display
+        raise
 
 
 def _get_why_it_matters(finding: dict) -> str | None:
@@ -4981,6 +4932,7 @@ def auto_fix(
 @click.option("--apply", "-a", is_flag=True, help="Apply the fix directly")
 @click.option("--model", default="claude-sonnet-4-20250514", help="LLM model for fix generation")
 @click.pass_context
+@handle_errors()
 def fix_finding(
     ctx: click.Context,
     target: str,
@@ -6200,6 +6152,7 @@ cli.add_command(historical)
     default=None,
     help="Reranker model (default: rerank-2 for voyage, ms-marco-MiniLM for local)",
 )
+@handle_errors()
 def ask(
     query: str,
     embedding_backend: str,
