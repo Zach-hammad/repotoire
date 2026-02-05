@@ -659,10 +659,10 @@ def whoami() -> None:
     help="Generate AI-powered semantic clues (requires spaCy)",
 )
 @click.option(
-    "--generate-embeddings",
-    is_flag=True,
-    default=False,
-    help="Generate vector embeddings for RAG (requires OpenAI API key or local backend)",
+    "--embeddings/--no-embeddings",
+    "generate_embeddings",
+    default=True,
+    help="Generate vector embeddings for RAG (default: enabled, uses best available backend)",
 )
 @click.option(
     "--embedding-backend",
@@ -735,11 +735,11 @@ def ingest(
 
     \b
     EXAMPLES:
-      # Basic analysis
+      # Basic analysis (embeddings enabled by default)
       $ repotoire ingest ./my-project
 
-      # With embeddings for RAG search
-      $ repotoire ingest ./my-project --generate-embeddings
+      # Skip embeddings for faster analysis
+      $ repotoire ingest ./my-project --no-embeddings
 
       # Force full re-ingestion (ignore cache)
       $ repotoire ingest ./my-project --force-full
@@ -821,14 +821,9 @@ def ingest(
         if final_embedding_backend == "auto":
             console.print(f"[dim]   {reason}[/dim]")
     else:
-        # KG-3 Fix: Warn users that RAG features won't work without embeddings
+        # User explicitly disabled embeddings with --no-embeddings
         console.print(
-            "[yellow]⚠️  Embeddings disabled. RAG features (semantic search, 'ask' command) "
-            "will not work.[/yellow]"
-        )
-        console.print(
-            "[dim]   Add --generate-embeddings to enable. "
-            "Use --embedding-backend=local for free local embeddings.[/dim]"
+            "[dim]ℹ️  Embeddings disabled (--no-embeddings). RAG features will not work.[/dim]"
         )
 
     # Display Rust parser status
