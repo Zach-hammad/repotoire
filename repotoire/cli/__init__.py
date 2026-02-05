@@ -4750,6 +4750,210 @@ def auto_fix(
         ctx.exit(2)
 
 
+@cli.command("fix")
+@click.argument("target")
+@click.option("--findings", "-f", type=click.Path(exists=True), help="JSON file with findings from analyze")
+@click.option("--repo", "-r", type=click.Path(exists=True), default=".", help="Repository path")
+@click.option("--apply", "-a", is_flag=True, help="Apply the fix directly")
+@click.option("--model", default="claude-sonnet-4-20250514", help="LLM model for fix generation")
+@click.pass_context
+def fix_finding(
+    ctx: click.Context,
+    target: str,
+    findings: Optional[str],
+    repo: str,
+    apply: bool,
+    model: str,
+) -> None:
+    """Generate a fix for a specific finding.
+
+    TARGET can be:
+      - A finding index (e.g., "3" for finding #3 from JSON)
+      - A file:line reference (e.g., "src/app.py:42")
+    
+    Examples:
+        # Fix finding #3 from findings.json
+        repotoire fix 3 -f findings.json
+
+        # Fix issue at specific location
+        repotoire fix src/app.py:42
+
+        # Fix and apply directly
+        repotoire fix 3 -f findings.json --apply
+    """
+    import asyncio
+    import json
+    from pathlib import Path
+    
+    repo_path = Path(repo).resolve()
+    
+    try:
+        # Check for API key
+        api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            console.print("\n[red]❌ No API key found[/red]")
+            console.print("[dim]Set ANTHROPIC_API_KEY or OPENAI_API_KEY for fix generation[/dim]")
+            ctx.exit(1)
+        
+        # Determine which finding to fix
+        finding = None
+        
+        # Check if target is a number (finding index)
+        if target.isdigit() and findings:
+            with open(findings) as f:
+                data = json.load(f)
+            
+            findings_list = data.get("findings", data) if isinstance(data, dict) else data
+            idx = int(target) - 1  # 1-indexed for users
+            
+            if 0 <= idx < len(findings_list):
+                from repotoire.models import Finding, Severity
+                f_data = findings_list[idx]
+                finding = Finding(
+                    id=f_data.get("id", f"finding-{idx}"),
+                    title=f_data.get("title", "Unknown"),
+                    description=f_data.get("description", ""),
+                    file_path=f_data.get("file_path", ""),
+                    line_start=f_data.get("line_start", 1),
+                    line_end=f_data.get("line_end"),
+                    severity=Severity(f_data.get("severity", "medium")),
+                    detector=f_data.get("detector", "unknown"),
+                    issues=f_data.get("issues", []),
+                    code_snippet=f_data.get("code_snippet"),
+                )
+            else:
+                console.print(f"[red]Finding #{target} not found (have {len(findings_list)} findings)[/red]")
+                ctx.exit(1)
+        
+        # Check if target is file:line
+        elif ":" in target:
+            file_path, line_str = target.rsplit(":", 1)
+            if line_str.isdigit():
+                # Create a synthetic finding for this location
+                from repotoire.models import Finding, Severity
+                
+                full_path = repo_path / file_path
+                if not full_path.exists():
+                    console.print(f"[red]File not found: {file_path}[/red]")
+                    ctx.exit(1)
+                
+                line_num = int(line_str)
+                
+                # Read code snippet
+                with open(full_path) as f:
+                    lines = f.readlines()
+                start = max(0, line_num - 3)
+                end = min(len(lines), line_num + 3)
+                snippet = "".join(lines[start:end])
+                
+                finding = Finding(
+                    id=f"manual-{file_path}:{line_num}",
+                    title=f"Issue at {file_path}:{line_num}",
+                    description="Manual fix request at this location",
+                    file_path=file_path,
+                    line_start=line_num,
+                    severity=Severity.MEDIUM,
+                    detector="manual",
+                    issues=["manual_fix_request"],
+                    code_snippet=snippet,
+                )
+        
+        if finding is None:
+            console.print("[red]Could not determine finding to fix[/red]")
+            console.print("[dim]Use: repotoire fix 3 -f findings.json  OR  repotoire fix src/app.py:42[/dim]")
+            ctx.exit(1)
+        
+        console.print(f"\n[bold cyan]🔧 Generating fix for:[/bold cyan]")
+        console.print(f"  [bold]{finding.title}[/bold]")
+        console.print(f"  📁 {finding.file_path}:{finding.line_start}")
+        console.print(f"  🏷️  {finding.severity.value.upper()}\n")
+        
+        # Initialize AutoFixEngine
+        from repotoire.autofix import AutoFixEngine
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Generating fix...", total=None)
+            
+            engine = AutoFixEngine(
+                api_key=api_key,
+                model=model,
+                skip_runtime_validation=True,  # Fast mode for CLI
+            )
+            
+            # Generate fix
+            fix_proposal = asyncio.run(engine.generate_fix(finding, repo_path))
+            
+            progress.update(task, completed=True)
+        
+        if fix_proposal is None:
+            console.print("[yellow]⚠️ Could not generate a fix for this finding[/yellow]")
+            ctx.exit(1)
+        
+        # Show the fix
+        console.print(f"\n[bold green]✅ Fix generated:[/bold green] {fix_proposal.title}")
+        console.print(f"[dim]Confidence: {fix_proposal.confidence.value}[/dim]\n")
+        
+        if fix_proposal.explanation:
+            console.print(Panel(fix_proposal.explanation, title="Explanation", border_style="blue"))
+        
+        # Show diff
+        for change in fix_proposal.changes:
+            console.print(f"\n[bold]📝 {change.file_path}[/bold]")
+            
+            # Create diff
+            if change.original_code and change.new_code:
+                diff = difflib.unified_diff(
+                    change.original_code.splitlines(keepends=True),
+                    change.new_code.splitlines(keepends=True),
+                    fromfile=f"a/{change.file_path}",
+                    tofile=f"b/{change.file_path}",
+                )
+                diff_text = "".join(diff)
+                
+                # Colorize diff
+                colored_lines = []
+                for line in diff_text.split("\n"):
+                    if line.startswith("+") and not line.startswith("+++"):
+                        colored_lines.append(f"[green]{escape(line)}[/green]")
+                    elif line.startswith("-") and not line.startswith("---"):
+                        colored_lines.append(f"[red]{escape(line)}[/red]")
+                    elif line.startswith("@@"):
+                        colored_lines.append(f"[cyan]{escape(line)}[/cyan]")
+                    else:
+                        colored_lines.append(escape(line))
+                
+                console.print("\n".join(colored_lines))
+        
+        # Apply if requested
+        if apply:
+            console.print("\n[bold]Applying fix...[/bold]")
+            from repotoire.autofix import FixApplicator
+            
+            applicator = FixApplicator(repo_path)
+            success = applicator.apply_fix(fix_proposal)
+            
+            if success:
+                console.print("[green]✅ Fix applied successfully![/green]")
+            else:
+                console.print("[red]❌ Failed to apply fix[/red]")
+                ctx.exit(1)
+        else:
+            console.print("\n[dim]Run with --apply to apply this fix[/dim]")
+    
+    except Exception as e:
+        logger.error(f"Fix failed: {e}", exc_info=True)
+        console.print(f"\n[red]❌ Error:[/red] {e}")
+        ctx.exit(2)
+
+
+# Import difflib at module level for fix command
+import difflib
+
+
 @cli.command()
 @click.argument("repository", type=click.Path(exists=True))
 @click.option("--max-files", type=int, default=500, help="Maximum Python files to analyze")
