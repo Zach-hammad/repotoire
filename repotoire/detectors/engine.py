@@ -456,7 +456,7 @@ class AnalysisEngine:
             # "middleman",             # Fixed: rewrote without pattern comprehension
             # "typehintcoverage",      # Fixed: removed COALESCE with map literal, handle JSON in Python
             # "packagestability",      # Fixed: reduce() now auto-converted to list_sum/list_sort
-            "changecoupling",          # Commit table doesn't exist
+            # "changecoupling",        # Fixed: returns empty in Kuzu mode (no commit history)
             # "asyncantipattern",      # Fixed: removed relationship property access
             # "featureenvy",           # Fixed: removed labels() check
             # Fully fixed - compute + cache + read from cache

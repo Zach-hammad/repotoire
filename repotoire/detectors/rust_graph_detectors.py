@@ -1104,7 +1104,14 @@ class ChangeCouplingDetector(CodeSmellDetector):
         """Extract commit data from FalkorDB.
 
         This requires the graph to have Commit nodes with MODIFIES relationships.
+        For Kuzu mode, returns empty (no commit history in local mode).
         """
+        # Check if we're in Kuzu mode - no commit data available
+        client_type = type(self.db).__name__
+        if client_type == "KuzuClient":
+            logger.debug("Skipping commit data extraction in Kuzu mode (no Commit table)")
+            return [], [], {}
+
         repo_filter = self._get_isolation_filter("f")
 
         # Get file name mapping
