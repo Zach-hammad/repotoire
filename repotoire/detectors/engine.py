@@ -5,6 +5,7 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 from repotoire.graph import DatabaseClient
@@ -468,6 +469,109 @@ class AnalysisEngine:
         logger.info(f"Active detectors: {len(filtered)}/{len(self.detectors)}")
         return filtered
 
+    def _get_cache_path(self) -> Optional[Path]:
+        """Get path for cached graph data file (REPO-524)."""
+        if not self.repository_path:
+            return None
+        cache_dir = Path(self.repository_path) / ".repotoire"
+        cache_dir.mkdir(exist_ok=True)
+        # Include repo_id in cache name for multi-tenant isolation
+        suffix = f"_{self.repo_id[:8]}" if self.repo_id else ""
+        return cache_dir / f"graph_cache{suffix}.json"
+
+    def _load_cached_graph_data(self) -> Optional[Dict]:
+        """Load cached graph data if fresh (REPO-524).
+        
+        Returns cached nodes/edges if cache exists and is <1 hour old.
+        """
+        import json
+        import time as time_module
+        
+        cache_path = self._get_cache_path()
+        if not cache_path or not cache_path.exists():
+            return None
+        
+        try:
+            # Check cache age (1 hour max)
+            cache_age = time_module.time() - cache_path.stat().st_mtime
+            if cache_age > 3600:  # 1 hour
+                logger.debug(f"Graph cache expired ({cache_age:.0f}s old)")
+                return None
+            
+            with open(cache_path) as f:
+                data = json.load(f)
+            
+            logger.info(f"Loaded graph cache ({cache_age:.0f}s old, {len(data.get('nodes', []))} nodes)")
+            return data
+        except Exception as e:
+            logger.debug(f"Failed to load graph cache: {e}")
+            return None
+
+    def _save_graph_cache(self, nodes: list, edges_by_type: Dict[str, list]) -> None:
+        """Save graph data to cache file (REPO-524)."""
+        import json
+        
+        cache_path = self._get_cache_path()
+        if not cache_path:
+            return
+        
+        try:
+            data = {
+                "nodes": nodes,
+                "edges": edges_by_type,
+                "repo_id": self.repo_id,
+            }
+            with open(cache_path, "w") as f:
+                json.dump(data, f)
+            logger.debug(f"Saved graph cache: {len(nodes)} nodes")
+        except Exception as e:
+            logger.debug(f"Failed to save graph cache: {e}")
+
+    def _build_cache_from_data(self, data: Dict) -> Optional["PyPathCache"]:
+        """Build path cache from cached data without API queries (REPO-524)."""
+        import time as time_module
+        start_time = time_module.time()
+        
+        if not _HAS_PATH_CACHE:
+            return None
+        
+        try:
+            from repotoire_fast import PyPathCache
+            cache = PyPathCache()
+            
+            node_names = data.get("nodes", [])
+            edges_by_type = data.get("edges", {})
+            
+            if not node_names:
+                return None
+            
+            # Register nodes
+            node_tuples = [(i, name) for i, name in enumerate(node_names)]
+            cache.register_nodes(node_tuples)
+            num_nodes = len(node_names)
+            
+            # Build caches for each relationship type
+            total_edges = 0
+            for rel_type, raw_edges in edges_by_type.items():
+                edges = []
+                for src_name, dst_name in raw_edges:
+                    src_id = cache.get_id(src_name)
+                    dst_id = cache.get_id(dst_name)
+                    if src_id is not None and dst_id is not None:
+                        edges.append((src_id, dst_id))
+                
+                if edges:
+                    cache.build_cache(rel_type, edges, num_nodes)
+                    total_edges += len(edges)
+            
+            elapsed = time_module.time() - start_time
+            logger.info(f"Built path cache from local cache: {num_nodes} nodes, {total_edges} edges in {elapsed:.2f}s")
+            return cache
+            
+        except Exception as e:
+            logger.warning(f"Failed to build cache from data: {e}")
+            return None
+
     def _build_path_cache(self) -> Optional["PyPathCache"]:
         """Build transitive closure cache for O(1) reachability queries (REPO-416).
 
@@ -475,12 +579,19 @@ class AnalysisEngine:
         and INHERITS edges, enabling O(1) lookup instead of O(V+E) traversal.
 
         REPO-500: Added query timeouts, memory limits, and repo_id filtering.
+        REPO-524: Added local caching to skip API queries on repeated runs.
 
         Returns:
             PyPathCache instance with precomputed caches, or None if building fails.
         """
         import time as time_module
         start_time = time_module.time()
+        
+        # REPO-524: Try to load from cache first
+        cached_data = self._load_cached_graph_data()
+        if cached_data:
+            return self._build_cache_from_data(cached_data)
+        
         logger.info("Building path cache for O(1) reachability queries...")
 
         if not _HAS_PATH_CACHE:
@@ -539,6 +650,7 @@ class AnalysisEngine:
 
             # Build cache for each relationship type
             total_edges = 0
+            edges_by_type: Dict[str, list] = {}  # REPO-524: Collect for caching
             for rel_type in ["CALLS", "IMPORTS", "INHERITS"]:
                 # REPO-500: Added repo_id filter for edges
                 edges_query = f"""
@@ -563,6 +675,10 @@ class AnalysisEngine:
                         if src_id is not None and dst_id is not None:
                             edges.append((src_id, dst_id))
 
+                # REPO-524: Store raw edge names for caching
+                raw_edges = [(r.get("src"), r.get("dst")) for r in edges_result if r.get("src") and r.get("dst")]
+                edges_by_type[rel_type] = raw_edges
+                
                 if edges:
                     cache.build_cache(rel_type, edges, num_nodes)
                     total_edges += len(edges)
@@ -578,6 +694,10 @@ class AnalysisEngine:
 
             total_time = time_module.time() - start_time
             logger.info(f"Path cache complete: {num_nodes} nodes, {total_edges} edges in {total_time:.2f}s")
+            
+            # REPO-524: Save to cache for next run
+            self._save_graph_cache(node_names, edges_by_type)
+            
             return cache
 
         except TimeoutError as e:
