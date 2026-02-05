@@ -1059,18 +1059,27 @@ def ingest(
         console.print(f"\n[red]❌ Error: {e}[/red]")
         raise click.Abort()
     except ConnectionError as e:
-        # Enhanced error message for connection failures (Phase 5 CLI UX)
+        # Enhanced error message for connection failures
         logger.error(f"Connection error: {e}")
-        console.print("\n[red]❌ Cannot connect to FalkorDB[/red]")
-        console.print(f"  Host: {os.getenv('FALKORDB_HOST', 'localhost')}")
-        console.print(f"  Port: {os.getenv('FALKORDB_PORT', '6379')}")
-        console.print("\n[yellow]Troubleshooting:[/yellow]")
-        console.print("  • Check if FalkorDB is running: [dim]docker ps | grep falkordb[/dim]")
-        console.print("  • Start FalkorDB: [dim]docker run -p 6379:6379 falkordb/falkordb[/dim]")
-        console.print("  • Or use cloud mode: [dim]repotoire login[/dim]")
+        api_key = os.getenv("REPOTOIRE_API_KEY")
+        if api_key:
+            # Cloud mode
+            console.print("\n[red]❌ Cannot connect to Repotoire API[/red]")
+            console.print(f"  API: {os.getenv('REPOTOIRE_API_URL', 'https://api.repotoire.io')}")
+            console.print("\n[yellow]Troubleshooting:[/yellow]")
+            console.print("  • Check your internet connection")
+            console.print("  • Verify API key: [dim]repotoire login[/dim]")
+            console.print("  • Or use local mode by unsetting REPOTOIRE_API_KEY")
+        else:
+            # Local mode - Kuzu is embedded, so connection errors are rare
+            console.print("\n[red]❌ Database error[/red]")
+            console.print(f"  Error: {e}")
+            console.print("\n[yellow]Troubleshooting:[/yellow]")
+            console.print("  • Check .repotoire directory permissions")
+            console.print("  • Try: [dim]rm -rf .repotoire/ && repotoire ingest .[/dim]")
         raise click.Abort()
     except PermissionError as e:
-        # Enhanced error message for permission failures (Phase 5 CLI UX)
+        # Enhanced error message for permission failures
         logger.error(f"Permission error: {e}")
         filename = getattr(e, 'filename', 'unknown file')
         console.print(f"\n[red]❌ Permission denied: {filename}[/red]")
@@ -1091,8 +1100,24 @@ def ingest(
         raise click.Abort()
     except Exception as e:
         logger.exception("Unexpected error during ingestion")
-        console.print(f"\n[red]❌ Unexpected error: {e}[/red]")
-        raise
+        error_str = str(e)
+        # Simplify common error messages
+        if "table does not exist" in error_str.lower():
+            console.print("\n[red]❌ Database schema error[/red]")
+            console.print("  The database may be corrupted or from an older version.")
+            console.print("\n[yellow]Fix:[/yellow]")
+            console.print("  [dim]rm -rf .repotoire/ && repotoire ingest .[/dim]")
+        elif "parser exception" in error_str.lower():
+            console.print("\n[red]❌ Query syntax error[/red]")
+            console.print(f"  {error_str[:200]}...")
+            console.print("\n[yellow]This is likely a bug. Please report it:[/yellow]")
+            console.print("  [dim]https://github.com/Zach-hammad/repotoire/issues[/dim]")
+        else:
+            console.print(f"\n[red]❌ Unexpected error: {error_str[:300]}[/red]")
+            console.print("\n[yellow]Troubleshooting:[/yellow]")
+            console.print("  • Try: [dim]rm -rf .repotoire/ && repotoire ingest .[/dim]")
+            console.print("  • Run with --log-level DEBUG for details")
+        raise click.Abort()
 
 
 @cli.command()
@@ -1556,18 +1581,24 @@ def analyze(
         # Let Click handle its own exceptions (preserves command context)
         raise
     except ConnectionError as e:
-        # Enhanced error message for connection failures (Phase 5 CLI UX)
+        # Enhanced error message for connection failures
         logger.error(f"Connection error: {e}")
-        console.print("\n[red]❌ Cannot connect to FalkorDB[/red]")
-        console.print(f"  Host: {os.getenv('FALKORDB_HOST', 'localhost')}")
-        console.print(f"  Port: {os.getenv('FALKORDB_PORT', '6379')}")
-        console.print("\n[yellow]Troubleshooting:[/yellow]")
-        console.print("  • Check if FalkorDB is running: [dim]docker ps | grep falkordb[/dim]")
-        console.print("  • Start FalkorDB: [dim]docker run -p 6379:6379 falkordb/falkordb[/dim]")
-        console.print("  • Or use cloud mode: [dim]repotoire login[/dim]")
+        api_key = os.getenv("REPOTOIRE_API_KEY")
+        if api_key:
+            console.print("\n[red]❌ Cannot connect to Repotoire API[/red]")
+            console.print(f"  API: {os.getenv('REPOTOIRE_API_URL', 'https://api.repotoire.io')}")
+            console.print("\n[yellow]Troubleshooting:[/yellow]")
+            console.print("  • Check your internet connection")
+            console.print("  • Verify API key: [dim]repotoire login[/dim]")
+        else:
+            console.print("\n[red]❌ Database error[/red]")
+            console.print(f"  Error: {e}")
+            console.print("\n[yellow]Troubleshooting:[/yellow]")
+            console.print("  • Check .repotoire directory permissions")
+            console.print("  • Try: [dim]rm -rf .repotoire/ && repotoire analyze .[/dim]")
         raise click.Abort()
     except PermissionError as e:
-        # Enhanced error message for permission failures (Phase 5 CLI UX)
+        # Enhanced error message for permission failures
         logger.error(f"Permission error: {e}")
         filename = getattr(e, 'filename', 'unknown file')
         console.print(f"\n[red]❌ Permission denied: {filename}[/red]")
@@ -1591,7 +1622,23 @@ def analyze(
             console.print(f"\n[yellow]⚠️  {e}[/yellow]")
             raise click.Abort()
         logger.exception("Error during analysis")
-        console.print(f"\n[red]❌ Error: {e}[/red]")
+        error_str = str(e)
+        # Simplify common error messages
+        if "table does not exist" in error_str.lower():
+            console.print("\n[red]❌ Database schema error[/red]")
+            console.print("  Run ingestion first or reset the database.")
+            console.print("\n[yellow]Fix:[/yellow]")
+            console.print("  [dim]rm -rf .repotoire/ && repotoire ingest .[/dim]")
+        elif "no nodes found" in error_str.lower():
+            console.print("\n[red]❌ No code found in database[/red]")
+            console.print("  Run ingestion before analysis.")
+            console.print("\n[yellow]Fix:[/yellow]")
+            console.print("  [dim]repotoire ingest .[/dim]")
+        else:
+            console.print(f"\n[red]❌ Error: {error_str[:300]}[/red]")
+            console.print("\n[yellow]Troubleshooting:[/yellow]")
+            console.print("  • Try: [dim]rm -rf .repotoire/ && repotoire ingest .[/dim]")
+            console.print("  • Run with --log-level DEBUG for details")
         raise click.Abort()
 
 
