@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "repotoire"
-version = "0.1.4"
+version = "0.1.5"
 description = "Graph-Powered Code Health Platform"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -63,10 +63,6 @@ dependencies = [
     "slowapi>=0.1.9",  # Rate limiting for FastAPI endpoints
     # Security scanning (core feature)
     "uv-secure>=0.15.0",  # Fast uv.lock vulnerability scanning
-    # ML dependencies
-    "datasets>=2.14.0",  # Required for sentence-transformers fine-tuning
-    "sentence-transformers>=2.2.0",  # Local embedding models + contrastive learning
-    "accelerate>=0.26.0",  # Required for PyTorch Trainer
     # Hybrid detector dependencies (core feature)
     "ruff>=0.1.0",  # Fast linting detector (RuffLintDetector)
     "mypy>=1.7.0",  # Type checking detector
@@ -122,7 +118,11 @@ security = [
 ]
 
 local-embeddings = [
-    # sentence-transformers now in core deps
+    # Heavy ML deps for local embedding models (2GB+ with CUDA)
+    # Only needed if NOT using deepinfra/API-based embeddings
+    "datasets>=2.14.0",
+    "sentence-transformers>=2.2.0",
+    "accelerate>=0.26.0",
 ]
 
 observability = [
