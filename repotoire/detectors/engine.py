@@ -453,12 +453,12 @@ class AnalysisEngine:
             "circulardependency",      # Uses shortestPath - no Kuzu equivalent
             "degreecentrality",        # SET operations not supported
             # "shotgunsurgery",        # Slice syntax now auto-converted
-            "middleman",               # Pattern comprehensions with WHERE
+            # "middleman",             # Fixed: rewrote without pattern comprehension
             "typehintcoverage",        # Type mismatch: STRING vs MAP
             "packagestability",        # Uses reduce() - no Kuzu equivalent
             "changecoupling",          # Commit table doesn't exist
-            "asyncantipattern",        # Relationship property access (c.line_number)
-            "featureenvy",             # 'X' IN labels(n) syntax
+            # "asyncantipattern",      # Fixed: removed relationship property access
+            # "featureenvy",           # Fixed: removed labels() check
             # Require SET + read pattern (need refactor for read-only backends)
             "modulecohesion",          # Reads computed community_id from graph
             "coreutility",             # Reads computed harmonic_centrality from graph

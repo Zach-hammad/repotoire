@@ -154,19 +154,15 @@ class AsyncAntipatternDetector(CodeSmellDetector):
         # Query for async functions calling blocking functions
         # Uses the function_async_yield_idx index on (is_async, has_yield)
         query = """
-        MATCH (f:Function)-[c:CALLS]->(target)
-        WHERE f.is_async = true
-        OPTIONAL MATCH (file:File)-[:CONTAINS*]->(f)
-        WITH f, c, target, file
-        WHERE target.name IS NOT NULL
+        MATCH (f:Function)-[:CALLS]->(target)
+        WHERE f.is_async = true AND target.name IS NOT NULL
         RETURN f.qualifiedName AS func_name,
                f.name AS func_simple_name,
                f.filePath AS func_file,
                f.lineStart AS func_line,
-               file.filePath AS containing_file,
+               f.filePath AS containing_file,
                target.name AS call_name,
-               c.line_number AS call_line,
-               collect(DISTINCT target.name) AS all_calls
+               f.lineStart AS call_line
         ORDER BY f.qualifiedName
         """
 

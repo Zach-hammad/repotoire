@@ -41,25 +41,26 @@ class MiddleManDetector(CodeSmellDetector):
         # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
         repo_filter = self._get_isolation_filter("c")
         query = f"""
-        // Find classes where most methods delegate to one other class
-        MATCH (c:Class)-[:CONTAINS]->(m:Function)
-        WHERE m.is_method = true
-          AND (m.complexity IS NULL OR m.complexity <= $max_complexity)
-          {repo_filter}
+        // First count total methods per class
+        MATCH (c:Class)-[:CONTAINS]->(all_m:Function)
+        WHERE all_m.is_method = true {repo_filter}
+        WITH c, count(all_m) as total_methods
+        WHERE total_methods > 0
 
         // Find delegation patterns
+        MATCH (c)-[:CONTAINS]->(m:Function)
+        WHERE m.is_method = true
+          AND (m.complexity IS NULL OR m.complexity <= $max_complexity)
         MATCH (m)-[:CALLS]->(delegated:Function)
         MATCH (delegated)<-[:CONTAINS]-(target:Class)
         WHERE c <> target
 
-        WITH c, target,
-             count(DISTINCT m) as delegation_count,
-             size([(c)-[:CONTAINS]->(all_m:Function) WHERE all_m.is_method = true | all_m]) as total_methods
+        WITH c, target, total_methods,
+             count(DISTINCT m) as delegation_count
 
         // Filter based on thresholds
         WHERE delegation_count >= $min_delegation_methods
-          AND total_methods > 0
-          AND toFloat(delegation_count) / total_methods >= $delegation_threshold
+          AND CAST(delegation_count AS DOUBLE) / total_methods >= $delegation_threshold
 
         RETURN c.qualifiedName as middle_man,
                c.name as class_name,
@@ -70,7 +71,7 @@ class MiddleManDetector(CodeSmellDetector):
                target.name as target_name,
                delegation_count,
                total_methods,
-               toFloat(delegation_count * 100) / total_methods as delegation_percentage
+               CAST(delegation_count * 100 AS DOUBLE) / total_methods as delegation_percentage
         ORDER BY delegation_percentage DESC
         LIMIT 50
         """
