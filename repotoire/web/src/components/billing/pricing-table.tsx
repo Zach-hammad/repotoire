@@ -28,24 +28,25 @@ interface PlanFeature {
 }
 
 const features: PlanFeature[] = [
-  { name: 'Repositories per seat', free: '1', pro: '5', enterprise: 'Unlimited' },
-  { name: 'Analyses per month', free: '10', pro: 'Unlimited', enterprise: 'Unlimited' },
-  { name: 'Team members', free: '1', pro: 'Up to 50', enterprise: 'Unlimited' },
-  { name: 'Basic code analysis', free: true, pro: true, enterprise: true },
-  { name: 'Advanced detectors', free: false, pro: true, enterprise: true },
-  { name: 'AI auto-fix suggestions', free: false, pro: true, enterprise: true },
-  { name: 'API access', free: false, pro: true, enterprise: true },
-  { name: 'Priority support', free: false, pro: true, enterprise: true },
+  { name: 'Local analysis (CLI)', free: true, pro: true, enterprise: true },
+  { name: '42 code detectors', free: true, pro: true, enterprise: true },
+  { name: 'AI auto-fix (BYOK)', free: true, pro: true, enterprise: true },
+  { name: 'Repositories', free: 'Unlimited', pro: 'Unlimited', enterprise: 'Unlimited' },
+  { name: 'Team dashboard', free: false, pro: true, enterprise: true },
+  { name: 'Code ownership analysis', free: false, pro: true, enterprise: true },
+  { name: 'Bus factor alerts', free: false, pro: true, enterprise: true },
+  { name: 'PR quality gates', free: false, pro: true, enterprise: true },
+  { name: 'History retention', free: 'None', pro: '90 days', enterprise: 'Unlimited' },
   { name: 'SSO / SAML', free: false, pro: false, enterprise: true },
-  { name: 'Custom rules engine', free: false, pro: false, enterprise: true },
   { name: 'Audit logs', free: false, pro: false, enterprise: true },
+  { name: 'Custom integrations', free: false, pro: false, enterprise: true },
   { name: 'SLA guarantee', free: false, pro: false, enterprise: true },
   { name: 'Dedicated support', free: false, pro: false, enterprise: true },
 ];
 
 const plans = {
   free: {
-    name: 'Free',
+    name: 'CLI (Free)',
     description: 'For individual developers',
     monthlyPrice: 0,
     annualPrice: 0,
@@ -54,28 +55,31 @@ const plans = {
     maxSeats: 1,
     icon: Zap,
     popular: false,
+    isCustom: false,
   },
   pro: {
-    name: 'Pro',
-    description: 'For growing teams',
-    monthlyPrice: 33,
-    annualPrice: 26,
-    pricePerSeat: 10,
+    name: 'Team',
+    description: 'For engineering teams',
+    monthlyPrice: 19,
+    annualPrice: 15,
+    pricePerSeat: 19, // monthly per additional dev
     minSeats: 1,
-    maxSeats: 50,
+    maxSeats: 100,
     icon: Users,
     popular: true,
+    isCustom: false,
   },
   enterprise: {
     name: 'Enterprise',
     description: 'For large organizations',
-    monthlyPrice: 199,
-    annualPrice: 159,
-    pricePerSeat: 20,
-    minSeats: 3,
+    monthlyPrice: 0, // custom
+    annualPrice: 0,
+    pricePerSeat: 0,
+    minSeats: 1,
     maxSeats: -1,
     icon: Building2,
     popular: false,
+    isCustom: true,
   },
 };
 
@@ -96,17 +100,16 @@ export function PricingTable({
 
   const calculatePrice = (plan: 'pro' | 'enterprise', seats: number) => {
     const p = plans[plan];
-    const basePrice = isAnnual ? p.annualPrice : p.monthlyPrice;
-    const additionalSeats = Math.max(0, seats - p.minSeats);
-    return basePrice + (additionalSeats * p.pricePerSeat);
+    if (p.isCustom) return 0;
+    const pricePerDev = isAnnual ? p.annualPrice : p.monthlyPrice;
+    return pricePerDev * seats;
   };
 
   const annualSavings = (plan: 'pro' | 'enterprise', seats: number) => {
-    const monthlyTotal = calculatePrice(plan, seats) * 12;
     const p = plans[plan];
-    const annualBase = p.annualPrice;
-    const additionalSeats = Math.max(0, seats - p.minSeats);
-    const annualTotal = (annualBase + (additionalSeats * p.pricePerSeat)) * 12;
+    if (p.isCustom) return 0;
+    const monthlyTotal = p.monthlyPrice * seats * 12;
+    const annualTotal = p.annualPrice * seats * 12;
     return monthlyTotal - annualTotal;
   };
 

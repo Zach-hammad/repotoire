@@ -167,16 +167,16 @@ function BillingContent() {
             </Card>
           </div>
 
-          {/* Seat Management (Pro/Enterprise only) */}
+          {/* Seat Management (Team/Enterprise only) */}
           {(subscription.tier === 'pro' || subscription.tier === 'enterprise') && (
             <SeatManagement
               currentSeats={subscription.seats}
               usedSeats={subscription.seats}
-              minSeats={subscription.tier === 'pro' ? 1 : 3}
-              maxSeats={subscription.tier === 'pro' ? 50 : -1}
-              pricePerSeat={subscription.tier === 'pro' ? 10 : 20}
-              basePrice={subscription.tier === 'pro' ? 33 : 199}
-              planName={subscription.tier === 'pro' ? 'Pro' : 'Enterprise'}
+              minSeats={1}
+              maxSeats={subscription.tier === 'pro' ? 100 : -1}
+              pricePerSeat={15} // Annual per-dev pricing
+              basePrice={0} // No base - pure per-dev pricing
+              planName={subscription.tier === 'pro' ? 'Team' : 'Enterprise'}
               onUpdateSeats={async () => { handleOpenPortal(); }}
             />
           )}
