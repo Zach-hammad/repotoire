@@ -58,23 +58,6 @@ runs:
         pip install repotoire --quiet
         repotoire --version
 
-    - name: Get changed files
-      id: changed
-      if: inputs.changed-only == 'true'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.token }}
-      run: |
-        if [ "${{ github.event_name }}" == "pull_request" ]; then
-          # Get list of changed files
-          gh pr view ${{ github.event.pull_request.number }} --json files -q '.files[].path' > changed_files.txt
-          echo "files=$(cat changed_files.txt | tr '\n' ' ')" >> $GITHUB_OUTPUT
-          echo "Changed files:"
-          cat changed_files.txt
-        else
-          echo "files=" >> $GITHUB_OUTPUT
-        fi
-
     - name: Run analysis
       id: analyze
       shell: bash
@@ -83,14 +66,11 @@ runs:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-key }}
       run: |
         # Build analyze command
-        ANALYZE_CMD="repotoire analyze . --severity ${{ inputs.severity }} -f json -o .repotoire/findings.json"
-        
-        # Add changed files filter if applicable
-        if [ "${{ inputs.changed-only }}" == "true" ] && [ -f changed_files.txt ]; then
-          CHANGED=$(cat changed_files.txt | tr '\n' ' ')
-          if [ -n "$CHANGED" ]; then
-            ANALYZE_CMD="$ANALYZE_CMD --files $CHANGED"
-          fi
+        # Use --changed to analyze only files changed in PR
+        if [ "${{ inputs.changed-only }}" == "true" ] && [ "${{ github.event_name }}" == "pull_request" ]; then
+          ANALYZE_CMD="repotoire analyze . --severity ${{ inputs.severity }} --changed ${{ github.event.pull_request.base.sha }} -f json -o .repotoire/findings.json"
+        else
+          ANALYZE_CMD="repotoire analyze . --severity ${{ inputs.severity }} -f json -o .repotoire/findings.json"
         fi
         
         echo "Running: $ANALYZE_CMD"
