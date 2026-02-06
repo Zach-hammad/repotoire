@@ -5,7 +5,7 @@ import hmac
 
 import pytest
 
-from repotoire.api.services.github import GitHubAppClient
+from repotoire.api.services.github import GitHubAppClient, WebhookSecretNotConfiguredError
 
 
 class TestWebhookSignatureVerification:
@@ -117,10 +117,10 @@ b3IgcHJvZHVjdGlvbjCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBANGd
 
         assert github_client.verify_webhook_signature(payload, signature) is True
 
-    def test_missing_webhook_secret_returns_false(
+    def test_missing_webhook_secret_allows_in_development(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Test that missing webhook secret returns False."""
+        """Test that missing webhook secret allows verification in development."""
         # Create client with minimal config
         monkeypatch.setenv("GITHUB_APP_ID", "123456")
         monkeypatch.setenv(
@@ -132,12 +132,40 @@ c5fZJMGQPDj7pV+bH6XdQFqt+YCc9q+p5K7Gp2qP2xpZ8bQ+gNLxYzE9SjQHnPl6
 -----END RSA PRIVATE KEY-----""",
         )
         monkeypatch.delenv("GITHUB_WEBHOOK_SECRET", raising=False)
+        monkeypatch.setenv("ENVIRONMENT", "development")
 
         client = GitHubAppClient(webhook_secret=None)
         payload = b'{"action": "opened"}'
 
-        # Should return False when no secret is configured
-        assert client.verify_webhook_signature(payload, "sha256=anything") is False
+        # In development, should return True (allow with warning) when no secret is configured
+        assert client.verify_webhook_signature(payload, "sha256=anything") is True
+
+    def test_missing_webhook_secret_raises_in_production(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that missing webhook secret raises error in production."""
+        # Create client with minimal config
+        monkeypatch.setenv("GITHUB_APP_ID", "123456")
+        monkeypatch.setenv(
+            "GITHUB_APP_PRIVATE_KEY",
+            """-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEA0Z3US2cGy3+v4X+rkK/HT5rSxLcEXGwgxdkNcP/9Q5nZsHVm
+qCKXQQOGpEEhwuDqV/9HEm8vM5rNLmJhJg0h7hS+QjfXJh/OlH7rVCxFIYpXgqL8
+c5fZJMGQPDj7pV+bH6XdQFqt+YCc9q+p5K7Gp2qP2xpZ8bQ+gNLxYzE9SjQHnPl6
+-----END RSA PRIVATE KEY-----""",
+        )
+        monkeypatch.delenv("GITHUB_WEBHOOK_SECRET", raising=False)
+        monkeypatch.setenv("ENVIRONMENT", "production")
+
+        client = GitHubAppClient(webhook_secret=None)
+        payload = b'{"action": "opened"}'
+
+        # In production, should raise WebhookSecretNotConfiguredError
+        with pytest.raises(WebhookSecretNotConfiguredError) as exc_info:
+            client.verify_webhook_signature(payload, "sha256=anything")
+
+        assert "GitHub" in str(exc_info.value)
+        assert "GITHUB_WEBHOOK_SECRET" in str(exc_info.value)
 
 
 class TestTokenExpiryCheck:
