@@ -30,6 +30,7 @@ from repotoire.api.v1.routes import (
     organizations,
     preferences,
     provenance_settings,
+    quality_gates,
     rules,
     sandbox,
     security,

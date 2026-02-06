@@ -2749,8 +2749,8 @@ def _display_findings_tree(findings, severity_colors, severity_emoji):
 @click.option(
     "--fail-on",
     type=click.Choice(["info", "low", "medium", "high", "critical", "none"]),
-    default="high",
-    help="Exit with code 1 if findings at this severity or above are found.",
+    default=None,
+    help="Exit with code 1 if findings at this severity or above are found. (Legacy option, prefer --gate)",
 )
 @click.option(
     "--json",
@@ -2759,6 +2759,42 @@ def _display_findings_tree(findings, severity_colors, severity_emoji):
     default=None,
     help="Output findings as JSON to the specified file.",
 )
+@click.option(
+    "--gate",
+    type=str,
+    default=None,
+    help="Use a named quality gate from .reporc config (e.g., 'PR Gate').",
+)
+@click.option(
+    "--max-issues",
+    type=int,
+    default=None,
+    help="Maximum total issues allowed (inline gate).",
+)
+@click.option(
+    "--max-critical",
+    type=int,
+    default=None,
+    help="Maximum critical severity issues allowed (inline gate).",
+)
+@click.option(
+    "--max-high",
+    type=int,
+    default=None,
+    help="Maximum high severity issues allowed (inline gate).",
+)
+@click.option(
+    "--min-grade",
+    type=click.Choice(["A", "B", "C", "D", "F"]),
+    default=None,
+    help="Minimum acceptable grade (inline gate).",
+)
+@click.option(
+    "--min-score",
+    type=float,
+    default=None,
+    help="Minimum health score 0-100 (inline gate).",
+)
 @click.pass_context
 @handle_errors()
 def ci(
@@ -2766,8 +2802,14 @@ def ci(
     repo_path: str,
     changed: str | None,
     sarif: str | None,
-    fail_on: str,
+    fail_on: str | None,
     json_output: str | None,
+    gate: str | None,
+    max_issues: int | None,
+    max_critical: int | None,
+    max_high: int | None,
+    min_grade: str | None,
+    min_score: float | None,
 ) -> None:
     """Run analysis optimized for CI/CD pipelines.
 
@@ -2776,29 +2818,44 @@ def ci(
     CI/CD systems. It provides:
     - Quiet output by default (minimal noise in logs)
     - SARIF output for GitHub Code Scanning
-    - Exit codes for quality gates
+    - Quality gates for pass/fail criteria
     - Delta analysis for pull requests
 
     \b
+    QUALITY GATES:
+      Quality gates can be defined in .reporc and referenced by name:
+      
+      quality_gates:
+        - name: "PR Gate"
+          conditions:
+            max_critical: 0
+            max_high: 5
+            min_grade: "C"
+          on_fail: "block"
+
+    \b
     EXAMPLES:
-      # Basic CI check (fails on high/critical)
-      $ repotoire ci
+      # Use named quality gate from config
+      $ repotoire ci --gate "PR Gate"
+
+      # Inline quality gate (no config required)
+      $ repotoire ci --fail-on critical --max-issues 10
+
+      # Strict gate with grade requirement
+      $ repotoire ci --max-critical 0 --max-high 0 --min-grade B
 
       # PR analysis with SARIF output
       $ repotoire ci --changed origin/main --sarif results.sarif
 
-      # Strict mode (fail on any finding)
-      $ repotoire ci --fail-on info
-
-      # Lenient mode (only fail on critical)
-      $ repotoire ci --fail-on critical
+      # Legacy: fail on high/critical severity
+      $ repotoire ci --fail-on high
 
     \b
     GITHUB ACTIONS:
       - name: Repotoire Analysis
         run: |
           pip install repotoire
-          repotoire ci --changed ${{ github.event.pull_request.base.sha }} \\
+          repotoire ci --gate "PR Gate" --changed ${{ github.event.pull_request.base.sha }} \\
             --sarif .repotoire/results.sarif
       
       - uses: github/codeql-action/upload-sarif@v3
@@ -2807,8 +2864,8 @@ def ci(
 
     \b
     EXIT CODES:
-      0   Success (no findings at or above threshold)
-      1   Findings detected at or above --fail-on threshold
+      0   Quality gate passed (or no gate specified)
+      1   Quality gate failed
       2   Analysis error
     """
     import json
@@ -2915,29 +2972,71 @@ def ci(
             console.print(f"[dim]SARIF written to {sarif}[/dim]")
 
         # Summary output
-        severity_order = {
-            Severity.CRITICAL: 0, Severity.HIGH: 1, Severity.MEDIUM: 2,
-            Severity.LOW: 3, Severity.INFO: 4
-        }
-        critical = sum(1 for f in health.findings if f.severity == Severity.CRITICAL)
-        high = sum(1 for f in health.findings if f.severity == Severity.HIGH)
-        medium = sum(1 for f in health.findings if f.severity == Severity.MEDIUM)
-        low = sum(1 for f in health.findings if f.severity == Severity.LOW)
+        critical = health.findings_summary.critical
+        high = health.findings_summary.high
+        medium = health.findings_summary.medium
+        low = health.findings_summary.low
 
         console.print(f"\n[bold]Grade:[/bold] {health.grade} ({health.overall_score:.0f}/100)")
         console.print(f"[bold]Findings:[/bold] {critical} critical, {high} high, {medium} medium, {low} low")
 
-        # Check fail threshold
-        if fail_on != "none":
-            fail_severity = Severity(fail_on)
-            fail_threshold = severity_order.get(fail_severity, 5)
-            blocking = [f for f in health.findings if severity_order.get(f.severity, 5) <= fail_threshold]
+        # Import quality gate evaluation
+        from repotoire.services.quality_gates import (
+            GateStatus,
+            evaluate_quality_gate,
+            evaluate_inline_gate,
+        )
 
-            if blocking:
-                console.print(f"\n[red]✗ Found {len(blocking)} findings at {fail_on} severity or above[/red]")
-                sys.exit(1)
+        # Determine which quality gate to use
+        gate_result = None
+        has_inline_conditions = any([max_issues, max_critical, max_high, min_grade, min_score, fail_on])
 
-        console.print("\n[green]✓ No blocking issues[/green]")
+        if gate:
+            # Use named quality gate from config
+            gate_config = config.get_quality_gate(gate)
+            if not gate_config:
+                available_gates = [g.name for g in config.quality_gates]
+                if available_gates:
+                    console.print(f"[red]Error:[/red] Quality gate '{gate}' not found. Available gates: {', '.join(available_gates)}")
+                else:
+                    console.print(f"[red]Error:[/red] Quality gate '{gate}' not found. No quality gates defined in config.")
+                    console.print("[dim]Add quality_gates to your .reporc file or use inline options like --max-critical 0[/dim]")
+                sys.exit(2)
+            gate_result = evaluate_quality_gate(health, gate_config)
+        elif has_inline_conditions:
+            # Use inline quality gate from CLI parameters
+            gate_result = evaluate_inline_gate(
+                health,
+                fail_on=fail_on,
+                max_issues=max_issues,
+                max_critical=max_critical,
+                max_high=max_high,
+                min_grade=min_grade,
+                min_score=min_score,
+            )
+        else:
+            # No gate specified - default to legacy behavior (fail on high+)
+            gate_result = evaluate_inline_gate(health, fail_on="high")
+
+        # Display gate results
+        console.print()
+        if gate_result.passed:
+            console.print(f"[green]✓ {gate_result.summary}[/green]")
+        else:
+            if gate_result.status == GateStatus.WARNING:
+                console.print(f"[yellow]⚠ {gate_result.summary}[/yellow]")
+            elif gate_result.status == GateStatus.SKIPPED:
+                console.print(f"[dim]○ {gate_result.summary} (ignored)[/dim]")
+            else:
+                console.print(f"[red]✗ {gate_result.summary}[/red]")
+
+            # Show failed conditions
+            for cond in gate_result.condition_results:
+                if not cond.passed:
+                    console.print(f"  [red]✗[/red] {cond.message}")
+
+        # Exit with appropriate code
+        sys.exit(gate_result.exit_code)
 
     finally:
         db.close()

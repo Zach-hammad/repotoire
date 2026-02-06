@@ -1,223 +1,323 @@
-"""Quality gates evaluation service.
+"""Quality gate evaluation service.
 
-This module provides functions to evaluate analysis results against
-configurable quality gates. Quality gates can block PR merges when
-integrated with GitHub's required status checks.
-
-Gate Types:
-- block_on_critical: Fail if any critical severity findings exist
-- block_on_high: Fail if any high severity findings exist
-- min_health_score: Fail if health score is below threshold
-- max_new_issues: Fail if total new issues exceed limit
+This module provides functionality to evaluate code health against
+quality gate conditions, determining pass/fail status for CI/CD pipelines.
 """
 
-from __future__ import annotations
+from dataclasses import dataclass
+from enum import Enum
+from typing import List, Optional
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
-
-from sqlalchemy import func, select
-
-from repotoire.db.models.finding import Finding
+from repotoire.config import QualityGateAction, QualityGateConditions, QualityGateConfig
 from repotoire.logging_config import get_logger
-from repotoire.services.github_status import CommitState
-
-if TYPE_CHECKING:
-    from uuid import UUID
-
-    from sqlalchemy.orm import Session
-
-    from repotoire.db.models import AnalysisRun
+from repotoire.models import CodebaseHealth, Severity
 
 logger = get_logger(__name__)
 
 
-# Default quality gate configuration
-DEFAULT_QUALITY_GATES: dict[str, Any] = {
-    "enabled": True,
-    "block_on_critical": True,
-    "block_on_high": False,
-    "min_health_score": None,
-    "max_new_issues": None,
-}
+# Grade ordering for comparison (lower index = better grade)
+GRADE_ORDER = {"A": 0, "B": 1, "C": 2, "D": 3, "F": 4}
+
+
+class GateStatus(str, Enum):
+    """Result of quality gate evaluation."""
+    PASSED = "passed"
+    FAILED = "failed"
+    WARNING = "warning"  # Gate failed but on_fail=warn
+    SKIPPED = "skipped"  # Gate on_fail=ignore
+
+
+@dataclass
+class ConditionResult:
+    """Result of evaluating a single condition."""
+    condition_name: str
+    passed: bool
+    actual_value: Optional[float | int | str]
+    threshold_value: Optional[float | int | str]
+    message: str
 
 
 @dataclass
 class QualityGateResult:
-    """Result of quality gate evaluation.
-
-    Attributes:
-        passed: Whether all quality gates passed.
-        state: GitHub commit status state to set.
-        description: Human-readable description for the status.
-        details: Additional details about the evaluation.
-    """
-
+    """Result of evaluating a quality gate."""
+    gate_name: str
+    status: GateStatus
     passed: bool
-    state: CommitState
-    description: str
-    details: dict = field(default_factory=dict)
+    action: QualityGateAction
+    conditions_evaluated: int
+    conditions_passed: int
+    condition_results: List[ConditionResult]
+    summary: str
+
+    @property
+    def exit_code(self) -> int:
+        """Get exit code based on gate result.
+
+        Returns:
+            0 = passed
+            1 = failed (blocking)
+            0 = warning (non-blocking)
+            0 = skipped
+        """
+        if self.status == GateStatus.FAILED:
+            return 1
+        return 0
 
 
-def get_finding_counts(
-    session: "Session",
-    analysis_run_id: "UUID",
-) -> dict[str, int]:
-    """Get count of findings by severity for an analysis run.
-
-    Args:
-        session: SQLAlchemy session.
-        analysis_run_id: UUID of the analysis run.
-
-    Returns:
-        Dict mapping severity names to counts.
-    """
-    result = session.execute(
-        select(Finding.severity, func.count(Finding.id))
-        .where(Finding.analysis_run_id == analysis_run_id)
-        .group_by(Finding.severity)
-    )
-
-    counts = {}
-    for row in result.all():
-        severity, count = row
-        counts[severity.value] = count
-
-    return counts
-
-
-def evaluate_quality_gates(
-    session: "Session",
-    quality_gates: dict[str, Any] | None,
-    analysis_run: "AnalysisRun",
-    new_findings_only: bool = False,
-    base_analysis_id: "UUID | None" = None,
+def evaluate_quality_gate(
+    health: CodebaseHealth,
+    gate: QualityGateConfig,
+    baseline_health: Optional[CodebaseHealth] = None,
 ) -> QualityGateResult:
-    """Evaluate analysis results against quality gates.
+    """Evaluate a quality gate against codebase health.
 
     Args:
-        session: SQLAlchemy session.
-        quality_gates: Quality gate configuration dict.
-        analysis_run: AnalysisRun model instance.
-        new_findings_only: If True, only count new findings (vs base).
-        base_analysis_id: UUID of base analysis for comparison.
+        health: Current codebase health to evaluate
+        gate: Quality gate configuration
+        baseline_health: Optional baseline for comparison (for max_new_issues)
 
     Returns:
-        QualityGateResult with pass/fail status and description.
+        QualityGateResult with pass/fail status and details
     """
-    gates = quality_gates or DEFAULT_QUALITY_GATES
+    conditions = gate.conditions
+    results: List[ConditionResult] = []
 
-    # Check if gates are disabled
-    if not gates.get("enabled", True):
-        return QualityGateResult(
-            passed=True,
-            state=CommitState.SUCCESS,
-            description="Quality gates disabled",
-            details={"gates_enabled": False},
-        )
+    # Get finding counts by severity
+    critical_count = health.findings_summary.critical
+    high_count = health.findings_summary.high
+    medium_count = health.findings_summary.medium
+    low_count = health.findings_summary.low
+    total_count = health.findings_summary.total
 
-    # Get finding counts
-    if new_findings_only and base_analysis_id:
-        # For PRs, only count NEW findings
-        from repotoire.github.pr_commenter import get_new_findings
+    # Evaluate max_critical
+    if conditions.max_critical is not None:
+        passed = critical_count <= conditions.max_critical
+        results.append(ConditionResult(
+            condition_name="max_critical",
+            passed=passed,
+            actual_value=critical_count,
+            threshold_value=conditions.max_critical,
+            message=f"Critical findings: {critical_count} (max: {conditions.max_critical})"
+        ))
 
-        new_findings = get_new_findings(
-            session=session,
-            head_analysis_id=analysis_run.id,
-            base_analysis_id=base_analysis_id,
-        )
-        counts = {}
-        for finding in new_findings:
-            severity = finding.severity.value
-            counts[severity] = counts.get(severity, 0) + 1
+    # Evaluate max_high
+    if conditions.max_high is not None:
+        passed = high_count <= conditions.max_high
+        results.append(ConditionResult(
+            condition_name="max_high",
+            passed=passed,
+            actual_value=high_count,
+            threshold_value=conditions.max_high,
+            message=f"High findings: {high_count} (max: {conditions.max_high})"
+        ))
+
+    # Evaluate max_medium
+    if conditions.max_medium is not None:
+        passed = medium_count <= conditions.max_medium
+        results.append(ConditionResult(
+            condition_name="max_medium",
+            passed=passed,
+            actual_value=medium_count,
+            threshold_value=conditions.max_medium,
+            message=f"Medium findings: {medium_count} (max: {conditions.max_medium})"
+        ))
+
+    # Evaluate max_low
+    if conditions.max_low is not None:
+        passed = low_count <= conditions.max_low
+        results.append(ConditionResult(
+            condition_name="max_low",
+            passed=passed,
+            actual_value=low_count,
+            threshold_value=conditions.max_low,
+            message=f"Low findings: {low_count} (max: {conditions.max_low})"
+        ))
+
+    # Evaluate max_total
+    if conditions.max_total is not None:
+        passed = total_count <= conditions.max_total
+        results.append(ConditionResult(
+            condition_name="max_total",
+            passed=passed,
+            actual_value=total_count,
+            threshold_value=conditions.max_total,
+            message=f"Total findings: {total_count} (max: {conditions.max_total})"
+        ))
+
+    # Evaluate min_grade
+    if conditions.min_grade is not None:
+        min_grade_upper = conditions.min_grade.upper()
+        current_grade = health.grade.upper()
+        # Compare grades (A > B > C > D > F)
+        current_grade_rank = GRADE_ORDER.get(current_grade, 4)
+        min_grade_rank = GRADE_ORDER.get(min_grade_upper, 4)
+        passed = current_grade_rank <= min_grade_rank
+        results.append(ConditionResult(
+            condition_name="min_grade",
+            passed=passed,
+            actual_value=current_grade,
+            threshold_value=min_grade_upper,
+            message=f"Grade: {current_grade} (minimum: {min_grade_upper})"
+        ))
+
+    # Evaluate min_score
+    if conditions.min_score is not None:
+        passed = health.overall_score >= conditions.min_score
+        results.append(ConditionResult(
+            condition_name="min_score",
+            passed=passed,
+            actual_value=round(health.overall_score, 1),
+            threshold_value=conditions.min_score,
+            message=f"Score: {health.overall_score:.1f} (minimum: {conditions.min_score})"
+        ))
+
+    # Evaluate max_new_issues (requires baseline)
+    if conditions.max_new_issues is not None:
+        if baseline_health is not None:
+            new_issues = total_count - baseline_health.findings_summary.total
+            new_issues = max(0, new_issues)  # Don't count as negative
+            passed = new_issues <= conditions.max_new_issues
+            results.append(ConditionResult(
+                condition_name="max_new_issues",
+                passed=passed,
+                actual_value=new_issues,
+                threshold_value=conditions.max_new_issues,
+                message=f"New issues: {new_issues} (max: {conditions.max_new_issues})"
+            ))
+        else:
+            # No baseline available, skip this condition
+            results.append(ConditionResult(
+                condition_name="max_new_issues",
+                passed=True,  # Don't fail if no baseline
+                actual_value=None,
+                threshold_value=conditions.max_new_issues,
+                message=f"New issues: skipped (no baseline available)"
+            ))
+
+    # Calculate overall result
+    conditions_evaluated = len(results)
+    conditions_passed = sum(1 for r in results if r.passed)
+    all_passed = all(r.passed for r in results) if results else True
+
+    # Determine status based on on_fail action
+    action = QualityGateAction(gate.on_fail.lower())
+
+    if all_passed:
+        status = GateStatus.PASSED
+    elif action == QualityGateAction.IGNORE:
+        status = GateStatus.SKIPPED
+    elif action == QualityGateAction.WARN:
+        status = GateStatus.WARNING
+    else:  # BLOCK
+        status = GateStatus.FAILED
+
+    # Generate summary
+    failed_conditions = [r for r in results if not r.passed]
+    if all_passed:
+        summary = f"Quality gate '{gate.name}' passed ({conditions_passed}/{conditions_evaluated} conditions met)"
     else:
-        # For full analysis, count all findings
-        counts = get_finding_counts(session, analysis_run.id)
-
-    critical_count = counts.get("critical", 0)
-    high_count = counts.get("high", 0)
-    medium_count = counts.get("medium", 0)
-    low_count = counts.get("low", 0)
-    total_count = critical_count + high_count + medium_count + low_count
-
-    # Track failures
-    failures: list[str] = []
-
-    # Gate 1: Block on critical issues
-    if gates.get("block_on_critical") and critical_count > 0:
-        failures.append(f"{critical_count} critical issue{'s' if critical_count > 1 else ''}")
-
-    # Gate 2: Block on high severity issues
-    if gates.get("block_on_high") and high_count > 0:
-        failures.append(f"{high_count} high severity issue{'s' if high_count > 1 else ''}")
-
-    # Gate 3: Minimum health score
-    min_score = gates.get("min_health_score")
-    if min_score is not None and analysis_run.health_score is not None:
-        if analysis_run.health_score < min_score:
-            failures.append(f"Score {analysis_run.health_score} < {min_score}")
-
-    # Gate 4: Maximum new issues
-    max_issues = gates.get("max_new_issues")
-    if max_issues is not None and total_count > max_issues:
-        failures.append(f"{total_count} issues > limit of {max_issues}")
-
-    # Build result
-    details = {
-        "gates_enabled": True,
-        "counts": counts,
-        "health_score": analysis_run.health_score,
-        "gates_config": {
-            "block_on_critical": gates.get("block_on_critical"),
-            "block_on_high": gates.get("block_on_high"),
-            "min_health_score": min_score,
-            "max_new_issues": max_issues,
-        },
-    }
-
-    if failures:
-        # Limit description to fit GitHub's 140 char limit
-        description = f"Failed: {'; '.join(failures[:2])}"
-        if len(failures) > 2:
-            description += f" (+{len(failures) - 2} more)"
-        description = description[:140]
-
-        return QualityGateResult(
-            passed=False,
-            state=CommitState.FAILURE,
-            description=description,
-            details={**details, "failures": failures},
-        )
-
-    # Build success description
-    desc_parts = []
-    if analysis_run.health_score is not None:
-        desc_parts.append(f"Score: {analysis_run.health_score}")
-    if total_count > 0:
-        desc_parts.append(f"{total_count} issue{'s' if total_count > 1 else ''}")
-    else:
-        desc_parts.append("No issues")
+        failed_names = [r.condition_name for r in failed_conditions]
+        summary = f"Quality gate '{gate.name}' failed: {', '.join(failed_names)}"
 
     return QualityGateResult(
-        passed=True,
-        state=CommitState.SUCCESS,
-        description=" | ".join(desc_parts),
-        details=details,
+        gate_name=gate.name,
+        status=status,
+        passed=all_passed,
+        action=action,
+        conditions_evaluated=conditions_evaluated,
+        conditions_passed=conditions_passed,
+        condition_results=results,
+        summary=summary,
     )
 
 
-def format_gates_for_response(gates: dict[str, Any] | None) -> dict[str, Any]:
-    """Format quality gates for API response.
-
-    Ensures all expected fields are present with defaults.
+def create_inline_gate(
+    fail_on: Optional[str] = None,
+    max_issues: Optional[int] = None,
+    max_critical: Optional[int] = None,
+    max_high: Optional[int] = None,
+    min_grade: Optional[str] = None,
+    min_score: Optional[float] = None,
+) -> QualityGateConfig:
+    """Create an inline quality gate from CLI parameters.
 
     Args:
-        gates: Raw quality gates dict from database.
+        fail_on: Severity threshold (maps to max_critical/max_high)
+        max_issues: Maximum total issues allowed
+        max_critical: Maximum critical issues
+        max_high: Maximum high issues
+        min_grade: Minimum grade required
+        min_score: Minimum score required
 
     Returns:
-        Complete quality gates dict with all fields.
+        QualityGateConfig for inline evaluation
     """
-    result = dict(DEFAULT_QUALITY_GATES)
-    if gates:
-        result.update(gates)
-    return result
+    # Map fail_on to severity thresholds
+    if fail_on:
+        fail_on_lower = fail_on.lower()
+        if fail_on_lower == "critical":
+            max_critical = 0
+        elif fail_on_lower == "high":
+            max_critical = 0
+            max_high = 0
+        elif fail_on_lower == "medium":
+            max_critical = 0
+            max_high = 0
+            # Don't set max_medium - original behavior was fail_on >= severity
+        elif fail_on_lower == "low":
+            max_critical = 0
+            max_high = 0
+        elif fail_on_lower == "info":
+            # Fail on any finding
+            max_issues = 0
+
+    conditions = QualityGateConditions(
+        max_critical=max_critical,
+        max_high=max_high,
+        max_total=max_issues,
+        min_grade=min_grade,
+        min_score=min_score,
+    )
+
+    return QualityGateConfig(
+        name="inline",
+        description="Inline quality gate from CLI parameters",
+        conditions=conditions,
+        on_fail="block",
+    )
+
+
+def evaluate_inline_gate(
+    health: CodebaseHealth,
+    fail_on: Optional[str] = None,
+    max_issues: Optional[int] = None,
+    max_critical: Optional[int] = None,
+    max_high: Optional[int] = None,
+    min_grade: Optional[str] = None,
+    min_score: Optional[float] = None,
+    baseline_health: Optional[CodebaseHealth] = None,
+) -> QualityGateResult:
+    """Evaluate an inline quality gate.
+
+    Args:
+        health: Current codebase health
+        fail_on: Severity threshold (critical, high, medium, low, info)
+        max_issues: Maximum total issues
+        max_critical: Maximum critical issues
+        max_high: Maximum high issues
+        min_grade: Minimum grade
+        min_score: Minimum score
+        baseline_health: Optional baseline for comparison
+
+    Returns:
+        QualityGateResult
+    """
+    gate = create_inline_gate(
+        fail_on=fail_on,
+        max_issues=max_issues,
+        max_critical=max_critical,
+        max_high=max_high,
+        min_grade=min_grade,
+        min_score=min_score,
+    )
+    return evaluate_quality_gate(health, gate, baseline_health)

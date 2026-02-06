@@ -605,6 +605,129 @@ class SandboxConfig:
     trial_executions: int = 50
 
 
+class QualityGateAction(str, Enum):
+    """Action to take when a quality gate fails."""
+    BLOCK = "block"  # Exit with failure code
+    WARN = "warn"    # Log warning but exit success
+    IGNORE = "ignore"  # Silently ignore
+
+
+@dataclass
+class QualityGateConditions:
+    """Conditions for a quality gate to pass.
+
+    All conditions are optional. Only specified conditions are evaluated.
+    A gate passes if ALL specified conditions are met.
+
+    Example configuration:
+    ```yaml
+    quality_gates:
+      - name: "PR Gate"
+        conditions:
+          max_critical: 0
+          max_high: 5
+          min_grade: "C"
+          max_new_issues: 10
+        on_fail: "block"
+    ```
+
+    Attributes:
+        max_critical: Maximum allowed critical severity findings (default: unlimited)
+        max_high: Maximum allowed high severity findings (default: unlimited)
+        max_medium: Maximum allowed medium severity findings (default: unlimited)
+        max_low: Maximum allowed low severity findings (default: unlimited)
+        max_total: Maximum total findings allowed (default: unlimited)
+        min_grade: Minimum acceptable grade (A, B, C, D, F)
+        min_score: Minimum health score (0-100)
+        max_new_issues: Maximum new issues since baseline (requires baseline)
+    """
+    max_critical: Optional[int] = None
+    max_high: Optional[int] = None
+    max_medium: Optional[int] = None
+    max_low: Optional[int] = None
+    max_total: Optional[int] = None
+    min_grade: Optional[str] = None  # A, B, C, D, F
+    min_score: Optional[float] = None  # 0-100
+    max_new_issues: Optional[int] = None  # Requires baseline comparison
+
+    def __post_init__(self):
+        """Validate conditions on initialization."""
+        # Validate counts are non-negative
+        for field_name in ['max_critical', 'max_high', 'max_medium', 'max_low', 'max_total', 'max_new_issues']:
+            value = getattr(self, field_name)
+            if value is not None and value < 0:
+                raise ValueError(f"{field_name} cannot be negative")
+
+        # Validate grade
+        if self.min_grade is not None:
+            valid_grades = {'A', 'B', 'C', 'D', 'F'}
+            if self.min_grade.upper() not in valid_grades:
+                raise ValueError(f"min_grade must be one of: {', '.join(sorted(valid_grades))}")
+
+        # Validate score
+        if self.min_score is not None and not (0 <= self.min_score <= 100):
+            raise ValueError("min_score must be between 0 and 100")
+
+
+@dataclass
+class QualityGateConfig:
+    """Configuration for a named quality gate.
+
+    Quality gates define pass/fail criteria for CI/CD pipelines.
+    Multiple gates can be defined and selected at runtime.
+
+    Example configuration:
+    ```yaml
+    quality_gates:
+      - name: "PR Gate"
+        conditions:
+          max_critical: 0
+          max_high: 5
+          min_grade: "C"
+        on_fail: "block"
+
+      - name: "Nightly Build"
+        conditions:
+          max_critical: 0
+          max_high: 0
+          max_medium: 10
+          min_grade: "B"
+        on_fail: "block"
+
+      - name: "Release Gate"
+        conditions:
+          max_critical: 0
+          max_high: 0
+          max_medium: 0
+          min_grade: "A"
+          min_score: 85
+        on_fail: "block"
+    ```
+
+    Attributes:
+        name: Unique identifier for the gate (referenced via --gate)
+        description: Optional human-readable description
+        conditions: Pass/fail conditions
+        on_fail: Action when gate fails (block, warn, ignore)
+    """
+    name: str
+    conditions: QualityGateConditions = field(default_factory=QualityGateConditions)
+    description: Optional[str] = None
+    on_fail: str = "block"  # block, warn, ignore
+
+    def __post_init__(self):
+        """Validate gate configuration."""
+        if not self.name:
+            raise ValueError("Quality gate name cannot be empty")
+
+        # Validate on_fail action
+        try:
+            QualityGateAction(self.on_fail.lower())
+        except ValueError:
+            valid_actions = [a.value for a in QualityGateAction]
+            raise ValueError(f"on_fail must be one of: {', '.join(valid_actions)}")
+
+
 @dataclass
 class ReportingTheme:
     """Theme colors for report generation.
@@ -705,6 +828,7 @@ class RepotoireConfig:
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
     tenant: TenantConfig = field(default_factory=TenantConfig)
+    quality_gates: List[QualityGateConfig] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RepotoireConfig":
@@ -727,6 +851,10 @@ class RepotoireConfig:
         reporting_data = data.get("reporting", {})
         reporting_config = _parse_reporting_config(reporting_data)
 
+        # Parse quality gates config
+        quality_gates_data = data.get("quality_gates", [])
+        quality_gates = _parse_quality_gates_config(quality_gates_data)
+
         return cls(
             database=DatabaseConfig(**data.get("database", {})),
             postgres=PostgresConfig(**data.get("postgres", {})),
@@ -741,6 +869,7 @@ class RepotoireConfig:
             sandbox=SandboxConfig(**data.get("sandbox", {})),
             reporting=reporting_config,
             tenant=TenantConfig(**data.get("tenant", {})),
+            quality_gates=quality_gates,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -918,7 +1047,39 @@ class RepotoireConfig:
                 "slug": self.tenant.slug,
                 "require_context": self.tenant.require_context,
             },
+            "quality_gates": [
+                {
+                    "name": gate.name,
+                    "description": gate.description,
+                    "conditions": {
+                        "max_critical": gate.conditions.max_critical,
+                        "max_high": gate.conditions.max_high,
+                        "max_medium": gate.conditions.max_medium,
+                        "max_low": gate.conditions.max_low,
+                        "max_total": gate.conditions.max_total,
+                        "min_grade": gate.conditions.min_grade,
+                        "min_score": gate.conditions.min_score,
+                        "max_new_issues": gate.conditions.max_new_issues,
+                    },
+                    "on_fail": gate.on_fail,
+                }
+                for gate in self.quality_gates
+            ],
         }
+
+    def get_quality_gate(self, name: str) -> Optional[QualityGateConfig]:
+        """Get a quality gate by name.
+
+        Args:
+            name: Name of the quality gate
+
+        Returns:
+            QualityGateConfig if found, None otherwise
+        """
+        for gate in self.quality_gates:
+            if gate.name == name:
+                return gate
+        return None
 
     def merge(self, other: "RepotoireConfig") -> "RepotoireConfig":
         """Merge with another config (other takes precedence).
@@ -1025,6 +1186,41 @@ def _parse_reporting_config(data: Dict[str, Any]) -> ReportingConfig:
         theme=theme_config,
         **data  # Pass remaining fields directly
     )
+
+
+def _parse_quality_gates_config(data: List[Dict[str, Any]]) -> List[QualityGateConfig]:
+    """Parse quality gates configuration.
+
+    Args:
+        data: List of quality gate dictionaries
+
+    Returns:
+        List of QualityGateConfig instances
+    """
+    gates = []
+    for gate_data in data:
+        # Extract conditions
+        conditions_data = gate_data.get("conditions", {})
+        conditions = QualityGateConditions(
+            max_critical=conditions_data.get("max_critical"),
+            max_high=conditions_data.get("max_high"),
+            max_medium=conditions_data.get("max_medium"),
+            max_low=conditions_data.get("max_low"),
+            max_total=conditions_data.get("max_total"),
+            min_grade=conditions_data.get("min_grade"),
+            min_score=conditions_data.get("min_score"),
+            max_new_issues=conditions_data.get("max_new_issues"),
+        )
+
+        gate = QualityGateConfig(
+            name=gate_data.get("name", ""),
+            description=gate_data.get("description"),
+            conditions=conditions,
+            on_fail=gate_data.get("on_fail", "block"),
+        )
+        gates.append(gate)
+
+    return gates
 
 
 def _expand_env_vars(data: Union[Dict, list, str, Any]) -> Any:
