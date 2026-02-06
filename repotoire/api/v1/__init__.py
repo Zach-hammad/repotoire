@@ -14,6 +14,7 @@ from repotoire.api.v1.routes import (
     billing,
     changelog,
     cli_auth,
+    cli_sync,
     code,
     customer_webhooks,
     detector_settings,
@@ -245,6 +246,7 @@ v1_app.include_router(analytics.router)
 v1_app.include_router(audit.router)
 v1_app.include_router(billing.router)
 v1_app.include_router(cli_auth.router)
+v1_app.include_router(cli_sync.router)
 v1_app.include_router(code.router)
 v1_app.include_router(customer_webhooks.router)
 v1_app.include_router(detector_settings.router)

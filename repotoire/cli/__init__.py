@@ -614,6 +614,192 @@ def whoami() -> None:
 
 
 # =============================================================================
+# Sync Command
+# =============================================================================
+
+
+@cli.command()
+@click.argument("repo_path", type=click.Path(exists=True), default=".")
+@click.option(
+    "--findings-file", "-f",
+    type=click.Path(exists=True),
+    help="Path to findings JSON file from previous analysis",
+)
+@click.option(
+    "--quiet", "-q",
+    is_flag=True,
+    help="Minimal output",
+)
+@handle_errors()
+def sync(repo_path: str, findings_file: str | None, quiet: bool) -> None:
+    """Sync local analysis to cloud dashboard.
+
+    \b
+    USAGE:
+      $ repotoire sync                    # Sync current directory
+      $ repotoire sync /path/to/repo      # Sync specific repo
+      $ repotoire sync -f findings.json   # Sync existing findings
+
+    \b
+    WORKFLOW:
+      1. Run 'repotoire login' to authenticate
+      2. Run 'repotoire analyze .' to analyze locally
+      3. Run 'repotoire sync' to upload to team dashboard
+
+    \b
+    This uploads your local analysis to the cloud for team visibility.
+    Your code stays local - only metadata and findings are synced.
+
+    Requires authentication. Run 'repotoire login' first.
+    """
+    import json
+    import httpx
+    from pathlib import Path
+    from repotoire.graph.factory import get_api_key, get_cloud_auth_info
+
+    # Check auth
+    api_key = get_api_key()
+    if not api_key:
+        console.print("[red]✗[/red] Not logged in\n")
+        console.print("Run [cyan]repotoire login[/cyan] first to authenticate.")
+        raise click.Abort()
+
+    repo_path_obj = Path(repo_path).resolve()
+    
+    # Get git info
+    git_info = _extract_git_info(repo_path_obj)
+    repo_name = git_info.get("repo_name") or repo_path_obj.name
+    
+    if not quiet:
+        console.print(f"[bold]Syncing [cyan]{repo_name}[/cyan] to cloud...[/bold]\n")
+
+    # Try to find latest analysis data
+    repotoire_dir = repo_path_obj / ".repotoire"
+    
+    # Load health from cache or run quick analysis
+    health_data = None
+    findings_data = []
+    
+    # Check for cached health
+    health_cache = repotoire_dir / "last_health.json"
+    if health_cache.exists():
+        try:
+            with open(health_cache) as f:
+                health_data = json.load(f)
+        except Exception:
+            pass
+    
+    # Load findings from file or cache
+    if findings_file:
+        try:
+            with open(findings_file) as f:
+                findings_json = json.load(f)
+                if isinstance(findings_json, list):
+                    findings_data = findings_json
+                elif isinstance(findings_json, dict) and "findings" in findings_json:
+                    findings_data = findings_json["findings"]
+        except Exception as e:
+            console.print(f"[red]Error loading findings file:[/red] {e}")
+            raise click.Abort()
+    else:
+        # Check for cached findings
+        findings_cache = repotoire_dir / "last_findings.json"
+        if findings_cache.exists():
+            try:
+                with open(findings_cache) as f:
+                    cached = json.load(f)
+                    if isinstance(cached, list):
+                        findings_data = cached
+                    elif isinstance(cached, dict) and "findings" in cached:
+                        findings_data = cached["findings"]
+            except Exception:
+                pass
+    
+    if health_data is None:
+        # Need to run analysis first
+        console.print("[yellow]No cached analysis found.[/yellow]")
+        console.print("Run [cyan]repotoire analyze .[/cyan] first, then sync.\n")
+        console.print("Or use [cyan]--findings-file[/cyan] to sync existing findings.")
+        raise click.Abort()
+    
+    # Build sync payload
+    from repotoire import __version__
+    
+    sync_payload = {
+        "repo_name": repo_name,
+        "repo_url": git_info.get("remote_url"),
+        "commit_sha": git_info.get("commit_sha"),
+        "branch": git_info.get("branch"),
+        "health": {
+            "health_score": health_data.get("health_score", 0),
+            "structure_score": health_data.get("structure_score", 0),
+            "quality_score": health_data.get("quality_score", 0),
+            "architecture_score": health_data.get("architecture_score"),
+        },
+        "findings": [
+            {
+                "detector_id": f.get("detector_id", f.get("detector", "unknown")),
+                "title": f.get("title", f.get("message", "Unknown")),
+                "description": f.get("description", f.get("message", "")),
+                "severity": f.get("severity", "info"),
+                "file_path": f.get("file_path", f.get("location", {}).get("path", "")),
+                "line_start": f.get("line_start", f.get("location", {}).get("line", 1)),
+                "line_end": f.get("line_end"),
+                "category": f.get("category"),
+                "cwe_id": f.get("cwe_id"),
+                "why_it_matters": f.get("why_it_matters"),
+                "suggested_fix": f.get("suggested_fix"),
+            }
+            for f in findings_data
+        ],
+        "cli_version": __version__,
+        "total_files": health_data.get("total_files"),
+        "total_functions": health_data.get("total_functions"),
+        "total_classes": health_data.get("total_classes"),
+    }
+    
+    # Upload to cloud
+    api_base = os.environ.get("REPOTOIRE_API_URL", "https://api.repotoire.io")
+    
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(
+                f"{api_base}/api/v1/cli-sync/upload",
+                json=sync_payload,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            response.raise_for_status()
+            result = response.json()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            console.print("[red]✗[/red] Authentication failed. Run [cyan]repotoire login[/cyan] again.")
+        elif e.response.status_code == 403:
+            console.print("[red]✗[/red] Access denied. Check your organization permissions.")
+        else:
+            console.print(f"[red]✗[/red] Sync failed: {e.response.text}")
+        raise click.Abort()
+    except Exception as e:
+        console.print(f"[red]✗[/red] Sync failed: {e}")
+        raise click.Abort()
+    
+    # Success output
+    if quiet:
+        console.print(result.get("dashboard_url", "Synced"))
+    else:
+        console.print("[green]✓[/green] Analysis synced to cloud!\n")
+        console.print(f"  Repository: [cyan]{repo_name}[/cyan]")
+        console.print(f"  Health Score: {health_data.get('health_score', 'N/A')}")
+        console.print(f"  Findings: {result.get('findings_synced', 0)}")
+        console.print()
+        console.print(f"  [bold]Dashboard:[/bold] {result.get('dashboard_url', 'N/A')}")
+        console.print()
+        console.print("[dim]Share this URL with your team to view the analysis.[/dim]")
+
+
+# =============================================================================
 # Ingest Command
 # =============================================================================
 
@@ -1466,6 +1652,52 @@ def analyze(
                     "total_findings": health.findings_summary.total
                 })
 
+                # Cache results for sync command
+                try:
+                    import json
+                    cache_dir = Path(validated_repo_path) / ".repotoire"
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # Cache health data
+                    health_cache = cache_dir / "last_health.json"
+                    health_dict = health.to_dict() if hasattr(health, 'to_dict') else {
+                        "health_score": health.overall_score,
+                        "structure_score": getattr(health, 'structure_score', 0),
+                        "quality_score": getattr(health, 'quality_score', 0),
+                        "architecture_score": getattr(health, 'architecture_score', None),
+                        "grade": health.grade,
+                        "total_files": getattr(health, 'total_files', 0),
+                        "total_functions": getattr(health, 'total_functions', 0),
+                        "total_classes": getattr(health, 'total_classes', 0),
+                    }
+                    with open(health_cache, "w") as f:
+                        json.dump(health_dict, f, indent=2, default=str)
+                    
+                    # Cache findings
+                    findings_cache = cache_dir / "last_findings.json"
+                    findings_list = [
+                        {
+                            "detector_id": f.detector_id,
+                            "title": f.title,
+                            "description": f.description,
+                            "severity": f.severity.value if hasattr(f.severity, 'value') else str(f.severity),
+                            "file_path": f.location.path if f.location else "",
+                            "line_start": f.location.line if f.location else 1,
+                            "line_end": f.location.end_line if f.location else None,
+                            "category": getattr(f, 'category', None),
+                            "cwe_id": getattr(f, 'cwe_id', None),
+                            "why_it_matters": getattr(f, 'why_it_matters', None),
+                            "suggested_fix": getattr(f, 'suggested_fix', None),
+                        }
+                        for f in health.findings
+                    ]
+                    with open(findings_cache, "w") as f:
+                        json.dump({"findings": findings_list}, f, indent=2)
+                    
+                    logger.debug(f"Cached analysis results to {cache_dir}")
+                except Exception as e:
+                    logger.debug(f"Failed to cache analysis results: {e}")
+
                 # Display results
                 _display_health_report(health)
 
@@ -1546,6 +1778,12 @@ def analyze(
                             console.print(
                                 f"\n[green]✓ Grade {health.grade} meets threshold {fail_on_grade.upper()}[/green]"
                             )
+                
+                # Show sync tip if logged in
+                from repotoire.graph.factory import get_api_key
+                if get_api_key() and not quiet:
+                    console.print()
+                    console.print("[dim]Tip: Run 'repotoire sync' to share this analysis with your team[/dim]")
 
             finally:
                 db.close()
