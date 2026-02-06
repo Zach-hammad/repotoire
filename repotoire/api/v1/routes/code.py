@@ -499,16 +499,21 @@ async def get_embeddings_status(
     try:
         logger.info("Fetching embeddings status", extra={"org_id": str(org.id)})
 
-        # Count total entities
-        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
+        # Count total entities using label-specific queries (uses indexes)
+        # Separate queries are faster than MATCH (n) WHERE label IN labels(n)
         total_query = """
-        MATCH (n)
-        WHERE 'Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)
+        CALL {
+            MATCH (f:Function) RETURN count(f) as cnt, 'functions' as label
+            UNION ALL
+            MATCH (c:Class) RETURN count(c) as cnt, 'classes' as label
+            UNION ALL
+            MATCH (f:File) RETURN count(f) as cnt, 'files' as label
+        }
         RETURN
-            count(n) as total,
-            count(CASE WHEN 'Function' IN labels(n) THEN 1 END) as functions,
-            count(CASE WHEN 'Class' IN labels(n) THEN 1 END) as classes,
-            count(CASE WHEN 'File' IN labels(n) THEN 1 END) as files
+            sum(cnt) as total,
+            sum(CASE WHEN label = 'functions' THEN cnt ELSE 0 END) as functions,
+            sum(CASE WHEN label = 'classes' THEN cnt ELSE 0 END) as classes,
+            sum(CASE WHEN label = 'files' THEN cnt ELSE 0 END) as files
         """
         total_results = client.execute_query(total_query)
         if not total_results:
@@ -525,16 +530,20 @@ async def get_embeddings_status(
             )
         total_result = total_results[0]
 
-        # Count entities with embeddings
-        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
+        # Count entities with embeddings using label-specific queries (uses indexes)
         embedded_query = """
-        MATCH (n)
-        WHERE ('Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)) AND n.embedding IS NOT NULL
+        CALL {
+            MATCH (f:Function) WHERE f.embedding IS NOT NULL RETURN count(f) as cnt, 'functions' as label
+            UNION ALL
+            MATCH (c:Class) WHERE c.embedding IS NOT NULL RETURN count(c) as cnt, 'classes' as label
+            UNION ALL
+            MATCH (f:File) WHERE f.embedding IS NOT NULL RETURN count(f) as cnt, 'files' as label
+        }
         RETURN
-            count(n) as embedded,
-            count(CASE WHEN 'Function' IN labels(n) THEN 1 END) as functions_embedded,
-            count(CASE WHEN 'Class' IN labels(n) THEN 1 END) as classes_embedded,
-            count(CASE WHEN 'File' IN labels(n) THEN 1 END) as files_embedded
+            sum(cnt) as embedded,
+            sum(CASE WHEN label = 'functions' THEN cnt ELSE 0 END) as functions_embedded,
+            sum(CASE WHEN label = 'classes' THEN cnt ELSE 0 END) as classes_embedded,
+            sum(CASE WHEN label = 'files' THEN cnt ELSE 0 END) as files_embedded
         """
         embedded_results = client.execute_query(embedded_query)
         if not embedded_results:
@@ -583,14 +592,20 @@ async def _regenerate_embeddings_task(org_id: UUID, org_slug: str, batch_size: i
         embedder = CodeEmbedder(backend="deepinfra")
         print(f"[EMBED] Embedder initialized: {embedder.resolved_backend}, {embedder.dimensions} dims", flush=True)
 
-        # Get all entities that need embeddings
-        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
+        # Get all entities that need embeddings using UNION (uses label indexes)
         print("[EMBED] Querying entities...", flush=True)
         entities = client.execute_query("""
-            MATCH (n)
-            WHERE 'Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)
-            RETURN n.qualified_name as qname, n.name as name,
-                   n.code as code, n.docstring as docstring
+            CALL {
+                MATCH (f:Function)
+                RETURN f.qualified_name as qname, f.name as name, f.code as code, f.docstring as docstring
+                UNION ALL
+                MATCH (c:Class)
+                RETURN c.qualified_name as qname, c.name as name, c.code as code, c.docstring as docstring
+                UNION ALL
+                MATCH (f:File)
+                RETURN f.qualified_name as qname, f.name as name, f.code as code, f.docstring as docstring
+            }
+            RETURN qname, name, code, docstring
         """)
 
         total = len(entities)
@@ -730,11 +745,19 @@ async def _compress_embeddings_task(
         # Step 1: Sample embeddings for PCA fitting
         print(f"[COMPRESS] Sampling up to {sample_size} embeddings for PCA fitting...", flush=True)
 
-        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
+        # Use UNION for label-specific queries (uses indexes)
         sample_query = """
-        MATCH (n)
-        WHERE ('Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)) AND n.embedding IS NOT NULL
-        RETURN n.qualified_name as qname, n.embedding as embedding
+        CALL {
+            MATCH (f:Function) WHERE f.embedding IS NOT NULL
+            RETURN f.qualified_name as qname, f.embedding as embedding
+            UNION ALL
+            MATCH (c:Class) WHERE c.embedding IS NOT NULL
+            RETURN c.qualified_name as qname, c.embedding as embedding
+            UNION ALL
+            MATCH (f:File) WHERE f.embedding IS NOT NULL
+            RETURN f.qualified_name as qname, f.embedding as embedding
+        }
+        RETURN qname, embedding
         LIMIT $limit
         """
         samples = client.execute_query(sample_query, {"limit": sample_size})
@@ -762,12 +785,19 @@ async def _compress_embeddings_task(
         # Step 3: Compress all embeddings and update graph
         print("[COMPRESS] Compressing and updating all embeddings...", flush=True)
 
-        # Get all embeddings (not just sample)
-        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
+        # Get all embeddings using UNION (uses indexes)
         all_query = """
-        MATCH (n)
-        WHERE ('Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)) AND n.embedding IS NOT NULL
-        RETURN n.qualified_name as qname, n.embedding as embedding
+        CALL {
+            MATCH (f:Function) WHERE f.embedding IS NOT NULL
+            RETURN f.qualified_name as qname, f.embedding as embedding
+            UNION ALL
+            MATCH (c:Class) WHERE c.embedding IS NOT NULL
+            RETURN c.qualified_name as qname, c.embedding as embedding
+            UNION ALL
+            MATCH (f:File) WHERE f.embedding IS NOT NULL
+            RETURN f.qualified_name as qname, f.embedding as embedding
+        }
+        RETURN qname, embedding
         """
         all_entities = client.execute_query(all_query)
         total = len(all_entities)
@@ -879,13 +909,19 @@ async def compress_embeddings(
     # Calculate expected savings
     client = get_graph_client_for_org(org)
     try:
-        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
+        # Use UNION for label-specific count (uses indexes)
         count_result = client.execute_query("""
-            MATCH (n)
-            WHERE ('Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)) AND n.embedding IS NOT NULL
-            RETURN count(n) as count,
-                   CASE WHEN n.embedding IS NOT NULL THEN size(n.embedding) ELSE 4096 END as dims
-            LIMIT 1
+            CALL {
+                MATCH (f:Function) WHERE f.embedding IS NOT NULL
+                RETURN count(f) as cnt, size(f.embedding) as dims
+                UNION ALL
+                MATCH (c:Class) WHERE c.embedding IS NOT NULL
+                RETURN count(c) as cnt, size(c.embedding) as dims
+                UNION ALL
+                MATCH (f:File) WHERE f.embedding IS NOT NULL
+                RETURN count(f) as cnt, size(f.embedding) as dims
+            }
+            RETURN sum(cnt) as count, max(dims) as dims
         """)
         entity_count = count_result[0]["count"] if count_result else 0
         source_dims = count_result[0].get("dims", 4096) if count_result else 4096
@@ -931,16 +967,32 @@ async def get_compression_status(
     client = get_graph_client_for_org(org)
 
     try:
-        # Count compressed vs uncompressed
-        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
+        # Count compressed vs uncompressed using UNION (uses indexes)
         status_query = """
-        MATCH (n)
-        WHERE ('Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)) AND n.embedding IS NOT NULL
+        CALL {
+            MATCH (f:Function) WHERE f.embedding IS NOT NULL
+            RETURN 1 as cnt, 
+                   CASE WHEN f.embedding_compressed = true THEN 1 ELSE 0 END as is_compressed,
+                   size(f.embedding) as dims,
+                   f.embedding_original_dims as orig_dims
+            UNION ALL
+            MATCH (c:Class) WHERE c.embedding IS NOT NULL
+            RETURN 1 as cnt,
+                   CASE WHEN c.embedding_compressed = true THEN 1 ELSE 0 END as is_compressed,
+                   size(c.embedding) as dims,
+                   c.embedding_original_dims as orig_dims
+            UNION ALL
+            MATCH (f:File) WHERE f.embedding IS NOT NULL
+            RETURN 1 as cnt,
+                   CASE WHEN f.embedding_compressed = true THEN 1 ELSE 0 END as is_compressed,
+                   size(f.embedding) as dims,
+                   f.embedding_original_dims as orig_dims
+        }
         RETURN
-            count(n) as total,
-            count(CASE WHEN n.embedding_compressed = true THEN 1 END) as compressed,
-            avg(CASE WHEN n.embedding IS NOT NULL THEN size(n.embedding) ELSE null END) as avg_dims,
-            max(n.embedding_original_dims) as original_dims
+            sum(cnt) as total,
+            sum(is_compressed) as compressed,
+            avg(dims) as avg_dims,
+            max(orig_dims) as original_dims
         """
         result = client.execute_query(status_query)
 

@@ -435,12 +435,19 @@ class TenantCompressor:
         Returns:
             self for method chaining
         """
-        # Query embeddings from graph
-        # Note: FalkorDB uses labels() function for label checks instead of inline syntax
+        # Query embeddings from graph using UNION (uses label indexes)
         query = """
-        MATCH (n)
-        WHERE ('Function' IN labels(n) OR 'Class' IN labels(n) OR 'File' IN labels(n)) AND n.embedding IS NOT NULL
-        RETURN n.embedding as embedding
+        CALL {
+            MATCH (f:Function) WHERE f.embedding IS NOT NULL
+            RETURN f.embedding as embedding
+            UNION ALL
+            MATCH (c:Class) WHERE c.embedding IS NOT NULL
+            RETURN c.embedding as embedding
+            UNION ALL
+            MATCH (f:File) WHERE f.embedding IS NOT NULL
+            RETURN f.embedding as embedding
+        }
+        RETURN embedding
         LIMIT $limit
         """
 
