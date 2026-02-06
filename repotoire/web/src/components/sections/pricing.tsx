@@ -129,12 +129,24 @@ export function Pricing() {
               </div>
 
               <div className="mb-6">
-                <span className="text-4xl font-display font-bold text-foreground">
-                  ${annual ? tier.price.annual : tier.price.monthly}
-                </span>
-                <span className="text-muted-foreground text-sm">/month</span>
-                {tier.trial && (
-                  <p className="text-sm text-primary mt-2 font-medium">{tier.trial}</p>
+                {tier.price.monthly === "custom" ? (
+                  <>
+                    <span className="text-4xl font-display font-bold text-foreground">Custom</span>
+                    <p className="text-sm text-muted-foreground mt-2">Contact us for pricing</p>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-4xl font-display font-bold text-foreground">
+                      ${annual ? tier.price.annual : tier.price.monthly}
+                    </span>
+                    <span className="text-muted-foreground text-sm">/dev/month</span>
+                    {annual && (
+                      <p className="text-sm text-muted-foreground mt-1">Billed annually</p>
+                    )}
+                    {tier.trial && (
+                      <p className="text-sm text-primary mt-2 font-medium">{tier.trial}</p>
+                    )}
+                  </>
                 )}
               </div>
 

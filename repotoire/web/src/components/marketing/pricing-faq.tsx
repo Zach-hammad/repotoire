@@ -36,7 +36,7 @@ const faqs = [
   {
     question: "Is there a free trial?",
     answer:
-      "Yes! Pro comes with a 7-day free trial. You'll get full access to all Pro features during the trial. After 7 days, you can subscribe or your access will pause until you do.",
+      "Yes! The Team plan comes with a 7-day free trial. You'll get full access to all team features during the trial. No credit card required.",
   },
   {
     question: "Do I need a credit card to start the trial?",

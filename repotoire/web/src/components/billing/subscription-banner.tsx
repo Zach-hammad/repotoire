@@ -109,10 +109,10 @@ export function SubscriptionBanner({
             </AlertTitle>
             <AlertDescription className="mt-1">
               {trialDaysRemaining === 0
-                ? 'Your trial ends today. Add a payment method to continue using Pro features.'
+                ? 'Your trial ends today. Add a payment method to continue using team features.'
                 : trialDaysRemaining === 1
-                  ? 'Your trial ends tomorrow. Add a payment method to continue using Pro features.'
-                  : `Your trial ends in ${trialDaysRemaining} days. Add a payment method to continue using Pro features.`
+                  ? 'Your trial ends tomorrow. Add a payment method to continue using team features.'
+                  : `Your trial ends in ${trialDaysRemaining} days. Add a payment method to continue using team features.`
               }
             </AlertDescription>
             {trialDaysRemaining !== undefined && (
