@@ -1339,8 +1339,8 @@ def sync(repo_path: str, findings_file: str | None, quiet: bool) -> None:
 @click.option(
     "--embeddings/--no-embeddings",
     "generate_embeddings",
-    default=True,
-    help="Generate vector embeddings for RAG (default: enabled, uses best available backend)",
+    default=False,
+    help="Generate vector embeddings for RAG (default: disabled, use --embeddings to enable)",
 )
 @click.option(
     "--embedding-backend",
