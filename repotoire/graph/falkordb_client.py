@@ -859,17 +859,32 @@ class FalkorDBClient(DatabaseClient):
         """Get graph statistics using individual queries.
 
         Fallback method for when combined query is not supported.
+        Uses UNION patterns for O(log n) index lookups where possible.
 
         Returns:
             Dictionary with node/relationship counts
         """
+        # Known labels for UNION-based counting (avoids full graph scan)
+        labels = ["File", "Module", "Class", "Function", "Variable", "Attribute", "Concept", "Rule"]
+
+        # Build UNION query for total_nodes (O(log n) per label vs O(n) full scan)
+        total_union = " UNION ALL ".join([f"MATCH (n:{label}) RETURN count(n) as cnt" for label in labels])
+        total_nodes_query = f"CALL {{ {total_union} }} RETURN sum(cnt) as count"
+
+        # Build UNION query for embeddings_count
+        emb_union = " UNION ALL ".join([
+            f"MATCH (n:{label}) WHERE n.embedding IS NOT NULL RETURN count(n) as cnt"
+            for label in labels
+        ])
+        embeddings_query = f"CALL {{ {emb_union} }} RETURN sum(cnt) as count"
+
         queries = {
-            "total_nodes": "MATCH (n) RETURN count(n) as count",
+            "total_nodes": total_nodes_query,
             "total_files": "MATCH (f:File) RETURN count(f) as count",
             "total_classes": "MATCH (c:Class) RETURN count(c) as count",
             "total_functions": "MATCH (f:Function) RETURN count(f) as count",
             "total_relationships": "MATCH ()-[r]->() RETURN count(r) as count",
-            "embeddings_count": "MATCH (n) WHERE n.embedding IS NOT NULL RETURN count(n) as count",
+            "embeddings_count": embeddings_query,
         }
 
         stats = {}
@@ -894,14 +909,22 @@ class FalkorDBClient(DatabaseClient):
         return {record["rel_type"]: record["count"] for record in result}
 
     def get_node_label_counts(self) -> Dict[str, int]:
-        """Get counts for each node label."""
-        query = """
-        MATCH (n)
-        RETURN labels(n)[0] as label, count(n) as count
+        """Get counts for each node label.
+
+        Uses UNION pattern for O(log n) index lookups instead of O(n) full scan.
+        """
+        # Known labels in the schema - uses index for each count
+        labels = ["File", "Module", "Class", "Function", "Variable", "Attribute", "Concept", "Rule"]
+        union_parts = [f"MATCH (n:{label}) RETURN '{label}' as label, count(n) as count" for label in labels]
+        query = f"""
+        CALL {{
+            {' UNION ALL '.join(union_parts)}
+        }}
+        RETURN label, count
         ORDER BY count DESC
         """
         result = self.execute_query(query)
-        return {record["label"]: record["count"] for record in result if record.get("label")}
+        return {record["label"]: record["count"] for record in result if record.get("count", 0) > 0}
 
     def sample_nodes(self, label: str, limit: int = 5) -> List[Dict[str, Any]]:
         """Get sample nodes of a specific label.

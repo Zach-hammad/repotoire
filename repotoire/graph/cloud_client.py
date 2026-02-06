@@ -361,14 +361,22 @@ class CloudProxyClient(DatabaseClient):
             return 0
 
     def get_node_label_counts(self) -> Dict[str, int]:
-        """Get counts for each node label."""
-        query = """
-        MATCH (n)
-        RETURN labels(n)[0] as label, count(n) as count
+        """Get counts for each node label.
+
+        Uses UNION pattern for O(log n) index lookups instead of O(n) full scan.
+        """
+        # Known labels in the schema - uses index for each count
+        labels = ["File", "Module", "Class", "Function", "Variable", "Attribute", "Concept", "Rule"]
+        union_parts = [f"MATCH (n:{label}) RETURN '{label}' as label, count(n) as count" for label in labels]
+        query = f"""
+        CALL {{
+            {' UNION ALL '.join(union_parts)}
+        }}
+        RETURN label, count
         ORDER BY count DESC
         """
         result = self.execute_query(query)
-        return {record["label"]: record["count"] for record in result if record.get("label")}
+        return {record["label"]: record["count"] for record in result if record.get("count", 0) > 0}
 
     def get_relationship_type_counts(self) -> Dict[str, int]:
         """Get counts for each relationship type."""
