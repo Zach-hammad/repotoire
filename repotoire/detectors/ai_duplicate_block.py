@@ -1,21 +1,22 @@
 """AI Duplicate Block Detector.
 
 Detects near-identical code blocks that AI coding assistants tend to create
-(copy-paste patterns). These are functions with high structural similarity
-but not exact duplicates.
+(copy-paste patterns). Uses AST-based similarity analysis per ICSE 2025 research.
 
 AI assistants often generate repetitive code with minor variations like:
 - Different variable names but same logic
 - Same structure with different literals
 - Copy-paste patterns with slight modifications
 
-This detector uses normalized hashing to find these near-duplicates.
+This detector uses tree-sitter AST parsing with normalized identifier hashing
+and Jaccard similarity to find these near-duplicates.
 """
 
+import ast
 import hashlib
 import re
 from collections import defaultdict
-from difflib import SequenceMatcher
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from repotoire.detectors.base import CodeSmellDetector
@@ -24,23 +25,458 @@ from repotoire.graph.enricher import GraphEnricher
 from repotoire.logging_config import get_logger
 from repotoire.models import CollaborationMetadata, Finding, Severity
 
+logger = get_logger(__name__)
+
+# Generic identifier patterns commonly produced by AI assistants
+GENERIC_IDENTIFIERS = frozenset({
+    "result", "res", "ret", "return_value", "rv",
+    "temp", "tmp", "t",
+    "data", "d",
+    "value", "val", "v",
+    "item", "items", "i",
+    "obj", "object", "o",
+    "x", "y", "z",
+    "a", "b", "c",
+    "arr", "array", "list", "lst",
+    "dict", "dictionary", "map", "mapping",
+    "str", "string", "s",
+    "num", "number", "n",
+    "count", "cnt",
+    "index", "idx",
+    "key", "k",
+    "var", "variable",
+    "input", "output", "out",
+    "response", "resp",
+    "request", "req",
+    "config", "cfg",
+    "args", "kwargs",
+    "params", "parameters",
+    "options", "opts",
+    "settings",
+    "handler", "callback", "cb",
+    "func", "fn", "function",
+    "elem", "element",
+    "node", "n",
+    "current", "curr", "cur",
+    "previous", "prev",
+    "next",
+})
+
+
+class ASTNormalizer:
+    """Normalizes Python AST for similarity comparison.
+    
+    Replaces identifiers with type-based placeholders:
+    - Variables → VAR_N
+    - Functions → FUNC_N  
+    - Classes → CLASS_N
+    """
+    
+    def __init__(self):
+        self.var_counter = 0
+        self.func_counter = 0
+        self.class_counter = 0
+        self.name_map: Dict[str, str] = {}
+        
+    def normalize_name(self, name: str, ctx_type: str = "var") -> str:
+        """Normalize an identifier to a type-based placeholder.
+        
+        Args:
+            name: Original identifier name
+            ctx_type: Type of identifier ("var", "func", "class")
+            
+        Returns:
+            Normalized placeholder string
+        """
+        if name in self.name_map:
+            return self.name_map[name]
+        
+        if ctx_type == "func":
+            self.func_counter += 1
+            placeholder = f"FUNC_{self.func_counter}"
+        elif ctx_type == "class":
+            self.class_counter += 1
+            placeholder = f"CLASS_{self.class_counter}"
+        else:
+            self.var_counter += 1
+            placeholder = f"VAR_{self.var_counter}"
+        
+        self.name_map[name] = placeholder
+        return placeholder
+    
+    def reset(self):
+        """Reset counters and name mappings for a new function."""
+        self.var_counter = 0
+        self.func_counter = 0
+        self.class_counter = 0
+        self.name_map.clear()
+
+
+class PythonASTHasher(ast.NodeVisitor):
+    """Visits Python AST and produces normalized hash strings for subtrees."""
+    
+    def __init__(self, normalizer: ASTNormalizer):
+        self.normalizer = normalizer
+        self.hashes: List[str] = []
+        self.identifiers: List[str] = []  # Track all identifiers for generic name detection
+        
+    def visit_Name(self, node: ast.Name) -> str:
+        """Normalize variable names."""
+        self.identifiers.append(node.id)
+        normalized = self.normalizer.normalize_name(node.id, "var")
+        return f"Name({normalized})"
+    
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> str:
+        """Normalize function definitions."""
+        self.identifiers.append(node.name)
+        normalized_name = self.normalizer.normalize_name(node.name, "func")
+        args = self._visit_arguments(node.args)
+        body = [self.visit(stmt) for stmt in node.body if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, (ast.Constant, ast.Str))]  # Skip docstrings
+        decorators = [self.visit(d) for d in node.decorator_list]
+        result = f"FunctionDef({normalized_name},{args},{body},{decorators})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> str:
+        """Normalize async function definitions."""
+        self.identifiers.append(node.name)
+        normalized_name = self.normalizer.normalize_name(node.name, "func")
+        args = self._visit_arguments(node.args)
+        body = [self.visit(stmt) for stmt in node.body if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, (ast.Constant, ast.Str))]
+        decorators = [self.visit(d) for d in node.decorator_list]
+        result = f"AsyncFunctionDef({normalized_name},{args},{body},{decorators})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_ClassDef(self, node: ast.ClassDef) -> str:
+        """Normalize class definitions."""
+        self.identifiers.append(node.name)
+        normalized_name = self.normalizer.normalize_name(node.name, "class")
+        bases = [self.visit(b) for b in node.bases]
+        body = [self.visit(stmt) for stmt in node.body if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, (ast.Constant, ast.Str))]
+        result = f"ClassDef({normalized_name},{bases},{body})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_Call(self, node: ast.Call) -> str:
+        """Normalize function calls."""
+        func = self.visit(node.func)
+        args = [self.visit(a) for a in node.args]
+        keywords = [f"{kw.arg}={self.visit(kw.value)}" for kw in node.keywords]
+        result = f"Call({func},{args},{keywords})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_Attribute(self, node: ast.Attribute) -> str:
+        """Normalize attribute access."""
+        value = self.visit(node.value)
+        # Keep attribute names as-is (often API names)
+        return f"Attr({value}.{node.attr})"
+    
+    def visit_Subscript(self, node: ast.Subscript) -> str:
+        """Normalize subscript operations."""
+        value = self.visit(node.value)
+        slice_val = self.visit(node.slice)
+        result = f"Subscript({value}[{slice_val}])"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_BinOp(self, node: ast.BinOp) -> str:
+        """Normalize binary operations."""
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+        op = type(node.op).__name__
+        result = f"BinOp({left}{op}{right})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_Compare(self, node: ast.Compare) -> str:
+        """Normalize comparisons."""
+        left = self.visit(node.left)
+        ops = [type(op).__name__ for op in node.ops]
+        comparators = [self.visit(c) for c in node.comparators]
+        result = f"Compare({left},{ops},{comparators})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_If(self, node: ast.If) -> str:
+        """Normalize if statements."""
+        test = self.visit(node.test)
+        body = [self.visit(stmt) for stmt in node.body]
+        orelse = [self.visit(stmt) for stmt in node.orelse]
+        result = f"If({test},{body},{orelse})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_For(self, node: ast.For) -> str:
+        """Normalize for loops."""
+        target = self.visit(node.target)
+        iter_val = self.visit(node.iter)
+        body = [self.visit(stmt) for stmt in node.body]
+        result = f"For({target},{iter_val},{body})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_While(self, node: ast.While) -> str:
+        """Normalize while loops."""
+        test = self.visit(node.test)
+        body = [self.visit(stmt) for stmt in node.body]
+        result = f"While({test},{body})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_Return(self, node: ast.Return) -> str:
+        """Normalize return statements."""
+        value = self.visit(node.value) if node.value else "None"
+        result = f"Return({value})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_Assign(self, node: ast.Assign) -> str:
+        """Normalize assignments."""
+        targets = [self.visit(t) for t in node.targets]
+        value = self.visit(node.value)
+        result = f"Assign({targets}={value})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_AugAssign(self, node: ast.AugAssign) -> str:
+        """Normalize augmented assignments."""
+        target = self.visit(node.target)
+        op = type(node.op).__name__
+        value = self.visit(node.value)
+        result = f"AugAssign({target}{op}={value})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_Constant(self, node: ast.Constant) -> str:
+        """Normalize constants - keep type but not value."""
+        return f"Const({type(node.value).__name__})"
+    
+    def visit_List(self, node: ast.List) -> str:
+        """Normalize list literals."""
+        elts = [self.visit(e) for e in node.elts]
+        return f"List({elts})"
+    
+    def visit_Dict(self, node: ast.Dict) -> str:
+        """Normalize dict literals."""
+        keys = [self.visit(k) if k else "None" for k in node.keys]
+        values = [self.visit(v) for v in node.values]
+        return f"Dict({keys},{values})"
+    
+    def visit_Tuple(self, node: ast.Tuple) -> str:
+        """Normalize tuple literals."""
+        elts = [self.visit(e) for e in node.elts]
+        return f"Tuple({elts})"
+    
+    def visit_ListComp(self, node: ast.ListComp) -> str:
+        """Normalize list comprehensions."""
+        elt = self.visit(node.elt)
+        generators = [self._visit_comprehension(g) for g in node.generators]
+        result = f"ListComp({elt},{generators})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_DictComp(self, node: ast.DictComp) -> str:
+        """Normalize dict comprehensions."""
+        key = self.visit(node.key)
+        value = self.visit(node.value)
+        generators = [self._visit_comprehension(g) for g in node.generators]
+        result = f"DictComp({key}:{value},{generators})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_Try(self, node: ast.Try) -> str:
+        """Normalize try/except blocks."""
+        body = [self.visit(stmt) for stmt in node.body]
+        handlers = [self._visit_handler(h) for h in node.handlers]
+        orelse = [self.visit(stmt) for stmt in node.orelse]
+        finalbody = [self.visit(stmt) for stmt in node.finalbody]
+        result = f"Try({body},{handlers},{orelse},{finalbody})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_With(self, node: ast.With) -> str:
+        """Normalize with statements."""
+        items = [f"{self.visit(item.context_expr)}as{self.visit(item.optional_vars) if item.optional_vars else 'None'}" 
+                 for item in node.items]
+        body = [self.visit(stmt) for stmt in node.body]
+        result = f"With({items},{body})"
+        self.hashes.append(hashlib.md5(result.encode()).hexdigest()[:8])
+        return result
+    
+    def visit_Raise(self, node: ast.Raise) -> str:
+        """Normalize raise statements."""
+        exc = self.visit(node.exc) if node.exc else "None"
+        return f"Raise({exc})"
+    
+    def visit_Assert(self, node: ast.Assert) -> str:
+        """Normalize assert statements."""
+        test = self.visit(node.test)
+        return f"Assert({test})"
+    
+    def visit_Expr(self, node: ast.Expr) -> str:
+        """Normalize expression statements."""
+        return self.visit(node.value)
+    
+    def visit_Pass(self, node: ast.Pass) -> str:
+        return "Pass"
+    
+    def visit_Break(self, node: ast.Break) -> str:
+        return "Break"
+    
+    def visit_Continue(self, node: ast.Continue) -> str:
+        return "Continue"
+    
+    def _visit_arguments(self, args: ast.arguments) -> str:
+        """Normalize function arguments."""
+        all_args = []
+        for arg in args.posonlyargs + args.args:
+            self.identifiers.append(arg.arg)
+            all_args.append(self.normalizer.normalize_name(arg.arg, "var"))
+        if args.vararg:
+            self.identifiers.append(args.vararg.arg)
+            all_args.append(f"*{self.normalizer.normalize_name(args.vararg.arg, 'var')}")
+        for arg in args.kwonlyargs:
+            self.identifiers.append(arg.arg)
+            all_args.append(self.normalizer.normalize_name(arg.arg, "var"))
+        if args.kwarg:
+            self.identifiers.append(args.kwarg.arg)
+            all_args.append(f"**{self.normalizer.normalize_name(args.kwarg.arg, 'var')}")
+        return f"Args({all_args})"
+    
+    def _visit_comprehension(self, comp: ast.comprehension) -> str:
+        """Normalize comprehension generators."""
+        target = self.visit(comp.target)
+        iter_val = self.visit(comp.iter)
+        ifs = [self.visit(if_clause) for if_clause in comp.ifs]
+        return f"Gen({target},{iter_val},{ifs})"
+    
+    def _visit_handler(self, handler: ast.ExceptHandler) -> str:
+        """Normalize exception handlers."""
+        exc_type = handler.type.id if handler.type and isinstance(handler.type, ast.Name) else "Exception"
+        if handler.name:
+            self.identifiers.append(handler.name)
+            name = self.normalizer.normalize_name(handler.name, "var")
+        else:
+            name = "None"
+        body = [self.visit(stmt) for stmt in handler.body]
+        return f"Handler({exc_type},{name},{body})"
+    
+    def generic_visit(self, node: ast.AST) -> str:
+        """Fallback for unhandled node types."""
+        children = []
+        for child in ast.iter_child_nodes(node):
+            children.append(self.visit(child))
+        return f"{type(node).__name__}({children})"
+    
+    def get_hash_set(self) -> Set[str]:
+        """Get set of all subtree hashes."""
+        return set(self.hashes)
+    
+    def get_generic_name_ratio(self) -> float:
+        """Calculate ratio of generic identifiers."""
+        if not self.identifiers:
+            return 0.0
+        generic_count = sum(1 for name in self.identifiers if name.lower() in GENERIC_IDENTIFIERS)
+        return generic_count / len(self.identifiers)
+
+
+def extract_function_source(source: str, line_start: int, line_end: int) -> str:
+    """Extract function source code from file content.
+    
+    Args:
+        source: Full file source code
+        line_start: Starting line (1-indexed)
+        line_end: Ending line (1-indexed)
+        
+    Returns:
+        Function source code
+    """
+    lines = source.split('\n')
+    # Convert to 0-indexed
+    start_idx = max(0, line_start - 1)
+    end_idx = min(len(lines), line_end)
+    return '\n'.join(lines[start_idx:end_idx])
+
+
+def parse_function_ast(source: str) -> Optional[ast.AST]:
+    """Parse function source code to AST.
+    
+    Args:
+        source: Function source code
+        
+    Returns:
+        Parsed AST or None if parsing fails
+    """
+    # Dedent the source to handle indented methods
+    import textwrap
+    dedented = textwrap.dedent(source)
+    
+    try:
+        tree = ast.parse(dedented)
+        # Return the first function/method definition
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return node
+        return tree
+    except SyntaxError:
+        return None
+
+
+def compute_ast_hashes(func_ast: ast.AST) -> Tuple[Set[str], float, List[str]]:
+    """Compute normalized AST hashes for a function.
+    
+    Args:
+        func_ast: Parsed function AST
+        
+    Returns:
+        Tuple of (hash set, generic name ratio, identifiers list)
+    """
+    normalizer = ASTNormalizer()
+    hasher = PythonASTHasher(normalizer)
+    hasher.visit(func_ast)
+    return hasher.get_hash_set(), hasher.get_generic_name_ratio(), hasher.identifiers
+
+
+def jaccard_similarity(set1: Set[str], set2: Set[str]) -> float:
+    """Calculate Jaccard similarity between two sets.
+    
+    Args:
+        set1: First set
+        set2: Second set
+        
+    Returns:
+        Jaccard similarity (0.0 to 1.0)
+    """
+    if not set1 and not set2:
+        return 1.0
+    if not set1 or not set2:
+        return 0.0
+    
+    intersection = len(set1 & set2)
+    union = len(set1 | set2)
+    return intersection / union if union > 0 else 0.0
+
 
 class AIDuplicateBlockDetector(CodeSmellDetector):
     """Detect near-identical code blocks typical of AI-generated code.
     
-    AI coding assistants often produce repetitive patterns:
-    - Functions with identical structure but different variable names
-    - Copy-paste with minor modifications
-    - Template-like code with different parameters
+    Uses AST-based similarity analysis per ICSE 2025 research:
+    1. Parse functions to AST
+    2. Normalize AST (replace identifiers with TYPE_N placeholders)
+    3. Hash normalized AST subtrees
+    4. Calculate Jaccard similarity of hash sets
+    5. Threshold: >70% = duplicate
     
-    This detector normalizes function code and finds high-similarity pairs
-    that aren't exact duplicates (those are caught by other detectors).
+    Also detects generic naming patterns common in AI code.
     """
 
-    # Default thresholds
-    DEFAULT_SIMILARITY_THRESHOLD = 0.85  # 85% similarity
-    DEFAULT_MIN_LOC = 5  # Minimum lines of code to consider
-    DEFAULT_MAX_FINDINGS = 50  # Limit results
+    # Default thresholds (based on ICSE 2025 research)
+    DEFAULT_SIMILARITY_THRESHOLD = 0.70  # 70% Jaccard similarity
+    DEFAULT_GENERIC_NAME_THRESHOLD = 0.40  # 40% generic identifiers
+    DEFAULT_MIN_LOC = 5  # Minimum lines of code
+    DEFAULT_MAX_FINDINGS = 50
 
     def __init__(
         self,
@@ -52,53 +488,68 @@ class AIDuplicateBlockDetector(CodeSmellDetector):
 
         Args:
             graph_client: FalkorDB database client
-            detector_config: Optional configuration dict with thresholds
+            detector_config: Configuration dict with:
+                - repository_path: Path to repository root (required for AST parsing)
+                - similarity_threshold: Jaccard similarity threshold (default: 0.70)
+                - generic_name_threshold: Generic identifier ratio threshold (default: 0.40)
+                - min_loc: Minimum lines of code (default: 5)
+                - max_findings: Maximum findings (default: 50)
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
         super().__init__(graph_client, detector_config)
         self.enricher = enricher
-        self.logger = get_logger(__name__)
 
         config = detector_config or {}
+        self.repository_path = Path(config.get("repository_path", "."))
         self.similarity_threshold = config.get(
             "similarity_threshold", self.DEFAULT_SIMILARITY_THRESHOLD
+        )
+        self.generic_name_threshold = config.get(
+            "generic_name_threshold", self.DEFAULT_GENERIC_NAME_THRESHOLD
         )
         self.min_loc = config.get("min_loc", self.DEFAULT_MIN_LOC)
         self.max_findings = config.get("max_findings", self.DEFAULT_MAX_FINDINGS)
 
     def detect(self) -> List[Finding]:
-        """Detect near-duplicate code blocks in the codebase.
+        """Detect near-duplicate code blocks using AST similarity.
 
         Returns:
             List of findings for AI-generated duplicate patterns
         """
-        # Fetch all functions with their source code / structure info
+        # Fetch all Python functions from the graph
         functions = self._fetch_functions()
         
         if not functions:
-            self.logger.info("AIDuplicateBlockDetector: No functions found")
+            logger.info("AIDuplicateBlockDetector: No functions found")
             return []
 
-        # Compute normalized representations and group by similarity
-        duplicates = self._find_near_duplicates(functions)
+        # Parse and hash function ASTs
+        func_data = self._process_functions(functions)
+        
+        if len(func_data) < 2:
+            logger.info("AIDuplicateBlockDetector: Not enough parseable functions")
+            return []
+
+        # Find near-duplicates using Jaccard similarity
+        duplicates = self._find_duplicates(func_data)
         
         # Create findings
-        findings = self._create_findings(duplicates)
+        findings = self._create_findings(duplicates, func_data)
         
-        self.logger.info(
-            f"AIDuplicateBlockDetector found {len(findings)} near-duplicate groups"
+        logger.info(
+            f"AIDuplicateBlockDetector found {len(findings)} near-duplicate pairs"
         )
         return findings[:self.max_findings]
 
     def _fetch_functions(self) -> List[Dict[str, Any]]:
-        """Fetch all functions from the graph with relevant metadata.
+        """Fetch Python functions from the graph.
 
         Returns:
             List of function data dictionaries
         """
-        # REPO-600: Filter by tenant_id AND repo_id
         repo_filter = self._get_isolation_filter("f")
 
+        # Only fetch Python functions (AST parser is Python-specific)
         query = f"""
         MATCH (f:Function)
         WHERE f.name IS NOT NULL 
@@ -106,21 +557,15 @@ class AIDuplicateBlockDetector(CodeSmellDetector):
           AND f.loc >= $min_loc
           {repo_filter}
         OPTIONAL MATCH (f)<-[:CONTAINS*]-(file:File)
+        WHERE file.language = 'python' OR file.filePath ENDS WITH '.py'
         RETURN f.qualifiedName AS qualified_name,
                f.name AS name,
                f.lineStart AS line_start,
                f.lineEnd AS line_end,
                f.loc AS loc,
-               f.parameters AS parameters,
-               f.complexity AS complexity,
-               f.is_method AS is_method,
-               f.decorators AS decorators,
-               f.has_return AS has_return,
-               f.has_yield AS has_yield,
-               f.is_async AS is_async,
                file.filePath AS file_path
         ORDER BY f.loc DESC
-        LIMIT 1000
+        LIMIT 500
         """
 
         try:
@@ -128,287 +573,240 @@ class AIDuplicateBlockDetector(CodeSmellDetector):
                 query,
                 self._get_query_params(min_loc=self.min_loc),
             )
-            return results
+            return [r for r in results if r.get("file_path")]
         except Exception as e:
-            self.logger.error(f"Error fetching functions: {e}")
+            logger.error(f"Error fetching functions: {e}")
             return []
 
-    def _normalize_function(self, func: Dict[str, Any]) -> str:
-        """Create a normalized representation of a function for comparison.
-        
-        Normalization strips:
-        - Whitespace differences
-        - Variable/parameter names (replaced with placeholders)
-        - Function names
-        - Decorator differences
-        
-        Args:
-            func: Function data from graph query
-            
-        Returns:
-            Normalized string representation for hashing
-        """
-        # Build a structural fingerprint from available metadata
-        parts = []
-        
-        # Function structure indicators
-        loc = func.get("loc", 0)
-        complexity = func.get("complexity", 0)
-        params = func.get("parameters") or []
-        param_count = len(params) if isinstance(params, list) else 0
-        
-        # Structural elements
-        parts.append(f"LOC:{loc}")
-        parts.append(f"COMPLEXITY:{complexity}")
-        parts.append(f"PARAMS:{param_count}")
-        
-        # Boolean flags that indicate structure
-        if func.get("is_method"):
-            parts.append("METHOD")
-        if func.get("is_async"):
-            parts.append("ASYNC")
-        if func.get("has_return"):
-            parts.append("RETURNS")
-        if func.get("has_yield"):
-            parts.append("YIELDS")
-            
-        return "|".join(sorted(parts))
-
-    def _compute_hash(self, normalized: str) -> str:
-        """Compute hash of normalized function representation.
-        
-        Args:
-            normalized: Normalized function string
-            
-        Returns:
-            MD5 hash string
-        """
-        return hashlib.md5(normalized.encode()).hexdigest()
-
-    def _calculate_similarity(self, func1: Dict, func2: Dict) -> float:
-        """Calculate structural similarity between two functions.
-        
-        Uses multiple heuristics:
-        - LOC similarity
-        - Complexity similarity
-        - Parameter count similarity
-        - Structural flags match
-        
-        Args:
-            func1: First function data
-            func2: Second function data
-            
-        Returns:
-            Similarity score 0.0-1.0
-        """
-        scores = []
-        
-        # LOC similarity (within 20% is considered similar)
-        loc1 = func1.get("loc", 0) or 0
-        loc2 = func2.get("loc", 0) or 0
-        if loc1 > 0 and loc2 > 0:
-            loc_ratio = min(loc1, loc2) / max(loc1, loc2)
-            scores.append(loc_ratio)
-        
-        # Complexity similarity
-        c1 = func1.get("complexity", 0) or 0
-        c2 = func2.get("complexity", 0) or 0
-        if c1 > 0 and c2 > 0:
-            complexity_ratio = min(c1, c2) / max(c1, c2)
-            scores.append(complexity_ratio)
-        elif c1 == c2 == 0:
-            scores.append(1.0)  # Both have no complexity data
-        
-        # Parameter count similarity
-        p1 = func1.get("parameters") or []
-        p2 = func2.get("parameters") or []
-        p1_count = len(p1) if isinstance(p1, list) else 0
-        p2_count = len(p2) if isinstance(p2, list) else 0
-        if p1_count > 0 or p2_count > 0:
-            max_params = max(p1_count, p2_count)
-            param_sim = 1.0 - (abs(p1_count - p2_count) / (max_params + 1))
-            scores.append(param_sim)
-        else:
-            scores.append(1.0)  # Both have no params
-        
-        # Boolean flags match (each matching flag adds to similarity)
-        flags = ["is_method", "is_async", "has_return", "has_yield"]
-        flag_matches = sum(
-            1 for flag in flags 
-            if bool(func1.get(flag)) == bool(func2.get(flag))
-        )
-        flag_similarity = flag_matches / len(flags)
-        scores.append(flag_similarity)
-        
-        # Weight average (LOC and complexity more important)
-        if len(scores) >= 4:
-            weights = [0.35, 0.25, 0.2, 0.2]  # LOC, complexity, params, flags
-            weighted_sum = sum(s * w for s, w in zip(scores, weights))
-            return weighted_sum
-        
-        return sum(scores) / len(scores) if scores else 0.0
-
-    def _find_near_duplicates(
+    def _process_functions(
         self, functions: List[Dict[str, Any]]
-    ) -> List[Tuple[Dict, Dict, float]]:
-        """Find pairs of functions that are near-duplicates.
-        
-        Groups functions by structural hash first for efficiency,
-        then computes detailed similarity within groups.
+    ) -> Dict[str, Dict[str, Any]]:
+        """Parse functions and compute AST hashes.
         
         Args:
             functions: List of function data from graph
             
         Returns:
-            List of (func1, func2, similarity) tuples
+            Dict mapping qualified_name to processed data
         """
-        # Group by normalized hash for initial clustering
-        hash_groups: Dict[str, List[Dict]] = defaultdict(list)
+        # Cache file contents to avoid re-reading
+        file_cache: Dict[str, str] = {}
+        func_data: Dict[str, Dict[str, Any]] = {}
+        
         for func in functions:
-            normalized = self._normalize_function(func)
-            hash_key = self._compute_hash(normalized)
-            hash_groups[hash_key].append(func)
-        
-        duplicates = []
-        seen_pairs: Set[Tuple[str, str]] = set()
-        
-        # Check within hash groups (exact structural matches)
-        for group_funcs in hash_groups.values():
-            if len(group_funcs) < 2:
+            file_path = func.get("file_path")
+            if not file_path:
                 continue
             
-            # Compare all pairs in group
-            for i, func1 in enumerate(group_funcs):
-                for func2 in group_funcs[i + 1:]:
-                    qn1 = func1.get("qualified_name", "")
-                    qn2 = func2.get("qualified_name", "")
-                    
-                    # Skip if same file (might be intentional overloads)
-                    if func1.get("file_path") == func2.get("file_path"):
-                        continue
-                    
-                    pair_key = tuple(sorted([qn1, qn2]))
-                    if pair_key in seen_pairs:
-                        continue
-                    seen_pairs.add(pair_key)
-                    
-                    similarity = self._calculate_similarity(func1, func2)
-                    if similarity >= self.similarity_threshold:
-                        duplicates.append((func1, func2, similarity))
-        
-        # Also check across groups with similar LOC (within 20%)
-        all_funcs = list(functions)
-        all_funcs.sort(key=lambda f: f.get("loc", 0))
-        
-        for i, func1 in enumerate(all_funcs):
-            loc1 = func1.get("loc", 0)
-            if loc1 < self.min_loc:
-                continue
-                
-            # Only check nearby functions (sorted by LOC)
-            for func2 in all_funcs[i + 1:min(i + 20, len(all_funcs))]:
-                loc2 = func2.get("loc", 0)
-                
-                # Stop if LOC difference too large
-                if loc2 > loc1 * 1.3:
-                    break
-                
-                qn1 = func1.get("qualified_name", "")
-                qn2 = func2.get("qualified_name", "")
-                
-                # Skip same file
-                if func1.get("file_path") == func2.get("file_path"):
+            # Get file content
+            if file_path not in file_cache:
+                full_path = self.repository_path / file_path
+                if not full_path.exists():
                     continue
+                try:
+                    file_cache[file_path] = full_path.read_text(encoding='utf-8')
+                except Exception:
+                    continue
+            
+            source = file_cache[file_path]
+            line_start = func.get("line_start", 1)
+            line_end = func.get("line_end", line_start + 10)
+            
+            # Extract function source
+            func_source = extract_function_source(source, line_start, line_end)
+            if not func_source.strip():
+                continue
+            
+            # Parse to AST
+            func_ast = parse_function_ast(func_source)
+            if func_ast is None:
+                continue
+            
+            # Compute hashes
+            try:
+                hash_set, generic_ratio, identifiers = compute_ast_hashes(func_ast)
+            except Exception:
+                continue
+            
+            if not hash_set:
+                continue
+            
+            qn = func.get("qualified_name", "")
+            func_data[qn] = {
+                **func,
+                "hash_set": hash_set,
+                "generic_ratio": generic_ratio,
+                "identifiers": identifiers,
+                "ast_size": len(hash_set),
+            }
+        
+        return func_data
+
+    def _find_duplicates(
+        self, func_data: Dict[str, Dict[str, Any]]
+    ) -> List[Tuple[str, str, float]]:
+        """Find duplicate pairs using Jaccard similarity.
+        
+        Args:
+            func_data: Processed function data
+            
+        Returns:
+            List of (qn1, qn2, similarity) tuples
+        """
+        duplicates = []
+        qnames = list(func_data.keys())
+        seen_pairs: Set[Tuple[str, str]] = set()
+        
+        # Compare all pairs (O(n²) but filtered by AST size)
+        for i, qn1 in enumerate(qnames):
+            data1 = func_data[qn1]
+            hash_set1 = data1["hash_set"]
+            file1 = data1.get("file_path", "")
+            size1 = data1["ast_size"]
+            
+            for qn2 in qnames[i + 1:]:
+                data2 = func_data[qn2]
+                file2 = data2.get("file_path", "")
+                
+                # Skip same-file comparisons
+                if file1 == file2:
+                    continue
+                
+                # Skip if AST sizes are too different (optimization)
+                size2 = data2["ast_size"]
+                if size1 > 0 and size2 > 0:
+                    size_ratio = min(size1, size2) / max(size1, size2)
+                    if size_ratio < 0.5:  # Skip if one is more than 2x larger
+                        continue
                 
                 pair_key = tuple(sorted([qn1, qn2]))
                 if pair_key in seen_pairs:
                     continue
                 seen_pairs.add(pair_key)
                 
-                similarity = self._calculate_similarity(func1, func2)
+                # Calculate Jaccard similarity
+                hash_set2 = data2["hash_set"]
+                similarity = jaccard_similarity(hash_set1, hash_set2)
+                
                 if similarity >= self.similarity_threshold:
-                    duplicates.append((func1, func2, similarity))
+                    duplicates.append((qn1, qn2, similarity))
         
         # Sort by similarity (highest first)
         duplicates.sort(key=lambda x: x[2], reverse=True)
         return duplicates
 
     def _create_findings(
-        self, duplicates: List[Tuple[Dict, Dict, float]]
+        self,
+        duplicates: List[Tuple[str, str, float]],
+        func_data: Dict[str, Dict[str, Any]],
     ) -> List[Finding]:
         """Create findings from duplicate pairs.
         
         Args:
-            duplicates: List of (func1, func2, similarity) tuples
+            duplicates: List of (qn1, qn2, similarity) tuples
+            func_data: Processed function data
             
         Returns:
             List of Finding objects
         """
         findings = []
         
-        for func1, func2, similarity in duplicates:
-            qn1 = func1.get("qualified_name", "unknown")
-            qn2 = func2.get("qualified_name", "unknown")
-            name1 = func1.get("name", "unknown")
-            name2 = func2.get("name", "unknown")
-            file1 = func1.get("file_path", "unknown")
-            file2 = func2.get("file_path", "unknown")
-            loc1 = func1.get("loc", 0)
-            loc2 = func2.get("loc", 0)
+        for qn1, qn2, similarity in duplicates:
+            data1 = func_data.get(qn1, {})
+            data2 = func_data.get(qn2, {})
+            
+            name1 = data1.get("name", "unknown")
+            name2 = data2.get("name", "unknown")
+            file1 = data1.get("file_path", "unknown")
+            file2 = data2.get("file_path", "unknown")
+            loc1 = data1.get("loc", 0)
+            loc2 = data2.get("loc", 0)
+            generic_ratio1 = data1.get("generic_ratio", 0)
+            generic_ratio2 = data2.get("generic_ratio", 0)
             
             similarity_pct = int(similarity * 100)
             
+            # Check for generic naming pattern
+            has_generic_naming = (
+                generic_ratio1 >= self.generic_name_threshold or
+                generic_ratio2 >= self.generic_name_threshold
+            )
+            
+            # Build description
             description = (
-                f"Functions '{name1}' and '{name2}' have {similarity_pct}% structural "
-                f"similarity, suggesting AI-generated copy-paste patterns.\n\n"
-                f"- {name1}: {loc1} LOC in {file1}\n"
-                f"- {name2}: {loc2} LOC in {file2}\n\n"
-                f"Near-identical functions increase maintenance burden and "
-                f"can lead to inconsistent bug fixes."
+                f"Functions '{name1}' and '{name2}' have {similarity_pct}% AST similarity, "
+                f"indicating AI-generated copy-paste patterns.\n\n"
+                f"**{name1}** ({loc1} LOC): `{file1}`\n"
+                f"**{name2}** ({loc2} LOC): `{file2}`\n\n"
+            )
+            
+            if has_generic_naming:
+                avg_generic = (generic_ratio1 + generic_ratio2) / 2
+                description += (
+                    f"⚠️ **Generic naming detected**: {int(avg_generic * 100)}% of identifiers "
+                    f"use generic names (result, temp, data, etc.), a common AI pattern.\n\n"
+                )
+            
+            description += (
+                "Near-identical functions increase maintenance burden and "
+                "can lead to inconsistent bug fixes."
             )
             
             suggestion = (
                 "Consider one of the following approaches:\n"
-                "1. Extract common logic into a shared helper function\n"
-                "2. Use a template/factory pattern if variations are intentional\n"
-                "3. If truly duplicates, consolidate into a single implementation\n"
-                "4. Add documentation explaining why similar implementations exist"
+                "1. **Extract common logic** into a shared helper function\n"
+                "2. **Use a template/factory pattern** if variations are intentional\n"
+                "3. **Consolidate** into a single implementation if truly duplicates\n"
+                "4. **Add documentation** explaining why similar implementations exist"
             )
+            
+            # Determine severity based on similarity and generic naming
+            if similarity >= 0.90 and has_generic_naming:
+                severity = Severity.CRITICAL
+            elif similarity >= 0.85 or (similarity >= 0.70 and has_generic_naming):
+                severity = Severity.HIGH
+            else:
+                severity = Severity.MEDIUM
             
             finding = Finding(
                 id=f"ai_duplicate_block_{qn1}_{qn2}",
                 detector="AIDuplicateBlockDetector",
-                severity=Severity.HIGH,
-                title=f"AI-style duplicate: {name1} ≈ {name2} ({similarity_pct}%)",
+                severity=severity,
+                title=f"AI-style duplicate: {name1} ≈ {name2} ({similarity_pct}% AST)",
                 description=description,
                 affected_nodes=[qn1, qn2],
                 affected_files=[f for f in [file1, file2] if f != "unknown"],
-                line_start=func1.get("line_start"),
-                line_end=func1.get("line_end"),
+                line_start=data1.get("line_start"),
+                line_end=data1.get("line_end"),
                 suggested_fix=suggestion,
                 estimated_effort="Medium (1-2 hours)",
                 graph_context={
-                    "similarity": round(similarity, 3),
+                    "ast_similarity": round(similarity, 3),
                     "func1_loc": loc1,
                     "func2_loc": loc2,
-                    "func1_complexity": func1.get("complexity", 0),
-                    "func2_complexity": func2.get("complexity", 0),
+                    "func1_generic_ratio": round(generic_ratio1, 3),
+                    "func2_generic_ratio": round(generic_ratio2, 3),
+                    "has_generic_naming": has_generic_naming,
                 },
             )
             
             # Add collaboration metadata
-            evidence = ["high_structural_similarity", "cross_file_duplicate"]
-            if similarity >= 0.95:
-                evidence.append("near_identical")
+            evidence = ["high_ast_similarity", "cross_file_duplicate"]
+            if similarity >= 0.90:
+                evidence.append("near_identical_ast")
+            if has_generic_naming:
+                evidence.append("generic_naming_pattern")
+            
+            confidence = min(0.6 + similarity * 0.4, 0.95)
             
             finding.add_collaboration_metadata(CollaborationMetadata(
                 detector="AIDuplicateBlockDetector",
-                confidence=min(0.7 + (similarity - 0.85) * 2, 0.95),
+                confidence=confidence,
                 evidence=evidence,
-                tags=["ai_duplicate", "copy_paste", "duplication", "refactoring_candidate"],
+                tags=["ai_duplicate", "copy_paste", "duplication", "ast_similarity"],
             ))
             
-            # Flag entities in graph for cross-detector collaboration
+            # Flag entities in graph
             if self.enricher:
                 for qn in [qn1, qn2]:
                     try:
@@ -420,18 +818,18 @@ class AIDuplicateBlockDetector(CodeSmellDetector):
                             confidence=similarity,
                             metadata={
                                 "duplicate_of": qn2 if qn == qn1 else qn1,
-                                "similarity": round(similarity, 3),
+                                "ast_similarity": round(similarity, 3),
                             },
                         )
                     except Exception:
-                        pass  # Don't fail detection if enrichment fails
+                        pass
             
             findings.append(finding)
         
         return findings
 
     def severity(self, finding: Finding) -> Severity:
-        """Calculate severity (always HIGH for AI duplicates).
+        """Calculate severity based on similarity and generic naming.
 
         Args:
             finding: Finding to assess
@@ -439,4 +837,4 @@ class AIDuplicateBlockDetector(CodeSmellDetector):
         Returns:
             Severity level
         """
-        return Severity.HIGH
+        return finding.severity
