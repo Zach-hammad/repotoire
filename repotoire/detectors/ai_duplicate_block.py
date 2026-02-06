@@ -517,21 +517,40 @@ class AIDuplicateBlockDetector(CodeSmellDetector):
             List of findings for AI-generated duplicate patterns
         """
         # Fetch all Python functions from the graph
-        functions = self._fetch_functions()
+        try:
+            functions = self._fetch_functions()
+        except Exception as e:
+            logger.warning(f"AIDuplicateBlockDetector: Failed to fetch functions: {e}")
+            return []
         
         if not functions:
-            logger.info("AIDuplicateBlockDetector: No functions found")
+            logger.info(
+                "AIDuplicateBlockDetector: No Python functions found in graph "
+                "(graph may be empty or missing filePath/loc properties)"
+            )
             return []
+
+        logger.debug(f"AIDuplicateBlockDetector: Processing {len(functions)} functions")
 
         # Parse and hash function ASTs
         func_data = self._process_functions(functions)
         
         if len(func_data) < 2:
-            logger.info("AIDuplicateBlockDetector: Not enough parseable functions")
+            logger.info(
+                f"AIDuplicateBlockDetector: Not enough parseable functions "
+                f"(found {len(func_data)}, need at least 2)"
+            )
             return []
 
         # Find near-duplicates using Jaccard similarity
         duplicates = self._find_duplicates(func_data)
+        
+        if not duplicates:
+            logger.info(
+                f"AIDuplicateBlockDetector: No duplicates found above "
+                f"{self.similarity_threshold:.0%} threshold in {len(func_data)} functions"
+            )
+            return []
         
         # Create findings
         findings = self._create_findings(duplicates, func_data)
@@ -549,21 +568,22 @@ class AIDuplicateBlockDetector(CodeSmellDetector):
         """
         repo_filter = self._get_isolation_filter("f")
 
-        # Only fetch Python functions (AST parser is Python-specific)
+        # Try to get filePath directly from Function node (simpler, works without edges)
+        # This handles graphs that don't have CONTAINS relationships
         query = f"""
         MATCH (f:Function)
         WHERE f.name IS NOT NULL 
           AND f.loc IS NOT NULL 
           AND f.loc >= $min_loc
+          AND f.filePath IS NOT NULL
+          AND f.filePath ENDS WITH '.py'
           {repo_filter}
-        OPTIONAL MATCH (f)<-[:CONTAINS*]-(file:File)
-        WHERE file.language = 'python' OR file.filePath ENDS WITH '.py'
         RETURN f.qualifiedName AS qualified_name,
                f.name AS name,
                f.lineStart AS line_start,
                f.lineEnd AS line_end,
                f.loc AS loc,
-               file.filePath AS file_path
+               f.filePath AS file_path
         ORDER BY f.loc DESC
         LIMIT 500
         """
@@ -573,7 +593,37 @@ class AIDuplicateBlockDetector(CodeSmellDetector):
                 query,
                 self._get_query_params(min_loc=self.min_loc),
             )
-            return [r for r in results if r.get("file_path")]
+            functions = [r for r in results if r.get("file_path")]
+            
+            if functions:
+                return functions
+            
+            # Fallback: try with CONTAINS edge if direct filePath didn't work
+            logger.debug("No functions with direct filePath, trying CONTAINS edge lookup")
+            fallback_query = f"""
+            MATCH (f:Function)
+            WHERE f.name IS NOT NULL 
+              AND f.loc IS NOT NULL 
+              AND f.loc >= $min_loc
+              {repo_filter}
+            OPTIONAL MATCH (f)<-[:CONTAINS*]-(file:File)
+            WHERE file.language = 'python' OR file.filePath ENDS WITH '.py'
+            RETURN f.qualifiedName AS qualified_name,
+                   f.name AS name,
+                   f.lineStart AS line_start,
+                   f.lineEnd AS line_end,
+                   f.loc AS loc,
+                   file.filePath AS file_path
+            ORDER BY f.loc DESC
+            LIMIT 500
+            """
+            
+            fallback_results = self.db.execute_query(
+                fallback_query,
+                self._get_query_params(min_loc=self.min_loc),
+            )
+            return [r for r in fallback_results if r.get("file_path")]
+            
         except Exception as e:
             logger.error(f"Error fetching functions: {e}")
             return []
