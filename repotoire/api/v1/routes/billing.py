@@ -347,9 +347,9 @@ async def create_checkout(
         cancel_url=request.cancel_url,
         trial_days=trial_days,
         metadata={
-            "org_id": str(org.id),
+            "organization_id": str(org.id),
             "org_slug": org.slug,
-            "plan": request.plan,
+            "tier": request.plan,  # webhook expects 'tier' not 'plan'
             "seats": str(request.seats),
         },
     )
