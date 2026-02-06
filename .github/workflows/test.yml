@@ -17,6 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install uv
         uses: astral-sh/setup-uv@v4
         with:
@@ -28,8 +31,13 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
+      - name: Build Rust extension
+        run: |
+          cd repotoire-fast
+          uv run maturin develop --release
+
       - name: Run unit tests
-        run: uv run pytest tests/unit/ -v --tb=short
+        run: uv run pytest tests/unit/ -v --tb=short -x --timeout=300
 
   differential:
     name: Differential Tests (Lean/Python)
@@ -37,6 +45,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -49,11 +60,17 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
+      - name: Build Rust extension
+        run: |
+          cd repotoire-fast
+          uv run maturin develop --release
+
       - name: Run differential tests
         run: |
           uv run pytest tests/differential/ -v \
             --hypothesis-seed=${{ github.run_id }} \
-            --hypothesis-profile=ci
+            --hypothesis-profile=ci \
+            --timeout=300
         env:
           HYPOTHESIS_PROFILE: ci
 
@@ -111,6 +128,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install uv
         uses: astral-sh/setup-uv@v4
         with:
@@ -121,6 +141,11 @@ jobs:
 
       - name: Install Python dependencies
         run: uv sync --all-extras
+
+      - name: Build Rust extension
+        run: |
+          cd repotoire-fast
+          uv run maturin develop --release
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -136,6 +161,9 @@ jobs:
       - name: Generate API types
         run: npm run generate:types -- --python
         working-directory: repotoire/web
+        env:
+          # Minimal env vars for OpenAPI export (doesn't need real values)
+          DATABASE_URL: "postgresql://test:test@localhost:5432/test"
 
       - name: Check types are up-to-date
         run: |
