@@ -1,12 +1,17 @@
 """Tests for AIMissingTestsDetector.
 
-Tests the detection of functions/methods added without corresponding test coverage.
+Tests the detection of functions/methods added without corresponding test coverage
+or with weak/incomplete test coverage.
 """
 
 import pytest
 from unittest.mock import Mock
 
-from repotoire.detectors.ai_missing_tests import AIMissingTestsDetector
+from repotoire.detectors.ai_missing_tests import (
+    AIMissingTestsDetector,
+    TestQuality,
+    TestInfo,
+)
 from repotoire.models import Severity
 
 
@@ -27,9 +32,6 @@ class TestAIMissingTestsDetector:
 
     def test_detects_function_without_tests(self, detector, mock_client):
         """Test detection of function without test coverage."""
-        # First query: get test coverage info - no tests exist
-        # Second query: get test functions by name - none
-        # Third query: get recent functions
         mock_client.execute_query.side_effect = [
             [],  # No test files
             [],  # No test functions
@@ -52,15 +54,23 @@ class TestAIMissingTestsDetector:
         assert len(findings) == 1
         assert findings[0].severity == Severity.MEDIUM
         assert "process_data" in findings[0].title
-        assert "missing tests" in findings[0].title.lower()
+        assert "Missing tests" in findings[0].title
 
-    def test_no_findings_when_test_exists(self, detector, mock_client):
-        """Test that functions with tests are not flagged."""
+    def test_no_findings_when_test_exists_with_adequate_coverage(self, detector, mock_client):
+        """Test that functions with adequate tests are not flagged."""
         mock_client.execute_query.side_effect = [
-            # Test files with test functions
-            [{"file_path": "tests/test_module.py", "test_func_names": ["test_process_data"]}],
+            # Test files with test functions including source
+            [{
+                "file_path": "tests/test_module.py",
+                "language": "python",
+                "test_funcs": [{
+                    "name": "test_process_data",
+                    "loc": 10,
+                    "source": "def test_process_data():\n    assert result == expected\n    assert len(result) > 0\n    with pytest.raises(ValueError):\n        process_data(None)"
+                }]
+            }],
             # Additional test functions
-            [{"name": "test_process_data"}],
+            [],
             # Recent functions
             [
                 {
@@ -79,8 +89,8 @@ class TestAIMissingTestsDetector:
     def test_skips_test_functions(self, detector, mock_client):
         """Test that test functions themselves are not flagged."""
         mock_client.execute_query.side_effect = [
-            [],  # No test files
-            [],  # No test functions
+            [],
+            [],
             [
                 {
                     "qualified_name": "test_module.py::test_something",
@@ -155,34 +165,12 @@ class TestAIMissingTestsDetector:
 
         assert len(findings) == 0
 
-    def test_includes_dunder_when_configured(self, mock_client):
-        """Test that dunder methods can be included via config."""
-        detector = AIMissingTestsDetector(
-            mock_client, detector_config={"exclude_dunder": False}
-        )
-        mock_client.execute_query.side_effect = [
-            [],
-            [],
-            [
-                {
-                    "qualified_name": "module.py::MyClass.__init__",
-                    "name": "__init__",
-                    "file_path": "src/module.py",
-                    "language": "python",
-                }
-            ],
-        ]
-
-        findings = detector.detect()
-
-        assert len(findings) == 1
-
     def test_no_findings_for_empty_codebase(self, detector, mock_client):
         """Test no findings when no functions exist."""
         mock_client.execute_query.side_effect = [
-            [],  # No test files
-            [],  # No test functions
-            [],  # No recent functions
+            [],
+            [],
+            [],
         ]
 
         findings = detector.detect()
@@ -197,15 +185,19 @@ class TestAIMissingTestsDetector:
                 "window_days": 60,
                 "min_function_loc": 10,
                 "max_findings": 100,
+                "check_test_quality": False,
+                "min_assertions": 3,
             },
         )
 
         assert detector.window_days == 60
         assert detector.min_function_loc == 10
         assert detector.max_findings == 100
+        assert detector.check_test_quality is False
+        assert detector.min_assertions == 3
 
-    def test_severity_is_medium(self, detector, mock_client):
-        """Test that severity is always MEDIUM."""
+    def test_severity_is_medium_for_missing(self, detector, mock_client):
+        """Test that severity is MEDIUM for missing tests."""
         mock_client.execute_query.side_effect = [
             [],
             [],
@@ -222,6 +214,7 @@ class TestAIMissingTestsDetector:
         findings = detector.detect()
 
         assert len(findings) == 1
+        assert findings[0].severity == Severity.MEDIUM
         assert detector.severity(findings[0]) == Severity.MEDIUM
 
     def test_collaboration_metadata_added(self, detector, mock_client):
@@ -366,6 +359,442 @@ class TestAIMissingTestsDetector:
         assert len(findings) == 2
 
 
+class TestWeakTestDetection:
+    """Test detection of weak tests (single assertion)."""
+
+    @pytest.fixture
+    def mock_client(self):
+        """Create a mock database client."""
+        client = Mock()
+        client.__class__.__name__ = "FalkorDBClient"
+        return client
+
+    @pytest.fixture
+    def detector(self, mock_client):
+        """Create a detector instance with mock client."""
+        return AIMissingTestsDetector(mock_client)
+
+    def test_detects_weak_test_single_assertion(self, detector, mock_client):
+        """Test detection of weak test with single assertion."""
+        mock_client.execute_query.side_effect = [
+            # Test files with weak test
+            [{
+                "file_path": "tests/test_module.py",
+                "language": "python",
+                "test_funcs": [{
+                    "name": "test_process_data",
+                    "loc": 5,
+                    "source": "def test_process_data():\n    assert result == expected"
+                }]
+            }],
+            [],
+            # Recent functions
+            [
+                {
+                    "qualified_name": "module.py::process_data",
+                    "name": "process_data",
+                    "file_path": "src/module.py",
+                    "language": "python",
+                }
+            ],
+        ]
+
+        findings = detector.detect()
+
+        assert len(findings) == 1
+        assert findings[0].severity == Severity.LOW
+        assert "Weak test" in findings[0].title
+        assert findings[0].graph_context["test_quality"] == "weak"
+
+    def test_no_finding_for_strong_test(self, detector, mock_client):
+        """Test that tests with multiple assertions are not flagged as weak."""
+        mock_client.execute_query.side_effect = [
+            [{
+                "file_path": "tests/test_module.py",
+                "language": "python",
+                "test_funcs": [{
+                    "name": "test_process_data",
+                    "loc": 10,
+                    "source": """def test_process_data():
+    assert result is not None
+    assert result == expected
+    assert len(result) > 0
+    with pytest.raises(ValueError):
+        process_data(None)"""
+                }]
+            }],
+            [],
+            [
+                {
+                    "qualified_name": "module.py::process_data",
+                    "name": "process_data",
+                    "file_path": "src/module.py",
+                    "language": "python",
+                }
+            ],
+        ]
+
+        findings = detector.detect()
+
+        assert len(findings) == 0
+
+    def test_weak_test_check_disabled_by_config(self, mock_client):
+        """Test that weak test detection can be disabled."""
+        detector = AIMissingTestsDetector(
+            mock_client, detector_config={"check_test_quality": False}
+        )
+        mock_client.execute_query.side_effect = [
+            [{
+                "file_path": "tests/test_module.py",
+                "language": "python",
+                "test_funcs": [{
+                    "name": "test_process_data",
+                    "loc": 5,
+                    "source": "def test_process_data():\n    assert result == expected"
+                }]
+            }],
+            [],
+            [
+                {
+                    "qualified_name": "module.py::process_data",
+                    "name": "process_data",
+                    "file_path": "src/module.py",
+                    "language": "python",
+                }
+            ],
+        ]
+
+        findings = detector.detect()
+
+        # Should not flag weak tests when check_test_quality is False
+        assert len(findings) == 0
+
+    def test_weak_test_suggestion(self, detector, mock_client):
+        """Test that weak test findings include strengthen suggestion."""
+        mock_client.execute_query.side_effect = [
+            [{
+                "file_path": "tests/test_module.py",
+                "language": "python",
+                "test_funcs": [{
+                    "name": "test_my_func",
+                    "loc": 5,
+                    "source": "def test_my_func():\n    assert True"
+                }]
+            }],
+            [],
+            [
+                {
+                    "qualified_name": "module.py::my_func",
+                    "name": "my_func",
+                    "file_path": "src/module.py",
+                    "language": "python",
+                }
+            ],
+        ]
+
+        findings = detector.detect()
+
+        assert len(findings) == 1
+        assert "Strengthen" in findings[0].suggested_fix
+
+
+class TestIncompleteTestDetection:
+    """Test detection of incomplete tests (no error handling)."""
+
+    @pytest.fixture
+    def mock_client(self):
+        """Create a mock database client."""
+        client = Mock()
+        client.__class__.__name__ = "FalkorDBClient"
+        return client
+
+    @pytest.fixture
+    def detector(self, mock_client):
+        """Create a detector instance with mock client."""
+        return AIMissingTestsDetector(mock_client)
+
+    def test_detects_incomplete_test_no_error_handling(self, detector, mock_client):
+        """Test detection of test without error handling coverage."""
+        mock_client.execute_query.side_effect = [
+            [{
+                "file_path": "tests/test_module.py",
+                "language": "python",
+                "test_funcs": [{
+                    "name": "test_process_data",
+                    "loc": 8,
+                    # Multiple assertions but no error handling
+                    "source": """def test_process_data():
+    result = process_data(valid_input)
+    assert result is not None
+    assert result == expected
+    assert len(result) > 0"""
+                }]
+            }],
+            [],
+            [
+                {
+                    "qualified_name": "module.py::process_data",
+                    "name": "process_data",
+                    "file_path": "src/module.py",
+                    "language": "python",
+                }
+            ],
+        ]
+
+        findings = detector.detect()
+
+        assert len(findings) == 1
+        assert findings[0].severity == Severity.LOW
+        assert "Incomplete test" in findings[0].title
+        assert findings[0].graph_context["test_quality"] == "incomplete"
+
+    def test_no_finding_for_test_with_error_handling(self, detector, mock_client):
+        """Test that tests with error handling are not flagged as incomplete."""
+        mock_client.execute_query.side_effect = [
+            [{
+                "file_path": "tests/test_module.py",
+                "language": "python",
+                "test_funcs": [{
+                    "name": "test_process_data",
+                    "loc": 10,
+                    "source": """def test_process_data():
+    result = process_data(valid_input)
+    assert result is not None
+    assert result == expected
+    with pytest.raises(ValueError):
+        process_data(None)"""
+                }]
+            }],
+            [],
+            [
+                {
+                    "qualified_name": "module.py::process_data",
+                    "name": "process_data",
+                    "file_path": "src/module.py",
+                    "language": "python",
+                }
+            ],
+        ]
+
+        findings = detector.detect()
+
+        assert len(findings) == 0
+
+    def test_error_test_detected_by_name(self, detector, mock_client):
+        """Test that error handling is detected from test name."""
+        mock_client.execute_query.side_effect = [
+            [{
+                "file_path": "tests/test_module.py",
+                "language": "python",
+                "test_funcs": [
+                    {
+                        "name": "test_process_data",
+                        "loc": 5,
+                        "source": "def test_process_data():\n    assert result == expected\n    assert len(result) > 0"
+                    },
+                    {
+                        # Error handling test exists separately
+                        "name": "test_process_data_invalid_input",
+                        "loc": 5,
+                        "source": "def test_process_data_invalid_input():\n    with pytest.raises(ValueError):\n        process_data(None)"
+                    }
+                ]
+            }],
+            [],
+            [
+                {
+                    "qualified_name": "module.py::process_data",
+                    "name": "process_data",
+                    "file_path": "src/module.py",
+                    "language": "python",
+                }
+            ],
+        ]
+
+        findings = detector.detect()
+
+        # The main test has no error handling but there's a separate error test
+        # The main test will still be flagged as incomplete
+        assert len(findings) == 1
+
+    def test_incomplete_test_suggestion(self, detector, mock_client):
+        """Test that incomplete test findings include error handling suggestion."""
+        mock_client.execute_query.side_effect = [
+            [{
+                "file_path": "tests/test_module.py",
+                "language": "python",
+                "test_funcs": [{
+                    "name": "test_my_func",
+                    "loc": 8,
+                    "source": """def test_my_func():
+    result = my_func(valid_input)
+    assert result is not None
+    assert result == expected"""
+                }]
+            }],
+            [],
+            [
+                {
+                    "qualified_name": "module.py::my_func",
+                    "name": "my_func",
+                    "file_path": "src/module.py",
+                    "language": "python",
+                }
+            ],
+        ]
+
+        findings = detector.detect()
+
+        assert len(findings) == 1
+        assert "error handling" in findings[0].suggested_fix.lower()
+
+
+class TestTestInfo:
+    """Test TestInfo dataclass."""
+
+    def test_quality_missing_no_assertions(self):
+        """Test quality is MISSING when no assertions."""
+        info = TestInfo(
+            name="test_func",
+            file_path="test.py",
+            assertion_count=0,
+            has_error_tests=False,
+        )
+        assert info.quality == TestQuality.MISSING
+
+    def test_quality_weak_single_assertion(self):
+        """Test quality is WEAK with single assertion."""
+        info = TestInfo(
+            name="test_func",
+            file_path="test.py",
+            assertion_count=1,
+            has_error_tests=False,
+        )
+        assert info.quality == TestQuality.WEAK
+
+    def test_quality_incomplete_no_error_tests(self):
+        """Test quality is INCOMPLETE without error tests."""
+        info = TestInfo(
+            name="test_func",
+            file_path="test.py",
+            assertion_count=3,
+            has_error_tests=False,
+        )
+        assert info.quality == TestQuality.INCOMPLETE
+
+    def test_quality_adequate_full_coverage(self):
+        """Test quality is ADEQUATE with multiple assertions and error tests."""
+        info = TestInfo(
+            name="test_func",
+            file_path="test.py",
+            assertion_count=3,
+            has_error_tests=True,
+        )
+        assert info.quality == TestQuality.ADEQUATE
+
+
+class TestAssertionCounting:
+    """Test assertion counting logic."""
+
+    @pytest.fixture
+    def detector(self):
+        """Create detector with mock client."""
+        client = Mock()
+        client.__class__.__name__ = "FalkorDBClient"
+        return AIMissingTestsDetector(client)
+
+    def test_counts_python_assert_statements(self, detector):
+        """Test counting Python assert statements."""
+        source = """
+def test_func():
+    assert result is not None
+    assert result == expected
+    assert len(result) > 0
+"""
+        count = detector._count_assertions(source, "python")
+        assert count == 3
+
+    def test_counts_unittest_assertions(self, detector):
+        """Test counting unittest-style assertions."""
+        source = """
+def test_func(self):
+    self.assertEqual(result, expected)
+    self.assertTrue(condition)
+    self.assertIsNotNone(obj)
+"""
+        count = detector._count_assertions(source, "python")
+        assert count == 3
+
+    def test_counts_jest_expect(self, detector):
+        """Test counting Jest expect calls."""
+        source = """
+it('should work', () => {
+    expect(result).toBeDefined();
+    expect(result).toEqual(expected);
+    expect(arr.length).toBe(3);
+});
+"""
+        count = detector._count_assertions(source, "javascript")
+        assert count >= 3
+
+    def test_no_assertions_returns_one(self, detector):
+        """Test that empty source assumes 1 assertion."""
+        count = detector._count_assertions("", "python")
+        assert count == 1
+
+
+class TestErrorHandlingDetection:
+    """Test error handling test detection."""
+
+    @pytest.fixture
+    def detector(self):
+        """Create detector with mock client."""
+        client = Mock()
+        client.__class__.__name__ = "FalkorDBClient"
+        return AIMissingTestsDetector(client)
+
+    def test_detects_pytest_raises(self, detector):
+        """Test detection of pytest.raises."""
+        source = """
+def test_error():
+    with pytest.raises(ValueError):
+        func(invalid)
+"""
+        assert detector._has_error_handling_tests(source, "test_error", "python") is True
+
+    def test_detects_unittest_assertRaises(self, detector):
+        """Test detection of unittest assertRaises."""
+        source = """
+def test_error(self):
+    self.assertRaises(ValueError, func, invalid)
+"""
+        assert detector._has_error_handling_tests(source, "test_error", "python") is True
+
+    def test_detects_jest_toThrow(self, detector):
+        """Test detection of Jest toThrow."""
+        source = """
+it('should throw', () => {
+    expect(() => func(invalid)).toThrow();
+});
+"""
+        assert detector._has_error_handling_tests(source, "test_throw", "javascript") is True
+
+    def test_detects_error_in_test_name(self, detector):
+        """Test detection from test name containing 'error'."""
+        assert detector._has_error_handling_tests("", "test_handles_error", "python") is True
+        assert detector._has_error_handling_tests("", "test_invalid_input", "python") is True
+        assert detector._has_error_handling_tests("", "test_should_fail", "python") is True
+
+    def test_no_error_handling(self, detector):
+        """Test when no error handling exists."""
+        source = """
+def test_success():
+    result = func(valid)
+    assert result == expected
+"""
+        assert detector._has_error_handling_tests(source, "test_success", "python") is False
+
+
 class TestTestFileDetection:
     """Test file pattern detection."""
 
@@ -440,56 +869,6 @@ class TestTestFunctionMatching:
         assert "helper.spec.ts" in variants
 
 
-class TestHasTestCoverage:
-    """Test the test coverage checking logic."""
-
-    @pytest.fixture
-    def detector(self):
-        """Create detector with mock client."""
-        client = Mock()
-        client.__class__.__name__ = "FalkorDBClient"
-        return AIMissingTestsDetector(client)
-
-    def test_finds_test_by_function_name(self, detector):
-        """Test finding coverage via test function name."""
-        test_functions = {"test_process_data", "test_other"}
-        test_files = set()
-
-        func_data = {
-            "name": "process_data",
-            "file_path": "src/module.py",
-            "language": "python",
-        }
-
-        assert detector._has_test_coverage(func_data, test_functions, test_files) is True
-
-    def test_finds_test_by_file_name(self, detector):
-        """Test finding coverage via test file name."""
-        test_functions = set()
-        test_files = {"tests/test_module.py"}
-
-        func_data = {
-            "name": "something",
-            "file_path": "src/module.py",
-            "language": "python",
-        }
-
-        assert detector._has_test_coverage(func_data, test_functions, test_files) is True
-
-    def test_no_coverage_found(self, detector):
-        """Test detection when no coverage exists."""
-        test_functions = {"test_other_function"}
-        test_files = {"tests/test_other.py"}
-
-        func_data = {
-            "name": "process_data",
-            "file_path": "src/module.py",
-            "language": "python",
-        }
-
-        assert detector._has_test_coverage(func_data, test_functions, test_files) is False
-
-
 class TestShouldSkipFunction:
     """Test function skipping logic."""
 
@@ -540,33 +919,41 @@ class TestGenerateTestSuggestion:
         client.__class__.__name__ = "FalkorDBClient"
         return AIMissingTestsDetector(client)
 
-    def test_python_suggestion(self, detector):
-        """Test Python test suggestion generation."""
-        suggestion = detector._generate_test_suggestion(
-            "process_data", "src/module.py", "python"
-        )
+    def test_python_new_test_suggestion(self, detector):
+        """Test Python new test suggestion generation."""
+        suggestion = detector._generate_new_test_suggestion("process_data", "python")
 
         assert "def test_process_data" in suggestion
         assert "assert" in suggestion
-        assert "Arrange" in suggestion
+        assert "pytest.raises" in suggestion
 
-    def test_javascript_suggestion(self, detector):
-        """Test JavaScript test suggestion generation."""
-        suggestion = detector._generate_test_suggestion(
-            "processData", "src/module.js", "javascript"
-        )
+    def test_javascript_new_test_suggestion(self, detector):
+        """Test JavaScript new test suggestion generation."""
+        suggestion = detector._generate_new_test_suggestion("processData", "javascript")
 
         assert "describe" in suggestion
         assert "expect" in suggestion
+        assert "toThrow" in suggestion
 
-    def test_typescript_suggestion(self, detector):
-        """Test TypeScript test suggestion generation."""
-        suggestion = detector._generate_test_suggestion(
-            "processData", "src/module.ts", "typescript"
+    def test_python_strengthen_suggestion(self, detector):
+        """Test Python strengthen test suggestion."""
+        test_info = TestInfo("test_func", "test.py", 1, False)
+        suggestion = detector._generate_strengthen_test_suggestion(
+            "func", "python", test_info
         )
 
-        assert "describe" in suggestion
-        assert "expect" in suggestion
+        assert "Strengthen" in suggestion
+        assert "multiple assertions" in suggestion.lower()
+
+    def test_python_error_handling_suggestion(self, detector):
+        """Test Python error handling test suggestion."""
+        test_info = TestInfo("test_func", "test.py", 3, False)
+        suggestion = detector._generate_error_test_suggestion(
+            "func", "python", test_info
+        )
+
+        assert "pytest.raises" in suggestion
+        assert "invalid" in suggestion.lower()
 
 
 class TestWithEnricher:
@@ -626,7 +1013,6 @@ class TestWithEnricher:
             ],
         ]
 
-        # Should not raise exception
         findings = detector.detect()
 
         assert len(findings) == 1
@@ -646,9 +1032,6 @@ class TestFallbackQuery:
         """Test fallback query is used when main query fails."""
         detector = AIMissingTestsDetector(mock_client)
 
-        # First two calls: test coverage info (succeed)
-        # Third call: recent functions (fail - triggers fallback)
-        # Fourth call: fallback query (succeed)
         mock_client.execute_query.side_effect = [
             [],  # Test files
             [],  # Test functions
@@ -667,3 +1050,32 @@ class TestFallbackQuery:
 
         assert len(findings) == 1
         assert mock_client.execute_query.call_count == 4
+
+
+class TestSeverityCalculation:
+    """Test severity calculation based on test quality."""
+
+    @pytest.fixture
+    def detector(self):
+        """Create detector with mock client."""
+        client = Mock()
+        client.__class__.__name__ = "FalkorDBClient"
+        return AIMissingTestsDetector(client)
+
+    def test_missing_test_severity_medium(self, detector):
+        """Test MEDIUM severity for missing tests."""
+        finding = Mock()
+        finding.graph_context = {"test_quality": "missing"}
+        assert detector.severity(finding) == Severity.MEDIUM
+
+    def test_weak_test_severity_low(self, detector):
+        """Test LOW severity for weak tests."""
+        finding = Mock()
+        finding.graph_context = {"test_quality": "weak"}
+        assert detector.severity(finding) == Severity.LOW
+
+    def test_incomplete_test_severity_low(self, detector):
+        """Test LOW severity for incomplete tests."""
+        finding = Mock()
+        finding.graph_context = {"test_quality": "incomplete"}
+        assert detector.severity(finding) == Severity.LOW

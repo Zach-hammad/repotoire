@@ -227,19 +227,11 @@ class AIChurnDetector(CodeSmellDetector):
         """Lazy-load git repository."""
         if not GIT_AVAILABLE:
             return None
-        if self._git_repo is None:
-            if self.repo_path:
-                try:
-                    self._git_repo = git.Repo(self.repo_path)
-                except Exception as e:
-                    logger.warning(f"Failed to open git repository at {self.repo_path}: {e}")
-            else:
-                # Try current directory as fallback
-                try:
-                    self._git_repo = git.Repo(Path.cwd(), search_parent_directories=True)
-                    logger.debug(f"Found git repository via cwd: {self._git_repo.working_dir}")
-                except Exception as e:
-                    logger.debug(f"No git repository found from cwd: {e}")
+        if self._git_repo is None and self.repo_path:
+            try:
+                self._git_repo = git.Repo(self.repo_path)
+            except Exception as e:
+                logger.warning(f"Failed to open git repository at {self.repo_path}: {e}")
         return self._git_repo
     
     def detect(self) -> List[Finding]:

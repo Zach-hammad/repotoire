@@ -568,8 +568,6 @@ class AIDuplicateBlockDetector(CodeSmellDetector):
         """
         repo_filter = self._get_isolation_filter("f")
 
-        # Try to get filePath directly from Function node (simpler, works without edges)
-        # This handles graphs that don't have CONTAINS relationships
         query = f"""
         MATCH (f:Function)
         WHERE f.name IS NOT NULL 
@@ -593,37 +591,7 @@ class AIDuplicateBlockDetector(CodeSmellDetector):
                 query,
                 self._get_query_params(min_loc=self.min_loc),
             )
-            functions = [r for r in results if r.get("file_path")]
-            
-            if functions:
-                return functions
-            
-            # Fallback: try with CONTAINS edge if direct filePath didn't work
-            logger.debug("No functions with direct filePath, trying CONTAINS edge lookup")
-            fallback_query = f"""
-            MATCH (f:Function)
-            WHERE f.name IS NOT NULL 
-              AND f.loc IS NOT NULL 
-              AND f.loc >= $min_loc
-              {repo_filter}
-            OPTIONAL MATCH (f)<-[:CONTAINS*]-(file:File)
-            WHERE file.language = 'python' OR file.filePath ENDS WITH '.py'
-            RETURN f.qualifiedName AS qualified_name,
-                   f.name AS name,
-                   f.lineStart AS line_start,
-                   f.lineEnd AS line_end,
-                   f.loc AS loc,
-                   file.filePath AS file_path
-            ORDER BY f.loc DESC
-            LIMIT 500
-            """
-            
-            fallback_results = self.db.execute_query(
-                fallback_query,
-                self._get_query_params(min_loc=self.min_loc),
-            )
-            return [r for r in fallback_results if r.get("file_path")]
-            
+            return [r for r in results if r.get("file_path")]
         except Exception as e:
             logger.error(f"Error fetching functions: {e}")
             return []
