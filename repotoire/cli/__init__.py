@@ -515,17 +515,16 @@ def cli(ctx: click.Context, config: str | None, log_level: str | None, log_forma
 
     \b
     QUICK START:
-      $ repotoire login                      # Browser OAuth (one time)
+      $ repotoire init                       # Guided first-run setup
       $ repotoire analyze ./my-repo          # Run health analysis
 
     \b
     COMMON COMMANDS:
-      repotoire login              # Login via browser OAuth
-      repotoire login <key>        # Login with API key (for CI)
-      repotoire logout             # Remove stored credentials
-      repotoire whoami             # Check auth status
-      repotoire analyze ./repo     # Analyze codebase
+      repotoire init               # Guided first-run setup
+      repotoire analyze ./repo     # Analyze codebase health
       repotoire ask "question"     # Query with natural language
+      repotoire login              # Login via browser OAuth
+      repotoire sync               # Upload to cloud dashboard
 
     \b
     Get your API key at: https://repotoire.com/settings/api-keys
