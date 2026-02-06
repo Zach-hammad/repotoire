@@ -4893,7 +4893,8 @@ def trend(
         try:
             from repotoire.tenant.context import get_current_org_id_str
             tenant_id = get_current_org_id_str()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get tenant context for trend query: {e}")
             tenant_id = None
 
         if not tenant_id:
@@ -5009,7 +5010,8 @@ def regression(
         try:
             from repotoire.tenant.context import get_current_org_id_str
             tenant_id = get_current_org_id_str()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get tenant context for regression check: {e}")
             tenant_id = None
 
         if not tenant_id:
@@ -5110,7 +5112,8 @@ def compare(
         try:
             from repotoire.tenant.context import get_current_org_id_str
             tenant_id = get_current_org_id_str()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get tenant context for period comparison: {e}")
             tenant_id = None
 
         if not tenant_id:
@@ -5202,7 +5205,8 @@ def export(
         try:
             from repotoire.tenant.context import get_current_org_id_str
             tenant_id = get_current_org_id_str()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get tenant context for metrics export: {e}")
             tenant_id = None
 
         if not tenant_id:
@@ -6930,6 +6934,43 @@ def ask(
         raise click.Abort()
     finally:
         client.close()
+
+
+@cli.command()
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(exists=True),
+    default=".",
+    help="Repository path for database checks (default: current directory)",
+)
+def doctor(path: str) -> None:
+    """Diagnose environment issues and check system health.
+
+    \b
+    Checks:
+      ✓ Authentication status (logged in? token valid?)
+      ✓ Local database health (exists? size? node count?)
+      ✓ Rust parser (repotoire_fast installed for 10x faster parsing?)
+      ✓ API keys (OpenAI/Anthropic set for embeddings?)
+      ✓ Git availability (installed? version?)
+      ✓ Python version (3.11+ required)
+
+    \b
+    EXAMPLES:
+      $ repotoire doctor
+      $ repotoire doctor --path /path/to/repo
+
+    \b
+    EXIT CODES:
+      0 - All checks passed
+      1 - Some warnings
+      2 - Errors detected
+    """
+    from repotoire.cli.doctor import run_doctor
+
+    exit_code = run_doctor(repository_path=path)
+    raise SystemExit(exit_code)
 
 
 # Config command group
