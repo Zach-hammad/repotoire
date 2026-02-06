@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from repotoire.api.shared.auth import ClerkUser, require_org
-from repotoire.db.models import Repository
+from repotoire.db.models import Repository, GitHubRepository
 from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
 from repotoire.services.team_analytics import TeamAnalyticsService
@@ -184,6 +184,8 @@ async def get_team_overview(
 @router.post("/analyze-ownership/{repository_id}")
 async def analyze_ownership(
     repository_id: UUID,
+    days: int = 90,
+    max_commits: int = 500,
     user: ClerkUser = Depends(require_org),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -194,8 +196,17 @@ async def analyze_ownership(
     - Lines of code contributed
     - Recency of contributions
     
+    Args:
+        repository_id: Repository to analyze
+        days: Number of days of history to analyze (default 90)
+        max_commits: Maximum commits to process (default 500)
+    
     **Cloud-only feature** - requires organization membership.
     """
+    from datetime import datetime, timedelta, timezone
+    from repotoire.services.github_git import get_git_service_for_repo
+    from repotoire.db.models import GitHubRepository
+    
     org_id = await get_user_org_id(session, user)
     if not org_id:
         raise HTTPException(
@@ -205,14 +216,69 @@ async def analyze_ownership(
     
     repo = await verify_repo_access(session, repository_id, org_id)
     
-    # TODO: Fetch git log from repository
-    # For now, return a placeholder
-    logger.info(f"Ownership analysis requested for repo {repository_id}")
+    # Get GitHub service for the repo
+    git_service = await get_git_service_for_repo(session, repository_id)
+    if not git_service:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Repository not connected to GitHub. Please install the GitHub App.",
+        )
+    
+    # Get GitHub repo info for full name
+    github_repo_result = await session.execute(
+        select(GitHubRepository).where(GitHubRepository.repository_id == repository_id)
+    )
+    github_repo = github_repo_result.scalar_one_or_none()
+    if not github_repo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GitHub repository mapping not found",
+        )
+    
+    logger.info(f"Starting ownership analysis for repo {repository_id} ({github_repo.full_name})")
+    
+    # Fetch git log
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    try:
+        git_log = await git_service.fetch_git_log(
+            github_repo.full_name,
+            since=since,
+            max_commits=max_commits,
+        )
+    except Exception as e:
+        logger.error(f"Failed to fetch git log: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to fetch git history from GitHub: {str(e)}",
+        )
+    
+    if not git_log:
+        return {
+            "status": "completed",
+            "message": "No commits found in the specified time range",
+            "repository_id": str(repository_id),
+            "commits_analyzed": 0,
+        }
+    
+    # Analyze ownership
+    service = TeamAnalyticsService(session, org_id)
+    try:
+        result = await service.analyze_git_ownership(repository_id, git_log)
+    except Exception as e:
+        logger.error(f"Failed to analyze ownership: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to analyze ownership: {str(e)}",
+        )
+    
+    logger.info(f"Ownership analysis completed for repo {repository_id}: {result}")
     
     return {
-        "status": "queued",
-        "message": "Ownership analysis has been queued",
+        "status": "completed",
+        "message": "Ownership analysis completed successfully",
         "repository_id": str(repository_id),
+        "commits_analyzed": len(git_log),
+        **result,
     }
 
 
