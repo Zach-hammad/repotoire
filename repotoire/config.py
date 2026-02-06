@@ -535,15 +535,17 @@ class EmbeddingsConfig:
     Example configuration:
     ```yaml
     embeddings:
-      backend: "local"  # "openai" or "local"
-      model: "all-MiniLM-L6-v2"  # optional, uses backend default if not set
+      backend: "auto"  # auto-selects best available
+      model: null  # optional, uses backend default if not set
     ```
 
-    Backends:
-    - openai: High quality (1536 dims), requires API key, $0.13/1M tokens
-    - local: Free, fast (384 dims), uses sentence-transformers (~85-90% quality)
+    Backends (in priority order for auto):
+    - deepinfra: Qwen3-Embedding (4096 dims), $0.01/1M tokens - best value
+    - voyage: Code-optimized (1024 dims), $0.18/1M tokens
+    - openai: High quality (1536 dims), $0.02/1M tokens
+    - local: Free (1024 dims), uses Qwen3-Embedding-0.6B
     """
-    backend: str = "openai"  # "openai" or "local"
+    backend: str = "auto"  # "auto", "deepinfra", "openai", "voyage", or "local"
     model: Optional[str] = None  # Uses backend default if not set
 
 

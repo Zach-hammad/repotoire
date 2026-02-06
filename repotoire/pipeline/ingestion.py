@@ -183,7 +183,7 @@ class IngestionPipeline:
         secrets_policy: SecretsPolicy = SecretsPolicy.REDACT,
         generate_clues: bool = False,
         generate_embeddings: bool = False,
-        embedding_backend: str = "openai",
+        embedding_backend: str = "auto",
         embedding_model: Optional[str] = None,
         generate_contexts: bool = False,
         context_model: str = "claude-haiku-3-5-20241022",
@@ -205,7 +205,7 @@ class IngestionPipeline:
             secrets_policy: Policy for handling detected secrets (default: REDACT)
             generate_clues: Whether to generate AI semantic clues (default: False)
             generate_embeddings: Whether to generate vector embeddings for RAG (default: False)
-            embedding_backend: Backend for embeddings: 'openai' or 'local' (default: openai)
+            embedding_backend: Backend for embeddings: 'auto', 'deepinfra', 'openai', 'voyage', or 'local' (default: auto)
             embedding_model: Model name override for embeddings (default: uses backend default)
             generate_contexts: Whether to generate semantic contexts using Claude (default: False)
             context_model: Claude model for context generation (default: claude-haiku-3-5-20241022)
