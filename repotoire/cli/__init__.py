@@ -311,7 +311,7 @@ def _run_auto_ingest(
             batch_size=batch_size,
             secrets_policy=SecretsPolicy(config.secrets.policy),
             generate_clues=False,
-            generate_embeddings=True,
+            generate_embeddings=False,  # Skip embeddings for fast auto-ingest
             embedding_backend=embedding_backend,
             embedding_model=embedding_model,
             generate_contexts=False,
