@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>🚀 {{ entry.title }}</h1>
+
+<p>{{ entry.summary }}</p>
+
+{% if entry.features %}
+<h2>✨ New Features</h2>
+<ul>
+{% for feature in entry.features %}
+  <li>{{ feature }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+
+{% if entry.improvements %}
+<h2>📈 Improvements</h2>
+<ul>
+{% for improvement in entry.improvements %}
+  <li>{{ improvement }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+
+{% if entry.fixes %}
+<h2>🐛 Bug Fixes</h2>
+<ul>
+{% for fix in entry.fixes %}
+  <li>{{ fix }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+
+<p style="margin-top: 30px;">
+  <a href="{{ base_url }}/changelog/{{ entry.slug }}" class="button">Read Full Details</a>
+</p>
+
+<p style="margin-top: 20px; font-size: 14px; color: #666;">
+  <a href="{{ base_url }}/changelog/unsubscribe?token={{ unsubscribe_token }}">Unsubscribe from changelog updates</a>
+</p>
+{% endblock %}

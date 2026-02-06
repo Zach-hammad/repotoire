@@ -6,6 +6,8 @@ This module provides background tasks for:
 - Sending weekly and monthly digest emails
 """
 
+import asyncio
+import os
 from datetime import datetime, timedelta, timezone
 
 from celery import shared_task
@@ -18,8 +20,12 @@ from repotoire.db.models.changelog import (
 )
 from repotoire.db.session import get_sync_session
 from repotoire.logging_config import get_logger
+from repotoire.services.email import get_email_service
 
 logger = get_logger(__name__)
+
+# Check if email is configured
+_EMAIL_CONFIGURED = bool(os.environ.get("RESEND_API_KEY"))
 
 
 # =============================================================================
@@ -119,27 +125,38 @@ def send_changelog_notifications(entry_id: str) -> dict:
         subscribers = result.scalars().all()
 
         for subscriber in subscribers:
-            # TODO: Integrate with email service (e.g., Resend, SendGrid)
-            # For now, just log the notification
-            logger.info(
-                f"Would send changelog notification to {subscriber.email}",
-                extra={
-                    "entry_id": entry_id,
-                    "subscriber_id": str(subscriber.id),
-                    "entry_title": entry.title,
-                },
-            )
-            # Example email sending:
-            # send_email(
-            #     to=subscriber.email,
-            #     subject=f"New in Repotoire: {entry.title}",
-            #     template="changelog_notification",
-            #     context={
-            #         "entry": entry,
-            #         "unsubscribe_token": subscriber.unsubscribe_token,
-            #     }
-            # )
-            sent_count += 1
+            try:
+                if _EMAIL_CONFIGURED:
+                    # Build entry dict for template
+                    entry_dict = {
+                        "title": entry.title,
+                        "slug": entry.slug,
+                        "summary": entry.summary,
+                        "features": entry.features or [],
+                        "improvements": entry.improvements or [],
+                        "fixes": entry.fixes or [],
+                        "published_at": entry.published_at,
+                    }
+                    email_service = get_email_service()
+                    asyncio.get_event_loop().run_until_complete(
+                        email_service.send_changelog_notification(
+                            to_email=subscriber.email,
+                            entry=entry_dict,
+                            unsubscribe_token=subscriber.unsubscribe_token,
+                        )
+                    )
+                    logger.info(
+                        f"Sent changelog notification to {subscriber.email}",
+                        extra={"entry_id": entry_id, "subscriber_id": str(subscriber.id)},
+                    )
+                else:
+                    logger.debug(
+                        f"Email not configured, skipping notification to {subscriber.email}",
+                        extra={"entry_id": entry_id},
+                    )
+                sent_count += 1
+            except Exception as e:
+                logger.error(f"Failed to send changelog notification to {subscriber.email}: {e}")
 
     logger.info(
         f"Sent {sent_count} instant changelog notifications",
@@ -192,25 +209,25 @@ def send_weekly_digest() -> dict:
         subscribers = result.scalars().all()
 
         for subscriber in subscribers:
-            # TODO: Integrate with email service
-            logger.info(
-                f"Would send weekly digest to {subscriber.email}",
-                extra={
-                    "subscriber_id": str(subscriber.id),
-                    "entry_count": entry_count,
-                },
-            )
-            # Example email sending:
-            # send_email(
-            #     to=subscriber.email,
-            #     subject=f"Repotoire Weekly Update: {entry_count} new updates",
-            #     template="changelog_weekly_digest",
-            #     context={
-            #         "entries": entries,
-            #         "unsubscribe_token": subscriber.unsubscribe_token,
-            #     }
-            # )
-            sent_count += 1
+            try:
+                if _EMAIL_CONFIGURED:
+                    email_service = get_email_service()
+                    asyncio.get_event_loop().run_until_complete(
+                        email_service.send_changelog_weekly_digest(
+                            to_email=subscriber.email,
+                            entries=entries,
+                            unsubscribe_token=subscriber.unsubscribe_token,
+                        )
+                    )
+                    logger.info(
+                        f"Sent weekly digest to {subscriber.email}",
+                        extra={"subscriber_id": str(subscriber.id), "entry_count": entry_count},
+                    )
+                else:
+                    logger.debug(f"Email not configured, skipping weekly digest to {subscriber.email}")
+                sent_count += 1
+            except Exception as e:
+                logger.error(f"Failed to send weekly digest to {subscriber.email}: {e}")
 
     logger.info(
         f"Sent {sent_count} weekly changelog digests",
@@ -263,25 +280,25 @@ def send_monthly_digest() -> dict:
         subscribers = result.scalars().all()
 
         for subscriber in subscribers:
-            # TODO: Integrate with email service
-            logger.info(
-                f"Would send monthly digest to {subscriber.email}",
-                extra={
-                    "subscriber_id": str(subscriber.id),
-                    "entry_count": entry_count,
-                },
-            )
-            # Example email sending:
-            # send_email(
-            #     to=subscriber.email,
-            #     subject=f"Repotoire Monthly Update: {entry_count} new updates",
-            #     template="changelog_monthly_digest",
-            #     context={
-            #         "entries": entries,
-            #         "unsubscribe_token": subscriber.unsubscribe_token,
-            #     }
-            # )
-            sent_count += 1
+            try:
+                if _EMAIL_CONFIGURED:
+                    email_service = get_email_service()
+                    asyncio.get_event_loop().run_until_complete(
+                        email_service.send_changelog_monthly_digest(
+                            to_email=subscriber.email,
+                            entries=entries,
+                            unsubscribe_token=subscriber.unsubscribe_token,
+                        )
+                    )
+                    logger.info(
+                        f"Sent monthly digest to {subscriber.email}",
+                        extra={"subscriber_id": str(subscriber.id), "entry_count": entry_count},
+                    )
+                else:
+                    logger.debug(f"Email not configured, skipping monthly digest to {subscriber.email}")
+                sent_count += 1
+            except Exception as e:
+                logger.error(f"Failed to send monthly digest to {subscriber.email}: {e}")
 
     logger.info(
         f"Sent {sent_count} monthly changelog digests",

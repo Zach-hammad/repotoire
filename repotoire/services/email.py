@@ -275,6 +275,131 @@ class EmailService:
             context={},
         )
 
+    async def send_changelog_notification(
+        self,
+        to_email: str,
+        entry: dict,
+        unsubscribe_token: str,
+    ) -> str:
+        """Send instant changelog notification.
+
+        Args:
+            to_email: Subscriber's email address.
+            entry: Changelog entry dict with title, summary, features, etc.
+            unsubscribe_token: Token for unsubscribe link.
+
+        Returns:
+            Email ID.
+        """
+        return await self.send(
+            to=to_email,
+            subject=f"New in Repotoire: {entry['title']}",
+            template_name="changelog_notification",
+            context={
+                "entry": entry,
+                "unsubscribe_token": unsubscribe_token,
+            },
+        )
+
+    async def send_changelog_weekly_digest(
+        self,
+        to_email: str,
+        entries: list,
+        unsubscribe_token: str,
+    ) -> str:
+        """Send weekly changelog digest.
+
+        Args:
+            to_email: Subscriber's email address.
+            entries: List of changelog entries from the past week.
+            unsubscribe_token: Token for unsubscribe link.
+
+        Returns:
+            Email ID.
+        """
+        return await self.send(
+            to=to_email,
+            subject=f"Repotoire Weekly Update: {len(entries)} new updates",
+            template_name="changelog_weekly_digest",
+            context={
+                "entries": entries,
+                "unsubscribe_token": unsubscribe_token,
+            },
+        )
+
+    async def send_changelog_monthly_digest(
+        self,
+        to_email: str,
+        entries: list,
+        unsubscribe_token: str,
+    ) -> str:
+        """Send monthly changelog digest.
+
+        Args:
+            to_email: Subscriber's email address.
+            entries: List of changelog entries from the past month.
+            unsubscribe_token: Token for unsubscribe link.
+
+        Returns:
+            Email ID.
+        """
+        return await self.send(
+            to=to_email,
+            subject=f"Repotoire Monthly Digest: {len(entries)} updates",
+            template_name="changelog_monthly_digest",
+            context={
+                "entries": entries,
+                "unsubscribe_token": unsubscribe_token,
+            },
+        )
+
+    async def send_status_notification(
+        self,
+        to_email: str,
+        event: str,
+        component_name: str,
+        message: str,
+        unsubscribe_token: str,
+        scheduled_time: str | None = None,
+        duration: str | None = None,
+    ) -> str:
+        """Send status/incident notification.
+
+        Args:
+            to_email: Subscriber's email address.
+            event: Event type (incident_created, incident_resolved, maintenance_*, etc.)
+            component_name: Affected component name.
+            message: Status message.
+            unsubscribe_token: Token for unsubscribe link.
+            scheduled_time: For maintenance, when it's scheduled.
+            duration: For maintenance, expected duration.
+
+        Returns:
+            Email ID.
+        """
+        subject_map = {
+            "incident_created": f"⚠️ Service Incident: {component_name}",
+            "incident_resolved": f"✅ Resolved: {component_name}",
+            "maintenance_scheduled": f"🔧 Scheduled Maintenance: {component_name}",
+            "maintenance_started": f"🔧 Maintenance Started: {component_name}",
+            "maintenance_completed": f"✅ Maintenance Complete: {component_name}",
+        }
+        subject = subject_map.get(event, f"Status Update: {component_name}")
+
+        return await self.send(
+            to=to_email,
+            subject=subject,
+            template_name="status_notification",
+            context={
+                "event": event,
+                "component_name": component_name,
+                "message": message,
+                "unsubscribe_token": unsubscribe_token,
+                "scheduled_time": scheduled_time,
+                "duration": duration,
+            },
+        )
+
     @staticmethod
     def _score_to_grade(score: int) -> str:
         """Convert health score to letter grade.

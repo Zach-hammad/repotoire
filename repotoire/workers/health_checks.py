@@ -9,6 +9,7 @@ This module provides background tasks for:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import socket
 from datetime import datetime, timedelta, timezone
@@ -25,9 +26,13 @@ from repotoire.db.models.status import (
 from repotoire.db.models.uptime import UptimeRecord
 from repotoire.db.session import get_sync_session
 from repotoire.logging_config import get_logger
+from repotoire.services.email import get_email_service
 from repotoire.workers.celery_app import celery_app
 
 logger = get_logger(__name__)
+
+# Check if email is configured
+_EMAIL_CONFIGURED = bool(os.environ.get("RESEND_API_KEY"))
 
 # Configuration
 HEALTH_CHECK_TIMEOUT = float(os.environ.get("HEALTH_CHECK_TIMEOUT", "5.0"))
@@ -234,17 +239,29 @@ def send_status_notifications(
 
         for subscriber in subscribers:
             try:
-                # TODO: Implement actual email sending
-                # For now, just log the notification
-                logger.info(
-                    f"Would send {event} notification to {subscriber.email}",
-                    extra={
-                        "incident_id": incident_id,
-                        "maintenance_id": maintenance_id,
-                        "component_name": component_name,
-                        "event": event,
-                    },
-                )
+                if _EMAIL_CONFIGURED:
+                    email_service = get_email_service()
+                    asyncio.get_event_loop().run_until_complete(
+                        email_service.send_status_notification(
+                            to_email=subscriber.email,
+                            event=event,
+                            component_name=component_name,
+                            message=message or "",
+                            unsubscribe_token=subscriber.unsubscribe_token,
+                        )
+                    )
+                    logger.info(
+                        f"Sent {event} notification to {subscriber.email}",
+                        extra={
+                            "incident_id": incident_id,
+                            "maintenance_id": maintenance_id,
+                            "component_name": component_name,
+                        },
+                    )
+                else:
+                    logger.debug(
+                        f"Email not configured, skipping {event} notification to {subscriber.email}"
+                    )
                 sent += 1
             except Exception as e:
                 logger.error(f"Failed to notify {subscriber.email}: {e}")

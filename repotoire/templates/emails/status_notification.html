@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% if event == "incident_created" %}
+<h1 style="color: #ef4444;">⚠️ Service Incident</h1>
+<p>We're experiencing issues with <strong>{{ component_name }}</strong>.</p>
+<p>{{ message }}</p>
+<p>We're investigating and will provide updates.</p>
+
+{% elif event == "incident_resolved" %}
+<h1 style="color: #22c55e;">✅ Incident Resolved</h1>
+<p>The issue with <strong>{{ component_name }}</strong> has been resolved.</p>
+<p>{{ message }}</p>
+<p>Thank you for your patience.</p>
+
+{% elif event == "maintenance_scheduled" %}
+<h1 style="color: #6366f1;">🔧 Scheduled Maintenance</h1>
+<p>We have scheduled maintenance for <strong>{{ component_name }}</strong>.</p>
+<p><strong>When:</strong> {{ scheduled_time }}</p>
+<p><strong>Duration:</strong> {{ duration }}</p>
+<p>{{ message }}</p>
+
+{% elif event == "maintenance_started" %}
+<h1 style="color: #f97316;">🔧 Maintenance In Progress</h1>
+<p>Maintenance has started for <strong>{{ component_name }}</strong>.</p>
+<p>{{ message }}</p>
+<p>We expect this to complete shortly.</p>
+
+{% elif event == "maintenance_completed" %}
+<h1 style="color: #22c55e;">✅ Maintenance Complete</h1>
+<p>Maintenance for <strong>{{ component_name }}</strong> is complete.</p>
+<p>{{ message }}</p>
+<p>All services are operating normally.</p>
+
+{% else %}
+<h1>📢 Status Update</h1>
+<p><strong>Component:</strong> {{ component_name }}</p>
+<p>{{ message }}</p>
+{% endif %}
+
+<p style="margin-top: 30px;">
+  <a href="{{ base_url }}/status" class="button">View Status Page</a>
+</p>
+
+<p style="margin-top: 20px; font-size: 14px; color: #666;">
+  <a href="{{ base_url }}/status/unsubscribe?token={{ unsubscribe_token }}">Unsubscribe from status updates</a>
+</p>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>📅 Your Monthly Repotoire Digest</h1>
+
+<p>Here's what happened this month — {{ entries|length }} updates!</p>
+
+{% for entry in entries %}
+<div style="margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid #eee;">
+  <h2 style="margin-bottom: 8px;">
+    <a href="{{ base_url }}/changelog/{{ entry.slug }}" style="color: #6366f1; text-decoration: none;">
+      {{ entry.title }}
+    </a>
+  </h2>
+  <p style="color: #666; font-size: 14px; margin-bottom: 8px;">
+    {{ entry.published_at.strftime('%B %d, %Y') }}
+  </p>
+  <p>{{ entry.summary }}</p>
+</div>
+{% endfor %}
+
+<p style="margin-top: 30px;">
+  <a href="{{ base_url }}/changelog" class="button">View Full Changelog</a>
+</p>
+
+<p style="margin-top: 20px; font-size: 14px; color: #666;">
+  <a href="{{ base_url }}/changelog/unsubscribe?token={{ unsubscribe_token }}">Unsubscribe from changelog updates</a>
+</p>
+{% endblock %}
