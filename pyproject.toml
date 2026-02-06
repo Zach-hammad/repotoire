@@ -190,9 +190,10 @@ line-length = 100
 target-version = ['py311', 'py312', 'py313']
 
 [tool.ruff]
+# Lint settings (ruff 0.1+ format)
 line-length = 100
-select = ["E", "F", "I", "N", "W"]
-ignore = ["E501"]  # Line too long (handled by black)
+lint.select = ["E", "F", "I", "N", "W"]
+lint.ignore = ["E501"]  # Line too long (handled by black)
 
 [tool.mypy]
 python_version = "3.11"
