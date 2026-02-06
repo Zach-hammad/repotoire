@@ -108,13 +108,13 @@ def analyze_ownership_async(
 
             from repotoire.services.github_git import get_git_service_for_repo
 
-            # Run async function in sync context
+            # Run async function in sync context (Python 3.10+ compatible)
             async def get_service():
                 from repotoire.db.async_session import get_async_session
                 async with get_async_session() as async_session:
                     return await get_git_service_for_repo(async_session, repo_uuid)
 
-            git_service = asyncio.get_event_loop().run_until_complete(get_service())
+            git_service = asyncio.run(get_service())
             if not git_service:
                 raise ValueError("Could not initialize git service")
 
@@ -130,7 +130,7 @@ def analyze_ownership_async(
                     max_commits=max_commits,
                 )
 
-            git_log = asyncio.get_event_loop().run_until_complete(fetch_log())
+            git_log = asyncio.run(fetch_log())
 
             if not git_log:
                 update_job_status(
@@ -161,7 +161,7 @@ def analyze_ownership_async(
                     service = TeamAnalyticsService(async_session, org_uuid)
                     return await service.analyze_git_ownership(repo_uuid, git_log)
 
-            analysis_result = asyncio.get_event_loop().run_until_complete(analyze())
+            analysis_result = asyncio.run(analyze())
 
             update_job_status(
                 job_id,
@@ -251,7 +251,7 @@ def compute_collaboration_async(
 
         update_job_status(job_id, progress=50, current_step="Computing collaboration pairs")
 
-        result = asyncio.get_event_loop().run_until_complete(compute())
+        result = asyncio.run(compute())
 
         update_job_status(
             job_id,
