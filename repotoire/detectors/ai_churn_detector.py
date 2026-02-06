@@ -164,14 +164,17 @@ class AIChurnDetector(CodeSmellDetector):
     HIGH_FIX_VELOCITY_HOURS = 48
     MEDIUM_FIX_VELOCITY_HOURS = 72
     
-    # Modification count thresholds
-    CRITICAL_MOD_COUNT = 4
-    HIGH_MOD_COUNT = 2
+    # Modification count thresholds (stricter to reduce noise)
+    CRITICAL_MOD_COUNT = 5
+    HIGH_MOD_COUNT = 3
     
-    # Churn ratio thresholds
-    CRITICAL_CHURN_RATIO = 1.0  # More changed than originally written
-    HIGH_CHURN_RATIO = 0.5
-    MEDIUM_CHURN_RATIO = 0.3
+    # Churn ratio thresholds (stricter to reduce noise)
+    CRITICAL_CHURN_RATIO = 1.5  # 50% more changed than originally written
+    HIGH_CHURN_RATIO = 0.8
+    MEDIUM_CHURN_RATIO = 0.5
+    
+    # Minimum score to create a finding (filters out noise)
+    MIN_CHURN_SCORE = 0.8
     
     # Analysis window (how far back to look)
     ANALYSIS_WINDOW_DAYS = 90
@@ -530,6 +533,10 @@ class AIChurnDetector(CodeSmellDetector):
         Returns:
             Finding if churn pattern detected, None otherwise
         """
+        # Skip if score too low (noise filter)
+        if record.ai_churn_score < self.MIN_CHURN_SCORE:
+            return None
+        
         # Calculate severity
         severity = self._calculate_severity(record)
         if severity == Severity.INFO:
@@ -670,16 +677,14 @@ class AIChurnDetector(CodeSmellDetector):
         if churn > self.HIGH_CHURN_RATIO:
             return Severity.HIGH
         
-        # MEDIUM conditions
-        if ttf_hours is not None and ttf_hours < self.MEDIUM_FIX_VELOCITY_HOURS:
+        # MEDIUM conditions - require both velocity AND modifications
+        if ttf_hours is not None and ttf_hours < self.MEDIUM_FIX_VELOCITY_HOURS and mods >= 2:
             return Severity.MEDIUM
         if churn > self.MEDIUM_CHURN_RATIO:
             return Severity.MEDIUM
-        if mods >= 2:
-            return Severity.MEDIUM
         
-        # LOW - some signal but not strong
-        if mods >= 1:
+        # LOW - only if significant modification count
+        if mods >= 4:
             return Severity.LOW
         
         return Severity.INFO
