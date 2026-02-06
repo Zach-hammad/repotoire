@@ -53,12 +53,50 @@ from repotoire.cli.errors import (
     print_error,
 )
 from repotoire.config import ConfigError, FalkorConfig, generate_config_template, load_config
-from repotoire.detectors import AnalysisEngine
-from repotoire.graph.factory import create_client
 from repotoire.logging_config import LogContext, configure_logging, get_logger
-from repotoire.migrations import MigrationError, MigrationManager
 from repotoire.models import SecretsPolicy
-from repotoire.pipeline import IngestionPipeline
+
+# Lazy imports for heavy modules (improves CLI cold start by ~400ms)
+# These are imported on first use in their respective commands
+_lazy_cache: dict = {}
+
+
+def _lazy_import(module_path: str, attr: str):
+    """Lazily import a module attribute on first access."""
+    key = f"{module_path}.{attr}"
+    if key not in _lazy_cache:
+        import importlib
+        mod = importlib.import_module(module_path)
+        _lazy_cache[key] = getattr(mod, attr)
+    return _lazy_cache[key]
+
+
+def get_analysis_engine():
+    """Lazy import for AnalysisEngine."""
+    return _lazy_import("repotoire.detectors", "AnalysisEngine")
+
+
+def get_create_client():
+    """Lazy import for create_client."""
+    return _lazy_import("repotoire.graph.factory", "create_client")
+
+
+def get_ingestion_pipeline():
+    """Lazy import for IngestionPipeline."""
+    return _lazy_import("repotoire.pipeline", "IngestionPipeline")
+
+
+def get_migration_manager():
+    """Lazy import for MigrationManager."""
+    return _lazy_import("repotoire.migrations", "MigrationManager")
+
+
+def get_migration_error():
+    """Lazy import for MigrationError."""
+    return _lazy_import("repotoire.migrations", "MigrationError")
+
+
+# Validation imports (lightweight, keep eager)
 from repotoire.validation import (
     ValidationError,
     validate_batch_size,
@@ -98,7 +136,7 @@ def _get_db_client(quiet: bool = False, repository_path: str = "."):
 
     # Cloud mode if API key is set
     if get_api_key():
-        return create_client(show_cloud_indicator=not quiet)
+        return get_create_client()(show_cloud_indicator=not quiet)
 
     # Default: Local Kuzu (no Docker, no server required)
     try:
@@ -1096,7 +1134,7 @@ def ingest(
                     else:
                         console.print(f"[dim]Repository: {repo_info.repo_slug} (local path)[/dim]")
 
-                pipeline = IngestionPipeline(
+                pipeline = get_ingestion_pipeline()(
                     str(validated_repo_path),
                     db,
                     follow_symlinks=final_follow_symlinks,
@@ -1213,7 +1251,7 @@ def ingest(
                 console.print("\n[bold cyan]🔍 Running code health analysis...[/bold cyan]")
                 try:
                     detector_config_dict = asdict(config.detectors)
-                    engine = AnalysisEngine(
+                    engine = get_analysis_engine()(
                         db,
                         detector_config=detector_config_dict,
                         repository_path=str(validated_repo_path),
@@ -1585,7 +1623,7 @@ def analyze(
                     except FileNotFoundError:
                         console.print("[yellow]⚠️ git not found, running full analysis[/yellow]")
 
-                engine = AnalysisEngine(
+                engine = get_analysis_engine()(
                     db,
                     detector_config=detector_config_dict,
                     repository_path=str(repo_path),
@@ -2924,7 +2962,7 @@ def status() -> None:
     try:
         db = _get_db_client()
         try:
-            manager = MigrationManager(db)
+            manager = get_migration_manager()(db)
             status_info = manager.status()
 
             # Current version panel
@@ -2979,10 +3017,10 @@ def status() -> None:
         finally:
             db.close()
 
-    except MigrationError as e:
-        console.print(f"\n[red]❌ Migration Error:[/red] {e}")
-        raise click.Abort()
     except Exception as e:
+        if type(e).__name__ == "MigrationError":
+            console.print(f"\n[red]❌ Migration Error:[/red] {e}")
+            raise click.Abort()
         console.print(f"\n[red]❌ Unexpected error:[/red] {e}")
         raise
 
@@ -3001,7 +3039,7 @@ def up(to_version: int | None) -> None:
     try:
         db = _get_db_client()
         try:
-            manager = MigrationManager(db)
+            manager = get_migration_manager()(db)
 
             # Show current state
             current = manager.get_current_version()
@@ -3030,11 +3068,11 @@ def up(to_version: int | None) -> None:
         finally:
             db.close()
 
-    except MigrationError as e:
-        console.print(f"\n[red]❌ Migration Error:[/red] {e}")
-        console.print("[yellow]⚠️  Schema may be in an inconsistent state[/yellow]")
-        raise click.Abort()
     except Exception as e:
+        if type(e).__name__ == "MigrationError":
+            console.print(f"\n[red]❌ Migration Error:[/red] {e}")
+            console.print("[yellow]⚠️  Schema may be in an inconsistent state[/yellow]")
+            raise click.Abort()
         console.print(f"\n[red]❌ Unexpected error:[/red] {e}")
         raise
 
@@ -3062,7 +3100,7 @@ def down(to_version: int, force: bool) -> None:
     try:
         db = _get_db_client()
         try:
-            manager = MigrationManager(db)
+            manager = get_migration_manager()(db)
 
             # Show current state
             current = manager.get_current_version()
@@ -3099,11 +3137,11 @@ def down(to_version: int, force: bool) -> None:
         finally:
             db.close()
 
-    except MigrationError as e:
-        console.print(f"\n[red]❌ Migration Error:[/red] {e}")
-        console.print("[yellow]⚠️  Schema may be in an inconsistent state[/yellow]")
-        raise click.Abort()
     except Exception as e:
+        if type(e).__name__ == "MigrationError":
+            console.print(f"\n[red]❌ Migration Error:[/red] {e}")
+            console.print("[yellow]⚠️  Schema may be in an inconsistent state[/yellow]")
+            raise click.Abort()
         console.print(f"\n[red]❌ Unexpected error:[/red] {e}")
         raise
 
@@ -3409,7 +3447,7 @@ def history(repo_path: str, strategy: str, max_commits: int, branch: str, genera
 
         # Create temporal ingestion pipeline
         from repotoire.pipeline.temporal_ingestion import TemporalIngestionPipeline
-        pipeline = TemporalIngestionPipeline(
+        pipeline = Temporalget_ingestion_pipeline()(
             repo_path=repo_path,
             graph_client=client,
             generate_clues=generate_clues
@@ -4976,7 +5014,7 @@ def auto_fix(
             console.print("[bold]Step 1: Analyzing codebase...[/bold]")
 
         graph_client = _get_db_client()
-        engine = AnalysisEngine(graph_client, enable_insights=True)
+        engine = get_analysis_engine()(graph_client, enable_insights=True)
 
         if not quiet_mode:
             with console.status("[bold]Running code analysis..."):
@@ -6356,34 +6394,21 @@ def templates_list(verbose: bool, language: str | None, template_dir: Path | Non
             console.print(f"  [dim]{f}[/dim]")
 
 
-# Register sandbox stats command (REPO-295)
+# Register subcommands
+# These imports are unavoidable for click command registration
+# The heavy parts (sqlalchemy, etc.) are in deeper modules
 from .sandbox import sandbox_stats
-
-cli.add_command(sandbox_stats)
-
-# Register graph management commands (REPO-263)
 from .graph import graph
-
-cli.add_command(graph)
-
-# Register auth commands (REPO-267)
 from .auth_commands import auth_group
-
-cli.add_command(auth_group)
-
-# Register organization commands (CLI/Web sync)
 from .org_commands import org_group
-
-cli.add_command(org_group)
-
-# Register API key management commands (REPO-324)
 from .api_keys import api_keys
-
-cli.add_command(api_keys, name="api-keys")
-
-# Register git history RAG commands (replaces Graphiti - 99% cheaper)
 from .historical import historical
 
+cli.add_command(sandbox_stats)
+cli.add_command(graph)
+cli.add_command(auth_group)
+cli.add_command(org_group)
+cli.add_command(api_keys, name="api-keys")
 cli.add_command(historical)
 
 

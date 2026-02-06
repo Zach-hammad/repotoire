@@ -11,8 +11,11 @@ Usage:
     repotoire sandbox-stats --failures   # Show recent failures
 """
 
+from __future__ import annotations
+
 import asyncio
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
 import click
 from rich import box
@@ -21,11 +24,27 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from repotoire.sandbox.metrics import (
-    CPU_RATE_PER_SECOND,
-    MEMORY_RATE_PER_GB_SECOND,
-    SandboxMetricsCollector,
-)
+# Type checking imports (not evaluated at runtime)
+if TYPE_CHECKING:
+    from repotoire.sandbox.metrics import SandboxMetricsCollector
+
+# Lazy imports for heavy modules (deferred until command execution)
+_metrics_cache: dict = {}
+
+
+def _get_metrics_module():
+    """Lazy import for sandbox.metrics module."""
+    if "metrics" not in _metrics_cache:
+        from repotoire.sandbox.metrics import (
+            CPU_RATE_PER_SECOND,
+            MEMORY_RATE_PER_GB_SECOND,
+            SandboxMetricsCollector,
+        )
+        _metrics_cache["CPU_RATE_PER_SECOND"] = CPU_RATE_PER_SECOND
+        _metrics_cache["MEMORY_RATE_PER_GB_SECOND"] = MEMORY_RATE_PER_GB_SECOND
+        _metrics_cache["SandboxMetricsCollector"] = SandboxMetricsCollector
+    return _metrics_cache
+
 
 console = Console()
 
@@ -150,7 +169,8 @@ async def _sandbox_stats_async(
     json_output: bool,
 ) -> None:
     """Async implementation of sandbox stats."""
-    collector = SandboxMetricsCollector()
+    metrics = _get_metrics_module()
+    collector = metrics["SandboxMetricsCollector"]()
 
     try:
         await collector.connect()
@@ -438,14 +458,14 @@ async def _show_top_customers(
     console.print()
 
 
-# E2B pricing reference for help text
-PRICING_INFO = f"""
+# E2B pricing reference for help text (values hardcoded to avoid import)
+PRICING_INFO = """
 E2B Sandbox Pricing Reference:
-  CPU:    ${CPU_RATE_PER_SECOND:.6f}/CPU-second
-  Memory: ${MEMORY_RATE_PER_GB_SECOND:.7f}/GB-second
+  CPU:    $0.000014/CPU-second
+  Memory: $0.0000025/GB-second
 
 Example cost calculation (60s with 2 CPUs, 2GB RAM):
-  CPU:    60 * 2 * ${CPU_RATE_PER_SECOND} = $0.00168
-  Memory: 60 * 2 * ${MEMORY_RATE_PER_GB_SECOND} = $0.00030
+  CPU:    60 * 2 * $0.000014 = $0.00168
+  Memory: 60 * 2 * $0.0000025 = $0.00030
   Total:  $0.00198
 """

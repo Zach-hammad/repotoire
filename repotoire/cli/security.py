@@ -7,20 +7,51 @@ Provides commands for:
 - Security audits
 """
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
 from rich.table import Table
 
-from repotoire.graph.factory import create_client
 from repotoire.logging_config import get_logger
-from repotoire.security import (
-    ComplianceFramework,
-    ComplianceReporter,
-    DependencyScanner,
-    SBOMGenerator,
-)
+
+# Type checking imports
+if TYPE_CHECKING:
+    from repotoire.security import (
+        ComplianceFramework,
+        ComplianceReporter,
+        DependencyScanner,
+        SBOMGenerator,
+    )
+
+# Lazy imports cache
+_security_cache: dict = {}
+
+
+def _get_security_module():
+    """Lazy import for security module."""
+    if not _security_cache:
+        from repotoire.security import (
+            ComplianceFramework,
+            ComplianceReporter,
+            DependencyScanner,
+            SBOMGenerator,
+        )
+        _security_cache["ComplianceFramework"] = ComplianceFramework
+        _security_cache["ComplianceReporter"] = ComplianceReporter
+        _security_cache["DependencyScanner"] = DependencyScanner
+        _security_cache["SBOMGenerator"] = SBOMGenerator
+    return _security_cache
+
+
+def _get_create_client():
+    """Lazy import for create_client."""
+    from repotoire.graph.factory import create_client
+    return create_client
+
 
 logger = get_logger(__name__)
 console = Console()
@@ -72,10 +103,11 @@ def scan_dependencies(
 
     try:
         # Initialize cloud client (requires REPOTOIRE_API_KEY)
-        client = create_client()
+        client = _get_create_client()()
 
         # Initialize scanner
-        scanner = DependencyScanner(
+        sec = _get_security_module()
+        scanner = sec["DependencyScanner"](
             client,
             detector_config={
                 "repository_path": repository_path,
@@ -188,7 +220,8 @@ def generate_sbom(repository_path, format, output, requirements):
 
     try:
         # Initialize generator
-        generator = SBOMGenerator({
+        sec = _get_security_module()
+        generator = sec["SBOMGenerator"]({
             "repository_path": repository_path,
             "requirements_file": requirements,
             "output_format": format,
@@ -255,16 +288,17 @@ def compliance_report(
 
     try:
         # Initialize cloud client (requires REPOTOIRE_API_KEY)
-        client = create_client()
-        scanner = DependencyScanner(
+        client = _get_create_client()()
+        sec = _get_security_module()
+        scanner = sec["DependencyScanner"](
             client,
             detector_config={"repository_path": repository_path}
         )
         findings = scanner.detect()
 
         # Initialize reporter
-        reporter = ComplianceReporter(
-            framework=ComplianceFramework(framework),
+        reporter = sec["ComplianceReporter"](
+            framework=sec["ComplianceFramework"](framework),
             findings=findings,
             repository_path=Path(repository_path),
         )
