@@ -33,11 +33,11 @@ logger = get_logger(__name__)
 # Type alias for embedding backends (includes "auto" for automatic selection)
 EmbeddingBackend = Literal["auto", "openai", "local", "deepinfra", "voyage"]
 
-# Priority order for auto-selection (best quality/code-fit first)
+# Priority order for auto-selection (best value for code first)
 BACKEND_PRIORITY = [
-    "voyage",      # Best for code (purpose-built, Anthropic-recommended)
-    "openai",      # High quality, widely used
-    "deepinfra",   # Cheap Qwen3 access
+    "deepinfra",   # Best value: cheap ($0.01/1M), 4096 dims, Qwen3-8B code-optimized
+    "voyage",      # Best accuracy for code (purpose-built, but 6x more expensive)
+    "openai",      # Good quality, widely used
     "local",       # Free fallback (always available)
 ]
 
