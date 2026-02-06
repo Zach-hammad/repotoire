@@ -251,6 +251,113 @@ def _extract_git_info(repo_path: Path) -> dict[str, str | None]:
     return git_info
 
 
+def _graph_has_data(db) -> bool:
+    """Check if the graph has any code data (files, functions, or classes).
+
+    Args:
+        db: Database client instance
+
+    Returns:
+        True if graph contains analyzable data, False otherwise
+    """
+    try:
+        stats = db.get_stats()
+        # Check if there are any code entities
+        file_count = stats.get("file_count", 0) or 0
+        function_count = stats.get("function_count", 0) or 0
+        class_count = stats.get("class_count", 0) or 0
+        return (file_count + function_count + class_count) > 0
+    except Exception:
+        return False
+
+
+def _run_auto_ingest(
+    repo_path: Path,
+    db,
+    config,
+    quiet: bool = False,
+) -> bool:
+    """Run automatic ingestion when analyze is called on empty graph.
+
+    Args:
+        repo_path: Path to repository
+        db: Database client
+        config: FalkorConfig instance
+        quiet: Suppress output
+
+    Returns:
+        True if ingestion succeeded, False otherwise
+    """
+    if not quiet:
+        console.print("[yellow]📦 No analysis data found. Running initial code scan...[/yellow]\n")
+
+    try:
+        # Get ingestion settings from config
+        patterns = config.ingestion.patterns
+        follow_symlinks = config.ingestion.follow_symlinks
+        max_file_size = config.ingestion.max_file_size_mb
+        batch_size = config.ingestion.batch_size
+
+        # Use auto embedding backend
+        embedding_backend = config.embeddings.backend or "auto"
+        embedding_model = config.embeddings.model
+
+        pipeline = get_ingestion_pipeline()(
+            str(repo_path),
+            db,
+            follow_symlinks=follow_symlinks,
+            max_file_size_mb=max_file_size,
+            batch_size=batch_size,
+            secrets_policy=SecretsPolicy(config.secrets.policy),
+            generate_clues=False,
+            generate_embeddings=True,
+            embedding_backend=embedding_backend,
+            embedding_model=embedding_model,
+            generate_contexts=False,
+        )
+
+        if not quiet:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TimeRemainingColumn(),
+                console=console,
+            ) as progress:
+                task_id = progress.add_task("[cyan]Scanning code...", total=None)
+
+                def progress_callback(current: int, total: int, filename: str) -> None:
+                    if progress.tasks[task_id].total is None:
+                        progress.update(task_id, total=total)
+                    progress.update(
+                        task_id,
+                        completed=current,
+                        description=f"[cyan]Processing:[/cyan] {filename}"
+                    )
+
+                pipeline.ingest(patterns=patterns, incremental=False, progress_callback=progress_callback)
+        else:
+            pipeline.ingest(patterns=patterns, incremental=False)
+
+        # Quick stats
+        stats = db.get_stats()
+        file_count = stats.get("file_count", 0) or 0
+        function_count = stats.get("function_count", 0) or 0
+
+        if not quiet:
+            console.print(f"\n[green]✓ Scanned {file_count} files, {function_count} functions[/green]\n")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Auto-ingest failed: {e}")
+        if not quiet:
+            console.print(f"\n[red]❌ Initial scan failed: {e}[/red]")
+            console.print("[dim]Try running 'repotoire ingest .' manually for more details[/dim]\n")
+        return False
+
+
 def _record_metrics_to_timescale(
     health,
     repo_path: Path,
@@ -282,7 +389,8 @@ def _record_metrics_to_timescale(
         try:
             from repotoire.tenant.context import get_current_org_id_str
             tenant_id = get_current_org_id_str()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get tenant context for metrics recording: {e}")
             tenant_id = None
 
         if not tenant_id:
@@ -569,8 +677,9 @@ def _login_browser_oauth() -> None:
                 console.print(f"  Organization: {auth_info.org_slug} ({auth_info.plan} plan)")
             else:
                 console.print(f"\n[green]✓[/green] Logged in to [cyan]{auth_info.org_slug}[/cyan] ({auth_info.plan} plan)")
-        except Exception:
+        except Exception as e:
             # If validation fails, still show success with masked key
+            logger.debug(f"API key validation failed during login display: {e}")
             masked_key = mask_api_key(api_key)
             console.print("\n[green]✓[/green] Logged in successfully")
             console.print(f"  API Key: {masked_key}")
@@ -668,6 +777,239 @@ def whoami() -> None:
 
 
 # =============================================================================
+# Status Command
+# =============================================================================
+
+
+@cli.command()
+@click.argument("repo_path", type=click.Path(exists=True), default=".")
+@handle_errors()
+def status(repo_path: str) -> None:
+    """Show quick orientation: auth status, repo info, and health summary.
+
+    \b
+    USAGE:
+      $ repotoire status              # Check current directory
+      $ repotoire status ./my-repo    # Check specific repo
+
+    \b
+    DISPLAYS:
+      - Authentication state (logged in as who, org, plan)
+      - Current repository info (path, last analyzed timestamp)
+      - Quick health summary (file count, function count, grade, findings)
+
+    \b
+    EXAMPLE OUTPUT (authenticated with analysis):
+      ✓ Authenticated as john@example.com (acme-corp, Team plan)
+      ✓ Repository: ./my-project (last analyzed 2h ago)
+        Files: 1,234 | Functions: 8,567 | Health: B (78/100)
+        Findings: 12 critical, 45 high
+
+    \b
+    EXAMPLE OUTPUT (not set up):
+      ✗ Not authenticated (run 'repotoire login')
+      ✗ No analysis found (run 'repotoire analyze .')
+    """
+    import json
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from repotoire.cli.auth import CLIAuth
+    from repotoire.cli.credentials import mask_api_key
+    from repotoire.graph.factory import (
+        _validate_api_key,
+        get_api_key,
+        get_cloud_auth_info,
+    )
+
+    repo_path_obj = Path(repo_path).resolve()
+
+    # -------------------------------------------------------------------------
+    # 1. Authentication Status
+    # -------------------------------------------------------------------------
+    api_key = get_api_key()
+    if not api_key:
+        console.print("[red]✗[/red] Not authenticated [dim](run 'repotoire login')[/dim]")
+    else:
+        # Try to get cached info or validate
+        auth_info = get_cloud_auth_info()
+        if not auth_info:
+            try:
+                auth_info = _validate_api_key(api_key)
+            except Exception:
+                auth_info = None
+
+        if auth_info:
+            # Build auth line
+            if auth_info.user:
+                name = auth_info.user.name or auth_info.user.email
+                console.print(
+                    f"[green]✓[/green] Authenticated as [cyan]{name}[/cyan] "
+                    f"({auth_info.org_slug}, {auth_info.plan} plan)"
+                )
+            else:
+                console.print(
+                    f"[green]✓[/green] Authenticated to [cyan]{auth_info.org_slug}[/cyan] "
+                    f"({auth_info.plan} plan)"
+                )
+        else:
+            # API key exists but couldn't validate - show masked key
+            masked = mask_api_key(api_key)
+            console.print(f"[green]✓[/green] Authenticated [dim]({masked})[/dim]")
+
+    # -------------------------------------------------------------------------
+    # 2. Repository Info & Health Summary
+    # -------------------------------------------------------------------------
+    repotoire_dir = repo_path_obj / ".repotoire"
+    health_cache = repotoire_dir / "last_health.json"
+    findings_cache = repotoire_dir / "last_findings.json"
+
+    if not repotoire_dir.exists() or not health_cache.exists():
+        # No analysis found
+        console.print(f"[red]✗[/red] No analysis found [dim](run 'repotoire analyze {repo_path}')[/dim]")
+        return
+
+    # Load cached health data
+    try:
+        with open(health_cache) as f:
+            health_data = json.load(f)
+    except Exception as e:
+        console.print(f"[red]✗[/red] Could not read analysis cache: {e}")
+        return
+
+    # Calculate time since last analysis
+    analyzed_at = health_data.get("analyzed_at")
+    time_ago = ""
+    if analyzed_at:
+        try:
+            # Try parsing ISO format
+            if isinstance(analyzed_at, str):
+                # Handle various datetime formats
+                for fmt in ["%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"]:
+                    try:
+                        analyzed_dt = datetime.strptime(analyzed_at, fmt)
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    analyzed_dt = None
+            else:
+                analyzed_dt = None
+
+            if analyzed_dt:
+                now = datetime.now()
+                delta = now - analyzed_dt
+                if delta.days > 0:
+                    time_ago = f"{delta.days}d ago"
+                elif delta.seconds >= 3600:
+                    hours = delta.seconds // 3600
+                    time_ago = f"{hours}h ago"
+                elif delta.seconds >= 60:
+                    minutes = delta.seconds // 60
+                    time_ago = f"{minutes}m ago"
+                else:
+                    time_ago = "just now"
+        except Exception:
+            pass
+
+    # Get file modification time as fallback
+    if not time_ago:
+        try:
+            mtime = health_cache.stat().st_mtime
+            mtime_dt = datetime.fromtimestamp(mtime)
+            delta = datetime.now() - mtime_dt
+            if delta.days > 0:
+                time_ago = f"{delta.days}d ago"
+            elif delta.seconds >= 3600:
+                hours = delta.seconds // 3600
+                time_ago = f"{hours}h ago"
+            elif delta.seconds >= 60:
+                minutes = delta.seconds // 60
+                time_ago = f"{minutes}m ago"
+            else:
+                time_ago = "just now"
+        except Exception:
+            time_ago = "unknown"
+
+    # Display repo path (relative if inside cwd)
+    try:
+        display_path = repo_path_obj.relative_to(Path.cwd())
+        if str(display_path) == ".":
+            display_path = repo_path_obj.name
+    except ValueError:
+        display_path = repo_path_obj
+
+    console.print(f"[green]✓[/green] Repository: [cyan]{display_path}[/cyan] [dim](last analyzed {time_ago})[/dim]")
+
+    # -------------------------------------------------------------------------
+    # 3. Health Summary
+    # -------------------------------------------------------------------------
+    # Extract metrics
+    total_files = health_data.get("total_files") or health_data.get("metrics", {}).get("total_files", 0)
+    total_functions = health_data.get("total_functions") or health_data.get("metrics", {}).get("total_functions", 0)
+    grade = health_data.get("grade", "?")
+    score = health_data.get("overall_score") or health_data.get("health_score", 0)
+
+    # Grade color
+    grade_colors = {"A": "green", "B": "cyan", "C": "yellow", "D": "bright_red", "F": "red"}
+    grade_color = grade_colors.get(grade, "white")
+
+    # Format numbers with commas
+    files_str = f"{total_files:,}" if total_files else "0"
+    functions_str = f"{total_functions:,}" if total_functions else "0"
+    score_str = f"{score:.0f}" if isinstance(score, (int, float)) else str(score)
+
+    console.print(
+        f"  Files: [bold]{files_str}[/bold] | "
+        f"Functions: [bold]{functions_str}[/bold] | "
+        f"Health: [{grade_color}][bold]{grade}[/bold][/{grade_color}] ({score_str}/100)"
+    )
+
+    # -------------------------------------------------------------------------
+    # 4. Findings Summary
+    # -------------------------------------------------------------------------
+    # Try to get findings summary from health data or findings cache
+    findings_summary = health_data.get("findings_summary", {})
+
+    # If not in health data, try to count from findings cache
+    if not findings_summary and findings_cache.exists():
+        try:
+            with open(findings_cache) as f:
+                findings_data = json.load(f)
+                findings_list = findings_data.get("findings", []) if isinstance(findings_data, dict) else findings_data
+                # Count by severity
+                findings_summary = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+                for finding in findings_list:
+                    sev = finding.get("severity", "info").lower()
+                    if sev in findings_summary:
+                        findings_summary[sev] += 1
+        except Exception:
+            pass
+
+    critical = findings_summary.get("critical", 0)
+    high = findings_summary.get("high", 0)
+    medium = findings_summary.get("medium", 0)
+    low = findings_summary.get("low", 0)
+
+    # Build findings line (only show non-zero counts for critical/high, summarize rest)
+    findings_parts = []
+    if critical > 0:
+        findings_parts.append(f"[bright_red]{critical} critical[/bright_red]")
+    if high > 0:
+        findings_parts.append(f"[red]{high} high[/red]")
+
+    other_count = medium + low
+    if findings_parts:
+        if other_count > 0:
+            findings_parts.append(f"[dim]{other_count} other[/dim]")
+        console.print(f"  Findings: {', '.join(findings_parts)}")
+    elif other_count > 0:
+        console.print(f"  Findings: [dim]{other_count} (medium/low)[/dim]")
+    else:
+        console.print("  Findings: [green]None[/green] 🎉")
+
+
+# =============================================================================
 # Sync Command
 # =============================================================================
 
@@ -742,8 +1084,8 @@ def sync(repo_path: str, findings_file: str | None, quiet: bool) -> None:
         try:
             with open(health_cache) as f:
                 health_data = json.load(f)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to load health cache: {e}")
 
     # Load findings from file or cache
     if findings_file:
@@ -768,8 +1110,8 @@ def sync(repo_path: str, findings_file: str | None, quiet: bool) -> None:
                         findings_data = cached
                     elif isinstance(cached, dict) and "findings" in cached:
                         findings_data = cached["findings"]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to load findings cache: {e}")
 
     if health_data is None:
         # Need to run analysis first
@@ -1582,6 +1924,11 @@ def analyze(
             # Create database client (local Kuzu by default, cloud if logged in)
             db = _get_db_client(quiet=quiet, repository_path=str(repo_path))
             try:
+                # Auto-ingest if graph is empty (UX improvement: analyze just works)
+                if not _graph_has_data(db):
+                    if not _run_auto_ingest(validated_repo_path, db, config, quiet):
+                        raise click.Abort()
+
                 # Convert detector config to dict for detectors
                 detector_config_dict = asdict(config.detectors)
 

@@ -940,16 +940,16 @@ async def set_api_keys(
             decrypted = decrypt_api_key(org.anthropic_api_key_encrypted)
             result.anthropic_configured = True
             result.anthropic_masked = mask_api_key(decrypted)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to decrypt Anthropic key for status response: {e}")
 
     if org.openai_api_key_encrypted:
         try:
             decrypted = decrypt_api_key(org.openai_api_key_encrypted)
             result.openai_configured = True
             result.openai_masked = mask_api_key(decrypted)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to decrypt OpenAI key for status response: {e}")
 
     return result
 

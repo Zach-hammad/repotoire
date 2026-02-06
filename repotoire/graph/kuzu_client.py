@@ -561,7 +561,8 @@ class KuzuClient(DatabaseClient):
                 )
                 if result.has_next():
                     return table
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Node type lookup failed for table {table}: {e}")
                 continue
         return None
 
@@ -616,8 +617,8 @@ class KuzuClient(DatabaseClient):
         for table in tables:
             try:
                 self._conn.execute(f"MATCH (n:{table}) DELETE n")
-            except Exception:
-                pass  # Table might not exist
+            except Exception as e:
+                logger.debug(f"Failed to clear table {table} (may not exist): {e}")
 
     def delete_repository(self, repo_id: str) -> int:
         """Delete all nodes for a specific repository."""
@@ -633,8 +634,8 @@ class KuzuClient(DatabaseClient):
                 if result.has_next():
                     row = result.get_next()
                     total_deleted += row[0] if row[0] else 0
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to delete {table} nodes for repo {repo_id}: {e}")
 
         return total_deleted
 
@@ -654,7 +655,8 @@ class KuzuClient(DatabaseClient):
                 result = self._conn.execute(f"MATCH (n:{table}) RETURN count(*) AS cnt")
                 if result.has_next():
                     stats[table.lower() + "_count"] = result.get_next()[0]
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to get count for table {table}: {e}")
                 stats[table.lower() + "_count"] = 0
 
         return stats
@@ -686,7 +688,8 @@ class KuzuClient(DatabaseClient):
                 row = result.get_next()
                 return {"hash": row[0], "loc": row[1]}
             return None
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get file metadata for {file_path}: {e}")
             return None
 
     def batch_get_file_metadata(self, file_paths: list) -> Dict[str, Dict[str, Any]]:
@@ -718,8 +721,9 @@ class KuzuClient(DatabaseClient):
                         "loc": row[2]
                     }
             return metadata
-        except Exception:
+        except Exception as e:
             # Fall back to single-file queries
+            logger.debug(f"Batch metadata query failed, falling back to single queries: {e}")
             metadata = {}
             for path in file_paths:
                 meta = self.get_file_metadata(path)
@@ -739,8 +743,8 @@ class KuzuClient(DatabaseClient):
             )
             if result.has_next():
                 deleted += result.get_next()[0] or 0
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to delete functions in {file_path}: {e}")
 
         # Delete classes in file
         try:
@@ -750,8 +754,8 @@ class KuzuClient(DatabaseClient):
             )
             if result.has_next():
                 deleted += result.get_next()[0] or 0
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to delete classes in {file_path}: {e}")
 
         # Delete file itself
         try:
@@ -761,8 +765,8 @@ class KuzuClient(DatabaseClient):
             )
             if result.has_next():
                 deleted += result.get_next()[0] or 0
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to delete file node {file_path}: {e}")
 
         return deleted
 
