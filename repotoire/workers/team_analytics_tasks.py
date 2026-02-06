@@ -105,6 +105,7 @@ def analyze_ownership_async(
 
             # Import here to avoid circular imports
             import asyncio
+
             from repotoire.services.github_git import get_git_service_for_repo
 
             # Run async function in sync context

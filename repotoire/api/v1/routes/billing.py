@@ -1,18 +1,13 @@
 """Billing routes for subscription management.
 
 This module provides API endpoints for querying subscription status and usage.
-Subscription management (checkout, portal) is now handled by Clerk Billing.
+Subscription management (checkout, portal) is now handled by Stripe direct.
 
-Migration Note (2026-01):
-- Checkout and portal endpoints have been removed
-- Use Clerk's <PricingTable /> and <AccountPortal /> components instead
-- Subscription data is synced from Clerk via webhooks
+Note: Clerk billing was deprecated in favor of direct Stripe integration.
 """
 
 import logging
 from datetime import datetime
-
-logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -31,6 +26,8 @@ from repotoire.api.shared.services.billing import (
 )
 from repotoire.db.models import Organization, PlanTier, SubscriptionStatus
 from repotoire.db.session import get_db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 

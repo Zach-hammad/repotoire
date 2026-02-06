@@ -16,14 +16,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from repotoire.api.shared.auth import ClerkUser, require_org
-from repotoire.db.models import Repository, GitHubRepository
+from repotoire.db.models import GitHubRepository, Repository
 from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
 from repotoire.services.team_analytics import TeamAnalyticsService
-from sqlalchemy import select
 
 logger = get_logger(__name__)
 
@@ -37,7 +37,7 @@ router = APIRouter(prefix="/team-analytics", tags=["team-analytics"])
 
 class OwnershipEntry(BaseModel):
     """Code ownership entry."""
-    
+
     path: str
     developer_name: str
     developer_email: str
@@ -47,7 +47,7 @@ class OwnershipEntry(BaseModel):
 
 class OwnershipAnalysisResponse(BaseModel):
     """Response for ownership analysis."""
-    
+
     files_analyzed: int
     developers_found: int
     ownership: List[OwnershipEntry]
@@ -55,7 +55,7 @@ class OwnershipAnalysisResponse(BaseModel):
 
 class CollaboratorEntry(BaseModel):
     """Collaborator in the graph."""
-    
+
     developer_id: str
     name: str
     email: str
@@ -65,7 +65,7 @@ class CollaboratorEntry(BaseModel):
 
 class CollaborationGraphResponse(BaseModel):
     """Response for collaboration graph."""
-    
+
     total_developers: int
     total_collaborations: int
     top_pairs: List[dict]
@@ -73,7 +73,7 @@ class CollaborationGraphResponse(BaseModel):
 
 class BusFactorResponse(BaseModel):
     """Response for bus factor analysis."""
-    
+
     bus_factor: int = Field(description="Minimum developers to lose 50% knowledge")
     at_risk_files: List[dict] = Field(description="Files with concentrated ownership")
     top_owners: List[dict] = Field(description="Top code owners")
@@ -81,7 +81,7 @@ class BusFactorResponse(BaseModel):
 
 class DeveloperProfileResponse(BaseModel):
     """Developer profile response."""
-    
+
     id: str
     name: str
     email: str
@@ -97,7 +97,7 @@ class DeveloperProfileResponse(BaseModel):
 
 class TeamOverviewResponse(BaseModel):
     """Team overview dashboard response."""
-    
+
     developer_count: int
     total_commits: int
     avg_commits_per_developer: float
@@ -114,7 +114,7 @@ async def get_user_org_id(session: AsyncSession, user: ClerkUser) -> Optional[UU
     """Get user's organization ID from Clerk org ID."""
     if not user.org_id:
         return None
-    
+
     from repotoire.db.models import Organization
     result = await session.execute(
         select(Organization.id).where(Organization.clerk_org_id == user.org_id)
@@ -171,19 +171,19 @@ async def get_team_overview(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Organization membership required for team analytics",
         )
-    
+
     if repository_id:
         await verify_repo_access(session, repository_id, org_id)
-    
+
     service = TeamAnalyticsService(session, org_id)
     overview = await service.get_team_overview(repository_id)
-    
+
     return TeamOverviewResponse(**overview)
 
 
 class JobResponse(BaseModel):
     """Response for async job submission."""
-    
+
     job_id: str
     status: str
     message: str
@@ -192,7 +192,7 @@ class JobResponse(BaseModel):
 
 class JobStatusResponse(BaseModel):
     """Response for job status check."""
-    
+
     job_id: str
     status: str
     progress: int
@@ -231,17 +231,18 @@ async def analyze_ownership(
     **Cloud-only feature** - requires organization membership.
     """
     import uuid
+
     from repotoire.services.github_git import get_git_service_for_repo
-    
+
     org_id = await get_user_org_id(session, user)
     if not org_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Organization membership required for team analytics",
         )
-    
-    repo = await verify_repo_access(session, repository_id, org_id)
-    
+
+    await verify_repo_access(session, repository_id, org_id)
+
     # Verify GitHub connection before starting job
     git_service = await get_git_service_for_repo(session, repository_id)
     if not git_service:
@@ -249,7 +250,7 @@ async def analyze_ownership(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Repository not connected to GitHub. Please install the GitHub App.",
         )
-    
+
     # Get GitHub repo info for validation
     github_repo_result = await session.execute(
         select(GitHubRepository).where(GitHubRepository.repository_id == repository_id)
@@ -260,14 +261,14 @@ async def analyze_ownership(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="GitHub repository mapping not found",
         )
-    
+
     # Sync mode: run immediately (for small repos or testing)
     if sync:
         from datetime import datetime, timedelta, timezone
-        
+
         logger.info(f"Starting sync ownership analysis for repo {repository_id}")
         since = datetime.now(timezone.utc) - timedelta(days=days)
-        
+
         try:
             git_log = await git_service.fetch_git_log(
                 github_repo.full_name,
@@ -280,7 +281,7 @@ async def analyze_ownership(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Failed to fetch git history from GitHub: {str(e)}",
             )
-        
+
         if not git_log:
             return {
                 "status": "completed",
@@ -288,10 +289,10 @@ async def analyze_ownership(
                 "repository_id": str(repository_id),
                 "commits_analyzed": 0,
             }
-        
+
         service = TeamAnalyticsService(session, org_id)
         result = await service.analyze_git_ownership(repository_id, git_log)
-        
+
         return {
             "status": "completed",
             "message": "Ownership analysis completed",
@@ -299,14 +300,14 @@ async def analyze_ownership(
             "commits_analyzed": len(git_log),
             **result,
         }
-    
+
     # Async mode: queue background job
     from repotoire.workers.team_analytics_tasks import analyze_ownership_async
-    
+
     job_id = str(uuid.uuid4())
-    
+
     logger.info(f"Queuing ownership analysis job {job_id} for repo {repository_id}")
-    
+
     analyze_ownership_async.delay(
         job_id=job_id,
         org_id=str(org_id),
@@ -314,7 +315,7 @@ async def analyze_ownership(
         days=days,
         max_commits=max_commits,
     )
-    
+
     return JobResponse(
         job_id=job_id,
         status="queued",
@@ -339,14 +340,14 @@ async def get_job_status(
         Job status with progress and result (when complete).
     """
     from repotoire.workers.team_analytics_tasks import get_job_status as get_status
-    
+
     status_data = get_status(job_id)
     if not status_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
         )
-    
+
     return JobStatusResponse(
         job_id=job_id,
         status=status_data.get("status", "unknown"),
@@ -382,12 +383,12 @@ async def get_bus_factor(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Organization membership required for team analytics",
         )
-    
+
     await verify_repo_access(session, repository_id, org_id)
-    
+
     service = TeamAnalyticsService(session, org_id)
     result = await service.compute_bus_factor(repository_id)
-    
+
     return BusFactorResponse(**result)
 
 
@@ -413,16 +414,16 @@ async def get_developer_profile(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Organization membership required for team analytics",
         )
-    
+
     service = TeamAnalyticsService(session, org_id)
     profile = await service.get_developer_profile(developer_id)
-    
+
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Developer not found",
         )
-    
+
     return DeveloperProfileResponse(**profile)
 
 
@@ -444,17 +445,17 @@ async def list_developers(
     **Cloud-only feature** - requires organization membership.
     """
     from repotoire.db.models import Developer
-    
+
     org_id = await get_user_org_id(session, user)
     if not org_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Organization membership required for team analytics",
         )
-    
+
     # Build query
     query = select(Developer).where(Developer.organization_id == org_id)
-    
+
     # Sort
     if sort_by == "commits":
         query = query.order_by(Developer.total_commits.desc())
@@ -464,19 +465,19 @@ async def list_developers(
         query = query.order_by(Developer.name.asc())
     else:
         query = query.order_by(Developer.total_commits.desc())
-    
+
     # Paginate
     query = query.offset(offset).limit(limit)
-    
+
     result = await session.execute(query)
     developers = result.scalars().all()
-    
+
     # Count total
     count_result = await session.execute(
         select(Developer.id).where(Developer.organization_id == org_id)
     )
     total = len(count_result.all())
-    
+
     return {
         "developers": [
             {
@@ -517,36 +518,36 @@ async def compute_collaboration_graph(
     **Cloud-only feature** - requires organization membership.
     """
     import uuid
-    
+
     org_id = await get_user_org_id(session, user)
     if not org_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Organization membership required for team analytics",
         )
-    
+
     if repository_id:
         await verify_repo_access(session, repository_id, org_id)
-    
+
     # Sync mode
     if sync:
         service = TeamAnalyticsService(session, org_id)
         result = await service.compute_collaboration_graph(repository_id)
         return {"status": "completed", **result}
-    
+
     # Async mode
     from repotoire.workers.team_analytics_tasks import compute_collaboration_async
-    
+
     job_id = str(uuid.uuid4())
-    
+
     logger.info(f"Queuing collaboration graph job {job_id}")
-    
+
     compute_collaboration_async.delay(
         job_id=job_id,
         org_id=str(org_id),
         repository_id=str(repository_id) if repository_id else None,
     )
-    
+
     return JobResponse(
         job_id=job_id,
         status="queued",
@@ -572,14 +573,14 @@ async def get_collaboration_graph(
     **Cloud-only feature** - requires organization membership.
     """
     from repotoire.db.models import Collaboration, Developer
-    
+
     org_id = await get_user_org_id(session, user)
     if not org_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Organization membership required for team analytics",
         )
-    
+
     # Get top collaborations
     result = await session.execute(
         select(Collaboration).where(
@@ -587,7 +588,7 @@ async def get_collaboration_graph(
         ).order_by(Collaboration.collaboration_score.desc()).limit(limit)
     )
     collaborations = result.scalars().all()
-    
+
     # Enrich with developer names
     pairs = []
     for collab in collaborations:
@@ -599,7 +600,7 @@ async def get_collaboration_graph(
         )
         dev_a = dev_a_result.scalar_one_or_none()
         dev_b = dev_b_result.scalar_one_or_none()
-        
+
         if dev_a and dev_b:
             pairs.append({
                 "developer_a": {"id": str(dev_a.id), "name": dev_a.name, "email": dev_a.email},
@@ -607,7 +608,7 @@ async def get_collaboration_graph(
                 "shared_files": collab.shared_files,
                 "collaboration_score": collab.collaboration_score,
             })
-    
+
     return {
         "pairs": pairs,
         "total": len(pairs),
