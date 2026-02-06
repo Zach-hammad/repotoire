@@ -5,27 +5,165 @@ All notable changes to Repotoire will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.34] - 2026-02-05
-
-### Features
-
-- **web:** Split landing page into CLI + Teams sections
-- **web:** New `/cli` page with download instructions and quickstart
-- **web:** New `/teams` page with team analytics value proposition
-- **web:** 3-tier pricing: Free CLI, Team ($15/dev), Enterprise
-- **cli:** Add `repotoire sync` command to upload analysis to cloud
-- **api:** Complete team analytics backend with GitHub git integration
-- **api:** Add Stripe checkout and customer portal endpoints
-- **api:** Add `/api/v1/cli-sync/upload` endpoint for CLI sync
+## [Unreleased]
 
 ### Bug Fixes
 
-- **models:** Rename `CodeOwnership.metadata` to `extra_data` (SQLAlchemy reserved)
-- **cli:** Fix findings cache creation (wrong attribute names)
+- CI tests - add Rust toolchain and env vars
+- Safe Clerk hooks for build-time prerendering
+- Align Stripe env vars with Fly.io secrets
+- Align all pricing copy to Team plan naming
+- Sync version to 0.1.35 in bumpversion config and __init__.py
+
+### Features
+
+- Standardize pricing to $15/dev/mo (annual) / $19/dev/mo (monthly)
+
+### Performance
+
+- Optimize graph stats queries with UNION pattern
+- Lazy imports for CLI cold start optimization
+- Lazy imports for monorepo CLI module
+
+### Testing
+
+- Add tests for kuzu client, factory, and billing
+- Add tests for CLI sync API routes
+- Add tests for team analytics API routes
+
+## [0.1.35] - 2026-02-06
+
+### Bug Fixes
+
+- E2E testing bug fixes
+- Lint issues in billing, team_analytics routes
+- Cli_sync.py field mapping to match DB models
+- Cli_sync.py Repository model field compatibility
+- Billing checkout metadata keys to match webhook handler
+- Use asyncio.run() instead of deprecated get_event_loop pattern
+- GitHub Action use --changed flag instead of non-existent --files
+- Clerk build warnings, TypeScript errors, lint fixes
+- Skip PageRank benchmark test when scipy not installed
+- Implement missing metrics in engine.py
+- Npm vulnerabilities + more query optimizations
 
 ### Documentation
 
-- Add `.env.example` for frontend development
+- Update for local-first Kuzu CLI
+
+### Features
+
+- Complete call resolution for Kuzu local mode
+- Add team analytics (cloud-only)
+- **web:** Split landing page into CLI + Teams
+- **api:** Complete team analytics backend implementation
+- **cli:** Add 'repotoire sync' to upload local analysis to cloud
+- **billing:** Add Stripe checkout and portal endpoints
+- Stripe checkout, GitHub PR checks, async team analytics
+- Wire up email notifications for changelog and status updates
+
+### Miscellaneous
+
+- Bump version to 0.1.34, add CHANGELOG and .env.example
+- Fix ruff config deprecation, add pre-commit hooks
+
+### Performance
+
+- Lazy imports for faster cold starts
+- Optimize graph queries with UNION instead of label scan
+
+## [0.1.31] - 2026-02-05
+
+### Bug Fixes
+
+- CLI fix command and BYOK mode bugs (v0.1.10)
+- Findings table now shows file paths and line numbers (v0.1.12)
+- /write endpoint returns full query results
+- Make enricher resilient to different FalkorDB response formats
+- Rewrite NOT EXISTS query for FalkorDB compatibility
+- Make 'Why It Matters' specific to each finding, no fallbacks
+- Fix file:line mode in fix command (use affected_files not file_path)
+- Kuzu Cypher compatibility for more detectors
+- Enable 29/42 detectors in Kuzu mode
+- Kuzu Cypher compatibility - 30/42 detectors working
+- Kuzu Cypher compatibility improvements
+- Kuzu compatibility - 33/42 detectors (79%)
+- Enable TypeHintCoverage and PackageStability for Kuzu (83% coverage)
+- Enable 90% of detectors for Kuzu local mode
+- Enable 98% of detectors for Kuzu (41/42)
+- Enable 100% of detectors for Kuzu (42/42)
+- Kuzu schema and client compatibility
+- Kuzu compatibility for graph detectors
+- Kuzu compatibility - skip unsupported operations
+
+### Documentation
+
+- Add local mode quick start to README
+
+### Features
+
+- Add --top and --severity filters to analyze command (v0.1.11)
+- Add /write endpoint for detector metadata operations (v0.1.13)
+- Add 'Why It Matters' explanations to findings (REPO-521)
+- Add fuzzy matching for fix application to handle line drift
+- Add --changed flag for incremental analysis (REPO-523)
+- Cache path cache data locally to skip API queries (REPO-524)
+- Add Kùzu embedded graph database client (REPO-525)
+- Add create_kuzu_client and create_local_client to factory
+- Kuzu embedded graph DB for local-first CLI
+- Disable graph detectors in Kuzu mode for clean local analysis
+- Rust-accelerated fix applicator (REPO-525)
+- Fix path cache for Kuzu with UNION queries
+- External* entity tracking for Kuzu local mode
+- Enable call resolution + CALLS relationship properties for Kuzu
+- Enable embeddings by default on ingest
+- Improved error UX with friendly messages
+
+### Miscellaneous
+
+- Bump to 0.1.17 - 33/42 detectors (79%)
+
+### Performance
+
+- Add node data prefetch cache to reduce cloud HTTP round-trips (REPO-522)
+
+### Ux
+
+- Improve error messages for local mode
+
+### Wip
+
+- Degree centrality partial fix for read-only mode
+- Call resolution infrastructure for Kuzu
+
+## [0.1.9] - 2026-02-05
+
+### Features
+
+- Add 'findings' command to view/browse findings in CLI (v0.1.9)
+
+## [0.1.8] - 2026-02-05
+
+### Features
+
+- Add simple 'fix' command for tight analyze→fix loop (v0.1.8)
+
+## [0.1.7] - 2026-02-05
+
+### Bug Fixes
+
+- **lean:** Use List.all_eq_true instead of String.all_iff
+- Cloud API compatibility issues (v0.1.7)
+
+### CI/CD
+
+- Re-enable Lean workflow after fixing String.all proof
+
+## [0.1.5] - 2026-02-05
+
+### Documentation
+
+- Update changelog
 
 ## [0.1.6] - 2026-02-05
 
