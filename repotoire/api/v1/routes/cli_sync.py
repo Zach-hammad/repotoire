@@ -158,27 +158,30 @@ async def upload_cli_analysis(
     org = await get_org_from_user(session, user)
     
     # Find or create repository
+    full_name = f"{org.slug}/{sync_data.repo_name}"
+    
     result = await session.execute(
         select(Repository).where(
             Repository.organization_id == org.id,
-            Repository.name == sync_data.repo_name,
+            Repository.full_name == full_name,
         )
     )
     repo = result.scalar_one_or_none()
     
     if not repo:
-        # Create new repository record
+        # Create new repository record for CLI-synced repo
+        # Use 0 for github_repo_id to indicate a local/CLI repo
         repo = Repository(
             organization_id=org.id,
-            name=sync_data.repo_name,
-            full_name=f"{org.slug}/{sync_data.repo_name}",
-            url=sync_data.repo_url,
+            github_repo_id=0,  # CLI-synced, no GitHub ID
+            github_installation_id=0,  # CLI-synced, no installation
+            full_name=full_name,
             default_branch=sync_data.branch or "main",
             is_active=True,
         )
         session.add(repo)
         await session.flush()
-        logger.info(f"Created repository {repo.name} for org {org.slug}")
+        logger.info(f"Created CLI repository {full_name} for org {org.slug}")
     
     # Create analysis run record
     analysis = AnalysisRun(
@@ -227,10 +230,11 @@ async def upload_cli_analysis(
     
     # Build dashboard URL
     base_url = "https://app.repotoire.io"
-    dashboard_url = f"{base_url}/dashboard/{org.slug}/{repo.name}/analysis/{analysis.id}"
+    repo_slug = sync_data.repo_name
+    dashboard_url = f"{base_url}/dashboard/{org.slug}/{repo_slug}/analysis/{analysis.id}"
     
     logger.info(
-        f"CLI sync completed: repo={repo.name}, analysis={analysis.id}, "
+        f"CLI sync completed: repo={repo.full_name}, analysis={analysis.id}, "
         f"findings={findings_created}, user={user.user_id}"
     )
     
@@ -267,10 +271,11 @@ async def list_synced_repositories(
         "repositories": [
             {
                 "id": str(r.id),
-                "name": r.name,
+                "name": r.full_name.split("/")[-1] if "/" in r.full_name else r.full_name,
                 "full_name": r.full_name,
-                "url": r.url,
-                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+                "default_branch": r.default_branch,
+                "health_score": r.health_score,
+                "last_analyzed_at": r.last_analyzed_at.isoformat() if r.last_analyzed_at else None,
             }
             for r in repos
         ]
