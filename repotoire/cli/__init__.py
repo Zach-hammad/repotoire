@@ -1677,17 +1677,17 @@ def analyze(
                     findings_cache = cache_dir / "last_findings.json"
                     findings_list = [
                         {
-                            "detector_id": f.detector_id,
+                            "detector_id": f.detector,  # Finding uses 'detector' not 'detector_id'
                             "title": f.title,
                             "description": f.description,
                             "severity": f.severity.value if hasattr(f.severity, 'value') else str(f.severity),
-                            "file_path": f.location.path if f.location else "",
-                            "line_start": f.location.line if f.location else 1,
-                            "line_end": f.location.end_line if f.location else None,
+                            "file_path": f.affected_files[0] if f.affected_files else "",
+                            "line_start": f.line_start or 1,
+                            "line_end": f.line_end,
                             "category": getattr(f, 'category', None),
                             "cwe_id": getattr(f, 'cwe_id', None),
                             "why_it_matters": getattr(f, 'why_it_matters', None),
-                            "suggested_fix": getattr(f, 'suggested_fix', None),
+                            "suggested_fix": f.suggested_fix,
                         }
                         for f in health.findings
                     ]

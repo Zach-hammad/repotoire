@@ -70,7 +70,7 @@ def upgrade() -> None:
         sa.Column("lines_owned", sa.Integer(), default=0, nullable=False),
         sa.Column("last_modified_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("commit_count", sa.Integer(), default=0, nullable=False),
-        sa.Column("metadata", postgresql.JSONB(), nullable=True),
+        sa.Column("extra_data", postgresql.JSONB(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(),
                   onupdate=sa.func.now(), nullable=False),

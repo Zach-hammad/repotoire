@@ -152,7 +152,7 @@ class CodeOwnership(Base, UUIDPrimaryKeyMixin):
         lines_owned: Lines of code attributed to this developer
         last_modified_at: When this developer last modified this code
         commit_count: Number of commits by this developer to this code
-        metadata: Additional ownership metadata (JSON)
+        extra_data: Additional ownership metadata (JSON)
     """
     
     __tablename__ = "code_ownership"
@@ -198,7 +198,7 @@ class CodeOwnership(Base, UUIDPrimaryKeyMixin):
         default=0,
         nullable=False,
     )
-    metadata: Mapped[dict | None] = mapped_column(
+    extra_data: Mapped[dict | None] = mapped_column(
         JSONB,
         nullable=True,
     )
