@@ -18,11 +18,11 @@ Training workflow:
 5. Save model for inference on any new codebase
 """
 
+import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import json
-import logging
 
 import numpy as np
 
@@ -125,9 +125,9 @@ class TrainingHistory:
 
 if TORCH_AVAILABLE:
     from repotoire.ml.graphsage_predictor import (
-        GraphSAGEDefectPredictor,
-        GraphSAGEConfig,
         GraphFeatureExtractor,
+        GraphSAGEConfig,
+        GraphSAGEDefectPredictor,
     )
 
 

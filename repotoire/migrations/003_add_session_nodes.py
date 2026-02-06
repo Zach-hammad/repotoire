@@ -4,9 +4,9 @@ This migration adds support for tracking code evolution over time by creating
 Session nodes that represent snapshots of the codebase at specific Git commits.
 """
 
-from repotoire.migrations.migration import Migration
 from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
+from repotoire.migrations.migration import Migration
 
 logger = get_logger(__name__)
 

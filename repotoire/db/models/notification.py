@@ -9,7 +9,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, Boolean, JSON
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin

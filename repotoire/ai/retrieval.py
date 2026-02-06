@@ -11,26 +11,24 @@ Features (REPO-220, REPO-240, REPO-241, REPO-243):
 - External vector store support (LanceDB) for memory optimization
 """
 
-import asyncio
 import hashlib
 import threading
 import time
 from collections import OrderedDict
-from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from dataclasses import dataclass, field
-from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from repotoire.graph.base import DatabaseClient
 from repotoire.ai.embeddings import CodeEmbedder
-from repotoire.ai.llm import LLMClient, LLMConfig
 from repotoire.ai.hybrid import HybridSearchConfig, fuse_results
-from repotoire.ai.reranker import RerankerConfig, Reranker, create_reranker
+from repotoire.ai.llm import LLMClient, LLMConfig
+from repotoire.ai.reranker import Reranker, RerankerConfig, create_reranker
 from repotoire.ai.vector_store import (
+    VectorSearchResult,
     VectorStore,
     VectorStoreConfig,
-    VectorSearchResult,
     create_vector_store,
 )
+from repotoire.graph.base import DatabaseClient
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)

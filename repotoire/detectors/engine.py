@@ -6,7 +6,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 from repotoire.graph import DatabaseClient
 
@@ -19,99 +19,98 @@ except ImportError:
     PyPathCache = None  # type: ignore
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.models import (
+    CodebaseHealth,
     Finding,
     FindingsSummary,
-    CodebaseHealth,
     MetricsBreakdown,
     Severity,
 )
 
 # Insights engine for ML and graph enrichment (REPO-501)
 try:
-    from repotoire.insights import InsightsEngine, InsightsConfig
+    from repotoire.insights import InsightsConfig, InsightsEngine
     _HAS_INSIGHTS = True
 except ImportError:
     _HAS_INSIGHTS = False
     InsightsEngine = None  # type: ignore
     InsightsConfig = None  # type: ignore
-from repotoire.detectors.circular_dependency import CircularDependencyDetector
-from repotoire.detectors.dead_code import DeadCodeDetector
-from repotoire.detectors.god_class import GodClassDetector
 from repotoire.detectors.architectural_bottleneck import ArchitecturalBottleneckDetector
-
-# GDS-based graph detectors (REPO-172, REPO-173)
-from repotoire.detectors.module_cohesion import ModuleCohesionDetector
-from repotoire.detectors.core_utility import CoreUtilityDetector
-
-# GDS-based detectors (REPO-169, REPO-170, REPO-171)
-from repotoire.detectors.influential_code import InfluentialCodeDetector
-from repotoire.detectors.degree_centrality import DegreeCentralityDetector
-
-# Graph-unique detectors (FAL-115)
-from repotoire.detectors.feature_envy import FeatureEnvyDetector
-from repotoire.detectors.shotgun_surgery import ShotgunSurgeryDetector
-from repotoire.detectors.middle_man import MiddleManDetector
-from repotoire.detectors.inappropriate_intimacy import InappropriateIntimacyDetector
-
-# Data clumps detector (REPO-216)
-from repotoire.detectors.data_clumps import DataClumpsDetector
 
 # New graph-based detectors (REPO-228, REPO-229, REPO-231)
 from repotoire.detectors.async_antipattern import AsyncAntipatternDetector
-from repotoire.detectors.type_hint_coverage import TypeHintCoverageDetector
+from repotoire.detectors.bandit_detector import BanditDetector
+from repotoire.detectors.circular_dependency import CircularDependencyDetector
+from repotoire.detectors.core_utility import CoreUtilityDetector
+
+# Data clumps detector (REPO-216)
+from repotoire.detectors.data_clumps import DataClumpsDetector
+from repotoire.detectors.dead_code import DeadCodeDetector
+from repotoire.detectors.deduplicator import FindingDeduplicator
+from repotoire.detectors.degree_centrality import DegreeCentralityDetector
+from repotoire.detectors.eslint_detector import ESLintDetector
+
+# Graph-unique detectors (FAL-115)
+from repotoire.detectors.feature_envy import FeatureEnvyDetector
+from repotoire.detectors.generator_misuse import GeneratorMisuseDetector
+from repotoire.detectors.god_class import GodClassDetector
+from repotoire.detectors.inappropriate_intimacy import InappropriateIntimacyDetector
+
+# GDS-based detectors (REPO-169, REPO-170, REPO-171)
+from repotoire.detectors.influential_code import InfluentialCodeDetector
+from repotoire.detectors.jscpd_detector import JscpdDetector
+
+# Design smell detectors (REPO-222, REPO-230)
+from repotoire.detectors.lazy_class import LazyClassDetector
 from repotoire.detectors.long_parameter_list import LongParameterListDetector
 
 # Additional graph-based detectors (REPO-221, REPO-223, REPO-232)
 from repotoire.detectors.message_chain import MessageChainDetector
-from repotoire.detectors.test_smell import TestSmellDetector
-from repotoire.detectors.generator_misuse import GeneratorMisuseDetector
+from repotoire.detectors.middle_man import MiddleManDetector
 
-# Design smell detectors (REPO-222, REPO-230)
-from repotoire.detectors.lazy_class import LazyClassDetector
+# GDS-based graph detectors (REPO-172, REPO-173)
+from repotoire.detectors.module_cohesion import ModuleCohesionDetector
+from repotoire.detectors.mypy_detector import MypyDetector
+from repotoire.detectors.npm_audit_detector import NpmAuditDetector
+from repotoire.detectors.pylint_detector import PylintDetector
+from repotoire.detectors.radon_detector import RadonDetector
 from repotoire.detectors.refused_bequest import RefusedBequestDetector
-
-# Rust-based graph detectors (REPO-433)
-from repotoire.detectors.rust_graph_detectors import (
-    PackageStabilityDetector,
-    TechnicalDebtHotspotDetector,
-    LayeredArchitectureDetector,
-    CallChainDepthDetector,
-    HubDependencyDetector,
-    ChangeCouplingDetector,
-)
+from repotoire.detectors.root_cause_analyzer import RootCauseAnalyzer
 
 # Hybrid detectors (external tool + graph)
 from repotoire.detectors.ruff_import_detector import RuffImportDetector
 from repotoire.detectors.ruff_lint_detector import RuffLintDetector
-from repotoire.detectors.mypy_detector import MypyDetector
-from repotoire.detectors.pylint_detector import PylintDetector
-from repotoire.detectors.bandit_detector import BanditDetector
-from repotoire.detectors.radon_detector import RadonDetector
-from repotoire.detectors.jscpd_detector import JscpdDetector
-from repotoire.detectors.vulture_detector import VultureDetector
-from repotoire.detectors.semgrep_detector import SemgrepDetector
+
+# Rust-based graph detectors (REPO-433)
+from repotoire.detectors.rust_graph_detectors import (
+    CallChainDepthDetector,
+    ChangeCouplingDetector,
+    HubDependencyDetector,
+    LayeredArchitectureDetector,
+    PackageStabilityDetector,
+    TechnicalDebtHotspotDetector,
+)
 from repotoire.detectors.satd_detector import SATDDetector
+from repotoire.detectors.semgrep_detector import SemgrepDetector
+from repotoire.detectors.shotgun_surgery import ShotgunSurgeryDetector
 from repotoire.detectors.taint_detector import TaintDetector
-from repotoire.detectors.deduplicator import FindingDeduplicator
+from repotoire.detectors.test_smell import TestSmellDetector
 
 # TypeScript/JavaScript detectors
 from repotoire.detectors.tsc_detector import TscDetector
-from repotoire.detectors.eslint_detector import ESLintDetector
-from repotoire.detectors.npm_audit_detector import NpmAuditDetector
-from repotoire.detectors.root_cause_analyzer import RootCauseAnalyzer
-from repotoire.detectors.voting_engine import VotingEngine, VotingStrategy, ConfidenceMethod
-
-from repotoire.logging_config import get_logger, LogContext
+from repotoire.detectors.type_hint_coverage import TypeHintCoverageDetector
+from repotoire.detectors.voting_engine import ConfidenceMethod, VotingEngine, VotingStrategy
+from repotoire.detectors.vulture_detector import VultureDetector
+from repotoire.logging_config import LogContext, get_logger
 
 logger = get_logger(__name__)
 
 # Optional observability (REPO-224)
 try:
     from repotoire.observability import (
-        get_metrics,
         DETECTOR_DURATION,
         FINDINGS_TOTAL,
         HAS_PROMETHEUS,
+        get_metrics,
     )
 except ImportError:
     HAS_PROMETHEUS = False
@@ -516,21 +515,21 @@ class AnalysisEngine:
         """
         import json
         import time as time_module
-        
+
         cache_path = self._get_cache_path()
         if not cache_path or not cache_path.exists():
             return None
-        
+
         try:
             # Check cache age (1 hour max)
             cache_age = time_module.time() - cache_path.stat().st_mtime
             if cache_age > 3600:  # 1 hour
                 logger.debug(f"Graph cache expired ({cache_age:.0f}s old)")
                 return None
-            
+
             with open(cache_path) as f:
                 data = json.load(f)
-            
+
             logger.info(f"Loaded graph cache ({cache_age:.0f}s old, {len(data.get('nodes', []))} nodes)")
             return data
         except Exception as e:
@@ -540,11 +539,11 @@ class AnalysisEngine:
     def _save_graph_cache(self, nodes: list, edges_by_type: Dict[str, list]) -> None:
         """Save graph data to cache file (REPO-524)."""
         import json
-        
+
         cache_path = self._get_cache_path()
         if not cache_path:
             return
-        
+
         try:
             data = {
                 "nodes": nodes,
@@ -561,25 +560,25 @@ class AnalysisEngine:
         """Build path cache from cached data without API queries (REPO-524)."""
         import time as time_module
         start_time = time_module.time()
-        
+
         if not _HAS_PATH_CACHE:
             return None
-        
+
         try:
             from repotoire_fast import PyPathCache
             cache = PyPathCache()
-            
+
             node_names = data.get("nodes", [])
             edges_by_type = data.get("edges", {})
-            
+
             if not node_names:
                 return None
-            
+
             # Register nodes
             node_tuples = [(i, name) for i, name in enumerate(node_names)]
             cache.register_nodes(node_tuples)
             num_nodes = len(node_names)
-            
+
             # Build caches for each relationship type
             total_edges = 0
             for rel_type, raw_edges in edges_by_type.items():
@@ -589,15 +588,15 @@ class AnalysisEngine:
                     dst_id = cache.get_id(dst_name)
                     if src_id is not None and dst_id is not None:
                         edges.append((src_id, dst_id))
-                
+
                 if edges:
                     cache.build_cache(rel_type, edges, num_nodes)
                     total_edges += len(edges)
-            
+
             elapsed = time_module.time() - start_time
             logger.info(f"Built path cache from local cache: {num_nodes} nodes, {total_edges} edges in {elapsed:.2f}s")
             return cache
-            
+
         except Exception as e:
             logger.warning(f"Failed to build cache from data: {e}")
             return None
@@ -616,14 +615,14 @@ class AnalysisEngine:
         """
         import time as time_module
         start_time = time_module.time()
-        
+
         is_kuzu = type(self.db).__name__ == "KuzuClient"
-        
+
         # REPO-524: Try to load from cache first
         cached_data = self._load_cached_graph_data()
         if cached_data:
             return self._build_cache_from_data(cached_data)
-        
+
         logger.info("Building path cache for O(1) reachability queries...")
 
         if not _HAS_PATH_CACHE:
@@ -695,7 +694,7 @@ class AnalysisEngine:
             # Build cache for each relationship type
             total_edges = 0
             edges_by_type: Dict[str, list] = {}  # REPO-524: Collect for caching
-            
+
             # Kuzu needs explicit labels on nodes
             kuzu_edge_queries = {
                 "CALLS": """
@@ -714,7 +713,7 @@ class AnalysisEngine:
                     RETURN a.qualifiedName AS src, b.qualifiedName AS dst
                 """,
             }
-            
+
             for rel_type in ["CALLS", "IMPORTS", "INHERITS"]:
                 # REPO-500: Added repo_id filter for edges
                 if is_kuzu:
@@ -745,7 +744,7 @@ class AnalysisEngine:
                 # REPO-524: Store raw edge names for caching
                 raw_edges = [(r.get("src"), r.get("dst")) for r in edges_result if r.get("src") and r.get("dst")]
                 edges_by_type[rel_type] = raw_edges
-                
+
                 if edges:
                     cache.build_cache(rel_type, edges, num_nodes)
                     total_edges += len(edges)
@@ -761,10 +760,10 @@ class AnalysisEngine:
 
             total_time = time_module.time() - start_time
             logger.info(f"Path cache complete: {num_nodes} nodes, {total_edges} edges in {total_time:.2f}s")
-            
+
             # REPO-524: Save to cache for next run
             self._save_graph_cache(node_names, edges_by_type)
-            
+
             return cache
 
         except TimeoutError as e:
@@ -797,14 +796,14 @@ class AnalysisEngine:
         """
         import time as time_module
         start = time_module.time()
-        
+
         # Build repo filter
         repo_filter = ""
         repo_params: Dict[str, Any] = {}
         if self.repo_id:
             repo_filter = "WHERE n.repoId = $repo_id"
             repo_params["repo_id"] = self.repo_id
-        
+
         try:
             # Prefetch Class nodes with all properties detectors need
             class_query = f"""
@@ -835,7 +834,7 @@ class AnalysisEngine:
                         "line_start": r.get("line_start"),
                         "line_end": r.get("line_end"),
                     }
-            
+
             # Prefetch Function nodes
             func_query = f"""
             MATCH (n:Function)
@@ -867,10 +866,10 @@ class AnalysisEngine:
                         "line_start": r.get("line_start"),
                         "line_end": r.get("line_end"),
                     }
-            
+
             elapsed = time_module.time() - start
             logger.info(f"Prefetched {len(self.node_data_cache)} nodes in {elapsed:.2f}s (REPO-522)")
-            
+
         except Exception as e:
             logger.warning(f"Node data prefetch failed: {e}. Detectors will query individually.")
             self.node_data_cache = {}

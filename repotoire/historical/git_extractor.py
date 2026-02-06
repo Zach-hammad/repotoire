@@ -8,7 +8,7 @@ client-side, this module only extracts raw commit metadata.
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from repotoire.logging_config import get_logger
 

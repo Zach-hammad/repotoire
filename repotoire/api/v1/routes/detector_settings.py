@@ -14,12 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from repotoire.api.shared.auth import ClerkUser, get_current_user
 from repotoire.db.models import (
+    PRESET_THRESHOLDS,
     DetectorPreset,
     DetectorSettings,
     MemberRole,
     Organization,
     OrganizationMembership,
-    PRESET_THRESHOLDS,
     User,
 )
 from repotoire.db.session import get_db

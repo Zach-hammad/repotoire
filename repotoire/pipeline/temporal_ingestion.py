@@ -5,20 +5,20 @@ by tracking code snapshots across Git commits.
 """
 
 from datetime import datetime
-from typing import List, Optional
 from pathlib import Path
+from typing import List, Optional
 
-from repotoire.pipeline.ingestion import IngestionPipeline
+from repotoire.graph import FalkorDBClient
 from repotoire.integrations.git import GitRepository
+from repotoire.logging_config import get_logger
 from repotoire.models import (
-    SessionEntity,
-    GitCommit,
     Entity,
+    GitCommit,
     Relationship,
     RelationshipType,
+    SessionEntity,
 )
-from repotoire.graph import FalkorDBClient
-from repotoire.logging_config import get_logger
+from repotoire.pipeline.ingestion import IngestionPipeline
 
 logger = get_logger(__name__)
 

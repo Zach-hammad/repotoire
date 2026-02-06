@@ -18,13 +18,14 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
 
-from repotoire.db.models.finding import Finding, FindingSeverity
+from repotoire.db.models.finding import Finding
 from repotoire.logging_config import get_logger
 from repotoire.services.github_status import CommitState
 
 if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
     from uuid import UUID
+
+    from sqlalchemy.orm import Session
 
     from repotoire.db.models import AnalysisRun
 

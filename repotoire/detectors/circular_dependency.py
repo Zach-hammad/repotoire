@@ -8,14 +8,14 @@ REPO-416: Added path cache support for O(1) cycle detection in fallback path.
 """
 
 import uuid
-from typing import List, Set, Optional, TYPE_CHECKING
 from datetime import datetime
+from typing import TYPE_CHECKING, List, Optional, Set
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.graph_algorithms import GraphAlgorithms
-from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.logging_config import get_logger
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 # Check if path cache is available (REPO-416)
 try:

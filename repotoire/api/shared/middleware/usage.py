@@ -4,7 +4,6 @@ This module provides FastAPI dependencies for enforcing subscription
 plan limits on API endpoints.
 """
 
-import asyncio
 
 from fastapi import Depends, HTTPException
 from sqlalchemy import select

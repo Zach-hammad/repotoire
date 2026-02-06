@@ -13,9 +13,10 @@ The "God Class Cascade" pattern:
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Set, Optional, Any
-from repotoire.models import Finding, Severity
+from typing import Any, Dict, List
+
 from repotoire.logging_config import get_logger
+from repotoire.models import Finding, Severity
 
 logger = get_logger(__name__)
 
@@ -330,8 +331,8 @@ class RootCauseAnalyzer:
 
         if method_count > 20:
             suggestions.append(f"  {step}. Split into focused classes by responsibility:\n")
-            suggestions.append(f"     - Group related methods (look at shared field access)\n")
-            suggestions.append(f"     - Extract each group into a dedicated class\n")
+            suggestions.append("     - Group related methods (look at shared field access)\n")
+            suggestions.append("     - Extract each group into a dedicated class\n")
             step += 1
 
         if has_envy:

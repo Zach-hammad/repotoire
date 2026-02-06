@@ -15,11 +15,18 @@ full semantic parsing isn't available.
 
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
-from repotoire.models import Entity, FileEntity, FunctionEntity, ClassEntity, Relationship, RelationshipType
-from repotoire.parsers.base import CodeParser
 from repotoire.logging_config import get_logger
+from repotoire.models import (
+    ClassEntity,
+    Entity,
+    FileEntity,
+    FunctionEntity,
+    Relationship,
+    RelationshipType,
+)
+from repotoire.parsers.base import CodeParser
 
 logger = get_logger(__name__)
 

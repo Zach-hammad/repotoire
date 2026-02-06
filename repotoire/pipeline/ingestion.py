@@ -10,7 +10,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Callable, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -88,15 +88,14 @@ def _split_path_components(path: str, sep: str = os.sep) -> Tuple[str, ...]:
 
 # Try to import Rust file scanning and hashing (10-100x faster)
 try:
-    from repotoire_fast import scan_files as rust_scan_files
     from repotoire_fast import batch_hash_files as rust_batch_hash_files
+    from repotoire_fast import scan_files as rust_scan_files
     _HAS_RUST_SCAN = True
 except ImportError:
     _HAS_RUST_SCAN = False
 
     def rust_scan_files(path: str, patterns: List[str], exclude_dirs: List[str]) -> List[str]:
         """Pure Python fallback for file scanning."""
-        import glob
         results = []
         base_path = Path(path)
         exclude_set = set(exclude_dirs)
@@ -126,15 +125,14 @@ except ImportError:
                 continue
         return results
 
-from repotoire.graph import FalkorDBClient, GraphSchema
+from repotoire.graph import GraphSchema
 from repotoire.graph.base import DatabaseClient
-from repotoire.parsers import CodeParser, PythonParser
-from repotoire.parsers import GenericFallbackParser, EXTENSION_TO_LANGUAGE
-from repotoire.models import Entity, Relationship, SecretsPolicy, RelationshipType, NodeType
+from repotoire.models import Entity, NodeType, Relationship, RelationshipType, SecretsPolicy
+from repotoire.parsers import EXTENSION_TO_LANGUAGE, CodeParser, GenericFallbackParser, PythonParser
 
 # Optional TypeScript/JavaScript parsers
 try:
-    from repotoire.parsers import TreeSitterTypeScriptParser, TreeSitterJavaScriptParser
+    from repotoire.parsers import TreeSitterJavaScriptParser, TreeSitterTypeScriptParser
     _HAS_TYPESCRIPT_PARSER = True
 except ImportError:
     _HAS_TYPESCRIPT_PARSER = False
@@ -152,12 +150,12 @@ try:
     _HAS_GO_PARSER = True
 except ImportError:
     _HAS_GO_PARSER = False
-from repotoire.logging_config import get_logger, LogContext, log_operation
 from repotoire.ai.vector_store import (
     VectorStore,
     VectorStoreConfig,
     create_vector_store,
 )
+from repotoire.logging_config import LogContext, get_logger, log_operation
 
 logger = get_logger(__name__)
 
@@ -967,7 +965,7 @@ class IngestionPipeline:
         if not self.embedder:
             return 0
 
-        from repotoire.models import FunctionEntity, ClassEntity, FileEntity
+        from repotoire.models import ClassEntity, FileEntity, FunctionEntity
 
         entities_embedded = 0
         embedding_batch_size = 500  # Batch size for embedding generation AND DB fetch
@@ -1143,8 +1141,8 @@ class IngestionPipeline:
         if not self.context_generator:
             return 0
 
-        from repotoire.models import FunctionEntity, ClassEntity, FileEntity, NodeType
         from repotoire.ai import CostLimitExceeded
+        from repotoire.models import ClassEntity, FileEntity, FunctionEntity
 
         entities_contextualized = 0
         context_batch_size = 100  # Batch size for context generation AND DB fetch
@@ -1277,10 +1275,10 @@ class IngestionPipeline:
             is_kuzu = type(self.db).__name__ == "KuzuClient"
             existing_qnames = {e.qualified_name for e in entities}  # Define at outer scope
             seen_external = set()  # Define at outer scope
-            
+
             if is_kuzu and relationships:
                 external_entities = []
-                
+
                 # Standard library modules to skip
                 stdlib = {'os', 'sys', 'json', 'logging', 're', 'time', 'typing', 'collections',
                           'functools', 'itertools', 'pathlib', 'dataclasses', 'abc', 'io',
@@ -1292,7 +1290,7 @@ class IngestionPipeline:
                           'unicodedata', 'locale', 'gettext', 'warnings', 'contextlib',
                           'weakref', 'types', 'operator', 'string', 'textwrap', 'difflib',
                           'heapq', 'bisect', 'array', 'queue', 'enum', 'graphlib'}
-                
+
                 import_count = 0
                 for rel in relationships:
                     if rel.rel_type == RelationshipType.IMPORTS:
@@ -1307,12 +1305,12 @@ class IngestionPipeline:
                         if first_part in stdlib:
                             logger.debug(f"Skipping {target}: stdlib")
                             continue
-                        
+
                         seen_external.add(target)
                         # Determine if it looks like a class (PascalCase) or function
                         name = target.split('.')[-1] if '.' in target else target
                         is_class = name and len(name) > 0 and name[0].isupper() and not name.isupper()
-                        
+
                         # Use ExternalClass or ExternalFunction node types
                         node_type = NodeType.EXTERNAL_CLASS if is_class else NodeType.EXTERNAL_FUNCTION
                         module = target.rsplit('.', 1)[0] if '.' in target else ""
@@ -1326,7 +1324,7 @@ class IngestionPipeline:
                         )
                         ext_entity.metadata["module"] = module
                         external_entities.append(ext_entity)
-                
+
                 logger.info(f"External entity scan: {import_count} IMPORTS, {len(external_entities)} external targets")
                 if external_entities:
                     ext_mapping = self.db.batch_create_nodes(external_entities)
@@ -1340,7 +1338,7 @@ class IngestionPipeline:
                 external_call_entities = []
                 external_calls_seen = set()
                 converted_rels = []
-                
+
                 for rel in relationships:
                     if rel.rel_type == RelationshipType.CALLS_EXTERNAL:
                         callee = rel.target_id
@@ -1358,7 +1356,7 @@ class IngestionPipeline:
                                 node_type=node_type,
                             )
                             external_call_entities.append(ext_entity)
-                        
+
                         # Convert to proper CALLS relationship type
                         is_class = callee and len(callee) > 0 and callee[0].isupper() and not callee.isupper()
                         new_rel_type = RelationshipType.CALLS if not is_class else RelationshipType.CALLS
@@ -1370,11 +1368,11 @@ class IngestionPipeline:
                         ))
                     else:
                         converted_rels.append(rel)
-                
+
                 if external_call_entities:
                     self.db.batch_create_nodes(external_call_entities)
                     logger.info(f"Created {len(external_call_entities)} external entity nodes for calls")
-                
+
                 relationships = converted_rels
 
             # Batch create all relationships
@@ -1495,7 +1493,7 @@ class IngestionPipeline:
         start_time = time.time()
 
         # REPO-600: Log tenant context for audit trail
-        from repotoire.tenant import get_tenant_context, log_tenant_operation
+        from repotoire.tenant import get_tenant_context
         tenant_ctx = get_tenant_context()
         if tenant_ctx:
             logger.info(
@@ -1534,7 +1532,7 @@ class IngestionPipeline:
                 default_patterns.extend(["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"])
             if self.rust_parser is not None:
                 default_patterns.extend(["**/*.java", "**/*.go", "**/*.rs"])
-            logger.info(f"Scanned repository", extra={
+            logger.info("Scanned repository", extra={
                 "files_found": len(files),
                 "patterns": patterns or default_patterns
             })
@@ -2157,11 +2155,11 @@ class IngestionPipeline:
                 # File A imports module X, File B defines module X -> A imports B
                 # Use Rust for fast O(n) matching instead of slow O(n²) Cypher queries
                 import_edges = []
-                
+
                 # Kuzu now supports External* entities
                 is_kuzu_import = type(self.db).__name__ == "KuzuClient"
                 try:
-                    logger.info(f"[TIMING] Running import edge matching (Rust)...")
+                    logger.info("[TIMING] Running import edge matching (Rust)...")
                     query_start = time_module.time()
 
                     # Get imports: (src_file, imported_name)
@@ -2554,7 +2552,7 @@ class IngestionPipeline:
             batch_start = time_module.time()
             if resolutions:
                 BATCH_SIZE = 10000  # Chunk to avoid memory issues with huge batches
-                
+
                 if is_kuzu:
                     # Kuzu requires individual queries with explicit labels and relationship tables
                     # Group resolutions by target type for efficient processing
@@ -2567,16 +2565,16 @@ class IngestionPipeline:
                                 if cand["qualified_name"] == target_qn:
                                     target_label = cand["label"]
                                     break
-                            
+
                             # Determine old relationship table based on target type
                             old_target_qn = res["old_target_qn"]
                             old_rel_table = "CALLS_EXT_FUNC"
                             if "ExternalClass" in old_target_qn or old_target_qn[0].isupper():
                                 old_rel_table = "CALLS_EXT_CLASS"
-                            
+
                             # New relationship table
                             new_rel_table = "CALLS" if target_label == "Function" else "CALLS_CLASS"
-                            
+
                             # Delete old external relationship
                             delete_query = f"""
                             MATCH (caller:Function {{qualifiedName: $caller_qn}})-[r:{old_rel_table}]->(old:ExternalFunction {{qualifiedName: $old_target_qn}})
@@ -2589,8 +2587,8 @@ class IngestionPipeline:
                                 })
                             except Exception:
                                 # Try ExternalClass table
-                                delete_query2 = f"""
-                                MATCH (caller:Function {{qualifiedName: $caller_qn}})-[r:CALLS_EXT_CLASS]->(old:ExternalClass {{qualifiedName: $old_target_qn}})
+                                delete_query2 = """
+                                MATCH (caller:Function {qualifiedName: $caller_qn})-[r:CALLS_EXT_CLASS]->(old:ExternalClass {qualifiedName: $old_target_qn})
                                 DELETE r
                                 """
                                 try:
@@ -2600,7 +2598,7 @@ class IngestionPipeline:
                                     })
                                 except Exception:
                                     pass  # Old relationship may not exist
-                            
+
                             # Create new internal relationship with properties
                             create_query = f"""
                             MATCH (caller:Function {{qualifiedName: $caller_qn}}), (target:{target_label} {{qualifiedName: $new_target_qn}})

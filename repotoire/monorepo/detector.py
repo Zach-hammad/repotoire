@@ -12,7 +12,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 # Python 3.11+ has tomllib built-in, older versions need tomli
 if sys.version_info >= (3, 11):
@@ -23,8 +23,8 @@ else:
     except ImportError:
         tomllib = None  # Will handle gracefully if TOML parsing is needed
 
-from repotoire.monorepo.models import Package, PackageMetadata
 from repotoire.logging_config import get_logger
+from repotoire.monorepo.models import Package, PackageMetadata
 
 logger = get_logger(__name__)
 

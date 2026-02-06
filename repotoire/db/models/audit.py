@@ -29,7 +29,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base, UUIDPrimaryKeyMixin, generate_repr
 
 if TYPE_CHECKING:
-    from .organization import Organization
     from .user import User
 
 

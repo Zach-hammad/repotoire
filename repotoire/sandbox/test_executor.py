@@ -39,12 +39,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 from repotoire.logging_config import get_logger
-from repotoire.sandbox.client import SandboxExecutor, CommandResult
+from repotoire.sandbox.client import CommandResult, SandboxExecutor
 from repotoire.sandbox.config import SandboxConfig
 from repotoire.sandbox.exceptions import (
     SandboxConfigurationError,
-    SandboxTimeoutError,
     SandboxExecutionError,
+    SandboxTimeoutError,
 )
 
 logger = get_logger(__name__)
@@ -537,7 +537,7 @@ class TestExecutor:
                     timed_out=False,
                 )
 
-        except SandboxTimeoutError as e:
+        except SandboxTimeoutError:
             duration_ms = int((asyncio.get_event_loop().time() - start_time) * 1000)
             logger.warning(f"Test execution timed out after {timeout}s")
 

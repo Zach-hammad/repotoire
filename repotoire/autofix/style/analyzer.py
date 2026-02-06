@@ -5,7 +5,7 @@ import re
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from repotoire.logging_config import get_logger
 

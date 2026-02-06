@@ -5,9 +5,9 @@ and generates instructions for LLM-based code generation that match
 the existing codebase patterns.
 """
 
-from .models import StyleProfile, StyleRule
 from .analyzer import StyleAnalyzer, classify_naming
 from .enforcer import StyleEnforcer
+from .models import StyleProfile, StyleRule
 
 __all__ = [
     "StyleProfile",

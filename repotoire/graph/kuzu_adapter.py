@@ -8,8 +8,8 @@ Key differences handled:
 3. Slice syntax: [0..5] → not supported (flag for rewrite)
 """
 
-import re
 import logging
+import re
 from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -43,19 +43,19 @@ class KuzuQueryAdapter:
         """
         # Remove comments (Kuzu doesn't support all comment styles)
         query = self._remove_comments(query)
-        
+
         # Check for unsupported features first
         unsupported = self._check_unsupported(query)
         if unsupported:
             logger.debug(f"Query uses unsupported Kuzu feature: {unsupported}")
             return None, unsupported
-        
+
         # Apply transformations
         query = self._fix_functions(query)
         query = self._fix_syntax(query)
-        
+
         return query, None
-    
+
     def adapt_or_raise(self, query: str) -> str:
         """Adapt query or raise error if unsupported."""
         adapted, reason = self.adapt(query)
@@ -84,22 +84,22 @@ class KuzuQueryAdapter:
         # shortestPath not supported
         if re.search(r'shortestPath', query, re.IGNORECASE):
             return "shortestPath()"
-        
+
         # ORDER BY id(n) / INTERNAL_ID not supported
         if re.search(r'ORDER\s+BY\s+\w*id\s*\(', query, re.IGNORECASE):
             return "ORDER BY id()"
         if 'ORDER BY neo_id' in query or 'ORDER BY INTERNAL_ID' in query:
             return "ORDER BY internal id"
-        
+
         # Pattern comprehensions with WHERE not fully supported
         if re.search(r'size\s*\(\s*\[\s*\([^]]+WHERE', query):
             return "size([pattern WHERE ...])"
-        
+
         # Slice syntax is now auto-converted in _fix_syntax()
         # [0..5] → [0:5], [..-1] → [:-1]
-        
+
         # Empty map literal {} is now auto-converted to map([],[]) in _fix_syntax()
-        
+
         return None
 
     def _fix_functions(self, query: str) -> str:
@@ -111,8 +111,8 @@ class KuzuQueryAdapter:
             query,
             flags=re.IGNORECASE
         )
-        
-        # elementId(x) → id(x) 
+
+        # elementId(x) → id(x)
         # Note: Kuzu id() returns internal ID, different format but works for comparisons
         query = re.sub(
             r'\belementId\s*\(',
@@ -120,7 +120,7 @@ class KuzuQueryAdapter:
             query,
             flags=re.IGNORECASE
         )
-        
+
         # toInteger(x) → CAST(x AS INT64)
         query = re.sub(
             r'\btoInteger\s*\(\s*([^)]+)\s*\)',
@@ -128,7 +128,7 @@ class KuzuQueryAdapter:
             query,
             flags=re.IGNORECASE
         )
-        
+
         # toString(x) → CAST(x AS STRING)
         query = re.sub(
             r'\btoString\s*\(\s*([^)]+)\s*\)',
@@ -136,7 +136,7 @@ class KuzuQueryAdapter:
             query,
             flags=re.IGNORECASE
         )
-        
+
         # split(str, delim) → STRING_SPLIT(str, delim)
         query = re.sub(
             r'\bsplit\s*\(',
@@ -144,7 +144,7 @@ class KuzuQueryAdapter:
             query,
             flags=re.IGNORECASE
         )
-        
+
         # reduce() for sum: reduce(sum = 0.0, d IN list | sum + d) → list_sum(list)
         # Matches: reduce(acc = init, var IN list | acc + var)
         query = re.sub(
@@ -153,7 +153,7 @@ class KuzuQueryAdapter:
             query,
             flags=re.IGNORECASE
         )
-        
+
         # reduce() for max: reduce(max = 0, d IN list | CASE WHEN d > max THEN d ELSE max END)
         # → list_sort(list, "DESC")[1]
         query = re.sub(
@@ -162,7 +162,7 @@ class KuzuQueryAdapter:
             query,
             flags=re.IGNORECASE | re.DOTALL
         )
-        
+
         # reduce() for string concat: reduce(s='', p IN list | s + '/' + p)
         # → list_to_string('/', list) (Kuzu uses reversed arg order)
         query = re.sub(
@@ -171,7 +171,7 @@ class KuzuQueryAdapter:
             query,
             flags=re.IGNORECASE
         )
-        
+
         return query
 
     def _fix_syntax(self, query: str) -> str:
@@ -183,14 +183,14 @@ class KuzuQueryAdapter:
             r'[\1:\2]',
             query
         )
-        
+
         # Convert [..-1] to [:-1] (slice to end minus 1)
         query = re.sub(
-            r'\[\.\.(-?\d+)\]', 
+            r'\[\.\.(-?\d+)\]',
             r'[:\1]',
             query
         )
-        
+
         # Convert empty map literal {} to map([],[])
         # Match COALESCE(x, {}) or standalone {}
         query = re.sub(
@@ -198,7 +198,7 @@ class KuzuQueryAdapter:
             'map([],[])',
             query
         )
-        
+
         return query
 
 

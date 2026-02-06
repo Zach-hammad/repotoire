@@ -44,24 +44,24 @@ import os
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.external_tool_runner import (
-    run_external_tool,
     get_graph_context,
+    run_external_tool,
 )
 from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
-from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 logger = get_logger(__name__)
 
 # Try to import Rust-based pylint rules (only rules NOT covered by Ruff)
 try:
     from repotoire_fast import (
-        check_all_pylint_rules_batch,   # All rules, multiple files in parallel (10x faster)
+        check_all_pylint_rules_batch,  # All rules, multiple files in parallel (10x faster)
     )
     RUST_PYLINT_AVAILABLE = True
     logger.debug("Rust pylint rules available (batch mode)")

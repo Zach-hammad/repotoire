@@ -21,9 +21,9 @@ This module implements:
 - `GraphSAGEConfig`: Configuration dataclass for model hyperparameters
 """
 
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Any
 import logging
+from dataclasses import dataclass
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 
@@ -34,8 +34,8 @@ try:
     import torch
     import torch.nn as nn
     import torch.nn.functional as F
-    from torch_geometric.nn import SAGEConv, GATConv, global_mean_pool
     from torch_geometric.data import Data
+    from torch_geometric.nn import GATConv, SAGEConv, global_mean_pool
     TORCH_GEOMETRIC_AVAILABLE = True
 except ImportError:
     TORCH_GEOMETRIC_AVAILABLE = False

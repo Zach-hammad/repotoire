@@ -7,12 +7,12 @@ on the same issue.
 Part of REPO-152: Phase 3 - Query Engine for Finding Deduplication
 """
 
-from typing import Dict, List, Tuple, Set
 from collections import defaultdict
+from typing import Dict, List
 
-from repotoire.models import Finding, Severity
-from repotoire.logging_config import get_logger
 from repotoire.detectors.grouping import get_finding_group_key, get_issue_category
+from repotoire.logging_config import get_logger
+from repotoire.models import Finding, Severity
 
 logger = get_logger(__name__)
 

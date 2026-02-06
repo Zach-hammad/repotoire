@@ -4,7 +4,7 @@ Dashboard analytics based on analysis findings (code health issues detected).
 """
 
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -12,7 +12,11 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from repotoire.api.shared.auth import ClerkUser, get_current_user, get_current_user_or_api_key, require_org
+from repotoire.api.shared.auth import (
+    ClerkUser,
+    get_current_user_or_api_key,
+    require_org,
+)
 from repotoire.db.models import (
     AnalysisRun,
     Finding,
@@ -20,7 +24,7 @@ from repotoire.db.models import (
     Organization,
     Repository,
 )
-from repotoire.db.models.fix import Fix, FixStatus
+from repotoire.db.models.fix import Fix
 from repotoire.db.session import get_db
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -85,8 +89,6 @@ async def _get_latest_analysis_run_ids(
     This ensures we only count findings from the most recent analysis, not duplicates
     from multiple analysis runs on the same repo.
     """
-    from sqlalchemy import distinct
-    from sqlalchemy.orm import aliased
 
     # Subquery to get the latest completed analysis run per repository
     subq = (
@@ -669,7 +671,6 @@ async def get_topology_data(
     the CodeTopologyMap 3D component.
     """
     import math
-    import random
 
     org = await _get_user_org(session, user)
     if not org:

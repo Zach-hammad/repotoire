@@ -34,17 +34,16 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
-from repotoire.autofix.models import FixProposal, CodeChange
+from repotoire.autofix.models import FixProposal
 from repotoire.autofix.scorer import VerificationResult
 from repotoire.logging_config import get_logger
 from repotoire.sandbox.config import SandboxConfig
 from repotoire.sandbox.exceptions import (
     SandboxConfigurationError,
-    SandboxExecutionError,
     SandboxTimeoutError,
 )
 

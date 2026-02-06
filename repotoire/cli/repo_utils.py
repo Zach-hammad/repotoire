@@ -5,13 +5,11 @@ including git remote URLs and deriving deterministic repo IDs.
 """
 
 import hashlib
-import os
 import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
-from uuid import UUID
 
 from repotoire.logging_config import get_logger
 

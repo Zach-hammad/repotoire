@@ -51,9 +51,8 @@ Example:
 
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from dataclasses import dataclass
+from datetime import date, datetime
 from typing import TYPE_CHECKING, List, Optional
 
 from repotoire.autofix.entitlements import (
@@ -61,7 +60,7 @@ from repotoire.autofix.entitlements import (
     FeatureAccess,
     record_best_of_n_usage,
 )
-from repotoire.autofix.models import FixProposal, Finding
+from repotoire.autofix.models import Finding, FixProposal
 from repotoire.autofix.scorer import (
     FixScorer,
     RankedFix,
@@ -72,7 +71,6 @@ from repotoire.autofix.scorer import (
 from repotoire.autofix.verifier import ParallelVerifier, VerificationConfig
 from repotoire.db.models import PlanTier
 from repotoire.logging_config import get_logger
-from repotoire.sandbox.config import SandboxConfig
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession

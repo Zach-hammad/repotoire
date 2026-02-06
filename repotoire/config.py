@@ -74,13 +74,13 @@ file = "logs/repotoire.log"
 ```
 """
 
-import os
 import json
+import os
 import re
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
-from dataclasses import dataclass, field
 
 try:
     import yaml
@@ -1262,7 +1262,7 @@ def load_config_file(file_path: Path) -> Dict[str, Any]:
     elif file_path.suffix == ".toml":
         if not HAS_TOML:
             raise ConfigError(
-                f"TOML support not available. Install tomli: pip install tomli"
+                "TOML support not available. Install tomli: pip install tomli"
             )
 
         try:
@@ -1593,7 +1593,7 @@ def load_config(
     if use_env:
         env_data = load_config_from_env()
         if env_data:
-            logger.debug(f"Loaded configuration from environment variables")
+            logger.debug("Loaded configuration from environment variables")
             merged_data = _deep_merge_dicts(merged_data, env_data)
 
     # Create final config from merged data (applies defaults for missing values)

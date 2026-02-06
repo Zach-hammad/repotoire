@@ -7,6 +7,6 @@ This module provides post-analysis enrichment that adds:
 - Coupling metrics (cross-module dependencies)
 """
 
-from repotoire.insights.engine import InsightsEngine, InsightsConfig, CodebaseInsights
+from repotoire.insights.engine import CodebaseInsights, InsightsConfig, InsightsEngine
 
 __all__ = ["InsightsEngine", "InsightsConfig", "CodebaseInsights"]

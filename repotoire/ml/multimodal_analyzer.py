@@ -25,14 +25,13 @@ Example:
     >>> print(f"Text weight: {explanation.text_weight:.0%}, Graph weight: {explanation.graph_weight:.0%}")
 """
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import json
 
 import numpy as np
 import torch
-import torch.nn as nn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset

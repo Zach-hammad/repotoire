@@ -15,6 +15,7 @@ from repotoire.logging_config import get_logger
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
+
     from repotoire.api.models import PreviewResult
 
 logger = get_logger(__name__)

@@ -12,13 +12,13 @@ audit-ready reports.
 """
 
 import json
-from pathlib import Path
-from typing import List, Dict, Any, Optional
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from repotoire.models import Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import Finding
 
 logger = get_logger(__name__)
 

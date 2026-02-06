@@ -4,7 +4,8 @@ This module provides reusable Cypher patterns for detecting common graph structu
 and calculating graph metrics used by detectors.
 """
 
-from typing import List, Dict, Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
 from repotoire.graph import FalkorDBClient
 from repotoire.validation import validate_identifier
 

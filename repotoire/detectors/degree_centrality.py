@@ -9,11 +9,12 @@ No GDS or plugins required - works with both Neo4j and FalkorDB.
 """
 
 from typing import List, Optional
+
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.graph_algorithms import GraphAlgorithms
 from repotoire.graph import FalkorDBClient
-from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 logger = get_logger(__name__)
 

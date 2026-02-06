@@ -2,10 +2,11 @@
 
 import asyncio
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Union
-from repotoire.graph.base import DatabaseClient
+
 from repotoire.graph import FalkorDBClient
+from repotoire.graph.base import DatabaseClient
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)

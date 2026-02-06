@@ -7,13 +7,13 @@ REPO-416: Added path cache support for O(1) reachability queries.
 
 import re
 import uuid
-from typing import List, Optional, TYPE_CHECKING
 from datetime import datetime
+from typing import TYPE_CHECKING, List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.graph_algorithms import GraphAlgorithms
-from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.graph.enricher import GraphEnricher
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 if TYPE_CHECKING:
     from repotoire_fast import PyPathCache
@@ -310,7 +310,7 @@ class GodClassDetector(CodeSmellDetector):
                             "lcom": lcom
                         }.items()}
                     )
-                except Exception as e:
+                except Exception:
                     # Don't fail detection if enrichment fails
                     pass
 
@@ -694,7 +694,7 @@ class GodClassDetector(CodeSmellDetector):
         if clusters:
             # Provide concrete extraction suggestions based on method clusters
             suggestions.append(
-                f"1. **Suggested Extract Class opportunities** (based on shared attribute usage):\n"
+                "1. **Suggested Extract Class opportunities** (based on shared attribute usage):\n"
             )
             for i, cluster in enumerate(clusters[:3], 1):
                 method = cluster.get("method", "unknown")
@@ -711,24 +711,24 @@ class GodClassDetector(CodeSmellDetector):
                     )
         elif method_count >= 20:
             suggestions.append(
-                f"1. Extract related methods into separate classes\n"
-                f"   - Look for method groups that work with the same data\n"
-                f"   - Create focused classes with single responsibilities\n"
+                "1. Extract related methods into separate classes\n"
+                "   - Look for method groups that work with the same data\n"
+                "   - Create focused classes with single responsibilities\n"
             )
 
         if total_complexity >= 100:
             suggestions.append(
-                f"2. Simplify complex methods\n"
-                f"   - Break down complex methods into smaller functions\n"
-                f"   - Consider using the Strategy or Command pattern\n"
+                "2. Simplify complex methods\n"
+                "   - Break down complex methods into smaller functions\n"
+                "   - Consider using the Strategy or Command pattern\n"
             )
 
         if coupling_count >= 50:
             suggestions.append(
-                f"3. Reduce coupling\n"
-                f"   - Apply dependency injection\n"
-                f"   - Use interfaces to decouple dependencies\n"
-                f"   - Consider facade or mediator patterns\n"
+                "3. Reduce coupling\n"
+                "   - Apply dependency injection\n"
+                "   - Use interfaces to decouple dependencies\n"
+                "   - Consider facade or mediator patterns\n"
             )
 
         if loc >= self.high_loc:
@@ -748,12 +748,12 @@ class GodClassDetector(CodeSmellDetector):
             )
 
         suggestions.append(
-            f"\n6. Apply SOLID principles\n"
-            f"   - Single Responsibility: Each class should have one reason to change\n"
-            f"   - Open/Closed: Extend behavior without modifying existing code\n"
-            f"   - Liskov Substitution: Use inheritance properly\n"
-            f"   - Interface Segregation: Create specific interfaces\n"
-            f"   - Dependency Inversion: Depend on abstractions"
+            "\n6. Apply SOLID principles\n"
+            "   - Single Responsibility: Each class should have one reason to change\n"
+            "   - Open/Closed: Extend behavior without modifying existing code\n"
+            "   - Liskov Substitution: Use inheritance properly\n"
+            "   - Interface Segregation: Create specific interfaces\n"
+            "   - Dependency Inversion: Depend on abstractions"
         )
 
         return "".join(suggestions)
@@ -848,7 +848,7 @@ class GodClassDetector(CodeSmellDetector):
             # Return ratio of non-sharing pairs (0 = cohesive, 1 = scattered)
             return non_sharing_pairs / total_pairs
 
-        except Exception as e:
+        except Exception:
             # If LCOM calculation fails, return neutral value
             return 0.5
 

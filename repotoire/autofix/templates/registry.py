@@ -8,14 +8,13 @@ from typing import List, Optional
 import yaml
 from pydantic import ValidationError
 
-from repotoire.logging_config import get_logger
 from repotoire.autofix.templates.models import (
     FixTemplate,
     PatternType,
-    TemplateEvidence,
     TemplateFile,
     TemplateMatch,
 )
+from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -140,7 +139,7 @@ class TemplateRegistry:
                 loc = ".".join(str(x) for x in error["loc"])
                 errors.append(f"  - {loc}: {error['msg']}")
             raise TemplateLoadError(
-                file_path, f"Validation errors:\n" + "\n".join(errors)
+                file_path, "Validation errors:\n" + "\n".join(errors)
             )
 
     def _sort_by_priority(self) -> None:

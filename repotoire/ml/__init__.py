@@ -11,39 +11,39 @@ This module provides ML capabilities including:
 - Multimodal fusion (text + graph embeddings)
 """
 
-from repotoire.ml.graph_embeddings import FastRPEmbedder, FastRPConfig, cosine_similarity
-from repotoire.ml.similarity import StructuralSimilarityAnalyzer, SimilarityResult
-from repotoire.ml.training_data import (
-    GitBugLabelExtractor,
-    ActiveLearningLabeler,
-    TrainingExample,
-    TrainingDataset,
-    FunctionInfo,
-    DEFAULT_BUG_KEYWORDS,
-)
-from repotoire.ml.node2vec_embeddings import Node2VecEmbedder, Node2VecConfig
 from repotoire.ml.bug_predictor import (
     BugPredictor,
     BugPredictorConfig,
     FeatureExtractor,
-    PredictionResult,
     ModelMetrics,
+    PredictionResult,
+)
+from repotoire.ml.graph_embeddings import FastRPConfig, FastRPEmbedder, cosine_similarity
+from repotoire.ml.node2vec_embeddings import Node2VecConfig, Node2VecEmbedder
+from repotoire.ml.similarity import SimilarityResult, StructuralSimilarityAnalyzer
+from repotoire.ml.training_data import (
+    DEFAULT_BUG_KEYWORDS,
+    ActiveLearningLabeler,
+    FunctionInfo,
+    GitBugLabelExtractor,
+    TrainingDataset,
+    TrainingExample,
 )
 
 # Multimodal fusion (requires torch)
 try:
-    from repotoire.ml.multimodal_fusion import (
-        MultimodalAttentionFusion,
-        FusionConfig,
-        CrossModalAttention,
-        GatedFusion,
-        MultiTaskLoss,
-    )
     from repotoire.ml.multimodal_analyzer import (
         MultimodalAnalyzer,
         MultimodalDataset,
-        TrainingConfig,
         PredictionExplanation,
+        TrainingConfig,
+    )
+    from repotoire.ml.multimodal_fusion import (
+        CrossModalAttention,
+        FusionConfig,
+        GatedFusion,
+        MultimodalAttentionFusion,
+        MultiTaskLoss,
     )
     _MULTIMODAL_AVAILABLE = True
 except ImportError:
@@ -64,8 +64,9 @@ def batch_cosine_similarity(query, matrix):
     """
     try:
         # Use SIMD-optimized version for better performance
-        from repotoire_fast import batch_cosine_similarity_simd
         import numpy as np
+
+        from repotoire_fast import batch_cosine_similarity_simd
         q = np.asarray(query, dtype=np.float32)
         m = np.asarray(matrix, dtype=np.float32)
         return batch_cosine_similarity_simd(q, m)
@@ -91,8 +92,9 @@ def find_top_k_similar(query, matrix, k):
         List of (index, score) tuples sorted by similarity descending
     """
     try:
-        from repotoire_fast import find_top_k_similar as rust_find_top_k
         import numpy as np
+
+        from repotoire_fast import find_top_k_similar as rust_find_top_k
         q = np.asarray(query, dtype=np.float32)
         m = np.asarray(matrix, dtype=np.float32)
         return rust_find_top_k(q, m, k)
@@ -150,18 +152,18 @@ if _MULTIMODAL_AVAILABLE:
 
 # GraphSAGE zero-shot defect prediction (requires torch + torch-geometric)
 try:
-    from repotoire.ml.graphsage_predictor import (
-        GraphSAGEDefectPredictor,
-        GraphSAGEWithAttention,
-        GraphSAGEConfig,
-        GraphFeatureExtractor,
-    )
     from repotoire.ml.cross_project_trainer import (
-        CrossProjectTrainer,
         CrossProjectDataLoader,
+        CrossProjectTrainer,
         CrossProjectTrainingConfig,
         ProjectGraphData,
         TrainingHistory,
+    )
+    from repotoire.ml.graphsage_predictor import (
+        GraphFeatureExtractor,
+        GraphSAGEConfig,
+        GraphSAGEDefectPredictor,
+        GraphSAGEWithAttention,
     )
     _GRAPHSAGE_AVAILABLE = True
     __all__.extend([

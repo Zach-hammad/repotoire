@@ -1,11 +1,10 @@
 """Input validation utilities with helpful error messages."""
 
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Any, Optional
-from urllib.parse import urlparse
-import logging
 
 logger = logging.getLogger(__name__)
 

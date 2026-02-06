@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import secrets
 from datetime import datetime, timezone
-from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -25,7 +24,7 @@ from repotoire.api.services.status_emails import (
     create_changelog_verification_email,
     send_email,
 )
-from repotoire.api.shared.auth import ClerkUser, get_current_user, get_optional_user
+from repotoire.api.shared.auth import ClerkUser, get_current_user
 from repotoire.db.models.changelog import (
     ChangelogCategory,
     ChangelogEntry,

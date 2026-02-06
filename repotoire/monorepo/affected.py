@@ -7,10 +7,10 @@ Critical for optimizing CI/CD in monorepos - only test/build affected packages.
 import subprocess
 from collections import deque
 from pathlib import Path
-from typing import List, Set, Dict, Optional
+from typing import Dict, List, Set
 
-from repotoire.monorepo.models import Package
 from repotoire.logging_config import get_logger
+from repotoire.monorepo.models import Package
 
 logger = get_logger(__name__)
 

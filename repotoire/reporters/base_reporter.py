@@ -8,9 +8,9 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from repotoire.models import CodebaseHealth, Finding
 from repotoire.config import ReportingConfig
 from repotoire.logging_config import get_logger
+from repotoire.models import CodebaseHealth, Finding
 
 logger = get_logger(__name__)
 

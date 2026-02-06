@@ -19,7 +19,7 @@ from uuid import UUID
 import redis
 from redis import ConnectionPool
 
-from repotoire.db.models import Organization, PlanTier, Repository
+from repotoire.db.models import PlanTier, Repository
 from repotoire.db.session import get_sync_session
 from repotoire.logging_config import get_logger
 

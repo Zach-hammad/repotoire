@@ -9,7 +9,7 @@ Part of REPO-151: Phase 2 - Graph Enrichment
 import json
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 from repotoire.graph import DatabaseClient
 from repotoire.logging_config import get_logger
@@ -71,7 +71,7 @@ class GraphEnricher:
         client_type = type(self.db).__name__
         if client_type == "KuzuClient":
             return f"detector-metadata-{uuid.uuid4()}"
-        
+
         metadata_id = f"detector-metadata-{uuid.uuid4()}"
         timestamp = datetime.now().isoformat()
 

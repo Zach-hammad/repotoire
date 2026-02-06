@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional, Sequence
+from typing import TYPE_CHECKING, Optional, Sequence
 from uuid import UUID
 
 from sqlalchemy import func, or_, select

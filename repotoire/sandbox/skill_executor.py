@@ -20,10 +20,9 @@ REPO-313: Enhanced with:
 import asyncio
 import hashlib
 import json
-import re
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
@@ -31,17 +30,16 @@ from repotoire.logging_config import get_logger
 
 if TYPE_CHECKING:
     from repotoire.cache import TwoTierSkillCache
-from repotoire.sandbox.client import SandboxExecutor, ExecutionResult
+from repotoire.sandbox.client import SandboxExecutor
 from repotoire.sandbox.config import SandboxConfig
 from repotoire.sandbox.exceptions import (
     SandboxConfigurationError,
-    SandboxTimeoutError,
     SandboxExecutionError,
+    SandboxTimeoutError,
     # Skill-specific exceptions
-    SkillLoadError,
     SkillExecutionError,
-    SkillTimeoutError,
     SkillSecurityError,
+    SkillTimeoutError,
 )
 
 logger = get_logger(__name__)

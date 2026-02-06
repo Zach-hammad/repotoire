@@ -8,9 +8,9 @@ bug data, capturing complex structural and metric correlations that are
 difficult to express as explicit rules.
 """
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-import logging
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.models import Finding, Severity

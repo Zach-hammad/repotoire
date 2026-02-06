@@ -3,8 +3,8 @@
 REPO-600: Multi-tenant data isolation support via tenant_id filtering.
 """
 
-from abc import ABC, abstractmethod
 import logging
+from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
 
 from repotoire.graph import FalkorDBClient
@@ -49,7 +49,7 @@ class CodeSmellDetector(ABC):
         self.confidence_threshold = self.config.get("confidence_threshold", 0.0)
         self.min_severity = self._parse_min_severity(self.config.get("min_severity"))
         self.weight = self.config.get("weight", 1.0)
-        
+
         # REPO-522: Node data cache for O(1) property lookups in cloud mode
         self._node_data_cache = self.config.get("node_data_cache", {})
 

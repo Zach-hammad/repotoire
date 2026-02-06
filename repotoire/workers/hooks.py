@@ -1771,14 +1771,14 @@ def generate_fixes_for_analysis(
 
             repo = analysis.repository
             repo_full_name = repo.full_name
-            
+
             # Get organization's API key (BYOK)
             org_anthropic_key = None
             if repo.organization and repo.organization.anthropic_api_key_encrypted:
                 try:
                     from repotoire.utils.encryption import decrypt_api_key
                     org_anthropic_key = decrypt_api_key(repo.organization.anthropic_api_key_encrypted)
-                    logger.info(f"Using org's Anthropic API key for fixes", extra=log_extra)
+                    logger.info("Using org's Anthropic API key for fixes", extra=log_extra)
                 except Exception as e:
                     logger.warning(f"Failed to decrypt org API key: {e}", extra=log_extra)
 
@@ -1839,7 +1839,7 @@ def generate_fixes_for_analysis(
                 extra=log_extra,
             )
             return {
-                "status": "failed", 
+                "status": "failed",
                 "reason": "no_api_key",
                 "message": "AI fixes require an Anthropic API key. Please configure your API key in Organization Settings → API Keys.",
             }

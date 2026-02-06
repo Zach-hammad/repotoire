@@ -334,7 +334,6 @@ async def _get_latest_analysis_run_ids(
 
     # Optimized query using window functions instead of subquery join
     # This is more efficient as it avoids a self-join
-    from sqlalchemy import literal_column
     from sqlalchemy.sql import text
 
     # Use raw SQL for window function which is more efficient

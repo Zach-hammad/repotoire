@@ -114,24 +114,24 @@ def _ensure_initialized():
     Thread-safe initialization using double-checked locking.
     """
     global _engine, _async_session_factory, _sync_engine, _sync_session_factory, _initialized
-    
+
     if _initialized:
         return
-    
+
     with _init_lock:
         if _initialized:
             return
-        
+
         # Get and validate DATABASE_URL
         database_url = _get_database_url()
-        
+
         # Convert postgresql:// to postgresql+asyncpg:// if needed
         if database_url.startswith("postgresql://"):
             database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        
+
         # Parse URL and get connect_args for SSL
         cleaned_url, connect_args = _parse_database_url(database_url)
-        
+
         # Create async engine
         # Production-ready pool settings (conservative defaults for multi-instance deployments):
         # - pool_size=5: Base connections per instance (Neon default pool is 20 total)
@@ -151,7 +151,7 @@ def _ensure_initialized():
             pool_pre_ping=True,  # Enable connection health checks
             connect_args=connect_args,
         )
-        
+
         # Create async session factory
         _async_session_factory = async_sessionmaker(
             _engine,
@@ -159,11 +159,11 @@ def _ensure_initialized():
             expire_on_commit=False,
             autoflush=False,
         )
-        
+
         # Sync database URL - convert asyncpg back to psycopg2
         sync_database_url = cleaned_url.replace("postgresql+asyncpg://", "postgresql://", 1)
         sync_url, sync_connect_args = _parse_sync_database_url(sync_database_url)
-        
+
         # Create sync engine for Celery workers
         # Production-ready pool settings (conservative defaults for multi-instance deployments)
         _sync_engine = create_engine(
@@ -176,7 +176,7 @@ def _ensure_initialized():
             pool_pre_ping=True,
             connect_args=sync_connect_args,
         )
-        
+
         # Create sync session factory for Celery workers
         _sync_session_factory = sessionmaker(
             _sync_engine,
@@ -184,7 +184,7 @@ def _ensure_initialized():
             expire_on_commit=False,
             autoflush=False,
         )
-        
+
         _initialized = True
         logger.debug("Database engines initialized")
 
@@ -218,19 +218,19 @@ def _get_sync_session_factory():
 # For code that accesses session.engine directly
 class _LazyModule:
     """Wrapper to provide lazy attribute access."""
-    
+
     @property
     def engine(self):
         return _get_engine()
-    
+
     @property
     def async_session_factory(self):
         return _get_async_session_factory()
-    
+
     @property
     def sync_engine(self):
         return _get_sync_engine()
-    
+
     @property
     def sync_session_factory(self):
         return _get_sync_session_factory()
@@ -391,7 +391,7 @@ def init_from_config(config=None):
     global _engine, _async_session_factory, _sync_engine, _sync_session_factory, _initialized
 
     try:
-        from repotoire.config import load_config, RepotoireConfig
+        from repotoire.config import RepotoireConfig, load_config
     except ImportError:
         logger.warning("repotoire.config not available, using env vars")
         return

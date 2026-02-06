@@ -18,7 +18,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -624,7 +624,8 @@ def create_kuzu_client(
         client = create_kuzu_client(db_path="/path/to/kuzu_db")
     """
     try:
-        from repotoire.graph.kuzu_client import KuzuClient, create_kuzu_client as _create
+        from repotoire.graph.kuzu_client import KuzuClient
+        from repotoire.graph.kuzu_client import create_kuzu_client as _create
         return _create(db_path=db_path, repository_path=repository_path)
     except ImportError:
         raise ConfigurationError(
@@ -693,7 +694,7 @@ def create_falkordb_client(
         # Override with specific host (e.g., from CLI args)
         client = create_falkordb_client(host="custom-host.example.com", port=6380)
     """
-    from repotoire.config import load_config, RepotoireConfig
+    from repotoire.config import load_config
     from repotoire.graph.falkordb_client import FalkorDBClient
 
     # Load config if not provided

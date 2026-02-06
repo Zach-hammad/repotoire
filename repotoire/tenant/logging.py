@@ -7,7 +7,7 @@ REPO-600: Multi-tenant data isolation implementation.
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from repotoire.tenant.context import get_tenant_context
 

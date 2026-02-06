@@ -1,7 +1,8 @@
 """Metrics collector for extracting time-series data from CodebaseHealth."""
 
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
+
 from repotoire.models import CodebaseHealth, Severity
 
 logger = logging.getLogger(__name__)

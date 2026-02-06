@@ -2,13 +2,15 @@
 
 # Auto-load .env file if present (before any other imports that use env vars)
 from dotenv import load_dotenv
+
 load_dotenv()
 
 import os
 import threading
-import click
 from dataclasses import asdict
 from pathlib import Path
+
+import click
 
 
 def _get_optimal_workers() -> int:
@@ -21,45 +23,53 @@ def _get_optimal_workers() -> int:
     # Use all available cores up to 8 (diminishing returns beyond that for I/O bound work)
     return min(cpu_count, 8)
 from typing import Optional
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
-from rich.tree import Tree
-from rich.text import Text
-from rich.prompt import Confirm
-from rich import box
-from rich.markup import escape
 
-from repotoire.pipeline import IngestionPipeline
-from repotoire.graph.factory import create_client
-from repotoire.detectors import AnalysisEngine
-from repotoire.migrations import MigrationManager, MigrationError
-from repotoire.logging_config import configure_logging, get_logger, LogContext
-from repotoire.config import load_config, FalkorConfig, ConfigError, generate_config_template
-from repotoire.models import SecretsPolicy
-from repotoire.validation import (
-    ValidationError,
-    validate_repository_path,
-    validate_falkordb_host,
-    validate_falkordb_port,
-    validate_falkordb_password,
-    validate_falkordb_connection,
-    validate_output_path,
-    validate_file_size_limit,
-    validate_batch_size,
-    validate_retry_config,
+from rich import box
+from rich.console import Console
+from rich.markup import escape
+from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeRemainingColumn,
 )
+from rich.prompt import Confirm
+from rich.table import Table
+from rich.text import Text
+from rich.tree import Tree
+
 from repotoire.cli.errors import (
+    AuthError,
     CLIError,
     DatabaseError,
-    AuthError,
-    NetworkError,
     EmbeddingError,
+    NetworkError,
     ResourceError,
+    fail,
     handle_errors,
     print_error,
-    fail,
+)
+from repotoire.config import ConfigError, FalkorConfig, generate_config_template, load_config
+from repotoire.detectors import AnalysisEngine
+from repotoire.graph.factory import create_client
+from repotoire.logging_config import LogContext, configure_logging, get_logger
+from repotoire.migrations import MigrationError, MigrationManager
+from repotoire.models import SecretsPolicy
+from repotoire.pipeline import IngestionPipeline
+from repotoire.validation import (
+    ValidationError,
+    validate_batch_size,
+    validate_falkordb_connection,
+    validate_falkordb_host,
+    validate_falkordb_password,
+    validate_falkordb_port,
+    validate_file_size_limit,
+    validate_output_path,
+    validate_repository_path,
+    validate_retry_config,
 )
 
 console = Console()
@@ -84,17 +94,17 @@ def _get_db_client(quiet: bool = False, repository_path: str = "."):
     Raises:
         ConfigurationError: If Kuzu cannot be initialized
     """
-    from repotoire.graph.factory import get_api_key, create_kuzu_client
-    
+    from repotoire.graph.factory import create_kuzu_client, get_api_key
+
     # Cloud mode if API key is set
     if get_api_key():
         return create_client(show_cloud_indicator=not quiet)
-    
+
     # Default: Local Kuzu (no Docker, no server required)
     try:
         client = create_kuzu_client(repository_path=repository_path)
         if not quiet:
-            console.print(f"[dim]📦 Using local graph database (.repotoire/kuzu_db)[/dim]")
+            console.print("[dim]📦 Using local graph database (.repotoire/kuzu_db)[/dim]")
         return client
     except ImportError:
         from repotoire.graph.factory import ConfigurationError
@@ -251,7 +261,7 @@ def _record_metrics_to_timescale(
             console.print("\n[dim]Recording metrics to TimescaleDB...[/dim]")
 
         # Import TimescaleDB components
-        from repotoire.historical import TimescaleClient, MetricsCollector
+        from repotoire.historical import MetricsCollector, TimescaleClient
 
         # Extract git information
         git_info = _extract_git_info(repo_path)
@@ -412,6 +422,7 @@ def cli(ctx: click.Context, config: str | None, log_level: str | None, log_forma
     if resolved_tenant_id:
         try:
             from uuid import UUID
+
             from repotoire.tenant.context import TenantContextManager
 
             # Validate UUID format
@@ -459,7 +470,7 @@ def login(api_key: str | None) -> None:
     Credentials are stored securely in your system keyring when available,
     with a fallback to ~/.repotoire/credentials (chmod 600).
     """
-    from repotoire.graph.factory import save_api_key, _validate_api_key
+    from repotoire.graph.factory import _validate_api_key, save_api_key
 
     if api_key is None:
         # Browser OAuth flow
@@ -471,7 +482,7 @@ def login(api_key: str | None) -> None:
 
 def _login_with_api_key(api_key: str) -> None:
     """Login with a direct API key."""
-    from repotoire.graph.factory import save_api_key, _validate_api_key
+    from repotoire.graph.factory import _validate_api_key, save_api_key
 
     try:
         console.print("Validating API key...", style="dim")
@@ -498,7 +509,7 @@ def _login_with_api_key(api_key: str) -> None:
 
 def _login_browser_oauth() -> None:
     """Login via browser OAuth flow."""
-    from repotoire.cli.auth import CLIAuth, AuthenticationError
+    from repotoire.cli.auth import AuthenticationError, CLIAuth
     from repotoire.cli.credentials import mask_api_key
     from repotoire.graph.factory import _validate_api_key
 
@@ -523,7 +534,7 @@ def _login_browser_oauth() -> None:
         except Exception:
             # If validation fails, still show success with masked key
             masked_key = mask_api_key(api_key)
-            console.print(f"\n[green]✓[/green] Logged in successfully")
+            console.print("\n[green]✓[/green] Logged in successfully")
             console.print(f"  API Key: {masked_key}")
 
         # Show where credentials are stored
@@ -551,7 +562,7 @@ def logout() -> None:
 
     Clears credentials from system keyring and/or credentials file.
     """
-    from repotoire.graph.factory import remove_api_key, get_credential_source
+    from repotoire.graph.factory import get_credential_source, remove_api_key
 
     source = get_credential_source()
     if remove_api_key():
@@ -571,7 +582,12 @@ def whoami() -> None:
     Shows your login status, organization, plan, and where credentials are stored.
     """
     from repotoire.cli.credentials import mask_api_key
-    from repotoire.graph.factory import get_api_key, get_cloud_auth_info, _validate_api_key, get_credential_source
+    from repotoire.graph.factory import (
+        _validate_api_key,
+        get_api_key,
+        get_cloud_auth_info,
+        get_credential_source,
+    )
 
     api_key = get_api_key()
     if not api_key:
@@ -653,8 +669,10 @@ def sync(repo_path: str, findings_file: str | None, quiet: bool) -> None:
     Requires authentication. Run 'repotoire login' first.
     """
     import json
-    import httpx
     from pathlib import Path
+
+    import httpx
+
     from repotoire.graph.factory import get_api_key, get_cloud_auth_info
 
     # Check auth
@@ -665,21 +683,21 @@ def sync(repo_path: str, findings_file: str | None, quiet: bool) -> None:
         raise click.Abort()
 
     repo_path_obj = Path(repo_path).resolve()
-    
+
     # Get git info
     git_info = _extract_git_info(repo_path_obj)
     repo_name = git_info.get("repo_name") or repo_path_obj.name
-    
+
     if not quiet:
         console.print(f"[bold]Syncing [cyan]{repo_name}[/cyan] to cloud...[/bold]\n")
 
     # Try to find latest analysis data
     repotoire_dir = repo_path_obj / ".repotoire"
-    
+
     # Load health from cache or run quick analysis
     health_data = None
     findings_data = []
-    
+
     # Check for cached health
     health_cache = repotoire_dir / "last_health.json"
     if health_cache.exists():
@@ -688,7 +706,7 @@ def sync(repo_path: str, findings_file: str | None, quiet: bool) -> None:
                 health_data = json.load(f)
         except Exception:
             pass
-    
+
     # Load findings from file or cache
     if findings_file:
         try:
@@ -714,17 +732,17 @@ def sync(repo_path: str, findings_file: str | None, quiet: bool) -> None:
                         findings_data = cached["findings"]
             except Exception:
                 pass
-    
+
     if health_data is None:
         # Need to run analysis first
         console.print("[yellow]No cached analysis found.[/yellow]")
         console.print("Run [cyan]repotoire analyze .[/cyan] first, then sync.\n")
         console.print("Or use [cyan]--findings-file[/cyan] to sync existing findings.")
         raise click.Abort()
-    
+
     # Build sync payload
     from repotoire import __version__
-    
+
     sync_payload = {
         "repo_name": repo_name,
         "repo_url": git_info.get("remote_url"),
@@ -757,10 +775,10 @@ def sync(repo_path: str, findings_file: str | None, quiet: bool) -> None:
         "total_functions": health_data.get("total_functions"),
         "total_classes": health_data.get("total_classes"),
     }
-    
+
     # Upload to cloud
     api_base = os.environ.get("REPOTOIRE_API_URL", "https://api.repotoire.io")
-    
+
     try:
         with httpx.Client(timeout=30.0) as client:
             response = client.post(
@@ -784,7 +802,7 @@ def sync(repo_path: str, findings_file: str | None, quiet: bool) -> None:
     except Exception as e:
         console.print(f"[red]✗[/red] Sync failed: {e}")
         raise click.Abort()
-    
+
     # Success output
     if quiet:
         console.print(result.get("dashboard_url", "Synced"))
@@ -1004,13 +1022,13 @@ def ingest(
             console.print(f"\n[yellow]{e.suggestion}[/yellow]")
         raise click.Abort()
 
-    console.print(f"\n[bold cyan]🎼 Repotoire Ingestion[/bold cyan]\n")
+    console.print("\n[bold cyan]🎼 Repotoire Ingestion[/bold cyan]\n")
     console.print(f"Repository: {repo_path}")
     console.print(f"Patterns: {', '.join(final_patterns)}")
     console.print(f"Follow symlinks: {final_follow_symlinks}")
     console.print(f"Max file size: {final_max_file_size}MB")
     if generate_clues:
-        console.print(f"[cyan]✨ AI Clue Generation: Enabled (spaCy)[/cyan]")
+        console.print("[cyan]✨ AI Clue Generation: Enabled (spaCy)[/cyan]")
     if generate_embeddings:
         from repotoire.ai.embeddings import EmbeddingConfig
         embed_cfg = EmbeddingConfig(backend=final_embedding_backend)
@@ -1025,10 +1043,10 @@ def ingest(
         )
 
     # Display Rust parser status
-    from repotoire.parsers.rust_parser import is_rust_parser_available, get_supported_languages
+    from repotoire.parsers.rust_parser import get_supported_languages, is_rust_parser_available
     if is_rust_parser_available():
         supported = get_supported_languages()
-        console.print(f"[green]⚡ Rust Parser: Enabled (10-100x faster)[/green]")
+        console.print("[green]⚡ Rust Parser: Enabled (10-100x faster)[/green]")
         console.print(f"[dim]   Languages: {', '.join(supported)}[/dim]")
     else:
         console.print("[yellow]⚠️  Rust Parser: Not available (using Python AST)[/yellow]")
@@ -1166,7 +1184,10 @@ def ingest(
                 if function_count > 0:
                     console.print("\n[bold cyan]Generating graph embeddings (Node2Vec)...[/bold cyan]")
                     try:
-                        from repotoire.ml.node2vec_embeddings import Node2VecEmbedder, Node2VecConfig
+                        from repotoire.ml.node2vec_embeddings import (
+                            Node2VecConfig,
+                            Node2VecEmbedder,
+                        )
 
                         node2vec_config = Node2VecConfig(
                             embedding_dimension=128,
@@ -1276,7 +1297,7 @@ def ingest(
             hint="The repository may be too large to process in one batch.",
             fix="repotoire ingest --batch-size 50 --max-file-size 5",
         )
-    except Exception as e:
+    except Exception:
         # Let the error handler classify and display the error
         raise
 
@@ -1514,7 +1535,7 @@ def analyze(
             console.print(f"\n[yellow]{e.suggestion}[/yellow]")
         raise click.Abort()
 
-    console.print(f"\n[bold cyan]🎼 Repotoire Analysis[/bold cyan]\n")
+    console.print("\n[bold cyan]🎼 Repotoire Analysis[/bold cyan]\n")
 
     try:
         with LogContext(operation="analyze", repo_path=repo_path):
@@ -1628,20 +1649,20 @@ def analyze(
                         Severity.CRITICAL: 0, Severity.HIGH: 1, Severity.MEDIUM: 2,
                         Severity.LOW: 3, Severity.INFO: 4
                     }
-                    
+
                     # Sort by severity first
                     health.findings.sort(key=lambda f: severity_order.get(f.severity, 5))
-                    
+
                     # Filter by minimum severity
                     if severity:
                         min_severity = Severity(severity.lower())
                         min_order = severity_order.get(min_severity, 5)
                         health.findings = [f for f in health.findings if severity_order.get(f.severity, 5) <= min_order]
-                    
+
                     # Limit to top N
                     if top and len(health.findings) > top:
                         health.findings = health.findings[:top]
-                    
+
                     # Show filtering message
                     if len(health.findings) < original_count:
                         console.print(f"[dim]Showing {len(health.findings)} of {original_count} findings[/dim]\n")
@@ -1657,7 +1678,7 @@ def analyze(
                     import json
                     cache_dir = Path(validated_repo_path) / ".repotoire"
                     cache_dir.mkdir(parents=True, exist_ok=True)
-                    
+
                     # Cache health data
                     health_cache = cache_dir / "last_health.json"
                     health_dict = health.to_dict() if hasattr(health, 'to_dict') else {
@@ -1672,7 +1693,7 @@ def analyze(
                     }
                     with open(health_cache, "w") as f:
                         json.dump(health_dict, f, indent=2, default=str)
-                    
+
                     # Cache findings
                     findings_cache = cache_dir / "last_findings.json"
                     findings_list = [
@@ -1693,7 +1714,7 @@ def analyze(
                     ]
                     with open(findings_cache, "w") as f:
                         json.dump({"findings": findings_list}, f, indent=2)
-                    
+
                     logger.debug(f"Cached analysis results to {cache_dir}")
                 except Exception as e:
                     logger.debug(f"Failed to cache analysis results: {e}")
@@ -1718,14 +1739,14 @@ def analyze(
                         reporter.generate(health, validated_output)
                         logger.info(f"SARIF report saved to {validated_output}")
                         console.print(f"\n✅ SARIF report saved to {validated_output}")
-                        console.print(f"[dim]Compatible with GitHub Code Scanning and other SARIF tools[/dim]")
+                        console.print("[dim]Compatible with GitHub Code Scanning and other SARIF tools[/dim]")
                     elif format.lower() == "markdown":
                         from repotoire.reporters import MarkdownReporter
                         reporter = MarkdownReporter(repo_path=validated_repo_path)
                         reporter.generate(health, validated_output)
                         logger.info(f"Markdown report saved to {validated_output}")
                         console.print(f"\n✅ Markdown report saved to {validated_output}")
-                        console.print(f"[dim]GitHub-flavored Markdown with emoji support[/dim]")
+                        console.print("[dim]GitHub-flavored Markdown with emoji support[/dim]")
                     elif format.lower() == "pdf":
                         from repotoire.reporters import PDFReporter
                         reporter = PDFReporter(repo_path=validated_repo_path)
@@ -1738,7 +1759,7 @@ def analyze(
                         reporter.generate(health, validated_output)
                         logger.info(f"Excel report saved to {validated_output}")
                         console.print(f"\n✅ Excel report saved to {validated_output}")
-                        console.print(f"[dim]Multi-sheet workbook with Summary, Findings, Metrics, and By Detector sheets[/dim]")
+                        console.print("[dim]Multi-sheet workbook with Summary, Findings, Metrics, and By Detector sheets[/dim]")
                     else:  # JSON format
                         import json
                         with open(validated_output, "w") as f:
@@ -1752,7 +1773,7 @@ def analyze(
                         file_url = Path(validated_output).absolute().as_uri()
                         webbrowser.open(file_url)
                         if not quiet:
-                            console.print(f"[dim]Opening report in browser...[/dim]")
+                            console.print("[dim]Opening report in browser...[/dim]")
 
                 # Record metrics to TimescaleDB if enabled
                 if track_metrics or config.timescale.auto_track:
@@ -1778,7 +1799,7 @@ def analyze(
                             console.print(
                                 f"\n[green]✓ Grade {health.grade} meets threshold {fail_on_grade.upper()}[/green]"
                             )
-                
+
                 # Show sync tip if logged in
                 from repotoire.graph.factory import get_api_key
                 if get_api_key() and not quiet:
@@ -1821,7 +1842,7 @@ def analyze(
             hint="The analysis may require too much memory.",
             fix="repotoire analyze --workers 2 --disable-detectors semgrep,jscpd",
         )
-    except Exception as e:
+    except Exception:
         # Let the error handler classify and display
         raise
 
@@ -1838,16 +1859,16 @@ def _get_why_it_matters(finding: dict) -> str | None:
     def _is_list(obj):
         """Check if obj is a list (workaround for shadowed 'list' builtin)."""
         return type(obj).__name__ in ('list', 'tuple')
-    
+
     parts = []
     ctx = finding.get("graph_context", {})
     title = finding.get("title", "").lower()
     desc = finding.get("description", "")
-    
+
     # Security issues - use CWE/OWASP for specific impact
     cwe_list = ctx.get("cwe", [])
     owasp_list = ctx.get("owasp", [])
-    
+
     if cwe_list or owasp_list or "security" in title:
         # Extract the vulnerability type from CWE
         if cwe_list:
@@ -1856,7 +1877,7 @@ def _get_why_it_matters(finding: dict) -> str | None:
             if ":" in str(cwe):
                 vuln_type = str(cwe).split(":", 1)[1].strip()
                 parts.append(f"This code is vulnerable to **{vuln_type}**.")
-        
+
         # Add attack context from OWASP
         if owasp_list:
             owasp = owasp_list[0] if _is_list(owasp_list) else owasp_list
@@ -1866,7 +1887,7 @@ def _get_why_it_matters(finding: dict) -> str | None:
                 parts.append("Attackers may access data or functionality they shouldn't have access to.")
             elif "Cryptographic" in str(owasp):
                 parts.append("Sensitive data may be exposed due to weak or missing encryption.")
-        
+
         # Specific impacts for common vulnerabilities
         if "eval" in title:
             parts.append("If user input reaches `eval()`, attackers can run arbitrary code on your server.")
@@ -1876,51 +1897,51 @@ def _get_why_it_matters(finding: dict) -> str | None:
             parts.append("Attackers can steal user sessions, credentials, or perform actions as the user.")
         elif "hardcoded" in title.lower() and ("secret" in title.lower() or "password" in title.lower()):
             parts.append("Secrets in code get committed to version control and are visible to anyone with repo access.")
-    
+
     # Complexity issues
     elif "complexity" in title or "cyclomatic" in title:
         complexity = ctx.get("complexity") or ctx.get("cyclomatic_complexity")
         if complexity:
             parts.append(f"Complexity of {complexity} means this code has {complexity}+ independent paths to test.")
             parts.append("Each path is a potential bug. Simplify by extracting methods or reducing conditionals.")
-    
+
     # Circular dependencies
     elif "circular" in title:
         cycle_len = ctx.get("cycle_length")
         if cycle_len:
             parts.append(f"This {cycle_len}-file cycle means you can't import one file without importing all {cycle_len}.")
         parts.append("Circular imports cause `ImportError` at runtime and make refactoring nearly impossible.")
-    
+
     # Dead code
     elif "dead" in title or "unused" in title or "unreachable" in title:
         parts.append("Dead code misleads developers who think it does something. Remove it to reduce confusion.")
-    
+
     # God class / large class
     elif "god" in title or ("large" in title and "class" in title):
         method_count = ctx.get("method_count")
         if method_count:
             parts.append(f"With {method_count} methods, this class does too many things.")
         parts.append("Changes here risk breaking unrelated functionality. Split into focused classes.")
-    
+
     # Duplicate code
     elif "duplicate" in title or "clone" in title:
         parts.append("When you fix a bug in one copy, you must find and fix all others—or the bug persists.")
-    
+
     # Coupling
     elif "coupling" in title or "bottleneck" in title:
         dependents = ctx.get("dependents") or ctx.get("fan_in")
         if dependents:
             parts.append(f"This code has {dependents} dependents—changes here can break all of them.")
         parts.append("High-impact code needs thorough testing and careful review.")
-    
+
     # Type errors
     elif "type" in title and ("error" in title or "mismatch" in title):
         parts.append("Type errors cause runtime crashes. This will fail when executed with the wrong type.")
-    
+
     # Return None if we couldn't generate anything specific
     if not parts:
         return None
-    
+
     return " ".join(parts)
 
 
@@ -2087,10 +2108,10 @@ def _display_health_report(health) -> None:
 def _display_insights(insights) -> None:
     """Display insights from ML and graph analysis (REPO-501)."""
     gi = insights.graph_insights
-    
+
     # Graph insights panel
     insights_content = []
-    
+
     # Bottlenecks
     if gi.bottlenecks:
         insights_content.append("[bold]🎯 Bottlenecks[/bold] (high fan-in functions)")
@@ -2102,7 +2123,7 @@ def _display_insights(insights) -> None:
                 name = "..." + name[-47:]
             insights_content.append(f"  [cyan]{name}[/cyan] ← {fan_in} callers")
         insights_content.append("")
-    
+
     # Coupling hotspots
     if gi.coupling_hotspots:
         insights_content.append("[bold]🔗 Coupling Hotspots[/bold] (files with many cross-deps)")
@@ -2114,7 +2135,7 @@ def _display_insights(insights) -> None:
                 file = "..." + file[-47:]
             insights_content.append(f"  [yellow]{file}[/yellow] → {coupled} files")
         insights_content.append("")
-    
+
     # High-risk entities (from bug prediction or heuristics)
     if insights.high_risk_entities:
         # Check if any are from ML model
@@ -2143,7 +2164,7 @@ def _display_insights(insights) -> None:
                     factor_hint = f" [dim]({', '.join(hints[:2])})[/dim]"
             insights_content.append(f"  [{color}]{entity}[/{color}] ({pct}% risk){factor_hint}")
         insights_content.append("")
-    
+
     # High-impact entities
     if insights.high_impact_entities:
         insights_content.append("[bold]💥 High Impact[/bold] (large blast radius)")
@@ -2154,7 +2175,7 @@ def _display_insights(insights) -> None:
                 entity = "..." + entity[-47:]
             insights_content.append(f"  [magenta]{entity}[/magenta] → {radius} dependents")
         insights_content.append("")
-    
+
     # Summary stats
     stats = []
     if gi.dead_code_count > 0:
@@ -2168,10 +2189,10 @@ def _display_insights(insights) -> None:
         has_ml = any(r.get("source") == "ml_model" for r in insights.high_risk_entities)
         method = "ML" if has_ml else "heuristics"
         stats.append(f"🧠 {insights.findings_enriched} findings scored ({method})")
-    
+
     if stats:
         insights_content.append("[dim]" + " | ".join(stats) + "[/dim]")
-    
+
     if insights_content:
         console.print(Panel(
             "\n".join(insights_content),
@@ -2257,6 +2278,7 @@ def validate(ctx: click.Context) -> None:
     Exits with non-zero code if any validation fails.
     """
     import os
+
     from repotoire.graph.factory import get_api_key
 
     config: FalkorConfig = ctx.obj['config']
@@ -2404,10 +2426,11 @@ def scan_secrets(
         # Scan with more workers
         repotoire scan-secrets . --workers 8
     """
-    from pathlib import Path as PathLib
-    from repotoire.security.secrets_scanner import SecretsScanner, SecretsScanResult
-    import json as json_module
     import glob
+    import json as json_module
+    from pathlib import Path as PathLib
+
+    from repotoire.security.secrets_scanner import SecretsScanner, SecretsScanResult
 
     config: FalkorConfig = ctx.obj['config']
 
@@ -2759,6 +2782,7 @@ def backends() -> None:
         repotoire backends
     """
     import os
+
     from repotoire.ai.embeddings import (
         BACKEND_CONFIGS,
         BACKEND_PRIORITY,
@@ -2858,8 +2882,8 @@ def init(format: str, output: str | None, force: bool) -> None:
         output_path.write_text(template)
 
         console.print(f"[green]✓ Created config file: {output_path}[/green]")
-        console.print(f"\n[dim]Edit the file to customize your configuration.[/dim]")
-        console.print(f"[dim]Environment variables can be referenced using ${{VAR_NAME}} syntax.[/dim]\n")
+        console.print("\n[dim]Edit the file to customize your configuration.[/dim]")
+        console.print("[dim]Environment variables can be referenced using ${VAR_NAME} syntax.[/dim]\n")
 
         # Show snippet
         lines = template.split("\n")[:15]  # First 15 lines
@@ -2895,7 +2919,7 @@ def migrate() -> None:
 @migrate.command()
 def status() -> None:
     """Show current migration status and pending migrations."""
-    console.print(f"\n[bold cyan]🎼 Repotoire Migration Status[/bold cyan]\n")
+    console.print("\n[bold cyan]🎼 Repotoire Migration Status[/bold cyan]\n")
 
     try:
         db = _get_db_client()
@@ -2933,7 +2957,7 @@ def status() -> None:
                     )
 
                 console.print(pending_table)
-                console.print(f"\n[yellow]Run 'falkor migrate up' to apply pending migrations[/yellow]\n")
+                console.print("\n[yellow]Run 'falkor migrate up' to apply pending migrations[/yellow]\n")
             else:
                 console.print("[green]✓ Database schema is up to date[/green]\n")
 
@@ -2972,7 +2996,7 @@ def status() -> None:
 )
 def up(to_version: int | None) -> None:
     """Apply pending migrations to upgrade schema."""
-    console.print(f"\n[bold cyan]🎼 Repotoire Migration: Upgrading Schema[/bold cyan]\n")
+    console.print("\n[bold cyan]🎼 Repotoire Migration: Upgrading Schema[/bold cyan]\n")
 
     try:
         db = _get_db_client()
@@ -2998,7 +3022,7 @@ def up(to_version: int | None) -> None:
                 progress.add_task("[cyan]Applying migrations...", total=None)
                 manager.migrate(target_version=to_version)
 
-            console.print(f"\n[green]✓ Schema migration complete[/green]")
+            console.print("\n[green]✓ Schema migration complete[/green]")
 
             # Show new version
             new_version = manager.get_current_version()
@@ -3033,7 +3057,7 @@ def down(to_version: int, force: bool) -> None:
 
     WARNING: This operation may result in data loss. Use with caution!
     """
-    console.print(f"\n[bold red]⚠️  Repotoire Migration: Rollback Schema[/bold red]\n")
+    console.print("\n[bold red]⚠️  Repotoire Migration: Rollback Schema[/bold red]\n")
 
     try:
         db = _get_db_client()
@@ -3067,7 +3091,7 @@ def down(to_version: int, force: bool) -> None:
                 progress.add_task("[red]Rolling back migrations...", total=None)
                 manager.rollback(target_version=to_version)
 
-            console.print(f"\n[green]✓ Schema rollback complete[/green]")
+            console.print("\n[green]✓ Schema rollback complete[/green]")
 
             # Show new version
             new_version = manager.get_current_version()
@@ -3106,9 +3130,10 @@ def export_data(output: str, compress: bool) -> None:
         repotoire migrate export -o backup.json --no-compress
     """
     from pathlib import Path
+
     from repotoire.graph.migration import GraphMigration
 
-    console.print(f"\n[bold cyan]📦 Exporting Graph Data[/bold cyan]\n")
+    console.print("\n[bold cyan]📦 Exporting Graph Data[/bold cyan]\n")
 
     try:
         client = _get_db_client()
@@ -3124,7 +3149,7 @@ def export_data(output: str, compress: bool) -> None:
                 progress.add_task("[cyan]Exporting nodes and relationships...", total=None)
                 stats = migration.export_graph(Path(output), compress=compress)
 
-            console.print(f"\n[green]✓ Export complete[/green]")
+            console.print("\n[green]✓ Export complete[/green]")
             console.print(f"  Nodes exported: [cyan]{stats.nodes_exported}[/cyan]")
             console.print(f"  Relationships exported: [cyan]{stats.relationships_exported}[/cyan]")
             console.print(f"  Output file: [dim]{output}[/dim]")
@@ -3168,9 +3193,10 @@ def import_data(input_file: str, clear: bool, batch_size: int) -> None:
         repotoire migrate import -i backup.json --clear
     """
     from pathlib import Path
+
     from repotoire.graph.migration import GraphMigration
 
-    console.print(f"\n[bold cyan]📥 Importing Graph Data[/bold cyan]\n")
+    console.print("\n[bold cyan]📥 Importing Graph Data[/bold cyan]\n")
 
     if clear:
         console.print("[yellow]⚠️  WARNING: This will clear all existing data![/yellow]")
@@ -3196,7 +3222,7 @@ def import_data(input_file: str, clear: bool, batch_size: int) -> None:
                     batch_size=batch_size
                 )
 
-            console.print(f"\n[green]✓ Import complete[/green]")
+            console.print("\n[green]✓ Import complete[/green]")
             console.print(f"  Nodes imported: [cyan]{stats.nodes_imported}[/cyan]")
             console.print(f"  Relationships imported: [cyan]{stats.relationships_imported}[/cyan]")
 
@@ -3222,7 +3248,7 @@ def validate_migration() -> None:
     """
     from repotoire.graph.migration import GraphMigration
 
-    console.print(f"\n[bold cyan]🔍 Validating Graph Data[/bold cyan]\n")
+    console.print("\n[bold cyan]🔍 Validating Graph Data[/bold cyan]\n")
 
     try:
         client = _get_db_client()
@@ -3253,9 +3279,9 @@ def validate_migration() -> None:
             console.print(stats_table)
 
             if result.valid:
-                console.print(f"\n[green]✓ Graph validation passed[/green]")
+                console.print("\n[green]✓ Graph validation passed[/green]")
             else:
-                console.print(f"\n[red]❌ Validation issues found:[/red]")
+                console.print("\n[red]❌ Validation issues found:[/red]")
                 for issue in result.issues:
                     console.print(f"  - {issue}")
 
@@ -3340,8 +3366,8 @@ def hotspots(repo_path: str, window: int, min_churn: int, quiet: bool) -> None:
                 )
 
             console.print(table)
-            console.print(f"\n[dim]These files have high modification frequency and increasing complexity[/dim]")
-            console.print(f"[dim]Consider refactoring to reduce technical debt[/dim]\n")
+            console.print("\n[dim]These files have high modification frequency and increasing complexity[/dim]")
+            console.print("[dim]Consider refactoring to reduce technical debt[/dim]\n")
 
     except Exception as e:
         logger.error(f"Failed to find code hotspots: {e}", exc_info=True)
@@ -3373,7 +3399,7 @@ def history(repo_path: str, strategy: str, max_commits: int, branch: str, genera
         repotoire history /path/to/repo --strategy recent --max-commits 10
     """
     if not quiet:
-        console.print(f"\n[bold cyan]📊 Temporal Code Analysis[/bold cyan]\n")
+        console.print("\n[bold cyan]📊 Temporal Code Analysis[/bold cyan]\n")
         console.print(f"Repository: [yellow]{repo_path}[/yellow]")
         console.print(f"Strategy: [cyan]{strategy}[/cyan]")
         console.print(f"Max commits: [cyan]{max_commits}[/cyan]\n")
@@ -3417,7 +3443,7 @@ def history(repo_path: str, strategy: str, max_commits: int, branch: str, genera
 
         # Display results
         if not quiet:
-            console.print(f"\n[green]✓ Temporal ingestion complete![/green]\n")
+            console.print("\n[green]✓ Temporal ingestion complete![/green]\n")
 
             results_table = Table(box=box.SIMPLE, show_header=False)
             results_table.add_column("Metric", style="bold")
@@ -3477,7 +3503,7 @@ def compare(before_commit: str, after_commit: str, quiet: bool) -> None:
 
         # Display comparison
         if not quiet:
-            console.print(f"\n[bold cyan]Commit Comparison[/bold cyan]\n")
+            console.print("\n[bold cyan]Commit Comparison[/bold cyan]\n")
             console.print(f"Before: [yellow]{comparison['before_commit']}[/yellow]  ({comparison['before_date']})")
             console.print(f"After:  [yellow]{comparison['after_commit']}[/yellow]  ({comparison['after_date']})\n")
 
@@ -3547,11 +3573,12 @@ def generate_mcp(
         # Custom output and limits
         repotoire generate-mcp -o ./my_server --max-routes 5 --max-functions 10
     """
-    from repotoire.mcp import PatternDetector, SchemaGenerator, ServerGenerator
+    import os
+    from pathlib import Path
+
     from repotoire.ai.embeddings import CodeEmbedder
     from repotoire.ai.retrieval import GraphRAGRetriever
-    from pathlib import Path
-    import os
+    from repotoire.mcp import PatternDetector, SchemaGenerator, ServerGenerator
 
     try:
         # Get repository path (assume current directory)
@@ -3671,7 +3698,7 @@ def generate_mcp(
                 repository_path=repository_path
             )
 
-        console.print(f"[green]✓[/green] Generated MCP server")
+        console.print("[green]✓[/green] Generated MCP server")
         console.print()
 
         # Display results
@@ -3698,8 +3725,8 @@ def generate_mcp(
         # Next steps
         console.print("[bold cyan]💡 Next Steps:[/bold cyan]")
         console.print(f"   1. Test server: [dim]python {server_file}[/dim]")
-        console.print(f"   2. Install MCP SDK: [dim]pip install mcp[/dim]")
-        console.print(f"   3. Connect to Claude Desktop:")
+        console.print("   2. Install MCP SDK: [dim]pip install mcp[/dim]")
+        console.print("   3. Connect to Claude Desktop:")
         console.print()
         console.print('[dim]   Add to ~/Library/Application Support/Claude/claude_desktop_config.json:[/dim]')
         console.print('[dim]   {[/dim]')
@@ -4097,9 +4124,10 @@ def add(file_path: str) -> None:
     """
     try:
         import yaml
+
+        from repotoire.models import Rule, Severity
         from repotoire.rules.engine import RuleEngine
         from repotoire.rules.validator import RuleValidator
-        from repotoire.models import Rule, Severity
 
         client = _get_db_client()
         engine = RuleEngine(client)
@@ -4159,7 +4187,7 @@ def add(file_path: str) -> None:
                 error_count += 1
 
         # Summary
-        console.print(f"\n[bold]Summary:[/bold]")
+        console.print("\n[bold]Summary:[/bold]")
         console.print(f"  [green]✓ Added:[/green] {success_count}")
         console.print(f"  [red]✗ Failed:[/red] {error_count}")
         console.print()
@@ -4270,7 +4298,7 @@ def test(rule_id: str) -> None:
         console.print(f"\n[bold cyan]Testing rule: {rule.name}[/bold cyan]")
         console.print(f"Pattern:\n{rule.pattern}\n")
 
-        with console.status(f"[bold green]Executing rule..."):
+        with console.status("[bold green]Executing rule..."):
             findings = engine.execute_rule(rule)
 
         console.print(f"\n[bold]Found {len(findings)} violations:[/bold]\n")
@@ -4613,7 +4641,7 @@ def regression(
             result = client.detect_regression(repository, tenant_id=tenant_id, branch=branch, threshold=threshold)
 
         if not result:
-            console.print(f"\n[green]✓ No significant regression detected[/green]")
+            console.print("\n[green]✓ No significant regression detected[/green]")
             console.print(f"[dim]Threshold: {threshold} points[/dim]")
             return
 
@@ -4919,11 +4947,12 @@ def auto_fix(
         # Dry run: generate fixes without applying
         repotoire auto-fix /path/to/repo --dry-run --output fixes.json
     """
-    import os
     import json
+    import os
     from pathlib import Path
+
+    from repotoire.autofix import AutoFixEngine, FixApplicator, InteractiveReviewer
     from repotoire.engine import AnalysisEngine
-    from repotoire.autofix import AutoFixEngine, InteractiveReviewer, FixApplicator
     from repotoire.models import Severity
 
     # CI mode implies quiet output
@@ -5198,9 +5227,9 @@ def fix_finding(
     import asyncio
     import json
     from pathlib import Path
-    
+
     repo_path = Path(repo).resolve()
-    
+
     try:
         # Check for API key
         api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("OPENAI_API_KEY")
@@ -5208,18 +5237,18 @@ def fix_finding(
             console.print("\n[red]❌ No API key found[/red]")
             console.print("[dim]Set ANTHROPIC_API_KEY or OPENAI_API_KEY for fix generation[/dim]")
             ctx.exit(1)
-        
+
         # Determine which finding to fix
         finding = None
-        
+
         # Check if target is a number (finding index)
         if target.isdigit() and findings:
             with open(findings) as f:
                 data = json.load(f)
-            
+
             findings_list = data.get("findings", data) if isinstance(data, dict) else data
             idx = int(target) - 1  # 1-indexed for users
-            
+
             if 0 <= idx < len(findings_list):
                 from repotoire.models import Finding, Severity
                 f_data = findings_list[idx]
@@ -5228,7 +5257,7 @@ def fix_finding(
                 graph_ctx = f_data.get("graph_context", {})
                 line_start = f_data.get("line_start") or graph_ctx.get("start_line")
                 line_end = f_data.get("line_end") or graph_ctx.get("end_line")
-                
+
                 finding = Finding(
                     id=f_data.get("id", f"finding-{idx}"),
                     title=f_data.get("title", "Unknown"),
@@ -5246,28 +5275,28 @@ def fix_finding(
             else:
                 console.print(f"[red]Finding #{target} not found (have {len(findings_list)} findings)[/red]")
                 ctx.exit(1)
-        
+
         # Check if target is file:line
         elif ":" in target:
             file_path, line_str = target.rsplit(":", 1)
             if line_str.isdigit():
                 # Create a synthetic finding for this location
                 from repotoire.models import Finding, Severity
-                
+
                 full_path = repo_path / file_path
                 if not full_path.exists():
                     console.print(f"[red]File not found: {file_path}[/red]")
                     ctx.exit(1)
-                
+
                 line_num = int(line_str)
-                
+
                 # Read code snippet
                 with open(full_path) as f:
                     lines = f.readlines()
                 start = max(0, line_num - 3)
                 end = min(len(lines), line_num + 3)
                 snippet = "".join(lines[start:end])
-                
+
                 finding = Finding(
                     id=f"manual-{file_path}:{line_num}",
                     title=f"Issue at {file_path}:{line_num}",
@@ -5279,57 +5308,57 @@ def fix_finding(
                     detector="manual",
                     graph_context={"code_snippet": snippet},
                 )
-        
+
         if finding is None:
             console.print("[red]Could not determine finding to fix[/red]")
             console.print("[dim]Use: repotoire fix 3 -f findings.json  OR  repotoire fix src/app.py:42[/dim]")
             ctx.exit(1)
-        
-        console.print(f"\n[bold cyan]🔧 Generating fix for:[/bold cyan]")
+
+        console.print("\n[bold cyan]🔧 Generating fix for:[/bold cyan]")
         console.print(f"  [bold]{finding.title}[/bold]")
         file_display = finding.affected_files[0] if finding.affected_files else "unknown"
         line_display = finding.line_start or "?"
         console.print(f"  📁 {file_display}:{line_display}")
         console.print(f"  🏷️  {finding.severity.value.upper()}\n")
-        
+
         # Initialize AutoFixEngine
         from repotoire.autofix import AutoFixEngine
-        
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             console=console,
         ) as progress:
             task = progress.add_task("Generating fix...", total=None)
-            
+
             engine = AutoFixEngine(
                 api_key=api_key,
                 model=model,
                 skip_runtime_validation=True,  # Fast mode for CLI
             )
-            
+
             # Generate fix
             fix_proposal = asyncio.run(engine.generate_fix(finding, repo_path))
-            
+
             progress.update(task, completed=True)
-        
+
         if fix_proposal is None:
             console.print("[yellow]⚠️ Could not generate a fix for this finding[/yellow]")
             ctx.exit(1)
-        
+
         # Show the fix
         console.print(f"\n[bold green]✅ Fix generated:[/bold green] {fix_proposal.title}")
         console.print(f"[dim]Confidence: {fix_proposal.confidence.value}[/dim]\n")
-        
+
         if fix_proposal.description:
             console.print(Panel(fix_proposal.description, title="Explanation", border_style="blue"))
         if fix_proposal.rationale:
             console.print(Panel(fix_proposal.rationale, title="Rationale", border_style="dim"))
-        
+
         # Show diff
         for change in fix_proposal.changes:
             console.print(f"\n[bold]📝 {change.file_path}[/bold]")
-            
+
             # Create diff
             if change.original_code and change.fixed_code:
                 diff = difflib.unified_diff(
@@ -5339,7 +5368,7 @@ def fix_finding(
                     tofile=f"b/{change.file_path}",
                 )
                 diff_text = "".join(diff)
-                
+
                 # Colorize diff
                 colored_lines = []
                 for line in diff_text.split("\n"):
@@ -5351,17 +5380,17 @@ def fix_finding(
                         colored_lines.append(f"[cyan]{escape(line)}[/cyan]")
                     else:
                         colored_lines.append(escape(line))
-                
+
                 console.print("\n".join(colored_lines))
-        
+
         # Apply if requested
         if apply:
             console.print("\n[bold]Applying fix...[/bold]")
             from repotoire.autofix import FixApplicator
-            
+
             applicator = FixApplicator(repo_path)
             success = applicator.apply_fix(fix_proposal)
-            
+
             if success:
                 console.print("[green]✅ Fix applied successfully![/green]")
             else:
@@ -5369,7 +5398,7 @@ def fix_finding(
                 ctx.exit(1)
         else:
             console.print("\n[dim]Run with --apply to apply this fix[/dim]")
-    
+
     except Exception as e:
         logger.error(f"Fix failed: {e}", exc_info=True)
         console.print(f"\n[red]❌ Error:[/red] {e}")
@@ -5390,15 +5419,15 @@ def _extract_finding_location(f: dict) -> tuple[str, str]:
     # Try direct fields first
     file_path = f.get("file_path") or ""
     line_start = f.get("line_start")
-    
+
     # Fall back to affected_files
     if not file_path and f.get("affected_files"):
         file_path = f["affected_files"][0] if f["affected_files"] else ""
-    
+
     # Fall back to graph_context for line
     if not line_start and f.get("graph_context"):
         line_start = f["graph_context"].get("start_line")
-    
+
     return file_path or "?", str(line_start) if line_start else "?"
 
 
@@ -5429,76 +5458,77 @@ def show_findings(
         repotoire findings findings.json 3
     """
     import json
+
     from rich.syntax import Syntax
-    
+
     try:
         with open(source) as f:
             data = json.load(f)
-        
+
         findings_list = data.get("findings", data) if isinstance(data, dict) else data
-        
+
         if not findings_list:
             console.print("[yellow]No findings in file[/yellow]")
             return
-        
+
         # Filter by severity if specified
         if severity:
             findings_list = [f for f in findings_list if f.get("severity", "").lower() == severity]
-        
+
         # Sort by severity (critical first)
         severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
         findings_list = sorted(findings_list, key=lambda f: severity_order.get(f.get("severity", "low").lower(), 4))
-        
+
         # Limit if --top specified
         if top:
             findings_list = findings_list[:top]
-        
+
         # Show specific finding details
         if index is not None:
             # Re-read original list for index lookup
             with open(source) as f:
                 data = json.load(f)
             all_findings = data.get("findings", data) if isinstance(data, dict) else data
-            
+
             if 1 <= index <= len(all_findings):
                 f = all_findings[index - 1]
-                
+
                 sev = f.get("severity", "medium").upper()
                 sev_colors = {"CRITICAL": "red bold", "HIGH": "red", "MEDIUM": "yellow", "LOW": "blue"}
                 sev_style = sev_colors.get(sev, "white")
-                
+
                 console.print(f"\n[bold]Finding #{index}[/bold]")
                 console.print(f"[{sev_style}]● {sev}[/{sev_style}] {f.get('title', 'Unknown')}\n")
-                
+
                 file_path, line_str = _extract_finding_location(f)
                 console.print(f"[dim]📁 File:[/dim] {file_path}")
                 console.print(f"[dim]📍 Line:[/dim] {line_str}")
                 console.print(f"[dim]🔍 Detector:[/dim] {f.get('detector', 'unknown')}")
-                
+
                 if f.get("description"):
                     console.print(f"\n[bold]Description:[/bold]\n{f['description']}")
-                
+
                 # Show "Why It Matters" explanation if we can generate one (REPO-521)
                 why = f.get("why_it_matters") or _get_why_it_matters(f)
                 if why:
                     console.print(f"\n[bold cyan]Why It Matters:[/bold cyan]\n{why}")
-                
+
                 if f.get("code_snippet"):
-                    console.print(f"\n[bold]Code:[/bold]")
+                    console.print("\n[bold]Code:[/bold]")
                     # Detect language from file extension
                     file_path = f.get("file_path", "")
                     lang = "python" if file_path.endswith(".py") else "javascript" if file_path.endswith((".js", ".ts")) else "text"
                     syntax = Syntax(f["code_snippet"], lang, line_numbers=True, start_line=f.get("line_start", 1))
                     console.print(syntax)
-                
+
                 if f.get("suggestion"):
                     console.print(f"\n[bold green]💡 Suggestion:[/bold green]\n{f['suggestion']}")
-                
+
                 console.print(f"\n[dim]Fix with: repotoire fix {index} -f {source}[/dim]")
             else:
                 console.print(f"[red]Finding #{index} not found (have {len(all_findings)} findings)[/red]")
             return
-        
+
         # List findings in a table
         table = Table(title=f"Findings ({len(findings_list)} total)", box=box.ROUNDED)
         table.add_column("#", style="dim", width=4)
@@ -5506,23 +5536,23 @@ def show_findings(
         table.add_column("Title", no_wrap=False)
         table.add_column("File", style="dim", no_wrap=True)
         table.add_column("Line", style="dim", width=6)
-        
+
         # Get original indices
         with open(source) as f:
             data = json.load(f)
         all_findings = data.get("findings", data) if isinstance(data, dict) else data
-        
+
         for f in findings_list:
             # Find original index
             try:
                 orig_idx = all_findings.index(f) + 1
             except ValueError:
                 orig_idx = "?"
-            
+
             sev = f.get("severity", "medium").upper()
             sev_colors = {"CRITICAL": "red bold", "HIGH": "red", "MEDIUM": "yellow", "LOW": "blue"}
             sev_icon = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🔵"}
-            
+
             file_path, line_str = _extract_finding_location(f)
             table.add_row(
                 str(orig_idx),
@@ -5531,11 +5561,11 @@ def show_findings(
                 file_path[-40:] if file_path != "?" else "?",
                 line_str,
             )
-        
+
         console.print(table)
         console.print(f"\n[dim]View details: repotoire findings {source} <number>[/dim]")
         console.print(f"[dim]Fix finding:  repotoire fix <number> -f {source}[/dim]")
-    
+
     except json.JSONDecodeError:
         console.print(f"[red]Invalid JSON file: {source}[/red]")
     except Exception as e:
@@ -5576,7 +5606,9 @@ def style(
     """
     import json as json_module
     from pathlib import Path
+
     from rich.table import Table
+
     from repotoire.autofix.style import StyleAnalyzer, StyleEnforcer
 
     repo_path = Path(repository)
@@ -5667,14 +5699,17 @@ def style(
 
 # Register security commands
 from .security import security
+
 cli.add_command(security)
 
 # Register monorepo commands
 from .monorepo import monorepo
+
 cli.add_command(monorepo)
 
 # Register ML commands
 from .ml import ml
+
 cli.add_command(ml)
 
 
@@ -5730,8 +5765,9 @@ def hotspots(
         # Show hotspots for specific file
         repotoire hotspots --file path/to/file.py
     """
-    from repotoire.graph.enricher import GraphEnricher
     from rich.table import Table
+
+    from repotoire.graph.enricher import GraphEnricher
 
     console.print("\n🔥 [bold]Code Hotspot Analysis[/bold]\n")
 
@@ -5753,7 +5789,7 @@ def hotspots(
                 console.print(f"[green]No issues found in {file}[/green]")
                 return
 
-            console.print(f"[yellow]File Statistics:[/yellow]")
+            console.print("[yellow]File Statistics:[/yellow]")
             console.print(f"  Total Flags: {stats['total_flags']}")
             console.print(f"  Detectors: {stats['detector_count']}")
             console.print(f"  LOC: {stats.get('file_loc', 'N/A')}")
@@ -5781,7 +5817,7 @@ def hotspots(
 
         else:
             # Find general hotspots
-            console.print(f"Finding hotspots with:")
+            console.print("Finding hotspots with:")
             console.print(f"  Min Detectors: {min_detectors}")
             console.print(f"  Min Confidence: {min_confidence:.1%}")
             if severity:
@@ -5884,7 +5920,7 @@ def embeddings_generate(
         repotoire embeddings generate --dimension 256
         repotoire embeddings generate --force
     """
-    from repotoire.ml import FastRPEmbedder, FastRPConfig
+    from repotoire.ml import FastRPConfig, FastRPEmbedder
 
     console.print("\n🔮 [bold]FastRP Graph Embedding Generation[/bold]\n")
 
@@ -5910,7 +5946,7 @@ def embeddings_generate(
             return
 
         # Generate embeddings
-        console.print(f"Configuration:")
+        console.print("Configuration:")
         console.print(f"  Dimension: [cyan]{dimension}[/cyan]")
         console.print(f"  Node types: [cyan]{', '.join(config.node_labels)}[/cyan]")
         console.print(f"  Relationships: [cyan]{', '.join(config.relationship_types)}[/cyan]")
@@ -6023,8 +6059,9 @@ def embeddings_similar(
         repotoire embeddings similar "my.module.MyClass.method"
         repotoire embeddings similar "my.module" --type Function -k 20
     """
-    from repotoire.ml import StructuralSimilarityAnalyzer
     from rich.table import Table
+
+    from repotoire.ml import StructuralSimilarityAnalyzer
 
     console.print(f"\n🔍 [bold]Finding entities similar to:[/bold] [cyan]{qualified_name}[/cyan]\n")
 
@@ -6119,8 +6156,9 @@ def embeddings_clones(
         repotoire embeddings clones
         repotoire embeddings clones --threshold 0.9 --limit 100
     """
-    from repotoire.ml import StructuralSimilarityAnalyzer
     from rich.table import Table
+
+    from repotoire.ml import StructuralSimilarityAnalyzer
 
     console.print(f"\n🔎 [bold]Finding potential code clones[/bold] (threshold >= {threshold})\n")
 
@@ -6236,9 +6274,9 @@ def templates_list(verbose: bool, language: str | None, template_dir: Path | Non
     Templates are sorted by priority (highest first).
     """
     from repotoire.autofix.templates import (
+        DEFAULT_TEMPLATE_DIRS,
         get_registry,
         reset_registry,
-        DEFAULT_TEMPLATE_DIRS,
     )
 
     # Reset and reload registry if custom dir provided
@@ -6320,26 +6358,32 @@ def templates_list(verbose: bool, language: str | None, template_dir: Path | Non
 
 # Register sandbox stats command (REPO-295)
 from .sandbox import sandbox_stats
+
 cli.add_command(sandbox_stats)
 
 # Register graph management commands (REPO-263)
 from .graph import graph
+
 cli.add_command(graph)
 
 # Register auth commands (REPO-267)
 from .auth_commands import auth_group
+
 cli.add_command(auth_group)
 
 # Register organization commands (CLI/Web sync)
 from .org_commands import org_group
+
 cli.add_command(org_group)
 
 # Register API key management commands (REPO-324)
 from .api_keys import api_keys
+
 cli.add_command(api_keys, name="api-keys")
 
 # Register git history RAG commands (replaces Graphiti - 99% cheaper)
 from .historical import historical
+
 cli.add_command(historical)
 
 
@@ -6421,9 +6465,9 @@ def ask(
         CodeEmbedder,
         EmbeddingConfig,
         GraphRAGRetriever,
-        RetrieverConfig,
         HybridSearchConfig,
         RerankerConfig,
+        RetrieverConfig,
     )
     from repotoire.ai.llm import LLMConfig
 
@@ -6585,7 +6629,7 @@ def config_init(format: str, output: str | None, force: bool) -> None:
         template = generate_config_template(format.lower())
         output_path.write_text(template)
         console.print(f"[green]✓[/green] Created config file: {output}")
-        console.print(f"[dim]Edit this file to customize Repotoire settings[/dim]")
+        console.print("[dim]Edit this file to customize Repotoire settings[/dim]")
     except Exception as e:
         console.print(f"[red]❌ Error creating config: {e}[/red]")
         raise click.Abort()

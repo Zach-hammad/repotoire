@@ -1,6 +1,7 @@
 """Cypher pattern validation for custom rules (REPO-125)."""
 
-from typing import Optional, List
+from typing import List, Optional
+
 from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
 

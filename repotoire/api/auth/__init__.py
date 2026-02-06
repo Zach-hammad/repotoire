@@ -15,24 +15,24 @@ compatibility. New code should import from repotoire.api.shared.auth directly.
 from repotoire.api.shared.auth import (
     # Clerk auth
     ClerkUser,
-    get_clerk_client,
-    get_current_user,
-    get_current_user_or_api_key,
-    get_optional_user,
-    get_optional_user_or_api_key,
-    require_org,
-    require_org_admin,
-    require_scope,
     # State store
     StateStoreError,
     StateStoreUnavailableError,
     StateTokenStore,
     close_redis_client,
-    get_state_store,
     # Password derivation
     derive_tenant_password,
     generate_hmac_secret,
+    get_clerk_client,
+    get_current_user,
+    get_current_user_or_api_key,
     get_hmac_secret,
+    get_optional_user,
+    get_optional_user_or_api_key,
+    get_state_store,
+    require_org,
+    require_org_admin,
+    require_scope,
     validate_timing_safe,
     verify_derived_password,
 )

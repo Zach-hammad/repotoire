@@ -32,11 +32,11 @@ Example:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional
 
-from repotoire.autofix.models import FixProposal, FixConfidence
+from repotoire.autofix.models import FixConfidence, FixProposal
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)

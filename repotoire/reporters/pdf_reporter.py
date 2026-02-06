@@ -11,10 +11,9 @@ On Windows: See https://weasyprint.org/docs/install/#windows
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
-from repotoire.models import CodebaseHealth, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import CodebaseHealth, Severity
 from repotoire.reporters.base_reporter import BaseReporter
 
 logger = get_logger(__name__)
@@ -54,7 +53,7 @@ class PDFReporter(BaseReporter):
             ImportError: If weasyprint is not installed
         """
         try:
-            from weasyprint import HTML, CSS
+            from weasyprint import CSS, HTML
         except ImportError:
             raise ImportError(
                 "PDF report generation requires weasyprint. "

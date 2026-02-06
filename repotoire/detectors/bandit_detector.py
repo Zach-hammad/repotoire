@@ -18,17 +18,17 @@ This approach achieves:
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.external_tool_runner import (
-    run_external_tool,
     get_graph_context,
+    run_external_tool,
 )
 from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
-from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 logger = get_logger(__name__)
 

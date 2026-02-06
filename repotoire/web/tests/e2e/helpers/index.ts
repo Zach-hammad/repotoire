@@ -17,8 +17,9 @@ export async function isMobileViewport(page: Page): Promise<boolean> {
 
 /**
  * Check if the current test is running in production mode.
+ * Coerced to boolean to work with test.skip().
  */
-export const isProduction = process.env.TEST_BASE_URL?.includes("repotoire.com");
+export const isProduction = !!process.env.TEST_BASE_URL?.includes("repotoire.com");
 
 // Authentication helpers
 export {

@@ -398,6 +398,7 @@ app.add_middleware(IdempotencyMiddleware)
 
 # Add CSRF protection middleware (validates Origin on state-changing requests)
 from repotoire.api.shared.middleware import CSRFProtectionMiddleware
+
 app.add_middleware(CSRFProtectionMiddleware)
 
 # Add rate limit header middleware (adds X-RateLimit-* headers to all responses)

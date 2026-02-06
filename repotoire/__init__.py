@@ -7,10 +7,10 @@ architectural issues, and technical debt.
 
 __version__ = "0.1.34"
 
-from repotoire.pipeline import IngestionPipeline
-from repotoire.graph import FalkorDBClient
 from repotoire.detectors import AnalysisEngine
+from repotoire.graph import FalkorDBClient
 from repotoire.models import CodebaseHealth, Finding
+from repotoire.pipeline import IngestionPipeline
 
 __all__ = [
     "IngestionPipeline",

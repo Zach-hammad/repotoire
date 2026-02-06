@@ -39,7 +39,7 @@ import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Callable, Optional
+from typing import Any, AsyncIterator, Optional
 
 from repotoire.logging_config import get_logger
 
@@ -278,7 +278,7 @@ class SandboxMetricsCollector:
         try:
             await loop.run_in_executor(None, _insert)
             logger.debug(
-                f"Recorded sandbox metric",
+                "Recorded sandbox metric",
                 extra={
                     "operation_id": metrics.operation_id,
                     "operation_type": metrics.operation_type,
@@ -524,7 +524,7 @@ class SandboxMetricsCollector:
 
         def _query():
             with self._conn.cursor() as cur:
-                conditions = [f"duration_ms > %s"]
+                conditions = ["duration_ms > %s"]
                 params = [threshold_ms]
 
                 if customer_id:
@@ -799,7 +799,7 @@ async def track_sandbox_operation(
                 logger.warning(f"Failed to record metrics: {e}")
 
         logger.debug(
-            f"Sandbox operation completed",
+            "Sandbox operation completed",
             extra={
                 "operation_id": metrics.operation_id,
                 "operation_type": metrics.operation_type,

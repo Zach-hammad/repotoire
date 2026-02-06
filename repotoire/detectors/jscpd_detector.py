@@ -23,14 +23,14 @@ import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.external_tool_runner import get_js_exec_command
 from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
-from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 logger = get_logger(__name__)
 
@@ -420,7 +420,7 @@ class JscpdDetector(CodeSmellDetector):
         if graph_data2.get("file_loc"):
             desc += f"  - File Size: {graph_data2['file_loc']} LOC\n"
 
-        desc += f"\n**Impact**: Code duplication increases maintenance burden and bug risk.\n"
+        desc += "\n**Impact**: Code duplication increases maintenance burden and bug risk.\n"
 
         return desc
 

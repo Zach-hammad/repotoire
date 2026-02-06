@@ -4,15 +4,14 @@ Analyzes how code metrics change over time to detect degradation patterns,
 code hotspots, and technical debt velocity.
 """
 
-import time
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Union
 from statistics import mean
+from typing import List, Optional, Union
 
-from repotoire.graph.base import DatabaseClient
 from repotoire.graph import FalkorDBClient
-from repotoire.models import MetricTrend, CodeHotspot
+from repotoire.graph.base import DatabaseClient
 from repotoire.logging_config import get_logger
+from repotoire.models import CodeHotspot, MetricTrend
 from repotoire.validation import validate_identifier
 
 logger = get_logger(__name__)

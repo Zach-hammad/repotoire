@@ -16,7 +16,7 @@ import subprocess
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -29,14 +29,13 @@ from repotoire.db.models import Organization, Repository
 from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
 from repotoire.monorepo import (
-    PackageDetector,
-    PackageAnalyzer,
     AffectedPackagesDetector,
     CrossPackageAnalyzer,
     Package,
+    PackageAnalyzer,
+    PackageDetector,
     PackageHealth,
 )
-from repotoire.monorepo.models import MonorepoHealth
 
 logger = get_logger(__name__)
 

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 import redis
 from celery import signals
-from sqlalchemy import text, update
+from sqlalchemy import update
 
 from repotoire.db.models import AnalysisRun, AnalysisStatus
 from repotoire.db.session import get_sync_session

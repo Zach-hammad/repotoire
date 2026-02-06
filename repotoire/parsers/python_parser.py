@@ -1,10 +1,10 @@
 """Python code parser using AST module."""
 
 import ast
+import hashlib
 import threading
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
-import hashlib
+from typing import Dict, List, Optional, Tuple
 
 # Try to import Rust accelerated call resolution (REPO-406)
 try:
@@ -13,19 +13,19 @@ try:
 except ImportError:
     _HAS_RUST_RESOLVER = False
 
-from repotoire.parsers.base import CodeParser
 from repotoire.models import (
+    AttributeEntity,
+    ClassEntity,
     Entity,
     FileEntity,
-    ModuleEntity,
-    ClassEntity,
     FunctionEntity,
-    AttributeEntity,
-    Relationship,
+    ModuleEntity,
     NodeType,
+    Relationship,
     RelationshipType,
     SecretsPolicy,
 )
+from repotoire.parsers.base import CodeParser
 from repotoire.security import SecretsScanner
 from repotoire.security.secrets_scanner import apply_secrets_policy
 
@@ -1470,7 +1470,7 @@ class PythonParser(CodeParser):
 
         # Track which calls were resolved
         resolved_callers = set()
-        
+
         # Create relationships from results
         for caller_qname, target_qname, confidence in results:
             resolved_callers.add(caller_qname)
@@ -1499,7 +1499,7 @@ class PythonParser(CodeParser):
                     },
                 )
             )
-        
+
         # Create CALLS_EXTERNAL for unresolved calls
         for caller, callee, line, is_self_call in calls:
             if caller not in resolved_callers:

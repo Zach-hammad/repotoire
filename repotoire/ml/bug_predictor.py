@@ -21,29 +21,29 @@ trained on historical bug-fix data extracted from git history.
 
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import json
-import logging
 
 import numpy as np
 
 try:
     import joblib
     from sklearn.ensemble import RandomForestClassifier
-    from sklearn.model_selection import (
-        train_test_split,
-        cross_val_score,
-        GridSearchCV,
-        StratifiedKFold,
-    )
     from sklearn.metrics import (
         accuracy_score,
+        f1_score,
         precision_score,
         recall_score,
-        f1_score,
         roc_auc_score,
+    )
+    from sklearn.model_selection import (
+        GridSearchCV,
+        StratifiedKFold,
+        cross_val_score,
+        train_test_split,
     )
     from sklearn.preprocessing import StandardScaler
     SKLEARN_AVAILABLE = True
@@ -51,7 +51,7 @@ except ImportError:
     SKLEARN_AVAILABLE = False
 
 from repotoire.graph import FalkorDBClient
-from repotoire.ml.training_data import TrainingDataset, TrainingExample
+from repotoire.ml.training_data import TrainingDataset
 
 # Try to import Rust accelerated functions (REPO-248)
 try:

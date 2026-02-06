@@ -4,9 +4,8 @@ Uses GitHistoryRAG for semantic search over git commits - 99% cheaper than
 the deprecated Graphiti approach (~$0.001/query vs $0.01+).
 """
 
-import enum
 from datetime import datetime
-from typing import Optional, List
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -16,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from repotoire.api.shared.auth import ClerkUser, get_current_user
 from repotoire.api.v1.routes.graph import GraphUser, get_graph_user
-from repotoire.db.session import get_db
 from repotoire.db.models import Repository
+from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -112,8 +111,8 @@ def _get_git_history_rag(repo_id: str, user: Optional[GraphUser] = None):
 
     try:
         from repotoire.ai.embeddings import CodeEmbedder
-        from repotoire.historical.git_rag import GitHistoryRAG
         from repotoire.graph.tenant_factory import get_factory
+        from repotoire.historical.git_rag import GitHistoryRAG
     except ImportError as e:
         raise HTTPException(
             status_code=500,
@@ -160,8 +159,8 @@ async def historical_health_check():
     }
 
     try:
-        from repotoire.historical.git_rag import GitHistoryRAG
         from repotoire.ai.embeddings import CodeEmbedder
+        from repotoire.historical.git_rag import GitHistoryRAG
         health_status["rag_available"] = True
     except ImportError as e:
         health_status["status"] = "degraded"

@@ -13,7 +13,7 @@ test.describe("Dashboard Navigation", () => {
     test.beforeEach(async ({ page }) => {
       // Skip mobile tests on desktop
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/dashboard");
@@ -122,7 +122,7 @@ test.describe("Dashboard Navigation", () => {
   test.describe("Active State Highlighting", () => {
     test.beforeEach(async ({ page }) => {
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
     });
@@ -195,7 +195,7 @@ test.describe("Dashboard Navigation", () => {
     test.beforeEach(async ({ page }) => {
       // Only run on mobile viewports
       if (!(await isMobileViewport(page))) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/dashboard");
@@ -361,7 +361,7 @@ test.describe("Dashboard Navigation", () => {
   test.describe("Page Transitions", () => {
     test.beforeEach(async ({ page }) => {
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/dashboard");
@@ -409,17 +409,17 @@ test.describe("Dashboard Navigation", () => {
 
     test("hamburger menu button has accessible label", async ({ page }) => {
       if (!(await isMobileViewport(page))) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
 
       const menuButton = page.getByRole("button", { name: /toggle menu/i });
-      await expect(menuButton).toHaveAccessibleName();
+      await expect(menuButton).toHaveAccessibleName(/toggle menu/i);
     });
 
     test("navigation sections have semantic heading structure", async ({ page }) => {
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
 
@@ -432,7 +432,7 @@ test.describe("Dashboard Navigation", () => {
   test.describe("Visual Regression Prevention", () => {
     test.beforeEach(async ({ page }) => {
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/dashboard");
@@ -477,7 +477,7 @@ test.describe("Dashboard Navigation", () => {
   test.describe("Edge Cases", () => {
     test("handles rapid navigation clicks", async ({ page }) => {
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
 
@@ -494,7 +494,7 @@ test.describe("Dashboard Navigation", () => {
 
     test("handles browser back/forward navigation", async ({ page }) => {
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
 

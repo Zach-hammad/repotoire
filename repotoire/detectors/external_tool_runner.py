@@ -26,7 +26,7 @@ import os
 import subprocess
 import threading
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
+from typing import Any, Callable, Dict, List, Optional, TypeVar
 
 from repotoire.logging_config import get_logger
 

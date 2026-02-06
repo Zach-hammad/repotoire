@@ -12,7 +12,7 @@ Uses MultipleNegativesRankingLoss (InfoNCE with in-batch negatives) for
 efficient training without explicit negative mining.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 

@@ -2,11 +2,12 @@
 
 import time
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any, Union
-from repotoire.graph.base import DatabaseClient
+from typing import Any, Dict, List, Optional, Union
+
 from repotoire.graph import FalkorDBClient
-from repotoire.models import Rule, Finding, Severity
+from repotoire.graph.base import DatabaseClient
 from repotoire.logging_config import get_logger
+from repotoire.models import Finding, Rule
 
 logger = get_logger(__name__)
 

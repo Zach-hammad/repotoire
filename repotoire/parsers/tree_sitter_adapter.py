@@ -5,7 +5,7 @@ enabling code reuse across different programming languages.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Iterator
+from typing import Any, Iterator, List, Optional
 
 
 @dataclass
@@ -196,7 +196,7 @@ class TreeSitterAdapter:
             language: Tree-sitter Language object or PyCapsule (e.g., from tree_sitter_python.language())
         """
         try:
-            from tree_sitter import Parser, Language
+            from tree_sitter import Language, Parser
         except ImportError:
             raise ImportError(
                 "tree-sitter is required for the universal AST adapter. "

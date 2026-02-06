@@ -23,7 +23,6 @@ from repotoire.db.models.changelog import (
     ChangelogCategory,
     ChangelogEntry,
     ChangelogSubscriber,
-    DigestFrequency,
 )
 from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger

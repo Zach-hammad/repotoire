@@ -19,11 +19,11 @@ Example:
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from repotoire.graph import FalkorDBClient
-from repotoire.ml.graph_embeddings import FastRPEmbedder, FastRPConfig
 from repotoire.logging_config import get_logger
+from repotoire.ml.graph_embeddings import FastRPConfig, FastRPEmbedder
 
 logger = get_logger(__name__)
 

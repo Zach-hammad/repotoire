@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from .models import StyleProfile, StyleRule
+from .models import StyleProfile
 
 
 class StyleEnforcer:

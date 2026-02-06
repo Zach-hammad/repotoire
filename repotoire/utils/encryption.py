@@ -27,14 +27,14 @@ def _get_fernet() -> Fernet:
     If not set, falls back to a default (NOT SECURE - only for development).
     """
     encryption_key = os.environ.get("ENCRYPTION_KEY", "")
-    
+
     if not encryption_key:
         logger.warning(
             "ENCRYPTION_KEY not set! Using insecure default. "
             "Set ENCRYPTION_KEY env var in production."
         )
         encryption_key = "dev-only-insecure-key-do-not-use-in-prod"
-    
+
     # Derive a proper Fernet key from the password
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),

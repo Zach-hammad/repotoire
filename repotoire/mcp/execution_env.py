@@ -15,9 +15,7 @@ Token-efficient utilities (REPO-210/211/212):
 import asyncio
 import hashlib
 import json
-import os
 import statistics
-import sys
 import threading
 import time
 import warnings
@@ -32,12 +30,11 @@ from repotoire.logging_config import get_logger
 
 # Sandbox imports for secure skill execution (REPO-289)
 from repotoire.sandbox import (
+    SkillExecutionError,
     SkillExecutor,
     SkillExecutorConfig,
     SkillResult,
     SkillSecurityError,
-    SkillExecutionError,
-    SkillTimeoutError,
 )
 
 logger = get_logger(__name__)

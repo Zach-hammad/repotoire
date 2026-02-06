@@ -6,8 +6,8 @@ This package provides:
 - Traversal utilities (BFS, DFS) for custom graph algorithms
 """
 
+from repotoire.graph.queries.builders import DetectorQueryBuilder, QueryBuilder
 from repotoire.graph.queries.patterns import CypherPatterns
-from repotoire.graph.queries.builders import QueryBuilder, DetectorQueryBuilder
 from repotoire.graph.queries.traversal import GraphTraversal
 
 __all__ = [

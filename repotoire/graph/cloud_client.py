@@ -23,7 +23,7 @@ def _strip_cypher_comments(query: str) -> str:
     """
     # Remove multi-line comments first
     query = re.sub(r'/\*.*?\*/', '', query, flags=re.DOTALL)
-    
+
     # Remove single-line comments (// and --)
     # Be careful not to remove // in strings - simple approach: line by line
     lines = []
@@ -38,11 +38,11 @@ def _strip_cypher_comments(query: str) -> str:
                 before = line[:pos]
                 if before.count("'") % 2 == 0 and before.count('"') % 2 == 0:
                     comment_pos = pos
-        
+
         if comment_pos != -1:
             line = line[:comment_pos]
         lines.append(line)
-    
+
     return '\n'.join(lines).strip()
 
 from repotoire.graph.base import DatabaseClient
@@ -159,12 +159,12 @@ class CloudProxyClient(DatabaseClient):
         """
         # Strip comments from query - API rejects queries with comments
         clean_query = _strip_cypher_comments(query)
-        
+
         # Check if this is a write operation for detector metadata
         query_upper = clean_query.upper()
         is_write = any(op in query_upper for op in ["CREATE", "DELETE", "SET", "MERGE"])
         is_metadata = "DETECTORMETADATA" in clean_query.upper() or "FLAGGED_BY" in clean_query.upper()
-        
+
         # Route to /write endpoint for detector metadata operations
         if is_write and is_metadata:
             response = self._request(
@@ -180,7 +180,7 @@ class CloudProxyClient(DatabaseClient):
                 # Return full results if available (for RETURN clauses), otherwise affected count
                 return response.get("results", []) or [{"affected": response.get("affected", 0)}]
             return []
-        
+
         # Normal read query
         response = self._request(
             "POST",

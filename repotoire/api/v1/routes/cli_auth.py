@@ -9,7 +9,6 @@ that returns organization info and FalkorDB connection config.
 
 import asyncio
 import os
-import secrets
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from urllib.parse import urlencode

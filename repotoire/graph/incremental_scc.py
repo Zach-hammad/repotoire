@@ -23,10 +23,10 @@ Usage:
     manager.persist_scc_ids()
 """
 
-from typing import Dict, List, Optional, Set, Tuple, Any
-from dataclasses import dataclass
 import threading
 import time
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from repotoire.logging_config import get_logger
 
@@ -36,8 +36,8 @@ logger = get_logger(__name__)
 try:
     from repotoire_fast import (
         PyIncrementalSCC,
-        incremental_scc_new,
         find_sccs_one_shot,
+        incremental_scc_new,
     )
     RUST_AVAILABLE = True
 except ImportError:

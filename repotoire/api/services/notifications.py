@@ -138,7 +138,7 @@ class NotificationService:
         # Check if this notification type is enabled
         if not self._should_send_notification(notification_type, prefs):
             logger.debug(
-                f"Notification disabled by user preferences",
+                "Notification disabled by user preferences",
                 extra={
                     "user_id": str(user_id),
                     "notification_type": notification_type.value,
@@ -163,7 +163,7 @@ class NotificationService:
                 )
             except Exception as e:
                 logger.error(
-                    f"Failed to create in-app notification",
+                    "Failed to create in-app notification",
                     extra={
                         "user_id": str(user_id),
                         "notification_type": notification_type.value,
@@ -183,7 +183,7 @@ class NotificationService:
                 )
             except Exception as e:
                 logger.error(
-                    f"Failed to send email notification",
+                    "Failed to send email notification",
                     extra={
                         "user_id": str(user_id),
                         "notification_type": notification_type.value,
@@ -225,7 +225,7 @@ class NotificationService:
 
         if not user_id:
             logger.warning(
-                f"User not found for Clerk ID",
+                "User not found for Clerk ID",
                 extra={"clerk_user_id": clerk_user_id},
             )
             return None
@@ -318,7 +318,7 @@ class NotificationService:
         await self.session.refresh(notification)
 
         logger.info(
-            f"Created in-app notification",
+            "Created in-app notification",
             extra={
                 "notification_id": str(notification.id),
                 "user_id": str(user_id),
@@ -347,7 +347,7 @@ class NotificationService:
         user_email = await self._get_user_email(user_id)
         if not user_email:
             logger.warning(
-                f"Could not get email for user",
+                "Could not get email for user",
                 extra={"user_id": str(user_id)},
             )
             return None
@@ -367,7 +367,7 @@ class NotificationService:
                 context=context,
             )
             logger.info(
-                f"Sent email notification",
+                "Sent email notification",
                 extra={
                     "user_id": str(user_id),
                     "notification_type": notification_type.value,

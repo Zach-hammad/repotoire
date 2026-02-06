@@ -1,11 +1,11 @@
 """spaCy-based semantic clue generator (MVP)."""
 
-from typing import List, Optional
-from datetime import datetime
 import re
+from datetime import datetime
+from typing import List, Optional
 
-from repotoire.models import Entity, ClueEntity, FunctionEntity, ClassEntity
 from repotoire.logging_config import get_logger
+from repotoire.models import ClassEntity, ClueEntity, Entity, FunctionEntity
 
 logger = get_logger(__name__)
 

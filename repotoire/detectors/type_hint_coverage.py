@@ -13,8 +13,8 @@ from typing import Dict, List, Optional
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph.base import DatabaseClient
 from repotoire.graph.enricher import GraphEnricher
-from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 logger = get_logger(__name__)
 
@@ -422,9 +422,9 @@ class TypeHintCoverageDetector(CodeSmellDetector):
         params_str = ", ".join(param_parts)
         return_str = " -> <return_type>" if missing_return else ""
 
-        lines.append(f"```python")
+        lines.append("```python")
         lines.append(f"def {func_name}({params_str}){return_str}:")
-        lines.append(f"```")
+        lines.append("```")
         lines.append("")
         lines.append("Common type hints:")
         lines.append("- `str`, `int`, `float`, `bool` for primitives")

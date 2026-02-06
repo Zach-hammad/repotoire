@@ -20,12 +20,13 @@ Environment variables:
 
 import os
 import threading
-from typing import List, Optional, Literal, Tuple, Union
 from dataclasses import dataclass
+from typing import List, Literal, Optional, Tuple
+
 import numpy as np
 
-from repotoire.models import Entity, FunctionEntity, ClassEntity, FileEntity
 from repotoire.logging_config import get_logger
+from repotoire.models import ClassEntity, Entity, FileEntity, FunctionEntity
 
 logger = get_logger(__name__)
 

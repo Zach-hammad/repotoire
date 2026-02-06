@@ -20,8 +20,8 @@ from typing import Optional
 import click
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 from repotoire.logging_config import get_logger
 
@@ -112,10 +112,9 @@ def ask(
     Requires commits to be ingested first:
       repotoire historical ingest /path/to/repo
     """
-    import os
-
     # Get repo_id from path (hash of absolute path as fallback)
     import hashlib
+    import os
 
     repo_abs_path = str(Path(repo_path).resolve())
     repo_id = hashlib.sha256(repo_abs_path.encode()).hexdigest()[:36]
@@ -263,8 +262,8 @@ def search(
       repotoire historical search "bug fix" --author alice@example.com
       repotoire historical search "refactoring" --since 2024-01-01
     """
-    import os
     import hashlib
+    import os
 
     repo_abs_path = str(Path(repo_path).resolve())
     repo_id = hashlib.sha256(repo_abs_path.encode()).hexdigest()[:36]
@@ -384,8 +383,8 @@ def ingest_git(
       - DeepInfra: ~$0.01 per 1000 commits
       - OpenAI: ~$0.02 per 1000 commits
     """
-    import os
     import hashlib
+    import os
 
     repo_abs_path = str(Path(repo_path).resolve())
     repo_id = hashlib.sha256(repo_abs_path.encode()).hexdigest()[:36]
@@ -521,7 +520,7 @@ def status(repo_path: str) -> None:
         raise click.Abort()
 
     console.print()
-    console.print(f"[bold]Git History RAG Status[/bold]")
+    console.print("[bold]Git History RAG Status[/bold]")
     console.print(f"[dim]Repository: {repo_path}[/dim]")
     console.print()
 

@@ -4,13 +4,13 @@ REPO-222: Detects classes that do minimal work and may be unnecessary abstractio
 The opposite of god classes - these classes have very few methods that do very little.
 """
 
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.models import CollaborationMetadata, Finding, Severity
-from repotoire.graph.enricher import GraphEnricher
 from repotoire.graph import FalkorDBClient
+from repotoire.graph.enricher import GraphEnricher
 from repotoire.logging_config import get_logger
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 
 class LazyClassDetector(CodeSmellDetector):

@@ -3,15 +3,14 @@
 Provides JSON-formatted structured logging with context and duration tracking.
 """
 
-import logging
 import json
-import time
+import logging
 import os
-from pathlib import Path
-from typing import Any, Dict, Optional
+import time
 from contextvars import ContextVar
 from functools import wraps
-
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 # Context variables for request-scoped logging
 log_context: ContextVar[Dict[str, Any]] = ContextVar('log_context', default={})

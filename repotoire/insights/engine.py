@@ -6,14 +6,14 @@ Post-processes analysis findings to add:
 - Graph-level insights (bottlenecks, coupling hotspots)
 """
 
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
 import logging
 import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from repotoire.graph import FalkorDBClient
-from repotoire.models import Finding, Severity
+from repotoire.models import Finding
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class InsightsConfig:
     impact_depth: int = 3
 
 
-@dataclass 
+@dataclass
 class ImpactRadius:
     """Impact analysis for a code entity.
     
@@ -58,7 +58,7 @@ class ImpactRadius:
     affected_files: List[str] = field(default_factory=list)
     blast_radius: int = 0
     risk_multiplier: float = 1.0
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "entity": self.entity,
@@ -88,7 +88,7 @@ class GraphInsights:
     circular_dep_count: int = 0
     max_call_depth: int = 0
     avg_fan_out: float = 0.0
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "bottlenecks": self.bottlenecks[:10],  # Top 10
@@ -116,7 +116,7 @@ class CodebaseInsights:
     high_impact_entities: List[Dict[str, Any]] = field(default_factory=list)
     findings_enriched: int = 0
     processing_time_ms: int = 0
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "graph_insights": self.graph_insights.to_dict(),
@@ -140,7 +140,7 @@ class InsightsEngine:
         >>> engine = InsightsEngine(graph_client, InsightsConfig())
         >>> enriched_findings, insights = engine.enrich(findings)
     """
-    
+
     def __init__(
         self,
         graph_client: FalkorDBClient,
@@ -150,7 +150,7 @@ class InsightsEngine:
         self.config = config or InsightsConfig()
         self._bug_predictor = None
         self._model_loaded = False
-        
+
     def enrich(
         self,
         findings: List[Finding],
@@ -165,31 +165,31 @@ class InsightsEngine:
         """
         start_time = time.time()
         insights = CodebaseInsights()
-        
+
         # Collect all affected entities from findings
         affected_entities = set()
         for finding in findings:
             affected_entities.update(finding.affected_nodes)
-        
+
         # 1. Compute graph-level insights
         if self.config.enable_graph_metrics:
             try:
                 insights.graph_insights = self._compute_graph_insights()
             except Exception as e:
                 logger.warning(f"Failed to compute graph insights: {e}")
-        
+
         # 2. Load bug predictor if available
         if self.config.enable_bug_prediction:
             self._load_bug_predictor()
-        
+
         # 3. Enrich each finding
         enriched_count = 0
         impact_cache: Dict[str, ImpactRadius] = {}
         bug_prob_cache: Dict[str, float] = {}
-        
+
         for finding in findings:
             enriched = False
-            
+
             # Add impact radius for affected entities
             if self.config.enable_impact_analysis:
                 for entity in finding.affected_nodes[:5]:  # Limit to avoid slowdown
@@ -199,13 +199,13 @@ class InsightsEngine:
                         except Exception as e:
                             logger.debug(f"Failed to compute impact for {entity}: {e}")
                             continue
-                    
+
                     impact = impact_cache[entity]
                     if impact.blast_radius > 0:
                         finding.graph_context["impact_radius"] = impact.to_dict()
                         enriched = True
                         break  # Use first entity with impact
-            
+
             # Add bug probability - try ML model first, fall back to heuristics
             risk_added = False
             if self._model_loaded and self.config.enable_bug_prediction:
@@ -218,7 +218,7 @@ class InsightsEngine:
                         except Exception as e:
                             logger.debug(f"Failed to get bug prob for {entity}: {e}")
                             continue
-                    
+
                     if entity in bug_prob_cache:
                         prob = bug_prob_cache[entity]
                         finding.graph_context["bug_probability"] = round(prob, 3)
@@ -227,7 +227,7 @@ class InsightsEngine:
                         enriched = True
                         risk_added = True
                         break
-            
+
             # Fallback to heuristic risk if no ML model
             if not risk_added and self.config.enable_heuristic_risk:
                 for entity in finding.affected_nodes[:3]:
@@ -239,7 +239,7 @@ class InsightsEngine:
                         except Exception as e:
                             logger.debug(f"Failed to compute heuristic risk for {entity}: {e}")
                             continue
-                    
+
                     if entity in bug_prob_cache:
                         risk = bug_prob_cache[entity]
                         finding.graph_context["bug_probability"] = round(risk, 3)
@@ -247,12 +247,12 @@ class InsightsEngine:
                         finding.graph_context["high_risk"] = risk >= self.config.high_risk_threshold
                         enriched = True
                         break
-            
+
             if enriched:
                 enriched_count += 1
-        
+
         insights.findings_enriched = enriched_count
-        
+
         # 4. Identify high-risk and high-impact entities
         # First, use entities from findings
         insights.high_risk_entities = [
@@ -260,7 +260,7 @@ class InsightsEngine:
             for e, p in sorted(bug_prob_cache.items(), key=lambda x: -x[1])[:20]
             if p >= self.config.high_risk_threshold
         ]
-        
+
         # If we don't have many high-risk from findings, scan graph for more
         if len(insights.high_risk_entities) < 10 and self.config.enable_heuristic_risk:
             try:
@@ -274,33 +274,33 @@ class InsightsEngine:
                         insights.high_risk_entities.append(entry)
                 # Re-sort and limit
                 insights.high_risk_entities = sorted(
-                    insights.high_risk_entities, 
+                    insights.high_risk_entities,
                     key=lambda x: -x["bug_probability"]
                 )[:20]
             except Exception as e:
                 logger.debug(f"Failed to scan for risky functions: {e}")
-        
+
         insights.high_impact_entities = [
             {"entity": e, **i.to_dict()}
             for e, i in sorted(impact_cache.items(), key=lambda x: -x[1].blast_radius)[:20]
             if i.blast_radius >= 5
         ]
-        
+
         insights.processing_time_ms = int((time.time() - start_time) * 1000)
-        
+
         logger.info(
             f"Insights: enriched {enriched_count}/{len(findings)} findings, "
             f"{len(insights.high_risk_entities)} high-risk, "
             f"{len(insights.high_impact_entities)} high-impact entities "
             f"({insights.processing_time_ms}ms)"
         )
-        
+
         return findings, insights
-    
+
     def _compute_graph_insights(self) -> GraphInsights:
         """Compute graph-level insights from the codebase graph."""
         insights = GraphInsights()
-        
+
         # Find bottlenecks (high fan-in nodes)
         try:
             bottleneck_query = """
@@ -319,7 +319,7 @@ class InsightsEngine:
             ]
         except Exception as e:
             logger.debug(f"Bottleneck query failed: {e}")
-        
+
         # Find coupling hotspots (modules with many cross-module deps)
         try:
             coupling_query = """
@@ -339,7 +339,7 @@ class InsightsEngine:
             ]
         except Exception as e:
             logger.debug(f"Coupling query failed: {e}")
-        
+
         # Count dead code (functions with no callers and not entry points)
         # Use OPTIONAL MATCH + WHERE null pattern for FalkorDB compatibility
         try:
@@ -358,7 +358,7 @@ class InsightsEngine:
                 insights.dead_code_count = result.result_set[0][0] or 0
         except Exception as e:
             logger.debug(f"Dead code query failed: {e}")
-        
+
         # Calculate average fan-out
         try:
             fan_out_query = """
@@ -372,13 +372,13 @@ class InsightsEngine:
                 insights.avg_fan_out = float(result.result_set[0][0])
         except Exception as e:
             logger.debug(f"Fan-out query failed: {e}")
-        
+
         return insights
-    
+
     def _compute_impact_radius(self, entity: str) -> ImpactRadius:
         """Compute impact radius for an entity using graph traversal."""
         impact = ImpactRadius(entity=entity)
-        
+
         # Get direct dependents (1 hop)
         direct_query = """
         MATCH (f:Function {qualifiedName: $entity})<-[:CALLS]-(caller:Function)
@@ -394,7 +394,7 @@ class InsightsEngine:
         except Exception as e:
             logger.debug(f"Direct dependents query failed: {e}")
             return impact
-        
+
         # Get indirect dependents (2-3 hops) if depth allows
         if self.config.impact_depth >= 2:
             indirect_query = """
@@ -410,11 +410,11 @@ class InsightsEngine:
                         impact.affected_files.append(row[1])
             except Exception as e:
                 logger.debug(f"Indirect dependents query failed: {e}")
-        
+
         # Calculate blast radius and risk multiplier
         impact.blast_radius = len(impact.direct_dependents) + len(impact.indirect_dependents)
         impact.affected_files = list(set(impact.affected_files))
-        
+
         # Risk multiplier: higher impact = bugs here are more dangerous
         if impact.blast_radius >= 20:
             impact.risk_multiplier = 2.0
@@ -422,17 +422,17 @@ class InsightsEngine:
             impact.risk_multiplier = 1.5
         elif impact.blast_radius >= 5:
             impact.risk_multiplier = 1.2
-        
+
         return impact
-    
+
     def _load_bug_predictor(self) -> None:
         """Load the trained bug predictor model if available."""
         if self._model_loaded:
             return
-            
+
         try:
             from repotoire.ml.bug_predictor import BugPredictor
-            
+
             # Try to load from configured path or default location
             model_path = self.config.bug_model_path
             if model_path and Path(model_path).exists():
@@ -451,26 +451,26 @@ class InsightsEngine:
                         self._model_loaded = True
                         logger.info(f"Loaded bug predictor from {path}")
                         break
-                        
+
         except ImportError:
             logger.debug("Bug predictor not available (sklearn not installed)")
         except Exception as e:
             logger.debug(f"Failed to load bug predictor: {e}")
-    
+
     def _get_bug_probability(self, entity: str) -> Optional[float]:
         """Get bug probability for an entity from the ML model."""
         if not self._bug_predictor:
             return None
-            
+
         try:
             result = self._bug_predictor.predict(entity, risk_threshold=self.config.high_risk_threshold)
             if result:
                 return result.bug_probability
         except Exception as e:
             logger.debug(f"Bug prediction failed for {entity}: {e}")
-        
+
         return None
-    
+
     def _find_top_risky_functions(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Find functions with highest heuristic risk scores from the graph.
         
@@ -501,28 +501,28 @@ class InsightsEngine:
         ORDER BY complexity DESC, fan_in DESC
         LIMIT $limit
         """
-        
+
         results = []
         try:
             result = self.client.execute_query(query, {"limit": limit * 2})  # Get more, filter later
             for row in result.result_set:
                 if not row[0]:
                     continue
-                    
+
                 name = row[0]
                 complexity = row[2] or 1
                 loc = row[3] or 10
                 fan_in = row[4] or 0
                 fan_out = row[5] or 0
                 has_tests = row[6] or False
-                
+
                 # Compute heuristic risk (same formula as _compute_heuristic_risk)
                 complexity_score = min(1.0, (complexity - 1) / 30)
                 loc_score = min(1.0, (loc - 10) / 300)
                 fan_in_score = min(1.0, fan_in / 20)
                 fan_out_score = min(1.0, fan_out / 15)
                 test_penalty = 0.15 if not has_tests else 0
-                
+
                 risk = (
                     complexity_score * 0.30 +
                     loc_score * 0.15 +
@@ -531,7 +531,7 @@ class InsightsEngine:
                     test_penalty
                 )
                 risk = max(0.0, min(1.0, risk))
-                
+
                 results.append({
                     "entity": name,
                     "file": row[1],
@@ -543,15 +543,15 @@ class InsightsEngine:
                         "has_tests": has_tests,
                     }
                 })
-            
+
             # Sort by risk and return top
             results = sorted(results, key=lambda x: -x["bug_probability"])[:limit]
-            
+
         except Exception as e:
             logger.debug(f"Top risky functions query failed: {e}")
-        
+
         return results
-    
+
     def _compute_heuristic_risk(self, entity: str) -> Optional[float]:
         """Compute heuristic-based risk score using graph metrics.
         
@@ -578,12 +578,12 @@ class InsightsEngine:
             f.churn AS churn,
             f.num_authors AS num_authors
         """
-        
+
         try:
             result = self.client.execute_query(query, {"entity": entity})
             if not result.result_set or not result.result_set[0]:
                 return None
-            
+
             row = result.result_set[0]
             complexity = row[0] or 1
             loc = row[1] or 10
@@ -592,29 +592,29 @@ class InsightsEngine:
             has_tests = row[4] or False
             churn = row[5] or 0
             num_authors = row[6] or 1
-            
+
             # Normalize and weight each factor (0-1 scale)
             # Complexity: 1-10 low risk, 10-20 medium, 20+ high
             complexity_score = min(1.0, (complexity - 1) / 30)
-            
-            # LOC: <50 low, 50-200 medium, 200+ high  
+
+            # LOC: <50 low, 50-200 medium, 200+ high
             loc_score = min(1.0, (loc - 10) / 300)
-            
+
             # Fan-in: 0-5 low, 5-15 medium, 15+ high (central = risky)
             fan_in_score = min(1.0, fan_in / 20)
-            
+
             # Fan-out: 0-3 low, 3-10 medium, 10+ high (coupled = risky)
             fan_out_score = min(1.0, fan_out / 15)
-            
+
             # Churn: changes in git history (if available)
             churn_score = min(1.0, churn / 50) if churn else 0
-            
+
             # Multiple authors = more coordination risk
             author_score = min(1.0, (num_authors - 1) / 5) if num_authors else 0
-            
+
             # No tests = higher risk
             test_penalty = 0.15 if not has_tests else 0
-            
+
             # Weighted combination
             risk = (
                 complexity_score * 0.25 +
@@ -625,10 +625,10 @@ class InsightsEngine:
                 author_score * 0.05 +
                 test_penalty
             )
-            
+
             # Clamp to 0-1
             return max(0.0, min(1.0, risk))
-            
+
         except Exception as e:
             logger.debug(f"Heuristic risk computation failed for {entity}: {e}")
             return None

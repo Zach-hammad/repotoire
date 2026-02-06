@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from repotoire.db.models import (
     Organization,
     PlanTier,
-    Subscription,
     SubscriptionStatus,
     UsageRecord,
 )

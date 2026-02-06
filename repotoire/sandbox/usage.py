@@ -34,7 +34,7 @@ import asyncio
 import os
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from repotoire.logging_config import get_logger
 

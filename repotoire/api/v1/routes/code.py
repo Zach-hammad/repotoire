@@ -7,32 +7,31 @@ import os
 import time
 from typing import Optional
 from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from openai import AsyncOpenAI
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from repotoire.ai.compression import (
+    DEFAULT_TARGET_DIMS,
+    EmbeddingCompressor,
+    estimate_memory_savings,
+)
+from repotoire.ai.embeddings import CodeEmbedder
+from repotoire.ai.retrieval import GraphRAGRetriever, RetrievalResult
 from repotoire.api.models import (
     ArchitectureResponse,
-    CodeSearchRequest,
-    CodeSearchResponse,
     CodeAskRequest,
     CodeAskResponse,
-    EmbeddingsStatusResponse,
     CodeEntity,
+    CodeSearchRequest,
+    CodeSearchResponse,
+    EmbeddingsStatusResponse,
     ErrorResponse,
     ModuleStats,
 )
-from repotoire.api.shared.auth import ClerkUser, get_current_user_or_api_key
 from repotoire.api.shared.middleware.usage import enforce_feature_for_api
-from repotoire.ai.retrieval import GraphRAGRetriever, RetrievalResult
-from repotoire.ai.embeddings import CodeEmbedder
-from repotoire.ai.compression import (
-    EmbeddingCompressor,
-    TenantCompressor,
-    estimate_memory_savings,
-    DEFAULT_TARGET_DIMS,
-)
 from repotoire.db.models import Organization
 from repotoire.graph.base import DatabaseClient
 from repotoire.graph.tenant_factory import get_factory
@@ -113,6 +112,7 @@ def get_retriever_for_org(
     Uses LanceDB vector store if REPOTOIRE_VECTOR_STORE_PATH is configured.
     """
     import os
+
     from repotoire.ai.retrieval import RetrieverConfig
     from repotoire.ai.vector_store import VectorStoreConfig
 
@@ -570,8 +570,6 @@ async def get_embeddings_status(
 
 async def _regenerate_embeddings_task(org_id: UUID, org_slug: str, batch_size: int = 500):
     """Background task to regenerate embeddings."""
-    import os
-    import sys
     import traceback
 
     print(f"[EMBED] Starting background embedding regeneration for org {org_id}", flush=True)
@@ -720,7 +718,7 @@ async def _compress_embeddings_task(
     """Background task to fit PCA and compress embeddings."""
     import traceback
     from pathlib import Path
-    import numpy as np
+
 
     print(f"[COMPRESS] Starting embedding compression for org {org_id}", flush=True)
     print(f"[COMPRESS] Target dimensions: {target_dims}", flush=True)
@@ -831,7 +829,7 @@ async def _compress_embeddings_task(
 
         # Step 4: Calculate and log savings
         savings = estimate_memory_savings(total, source_dims, target_dims)
-        print(f"[COMPRESS] Compression complete!", flush=True)
+        print("[COMPRESS] Compression complete!", flush=True)
         print(f"[COMPRESS] Entities: {total}", flush=True)
         print(f"[COMPRESS] Original: {savings['original_mb']:.1f} MB", flush=True)
         print(f"[COMPRESS] Compressed: {savings['reduced_only_mb']:.1f} MB", flush=True)

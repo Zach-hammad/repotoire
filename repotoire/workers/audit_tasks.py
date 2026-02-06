@@ -21,7 +21,7 @@ from typing import Any
 from celery import shared_task
 from sqlalchemy import delete, func, select
 
-from repotoire.db.models import AuditLog, Organization
+from repotoire.db.models import AuditLog
 from repotoire.db.session import get_sync_session
 from repotoire.logging_config import get_logger
 

@@ -1,6 +1,5 @@
 """Graph schema definition and initialization."""
 
-from typing import Optional
 
 
 class GraphSchema:
@@ -301,7 +300,7 @@ class GraphSchema:
             # FalkorDB doesn't support Neo4j-style constraints
             print("Skipping constraints (FalkorDB uses indexes only)")
             return
-        
+
         if self.is_kuzu:
             # Kuzu has its own schema setup via KuzuClient._init_schema()
             print("Skipping constraints (Kuzu uses NODE TABLE with PRIMARY KEY)")
@@ -316,13 +315,13 @@ class GraphSchema:
     def create_indexes(self) -> None:
         """Create all indexes."""
         import time
-        
+
         if self.is_kuzu:
             # Kuzu has its own schema setup via KuzuClient._init_schema()
             # and doesn't support Neo4j/FalkorDB-style CREATE INDEX syntax
             print("Skipping indexes (Kuzu uses internal indexing)")
             return
-        
+
         if self.is_falkordb:
             # First, get existing indexes to avoid slow CREATE INDEX on existing indexes
             # FalkorDB blocks for minutes when trying to create an existing index
@@ -392,7 +391,7 @@ class GraphSchema:
         if self.is_falkordb:
             print("Skipping full-text indexes (not supported on FalkorDB)")
             return
-        
+
         if self.is_kuzu:
             print("Skipping full-text indexes (not supported on Kuzu)")
             return
@@ -417,7 +416,7 @@ class GraphSchema:
             dimensions: Vector dimensions (1536 for OpenAI, 384 for local)
         """
         import time
-        
+
         if self.is_kuzu:
             print("Skipping vector indexes (not supported on Kuzu)")
             return
@@ -536,7 +535,7 @@ class GraphSchema:
         if self.is_falkordb or self.is_kuzu:
             print("Skipping multi-tenant constraints (not supported on FalkorDB/Kuzu)")
             return
-        
+
         print("Creating multi-tenant constraints...")
 
         for i, constraint in enumerate(self.MULTI_TENANT_CONSTRAINTS):

@@ -12,8 +12,8 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from repotoire.db.models.fix import Fix, FixComment, FixConfidence, FixStatus, FixType
 from repotoire.db.models.analysis import AnalysisRun
+from repotoire.db.models.fix import Fix, FixComment, FixConfidence, FixStatus, FixType
 
 
 class FixNotFoundError(Exception):
@@ -684,6 +684,7 @@ class FixRepository:
             True if finding was updated, False if no finding linked
         """
         from datetime import datetime, timezone
+
         from repotoire.db.models.finding import Finding, FindingStatus
 
         fix = await self.get_by_id(fix_id)

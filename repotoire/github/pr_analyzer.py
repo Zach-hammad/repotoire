@@ -6,16 +6,16 @@ Analyzes code changes in a PR and generates markdown comments and JSON output.
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
-from typing import List, Dict, Any
-import os
+from typing import List
 
-from repotoire.graph import create_falkordb_client
-from repotoire.pipeline.ingestion import IngestionPipeline
 from repotoire.detectors.engine import AnalysisEngine
-from repotoire.models import Severity, CodebaseHealth
+from repotoire.graph import create_falkordb_client
 from repotoire.logging_config import get_logger
+from repotoire.models import CodebaseHealth, Severity
+from repotoire.pipeline.ingestion import IngestionPipeline
 
 logger = get_logger(__name__)
 
@@ -134,7 +134,7 @@ def format_pr_comment(health: CodebaseHealth, fail_on: Severity, files: List[str
 
         if len(critical_findings) > 5:
             lines.extend([
-                f"<details>",
+                "<details>",
                 f"<summary>Show {len(critical_findings) - 5} more critical/high issues</summary>",
                 "",
             ])
@@ -157,7 +157,7 @@ def format_pr_comment(health: CodebaseHealth, fail_on: Severity, files: List[str
 
     if critical_above_threshold:
         lines.extend([
-            f"### ❌ Check Failed",
+            "### ❌ Check Failed",
             "",
             f"Found {len(critical_above_threshold)} issue(s) at or above `{fail_on.name}` severity threshold.",
             "",
@@ -165,7 +165,7 @@ def format_pr_comment(health: CodebaseHealth, fail_on: Severity, files: List[str
         ])
     else:
         lines.extend([
-            f"### ✅ Check Passed",
+            "### ✅ Check Passed",
             "",
             f"All issues are below the `{fail_on.name}` severity threshold.",
         ])
@@ -238,7 +238,7 @@ def main() -> int:
         client = create_falkordb_client(password=args.falkordb_password)
 
         # Run ingestion
-        print(f"📥 Ingesting codebase...")
+        print("📥 Ingesting codebase...")
         pipeline = IngestionPipeline(
             repo_path=args.repo_path,
             graph_client=client,
@@ -247,7 +247,7 @@ def main() -> int:
         pipeline.ingest(incremental=True)
 
         # Run analysis
-        print(f"🔍 Analyzing code...")
+        print("🔍 Analyzing code...")
         engine = AnalysisEngine(
             graph_client=client,
             repository_path=args.repo_path
@@ -285,7 +285,7 @@ def main() -> int:
         Path(args.output).write_text(json.dumps(output_data, indent=2))
 
         # Print summary
-        print(f"\n📊 Analysis Results:")
+        print("\n📊 Analysis Results:")
         print(f"   Total findings: {len(relevant_findings)}")
         print(f"   Critical: {output_data['critical_count']}")
         print(f"   Health score: {output_data['health_score']}/100")

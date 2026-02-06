@@ -105,7 +105,7 @@ test.describe("Public Pages", () => {
     test("navigates to pricing from homepage", async ({ page }) => {
       // Skip on mobile - navigation may be in hamburger menu
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/");
@@ -120,7 +120,7 @@ test.describe("Public Pages", () => {
     test("navigates to sign-in from homepage", async ({ page }) => {
       // Skip on mobile - navigation may be in hamburger menu
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/");
@@ -574,7 +574,7 @@ test.describe("Public Pages", () => {
     test("back button works correctly", async ({ page }) => {
       // Skip on mobile - navigation may be in hamburger menu
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
 

@@ -26,9 +26,9 @@ Example:
     >>> bug_logits = outputs["bug_prediction_logits"]
 """
 
+import math
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
-import math
 
 import torch
 import torch.nn as nn

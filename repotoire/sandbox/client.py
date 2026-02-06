@@ -22,8 +22,8 @@ from repotoire.sandbox.config import SandboxConfig
 from repotoire.sandbox.exceptions import (
     SandboxConfigurationError,
     SandboxExecutionError,
-    SandboxTimeoutError,
     SandboxResourceError,
+    SandboxTimeoutError,
 )
 
 if TYPE_CHECKING:
@@ -231,7 +231,7 @@ class SandboxExecutor:
 
             duration_ms = int((time.time() - self._start_time) * 1000)
             logger.info(
-                f"E2B sandbox created",
+                "E2B sandbox created",
                 extra={
                     "sandbox_id": self._sandbox_id,
                     "duration_ms": duration_ms,
@@ -419,7 +419,7 @@ class SandboxExecutor:
             )
 
             logger.debug(
-                f"Code execution completed",
+                "Code execution completed",
                 extra={
                     "sandbox_id": self._sandbox_id,
                     "exit_code": exit_code,
@@ -515,7 +515,7 @@ class SandboxExecutor:
             )
 
             logger.debug(
-                f"Command completed",
+                "Command completed",
                 extra={
                     "sandbox_id": self._sandbox_id,
                     "exit_code": result.exit_code,

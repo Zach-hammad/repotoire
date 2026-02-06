@@ -21,13 +21,12 @@ This approach achieves:
 import json
 import subprocess
 from pathlib import Path
-from typing import List, Dict, Any, Optional
-from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph import FalkorDBClient
-from repotoire.models import Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import Finding, Severity
 
 logger = get_logger(__name__)
 

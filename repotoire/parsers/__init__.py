@@ -1,20 +1,20 @@
 """Code parsers for different programming languages."""
 
 from repotoire.parsers.base import CodeParser
-from repotoire.parsers.python_parser import PythonParser
-from repotoire.parsers.tree_sitter_adapter import UniversalASTNode, TreeSitterAdapter
 from repotoire.parsers.base_tree_sitter_parser import BaseTreeSitterParser
-from repotoire.parsers.tree_sitter_python import TreeSitterPythonParser
 from repotoire.parsers.generic_fallback_parser import (
-    GenericFallbackParser,
     EXTENSION_TO_LANGUAGE,
+    GenericFallbackParser,
 )
+from repotoire.parsers.python_parser import PythonParser
+from repotoire.parsers.tree_sitter_adapter import TreeSitterAdapter, UniversalASTNode
+from repotoire.parsers.tree_sitter_python import TreeSitterPythonParser
 
 # Optional TypeScript/JavaScript parsers (requires tree-sitter-typescript)
 try:
     from repotoire.parsers.tree_sitter_typescript import (
-        TreeSitterTypeScriptParser,
         TreeSitterJavaScriptParser,
+        TreeSitterTypeScriptParser,
     )
     _HAS_TYPESCRIPT = True
 except ImportError:

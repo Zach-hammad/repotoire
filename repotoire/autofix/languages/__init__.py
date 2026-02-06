@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Dict, Type
 
 from repotoire.autofix.languages.base import LanguageHandler
+from repotoire.autofix.languages.go import GoHandler
+from repotoire.autofix.languages.java import JavaHandler
 from repotoire.autofix.languages.python import PythonHandler
 from repotoire.autofix.languages.typescript import TypeScriptHandler
-from repotoire.autofix.languages.java import JavaHandler
-from repotoire.autofix.languages.go import GoHandler
 
 # Registry of handlers by extension
 _EXTENSION_HANDLERS: Dict[str, Type[LanguageHandler]] = {

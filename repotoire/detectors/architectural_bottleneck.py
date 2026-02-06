@@ -12,7 +12,7 @@ REPO-200: Updated to use Rust algorithms directly (no GDS dependency).
 """
 
 import json
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.graph_algorithms import GraphAlgorithms

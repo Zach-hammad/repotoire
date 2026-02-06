@@ -9,10 +9,10 @@ This module handles security-sensitive operations like:
 - Security policy enforcement
 """
 
-from repotoire.security.secrets_scanner import SecretsScanner, SecretsScanResult
+from repotoire.security.compliance_reporter import ComplianceFramework, ComplianceReporter
 from repotoire.security.dependency_scanner import DependencyScanner
 from repotoire.security.sbom_generator import SBOMGenerator
-from repotoire.security.compliance_reporter import ComplianceReporter, ComplianceFramework
+from repotoire.security.secrets_scanner import SecretsScanner, SecretsScanResult
 
 __all__ = [
     "SecretsScanner",

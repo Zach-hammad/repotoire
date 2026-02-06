@@ -12,20 +12,19 @@ Usage:
 """
 
 import asyncio
-import os
 from datetime import datetime, timedelta, timezone
 
 import click
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.text import Text
 from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
 from repotoire.sandbox.metrics import (
-    SandboxMetricsCollector,
     CPU_RATE_PER_SECOND,
     MEMORY_RATE_PER_GB_SECOND,
+    SandboxMetricsCollector,
 )
 
 console = Console()
@@ -211,17 +210,17 @@ async def _show_summary(
     success_color = "green" if success_rate >= 95 else "yellow" if success_rate >= 80 else "red"
 
     summary_text = Text()
-    summary_text.append(f"Total Operations:     ", style="bold")
+    summary_text.append("Total Operations:     ", style="bold")
     summary_text.append(f"{summary.get('total_operations', 0):,}\n")
-    summary_text.append(f"Success Rate:         ", style="bold")
+    summary_text.append("Success Rate:         ", style="bold")
     summary_text.append(f"{success_rate:.1f}%\n", style=success_color)
-    summary_text.append(f"Total Cost:           ", style="bold")
+    summary_text.append("Total Cost:           ", style="bold")
     summary_text.append(f"{format_cost(summary.get('total_cost_usd', 0))}\n")
-    summary_text.append(f"Avg Duration:         ", style="bold")
+    summary_text.append("Avg Duration:         ", style="bold")
     summary_text.append(f"{format_duration(summary.get('avg_duration_ms', 0))}\n")
-    summary_text.append(f"Total CPU-seconds:    ", style="bold")
+    summary_text.append("Total CPU-seconds:    ", style="bold")
     summary_text.append(f"{summary.get('total_cpu_seconds', 0):,.1f}\n")
-    summary_text.append(f"Total GB-seconds:     ", style="bold")
+    summary_text.append("Total GB-seconds:     ", style="bold")
     summary_text.append(f"{summary.get('total_memory_gb_seconds', 0):,.1f}\n")
 
     panel = Panel(

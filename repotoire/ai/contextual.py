@@ -21,7 +21,7 @@ Reference: https://www.anthropic.com/news/contextual-retrieval
 import asyncio
 import os
 from dataclasses import dataclass, field
-from typing import Optional, List, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, List, Optional
 
 from repotoire.logging_config import get_logger
 

@@ -15,10 +15,10 @@ import os
 from uuid import UUID
 
 import click
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
 from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 from repotoire.graph.tenant_factory import GraphClientFactory, get_factory
 

@@ -259,7 +259,7 @@ async def _send_payment_failed_email(
 
         if not billing_email:
             # Fall back to org owner's email
-            from repotoire.db.models import OrganizationMembership, MemberRole
+            from repotoire.db.models import MemberRole, OrganizationMembership
 
             result = await db.execute(
                 select(User)
@@ -1280,7 +1280,7 @@ async def handle_organization_created(
     slug = data.get("slug", "")
 
     if not clerk_org_id or not slug:
-        logger.warning(f"Missing org ID or slug in organization.created event")
+        logger.warning("Missing org ID or slug in organization.created event")
         return
 
     # Check if org already exists
@@ -1533,13 +1533,13 @@ async def github_webhook_alias(
     Handles GitHub webhooks at /api/v1/webhooks/github for backwards compatibility.
     GitHub App webhook URL may be configured to either this path or /api/v1/github/webhook.
     """
-    from repotoire.api.shared.services.github import GitHubAppClient
     from repotoire.api.shared.services.encryption import get_token_encryption
+    from repotoire.api.shared.services.github import GitHubAppClient
     from repotoire.api.v1.routes.github import (
         handle_installation_event,
         handle_installation_repos_event,
-        handle_push_event,
         handle_pull_request_event,
+        handle_push_event,
     )
 
     github = GitHubAppClient()

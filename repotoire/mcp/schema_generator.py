@@ -3,11 +3,12 @@
 Converts Python function signatures to JSON Schema for MCP tools.
 """
 
-import re
 import os
-from typing import List, Dict, Any, Optional, Tuple
-from repotoire.mcp.models import DetectedPattern, Parameter
+import re
+from typing import Any, Dict, List, Optional
+
 from repotoire.logging_config import get_logger
+from repotoire.mcp.models import DetectedPattern, Parameter
 
 logger = get_logger(__name__)
 

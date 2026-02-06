@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from repotoire.api.shared.auth import ClerkUser, get_current_user, require_org_admin
+from repotoire.api.shared.auth import ClerkUser, require_org_admin
 from repotoire.api.shared.schemas.quota_override import (
     ActiveOverridesResponse,
     QuotaOverrideCreate,

@@ -17,9 +17,10 @@ Example:
     >>> similar = embedder.find_similar("my.module.function", top_k=5)
 """
 
-from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Tuple
 import threading
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
 
 from repotoire.graph import FalkorDBClient

@@ -4,13 +4,14 @@ This module provides Java parsing support using tree-sitter,
 following the same adapter pattern as the Python and TypeScript parsers.
 """
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
+
 from repotoire.parsers.base_tree_sitter_parser import BaseTreeSitterParser
 
 if TYPE_CHECKING:
     from repotoire.models import ClassEntity
-from repotoire.parsers.tree_sitter_adapter import TreeSitterAdapter, UniversalASTNode
 from repotoire.logging_config import get_logger
+from repotoire.parsers.tree_sitter_adapter import TreeSitterAdapter, UniversalASTNode
 
 logger = get_logger(__name__)
 

@@ -190,7 +190,7 @@ class MultimodalDetector(CodeSmellDetector):
         # Add modality breakdown
         text_w = pred["text_weight"]
         graph_w = pred["graph_weight"]
-        description += f"\n\nModality importance:"
+        description += "\n\nModality importance:"
         description += f"\n- Semantic patterns: {text_w:.0%}"
         description += f"\n- Structural patterns: {graph_w:.0%}"
         description += f"\n\n{pred['interpretation']}"

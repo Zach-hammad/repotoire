@@ -10,8 +10,8 @@ Environment variables:
 """
 
 import os
-from typing import List, Optional, Literal
 from dataclasses import dataclass
+from typing import List, Literal, Optional
 
 from repotoire.logging_config import get_logger
 

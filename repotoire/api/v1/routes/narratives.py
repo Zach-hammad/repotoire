@@ -10,7 +10,7 @@ This module provides endpoints for:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -21,16 +21,13 @@ from sse_starlette.sse import EventSourceResponse
 
 from repotoire.api.services.narrative import (
     HealthContext,
-    NarrativeGenerator,
-    NarrativeResult,
     WeeklyContext,
     create_narrative_generator,
 )
-from repotoire.api.shared.auth import ClerkUser, get_current_user, require_org
+from repotoire.api.shared.auth import ClerkUser, require_org
 from repotoire.db.models import (
     AnalysisRun,
     Finding,
-    FindingSeverity,
     Organization,
     Repository,
 )

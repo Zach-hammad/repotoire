@@ -2,12 +2,13 @@
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Dict, Optional
+
 from jinja2 import Template
 
-from repotoire.models import CodebaseHealth, Finding, Severity
+from repotoire.config import ReportingConfig
 from repotoire.logging_config import get_logger
-from repotoire.config import ReportingConfig, ReportingTheme
+from repotoire.models import CodebaseHealth, Finding, Severity
 from repotoire.reporters.base_reporter import BaseReporter
 
 logger = get_logger(__name__)

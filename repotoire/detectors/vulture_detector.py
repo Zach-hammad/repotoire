@@ -23,17 +23,17 @@ Performance: ~2-5 seconds even on large codebases
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.external_tool_runner import (
-    run_external_tool,
     get_graph_context,
+    run_external_tool,
 )
 from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
-from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 logger = get_logger(__name__)
 
@@ -451,7 +451,7 @@ class VultureDetector(CodeSmellDetector):
         elif confidence >= 80:
             return f"Investigate and remove if truly unused: Check for dynamic usage of '{name}'"
         else:
-            return f"Review usage patterns: May be used dynamically or in external modules"
+            return "Review usage patterns: May be used dynamically or in external modules"
 
     def _estimate_effort(self, item_type: str, confidence: int) -> str:
         """Estimate effort to fix.

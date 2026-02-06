@@ -271,7 +271,7 @@ class StripeService:
             customers = stripe.Customer.list(email=email, limit=1)
             if customers.data:
                 return customers.data[0]
-            
+
             # Create new customer
             return stripe.Customer.create(
                 email=email,
@@ -306,7 +306,7 @@ class StripeService:
             Stripe Checkout Session object
         """
         base_url = os.environ.get("APP_BASE_URL", "https://app.repotoire.io")
-        
+
         session_params = {
             "customer": customer_id,
             "mode": "subscription",
@@ -324,11 +324,11 @@ class StripeService:
             "billing_address_collection": "auto",
             "tax_id_collection": {"enabled": True},
         }
-        
+
         # Add trial if specified
         if trial_days:
             session_params["subscription_data"]["trial_period_days"] = trial_days
-        
+
         try:
             return stripe.checkout.Session.create(**session_params)
         except stripe.error.StripeError as e:
@@ -352,7 +352,7 @@ class StripeService:
             Stripe Billing Portal Session object
         """
         base_url = os.environ.get("APP_BASE_URL", "https://app.repotoire.io")
-        
+
         try:
             return stripe.billing_portal.Session.create(
                 customer=customer_id,
@@ -402,7 +402,7 @@ class StripeService:
         """
         try:
             subscription = stripe.Subscription.retrieve(subscription_id)
-            
+
             # Get the first subscription item (seat-based pricing)
             if subscription.items.data:
                 item_id = subscription.items.data[0].id
@@ -414,7 +414,7 @@ class StripeService:
                     }],
                     proration_behavior="create_prorations",
                 )
-            
+
             return subscription
         except stripe.error.StripeError as e:
             raise handle_stripe_error(e, "update_subscription_seats")

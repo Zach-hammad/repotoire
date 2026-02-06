@@ -477,7 +477,7 @@ class SATDDetector(CodeSmellDetector):
             desc += f"**Entity Complexity**: {graph_context['complexity']}\n"
 
         # Add context about severity
-        desc += f"\n**Severity Rationale**:\n"
+        desc += "\n**Severity Rationale**:\n"
         if satd_type in ("HACK", "KLUDGE", "BUG"):
             desc += "- HIGH: Indicates a known bug, workaround, or hack that needs immediate attention\n"
         elif satd_type in ("FIXME", "XXX", "REFACTOR"):

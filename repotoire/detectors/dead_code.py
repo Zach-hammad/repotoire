@@ -7,12 +7,12 @@ REPO-416: Added path cache support for O(1) reachability queries from entry poin
 """
 
 import uuid
-from typing import List, Optional, Dict, Set, TYPE_CHECKING
 from datetime import datetime
+from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.graph.enricher import GraphEnricher
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 # Try to import Rust path cache for O(1) reachability queries (REPO-416)
 try:
@@ -446,12 +446,12 @@ class DeadCodeDetector(CodeSmellDetector):
         description = f"Function '{name}' is never called in the codebase. "
         description += f"It has complexity {complexity}."
         if vulture_confirmed:
-            description += f"\n\n**Cross-validated**: Both graph analysis and Vulture agree this is unused."
+            description += "\n\n**Cross-validated**: Both graph analysis and Vulture agree this is unused."
             description += f"\n**Confidence**: {confidence*100:.0f}% ({len(validators)} validators agree)"
-            description += f"\n**Safe to remove**: Yes"
+            description += "\n**Safe to remove**: Yes"
         else:
             description += f"\n\n**Confidence**: {confidence*100:.0f}% (graph analysis only)"
-            description += f"\n**Recommendation**: Review before removing"
+            description += "\n**Recommendation**: Review before removing"
 
         # Build suggested fix based on confidence
         if safe_to_remove:
@@ -656,12 +656,12 @@ class DeadCodeDetector(CodeSmellDetector):
             description = f"Function '{name}' is never called in the codebase. "
             description += f"It has complexity {complexity}."
             if vulture_confirmed:
-                description += f"\n\n**Cross-validated**: Both graph analysis and Vulture agree this is unused."
+                description += "\n\n**Cross-validated**: Both graph analysis and Vulture agree this is unused."
                 description += f"\n**Confidence**: {confidence*100:.0f}% ({len(validators)} validators agree)"
-                description += f"\n**Safe to remove**: Yes"
+                description += "\n**Safe to remove**: Yes"
             else:
                 description += f"\n\n**Confidence**: {confidence*100:.0f}% (graph analysis only)"
-                description += f"\n**Recommendation**: Review before removing"
+                description += "\n**Recommendation**: Review before removing"
 
             # Build suggested fix based on confidence
             if safe_to_remove:
@@ -829,12 +829,12 @@ class DeadCodeDetector(CodeSmellDetector):
             description = f"Class '{name}' is never instantiated or inherited from. "
             description += f"It has {method_count} methods and complexity {complexity}."
             if vulture_confirmed:
-                description += f"\n\n**Cross-validated**: Both graph analysis and Vulture agree this is unused."
+                description += "\n\n**Cross-validated**: Both graph analysis and Vulture agree this is unused."
                 description += f"\n**Confidence**: {confidence*100:.0f}% ({len(validators)} validators agree)"
-                description += f"\n**Safe to remove**: Yes"
+                description += "\n**Safe to remove**: Yes"
             else:
                 description += f"\n\n**Confidence**: {confidence*100:.0f}% (graph analysis only)"
-                description += f"\n**Recommendation**: Review before removing"
+                description += "\n**Recommendation**: Review before removing"
 
             # Build suggested fix based on confidence
             if safe_to_remove:

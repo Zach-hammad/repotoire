@@ -10,11 +10,12 @@ REPO-200: Updated to use Rust algorithms directly (no GDS dependency).
 """
 
 from typing import List, Optional
+
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.graph_algorithms import GraphAlgorithms
 from repotoire.graph import FalkorDBClient
-from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 logger = get_logger(__name__)
 
@@ -175,7 +176,7 @@ class InfluentialCodeDetector(CodeSmellDetector):
         client_type = type(self.db).__name__
         if client_type == "KuzuClient":
             # Get low PageRank functions from cache (bottom 50%)
-            from repotoire.detectors.graph_algorithms import _pagerank_cache, _cache_lock
+            from repotoire.detectors.graph_algorithms import _cache_lock, _pagerank_cache
             with _cache_lock:
                 if not _pagerank_cache:
                     return []

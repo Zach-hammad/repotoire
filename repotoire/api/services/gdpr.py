@@ -22,7 +22,6 @@ from repotoire.db.models import (
     ConsentType,
     DataExport,
     ExportStatus,
-    Organization,
     OrganizationMembership,
     Repository,
     User,

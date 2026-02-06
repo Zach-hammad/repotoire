@@ -286,27 +286,28 @@ async def create_checkout(
 ) -> CheckoutResponse:
     """Create a Stripe Checkout session for subscription."""
     import os
+
     from repotoire.api.shared.services import StripeService
-    
+
     # Validate plan
     price_map = {
         "team": os.environ.get("STRIPE_PRICE_TEAM", ""),
         "enterprise": os.environ.get("STRIPE_PRICE_ENTERPRISE", ""),
     }
-    
+
     if request.plan not in price_map:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid plan. Choose 'team' or 'enterprise'.",
+            detail="Invalid plan. Choose 'team' or 'enterprise'.",
         )
-    
+
     price_id = price_map[request.plan]
     if not price_id:
         raise HTTPException(
             status_code=500,
             detail=f"Price not configured for plan '{request.plan}'. Contact support.",
         )
-    
+
     # Get or create organization
     org = None
     if user.org_slug:
@@ -314,13 +315,13 @@ async def create_checkout(
             org = await get_org_by_slug(db, user.org_slug)
         except HTTPException:
             pass
-    
+
     if not org:
         raise HTTPException(
             status_code=400,
             detail="You need to create an organization first.",
         )
-    
+
     # Get or create Stripe customer
     customer = StripeService.get_or_create_customer(
         email=user.email or f"org-{org.id}@repotoire.io",
@@ -330,15 +331,15 @@ async def create_checkout(
             "org_slug": org.slug,
         },
     )
-    
+
     # Update org with Stripe customer ID
     if not org.stripe_customer_id:
         org.stripe_customer_id = customer.id
         await db.commit()
-    
+
     # Create checkout session
     trial_days = 7 if request.plan == "team" else None
-    
+
     session = StripeService.create_checkout_session(
         customer_id=customer.id,
         price_id=price_id,
@@ -353,9 +354,9 @@ async def create_checkout(
             "seats": str(request.seats),
         },
     )
-    
+
     logger.info(f"Created checkout session {session.id} for org {org.slug}")
-    
+
     return CheckoutResponse(
         checkout_url=session.url,
         session_id=session.id,
@@ -382,29 +383,29 @@ async def get_billing_portal(
 ) -> PortalResponse:
     """Get Stripe Customer Portal URL."""
     from repotoire.api.shared.services import StripeService
-    
+
     # Get organization
     if not user.org_slug:
         raise HTTPException(
             status_code=400,
             detail="You need to be in an organization to access billing.",
         )
-    
+
     org = await get_org_by_slug(db, user.org_slug)
-    
+
     if not org.stripe_customer_id:
         raise HTTPException(
             status_code=400,
             detail="No billing account found. Subscribe to a plan first.",
         )
-    
+
     # Create portal session
     session = StripeService.create_portal_session(
         customer_id=org.stripe_customer_id,
     )
-    
+
     logger.info(f"Created portal session for org {org.slug}")
-    
+
     return PortalResponse(portal_url=session.url)
 
 

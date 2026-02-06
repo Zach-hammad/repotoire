@@ -27,7 +27,6 @@ from repotoire.db.models.status import (
     Incident,
     IncidentSeverity,
     IncidentStatus,
-    IncidentUpdate,
     ScheduledMaintenance,
     StatusComponent,
     StatusSubscriber,

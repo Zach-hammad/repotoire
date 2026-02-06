@@ -1,25 +1,25 @@
 """Interactive fix review UI for human-in-the-loop approval."""
 
-from pathlib import Path
-from typing import Optional, List, Tuple
 import difflib
+from pathlib import Path
+from typing import List, Optional, Tuple
 
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Confirm, Prompt
 from rich.syntax import Syntax
 from rich.table import Table
-from rich.prompt import Confirm, Prompt
-from rich import box
 
-from repotoire.autofix.models import FixProposal, FixStatus, FixConfidence
 from repotoire.autofix.learning import (
-    DecisionStore,
     AdaptiveConfidence,
+    DecisionStore,
     FixDecision,
-    UserDecision,
     RejectionReason,
+    UserDecision,
     create_decision_id,
 )
+from repotoire.autofix.models import FixConfidence, FixProposal, FixStatus
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)

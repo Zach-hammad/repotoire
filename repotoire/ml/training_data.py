@@ -12,17 +12,15 @@ Features:
 - Active learning for human-in-the-loop refinement
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Union
 import ast
-import hashlib
 import json
 import random
 import re
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple, Union
 
-from git import Repo, Commit, Diff
+from git import Commit, Diff, Repo
 from pydantic import BaseModel, Field
 
 # Try to use Rust implementation for ~5x speedup on diff parsing (REPO-244)
@@ -41,8 +39,8 @@ except ImportError:
 
 # Try to use Rust implementation for ~10x+ speedup on bug extraction (REPO-246)
 try:
-    from repotoire_fast import extract_buggy_functions_parallel as _rust_extract_buggy
     from repotoire_fast import PyBuggyFunction
+    from repotoire_fast import extract_buggy_functions_parallel as _rust_extract_buggy
     HAS_RUST_BUG_EXTRACTOR = True
 except ImportError:
     HAS_RUST_BUG_EXTRACTOR = False

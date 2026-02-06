@@ -10,9 +10,9 @@ Components:
 - git_extractor: Client-side git commit extraction for cloud architecture
 """
 
-from repotoire.historical.timescale_client import TimescaleClient
+from repotoire.historical.git_extractor import extract_commits, is_git_repository
 from repotoire.historical.metrics_collector import MetricsCollector
-from repotoire.historical.git_extractor import is_git_repository, extract_commits
+from repotoire.historical.timescale_client import TimescaleClient
 
 __all__ = [
     "TimescaleClient",

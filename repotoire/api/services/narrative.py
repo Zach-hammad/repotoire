@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import AsyncGenerator, List, Optional, Dict, Any
+from datetime import datetime
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from repotoire.ai.llm import LLMClient, LLMConfig, create_llm_client
+from repotoire.ai.llm import LLMClient, LLMConfig
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)

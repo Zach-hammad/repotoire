@@ -8,8 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from repotoire.models import CodebaseHealth, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import CodebaseHealth, Finding, Severity
 from repotoire.reporters.base_reporter import BaseReporter
 
 logger = get_logger(__name__)

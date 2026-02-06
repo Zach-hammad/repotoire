@@ -5,9 +5,10 @@ following the same adapter pattern as the Python parser.
 """
 
 from typing import List, Optional
+
+from repotoire.logging_config import get_logger
 from repotoire.parsers.base_tree_sitter_parser import BaseTreeSitterParser
 from repotoire.parsers.tree_sitter_adapter import TreeSitterAdapter, UniversalASTNode
-from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 

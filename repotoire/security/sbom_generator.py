@@ -13,9 +13,9 @@ Supports:
 
 import json
 import subprocess
-from pathlib import Path
-from typing import Optional, Dict, Any, List
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 from repotoire.logging_config import get_logger
 

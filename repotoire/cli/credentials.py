@@ -227,7 +227,7 @@ class CredentialStore:
             if metadata.storage_backend == StorageBackend.KEYRING:
                 return "system keyring"
             else:
-                return f"~/.repotoire/credentials"
+                return "~/.repotoire/credentials"
 
         # Check if file exists without metadata (legacy)
         if CREDENTIALS_FILE.exists():

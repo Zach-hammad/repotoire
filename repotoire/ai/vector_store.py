@@ -15,12 +15,12 @@ Usage:
     >>> results = store.search(query_embedding, top_k=10)
 """
 
+import os
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Literal, Tuple
-import os
-import threading
+from typing import Any, Dict, List, Literal, Optional
 
 from repotoire.logging_config import get_logger
 

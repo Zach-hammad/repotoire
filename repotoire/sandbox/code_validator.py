@@ -36,7 +36,6 @@ Usage:
 from __future__ import annotations
 
 import ast
-import difflib
 import json
 import re
 import textwrap
@@ -49,7 +48,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from repotoire.logging_config import get_logger
 from repotoire.sandbox.config import SandboxConfig
 from repotoire.sandbox.exceptions import (
-    SandboxConfigurationError,
     SandboxError,
 )
 

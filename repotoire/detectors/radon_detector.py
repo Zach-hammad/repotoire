@@ -25,13 +25,13 @@ import subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
-from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 logger = get_logger(__name__)
 
@@ -631,7 +631,7 @@ class RadonDetector(CodeSmellDetector):
         mi_score = radon_result.get("mi", 100)
         rank = radon_result.get("rank", "")
 
-        desc = f"File has low maintainability index.\n\n"
+        desc = "File has low maintainability index.\n\n"
         desc += f"**MI Score**: {mi_score:.1f}/100 (Grade: {rank})\n"
         desc += f"**File**: {file_path}\n"
         desc += f"**Target**: 65+ (deficit: {65 - mi_score:.1f})\n\n"

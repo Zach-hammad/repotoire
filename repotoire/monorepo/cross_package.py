@@ -7,12 +7,12 @@ Detects issues that span multiple packages:
 - Package coupling metrics
 """
 
-from typing import List, Dict, Set, Tuple, Optional
 from collections import defaultdict
+from typing import Dict, List, Set, Tuple
 
-from repotoire.monorepo.models import Package
-from repotoire.models import Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import Finding, Severity
+from repotoire.monorepo.models import Package
 
 logger = get_logger(__name__)
 

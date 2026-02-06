@@ -16,10 +16,10 @@ This allows embeddings to capture complex patterns that correlate with defect-pr
 - Functions with unusual structural positions
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
 import logging
 import threading
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -334,7 +334,11 @@ class Node2VecEmbedder:
 
         elif use_rust_word2vec:
             # REPO-249: Use Rust walks + Rust Word2Vec (parallel Hogwild! SGD for 3-5x speedup)
-            from repotoire_fast import node2vec_random_walks, train_word2vec_skipgram_parallel, PyWord2VecConfig
+            from repotoire_fast import (
+                PyWord2VecConfig,
+                node2vec_random_walks,
+                train_word2vec_skipgram_parallel,
+            )
 
             logger.info(
                 f"Generating {num_nodes * self.config.walks_per_node} walks "
@@ -378,8 +382,9 @@ class Node2VecEmbedder:
 
         else:
             # Fallback to gensim
-            from repotoire_fast import node2vec_random_walks
             from gensim.models import Word2Vec
+
+            from repotoire_fast import node2vec_random_walks
 
             logger.info(
                 f"Generating {num_nodes * self.config.walks_per_node} walks "

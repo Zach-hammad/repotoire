@@ -4,23 +4,23 @@ This module provides reusable entity extraction logic that works across
 all programming languages supported by tree-sitter.
 """
 
-from typing import List, Optional, Dict
-from pathlib import Path
-from datetime import datetime
 import hashlib
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional
 
-from repotoire.parsers.base import CodeParser
-from repotoire.parsers.tree_sitter_adapter import UniversalASTNode, TreeSitterAdapter
+from repotoire.logging_config import get_logger
 from repotoire.models import (
+    AttributeEntity,
+    ClassEntity,
     Entity,
     FileEntity,
-    ClassEntity,
     FunctionEntity,
-    AttributeEntity,
     Relationship,
     RelationshipType,
 )
-from repotoire.logging_config import get_logger
+from repotoire.parsers.base import CodeParser
+from repotoire.parsers.tree_sitter_adapter import TreeSitterAdapter, UniversalASTNode
 
 logger = get_logger(__name__)
 
@@ -758,7 +758,7 @@ class BaseTreeSitterParser(CodeParser):
             # Look for identifier, dotted_name, or module_name nodes
             if child.node_type in {"identifier", "dotted_name", "module_name", "string"}:
                 text = child.text.strip().strip('"').strip("'")
-                if text and not text in {"import", "from", "as"}:
+                if text and text not in {"import", "from", "as"}:
                     module_names.append(text)
 
         return list(set(module_names))  # Remove duplicates

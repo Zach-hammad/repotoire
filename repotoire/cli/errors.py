@@ -5,13 +5,13 @@ Stack traces are hidden by default but available with --verbose.
 """
 
 import functools
-import sys
-from dataclasses import dataclass, field
-from typing import Callable, Optional, TypeVar, ParamSpec
+from dataclasses import dataclass
+from typing import Callable, Optional, ParamSpec, TypeVar
+
+import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
-import click
 
 from repotoire.logging_config import get_logger
 
@@ -25,13 +25,13 @@ R = TypeVar("R")
 @dataclass
 class CLIError(Exception):
     """Base CLI error with user-friendly messaging."""
-    
+
     message: str
     hint: Optional[str] = None
     fix: Optional[str] = None
     docs_url: Optional[str] = None
     show_traceback: bool = False
-    
+
     def __str__(self) -> str:
         return self.message
 
@@ -39,16 +39,16 @@ class CLIError(Exception):
 @dataclass
 class DatabaseError(CLIError):
     """Database-related errors (connection, schema, corruption)."""
-    
+
     message: str = "Database error"
     hint: str = "The local database may be corrupted or from an incompatible version."
     fix: str = "rm -rf .repotoire/ && repotoire ingest ."
 
 
-@dataclass 
+@dataclass
 class AuthError(CLIError):
     """Authentication/authorization errors."""
-    
+
     message: str = "Authentication failed"
     hint: str = "Your API key may be invalid or expired."
     fix: str = "repotoire login"
@@ -58,7 +58,7 @@ class AuthError(CLIError):
 @dataclass
 class NetworkError(CLIError):
     """Network connectivity errors."""
-    
+
     message: str = "Network error"
     hint: str = "Could not connect to the Repotoire API."
     fix: str = "Check your internet connection and try again."
@@ -67,7 +67,7 @@ class NetworkError(CLIError):
 @dataclass
 class ConfigError(CLIError):
     """Configuration errors."""
-    
+
     message: str = "Configuration error"
     hint: str = "Your configuration file may be invalid."
     fix: str = "repotoire config --reset"
@@ -76,7 +76,7 @@ class ConfigError(CLIError):
 @dataclass
 class ParseError(CLIError):
     """Code parsing errors."""
-    
+
     message: str = "Failed to parse code"
     hint: str = "Some files could not be parsed. This usually means syntax errors."
     fix: str = "Fix syntax errors in your code or exclude problematic files."
@@ -85,7 +85,7 @@ class ParseError(CLIError):
 @dataclass
 class ResourceError(CLIError):
     """Resource exhaustion (memory, disk, etc)."""
-    
+
     message: str = "Resource limit exceeded"
     hint: str = "The operation ran out of memory or disk space."
     fix: str = "Try with smaller files: repotoire ingest --batch-size 50 --max-file-size 5"
@@ -94,7 +94,7 @@ class ResourceError(CLIError):
 @dataclass
 class EmbeddingError(CLIError):
     """Embedding generation errors."""
-    
+
     message: str = "Embedding generation failed"
     hint: str = "Could not generate vector embeddings."
     fix: str = "Try --no-embeddings or set a valid API key for your embedding backend."
@@ -114,24 +114,24 @@ ERROR_PATTERNS: list[tuple[str, type[CLIError], Optional[str]]] = [
     ("configurationerror", DatabaseError, None),
     ("no nodes found", DatabaseError, "No code found - run 'repotoire ingest .' first"),
     ("no code found", DatabaseError, "No code found - run 'repotoire ingest .' first"),
-    
+
     # Auth errors
     ("401", AuthError, "API key is invalid or expired"),
     ("403", AuthError, "Access denied - check your permissions"),
     ("authentication", AuthError, None),
     ("unauthorized", AuthError, None),
-    
+
     # Network errors
     ("connection error", NetworkError, None),
     ("timeout", NetworkError, "Request timed out - server may be overloaded"),
     ("ssl", NetworkError, "SSL/TLS error - check your network settings"),
     ("name resolution", NetworkError, "Could not resolve hostname"),
-    
+
     # Resource errors
     ("memory", ResourceError, "Out of memory"),
     ("disk", ResourceError, "Out of disk space"),
     ("too many open files", ResourceError, "File descriptor limit reached"),
-    
+
     # Embedding errors
     ("rate limit", EmbeddingError, "Embedding API rate limit exceeded - wait and retry"),
     ("quota", EmbeddingError, "API quota exceeded"),
@@ -151,16 +151,16 @@ def classify_error(error: Exception) -> CLIError:
     """
     if isinstance(error, CLIError):
         return error
-    
+
     error_str = str(error).lower()
     error_type = type(error).__name__
-    
+
     # Check patterns
     for pattern, error_class, custom_msg in ERROR_PATTERNS:
         if pattern in error_str or pattern in error_type.lower():
             msg = custom_msg or str(error)
             return error_class(message=msg)
-    
+
     # Default: wrap in CLIError
     return CLIError(
         message=str(error)[:300],
@@ -181,29 +181,29 @@ def format_error(error: CLIError, verbose: bool = False) -> Panel:
         Rich Panel with formatted error
     """
     content = Text()
-    
+
     # Main error message
     content.append(error.message, style="bold")
     content.append("\n")
-    
+
     # Hint
     if error.hint:
         content.append("\n")
         content.append("💡 ", style="yellow")
         content.append(error.hint, style="dim")
-    
+
     # Fix
     if error.fix:
         content.append("\n\n")
         content.append("Fix: ", style="green bold")
         content.append(error.fix, style="cyan")
-    
+
     # Docs
     if error.docs_url:
         content.append("\n\n")
         content.append("📚 ", style="blue")
         content.append(error.docs_url, style="blue underline")
-    
+
     return Panel(
         content,
         title="[red bold]Error[/red bold]",
@@ -225,19 +225,19 @@ def print_error(
         exit_code: Exit code (0 = don't exit)
     """
     cli_error = classify_error(error)
-    
+
     # Log full traceback only at debug level (not visible by default)
     logger.debug(f"CLI error: {error}", exc_info=True)
-    
+
     # Print user-friendly message
     console.print()
     console.print(format_error(cli_error, verbose=verbose))
-    
+
     # Show traceback only in verbose mode
     if verbose or cli_error.show_traceback:
         console.print("\n[dim]Traceback (for debugging):[/dim]")
         console.print_exception(show_locals=False)
-    
+
     if exit_code:
         raise click.Abort()
 
@@ -270,7 +270,7 @@ def handle_errors(
             verbose = False
             if ctx:
                 verbose = ctx.params.get("verbose", False) or ctx.params.get("log_level") == "DEBUG"
-            
+
             try:
                 return func(*args, **kwargs)
             except reraise:
@@ -284,7 +284,7 @@ def handle_errors(
                 print_error(e, verbose=verbose, exit_code=1 if exit_on_error else 0)
             except Exception as e:
                 print_error(e, verbose=verbose, exit_code=1 if exit_on_error else 0)
-        
+
         return wrapper
     return decorator
 

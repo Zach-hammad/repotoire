@@ -14,7 +14,6 @@ from rich.console import Console
 from rich.table import Table
 
 from repotoire.cli.auth import CLIAuth
-from repotoire.cli.credentials import CredentialStore
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -161,8 +160,8 @@ def list_orgs():
 
         console.print(table)
         console.print()
-        console.print(f"[dim]● = current organization (from API key)[/]")
-        console.print(f"[dim]Switch with: repotoire org switch <slug>[/]")
+        console.print("[dim]● = current organization (from API key)[/]")
+        console.print("[dim]Switch with: repotoire org switch <slug>[/]")
 
     except httpx.RequestError as e:
         console.print(f"[red]✗[/] Failed to connect to API: {e}")
@@ -261,7 +260,7 @@ def current_org():
             )
 
             if resp.status_code != 200:
-                console.print(f"[red]✗[/] Failed to validate API key")
+                console.print("[red]✗[/] Failed to validate API key")
                 raise click.Abort()
 
             data = resp.json()

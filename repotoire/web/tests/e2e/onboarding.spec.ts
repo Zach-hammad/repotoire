@@ -42,7 +42,7 @@ test.describe("Onboarding Flow", () => {
     test("sidebar shows navigation links", async ({ page }) => {
       // Skip on mobile - sidebar is hidden/collapsed
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/dashboard");
@@ -58,7 +58,7 @@ test.describe("Onboarding Flow", () => {
     test("shows organization in sidebar", async ({ page }) => {
       // Skip on mobile - sidebar is hidden/collapsed
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/dashboard");

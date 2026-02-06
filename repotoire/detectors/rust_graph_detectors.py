@@ -22,27 +22,26 @@ REPO-416: Added path cache support for O(1) reachability queries.
 
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.logging_config import get_logger
-from repotoire.models import CollaborationMetadata, Finding, Severity
+from repotoire.models import Finding, Severity
 
 if TYPE_CHECKING:
     from repotoire_fast import PyPathCache
 
 # Import Rust graph detector functions
 from repotoire_fast import (
-    graph_package_stability,
-    detect_unstable_packages,
-    detect_hotspots,
-    detect_layer_violations,
-    detect_deep_call_chains,
-    find_bottleneck_functions,
-    detect_hub_dependencies,
     detect_change_coupling,
+    detect_deep_call_chains,
+    detect_hotspots,
+    detect_hub_dependencies,
+    detect_layer_violations,
+    detect_unstable_packages,
+    find_bottleneck_functions,
 )
 
 logger = get_logger(__name__)

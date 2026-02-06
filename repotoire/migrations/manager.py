@@ -4,11 +4,11 @@ import importlib
 import importlib.util
 import inspect
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
 
 from repotoire.graph import FalkorDBClient
-from repotoire.migrations.migration import Migration, MigrationError
 from repotoire.logging_config import get_logger
+from repotoire.migrations.migration import Migration, MigrationError
 
 logger = get_logger(__name__)
 

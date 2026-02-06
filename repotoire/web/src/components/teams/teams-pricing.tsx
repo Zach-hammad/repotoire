@@ -6,12 +6,12 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Check, ArrowRight, Terminal, Loader2 } from "lucide-react"
 import Link from "next/link"
-import { useAuth } from "@clerk/nextjs"
+import { useSafeAuth } from "@/lib/use-safe-auth"
 import { toast } from "sonner"
 
 export function TeamsPricing() {
   const [loading, setLoading] = useState(false)
-  const { isSignedIn } = useAuth()
+  const { isSignedIn } = useSafeAuth()
   const router = useRouter()
 
   const handleCheckout = async () => {

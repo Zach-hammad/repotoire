@@ -4,16 +4,21 @@ This module provides Python-side traversal utilities that complement Cypher quer
 for cases where custom filtering or complex traversal logic is needed.
 """
 
-from typing import List, Dict, Any, Set, Callable, Optional
 from collections import deque
+from typing import Any, Callable, Dict, List, Optional, Set
+
 from repotoire.graph import FalkorDBClient
-from repotoire.validation import validate_identifier, ValidationError
+from repotoire.validation import ValidationError, validate_identifier
 
 # Try to import Rust accelerated versions (REPO-407)
 try:
     from repotoire_fast import (
         batch_traverse_bfs as _rust_batch_bfs,
+    )
+    from repotoire_fast import (
         batch_traverse_dfs as _rust_batch_dfs,
+    )
+    from repotoire_fast import (
         extract_subgraph_parallel as _rust_extract_subgraph,
     )
     _HAS_RUST = True

@@ -75,7 +75,7 @@ def login():
     masked = mask_api_key(api_key)
     source = cli_auth.get_credential_source()
 
-    console.print(f"\n[green]✓[/] Logged in successfully")
+    console.print("\n[green]✓[/] Logged in successfully")
     console.print(f"  API Key: {masked}")
     if source:
         console.print(f"  Stored in: {source}")

@@ -6,10 +6,9 @@ Requires openpyxl: pip install openpyxl
 
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 
-from repotoire.models import CodebaseHealth, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import CodebaseHealth, Severity
 from repotoire.reporters.base_reporter import BaseReporter
 
 logger = get_logger(__name__)
@@ -42,9 +41,9 @@ class ExcelReporter(BaseReporter):
         """
         try:
             from openpyxl import Workbook
-            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.chart import BarChart, PieChart, Reference
+            from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
             from openpyxl.utils import get_column_letter
-            from openpyxl.chart import BarChart, Reference, PieChart
         except ImportError:
             raise ImportError(
                 "Excel report generation requires openpyxl. "

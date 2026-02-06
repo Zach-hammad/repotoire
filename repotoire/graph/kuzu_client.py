@@ -11,13 +11,11 @@ Key differences from FalkorDB:
 """
 
 import logging
-import os
-import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from repotoire.graph.base import DatabaseClient
-from repotoire.models import Entity, Relationship, NodeType, RelationshipType
+from repotoire.models import Entity, NodeType, Relationship, RelationshipType
 
 logger = logging.getLogger(__name__)
 
@@ -99,14 +97,14 @@ class KuzuClient(DatabaseClient):
             raise ImportError(
                 "Kùzu is not installed. Install with: pip install kuzu"
             )
-        
+
         self.db_path = Path(db_path)
         self.read_only = read_only
-        
+
         # Ensure parent directory exists (Kuzu creates the db directory itself)
         if not read_only:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Create database
         self._db = kuzu.Database(
             str(self.db_path),
@@ -115,11 +113,11 @@ class KuzuClient(DatabaseClient):
             max_num_threads=max_num_threads,
         )
         self._conn = kuzu.Connection(self._db)
-        
+
         # Initialize schema if not read-only
         if not read_only:
             self._init_schema()
-        
+
         logger.info(f"Kùzu database opened at {self.db_path}")
 
     def _init_schema(self) -> None:
@@ -260,7 +258,7 @@ class KuzuClient(DatabaseClient):
                 )
             """,
         }
-        
+
         for table_name, schema in node_schemas.items():
             try:
                 self._conn.execute(schema)
@@ -268,7 +266,7 @@ class KuzuClient(DatabaseClient):
             except Exception as e:
                 if "already exists" not in str(e).lower():
                     logger.warning(f"Failed to create node table {table_name}: {e}")
-        
+
         # Create REL TABLE GROUPs for polymorphic relationships
         # This allows queries to use :CONTAINS without specifying exact types
         rel_table_groups = [
@@ -304,14 +302,14 @@ class KuzuClient(DatabaseClient):
                 FROM Class TO DetectorMetadata
             )""",
         ]
-        
+
         for schema in rel_table_groups:
             try:
                 self._conn.execute(schema)
             except Exception as e:
                 if "already exists" not in str(e).lower():
                     logger.debug(f"Rel table group note: {e}")
-        
+
         # Individual relationship tables for specific patterns
         rel_schemas = [
             # Imports - various targets
@@ -319,23 +317,23 @@ class KuzuClient(DatabaseClient):
             "CREATE REL TABLE IF NOT EXISTS IMPORTS_FILE(FROM File TO File)",
             "CREATE REL TABLE IF NOT EXISTS IMPORTS_EXT_CLASS(FROM File TO ExternalClass)",
             "CREATE REL TABLE IF NOT EXISTS IMPORTS_EXT_FUNC(FROM File TO ExternalFunction)",
-            
+
             # Inheritance
             "CREATE REL TABLE IF NOT EXISTS INHERITS(FROM Class TO Class)",
-            
+
             # Defines
             "CREATE REL TABLE IF NOT EXISTS DEFINES(FROM Class TO Function)",
             "CREATE REL TABLE IF NOT EXISTS DEFINES_VAR(FROM Function TO Variable)",
-            
+
             # Overrides
             "CREATE REL TABLE IF NOT EXISTS OVERRIDES(FROM Function TO Function)",
-            
+
             # Decorates
             "CREATE REL TABLE IF NOT EXISTS DECORATES(FROM Function TO Function)",
-            
+
             # Tests
             "CREATE REL TABLE IF NOT EXISTS TESTS(FROM Function TO Function)",
-            
+
             # Calls to external entities (with properties)
             """CREATE REL TABLE IF NOT EXISTS CALLS_EXT_FUNC(
                 FROM Function TO ExternalFunction,
@@ -356,7 +354,7 @@ class KuzuClient(DatabaseClient):
                 is_self_call BOOLEAN
             )""",
         ]
-        
+
         for schema in rel_schemas:
             try:
                 self._conn.execute(schema)
@@ -390,24 +388,24 @@ class KuzuClient(DatabaseClient):
         """
         # Adapt query for Kuzu compatibility
         adapted_query = self._adapt_query(query)
-        
+
         try:
             if parameters:
                 result = self._conn.execute(adapted_query, parameters)
             else:
                 result = self._conn.execute(adapted_query)
-            
+
             # Convert to list of dicts
             records = []
             column_names = result.get_column_names()
-            
+
             while result.has_next():
                 row = result.get_next()
                 record = dict(zip(column_names, row))
                 records.append(record)
-            
+
             return records
-            
+
         except Exception as e:
             logger.error(f"Kuzu query failed: {e}\nQuery: {adapted_query}")
             raise
@@ -421,15 +419,15 @@ class KuzuClient(DatabaseClient):
         - Remove comments
         """
         from repotoire.graph.kuzu_adapter import KuzuQueryAdapter
-        
+
         adapter = KuzuQueryAdapter()
         adapted, error = adapter.adapt(query)
-        
+
         if error:
             raise RuntimeError(f"Kuzu compatibility: {error}")
-        
+
         return adapted
-    
+
     def execute_query_safe(
         self,
         query: str,
@@ -451,16 +449,16 @@ class KuzuClient(DatabaseClient):
     def create_node(self, entity: Entity) -> str:
         """Create a node in the graph."""
         table = NODE_TYPE_TO_TABLE.get(entity.node_type, "Function")
-        
+
         # External* and Builtin* nodes have minimal schema
         is_external = entity.node_type in (NodeType.EXTERNAL_CLASS, NodeType.EXTERNAL_FUNCTION, NodeType.BUILTIN_FUNCTION)
-        
+
         # Build properties dict with camelCase names to match schema
         props = {
             "qualifiedName": entity.qualified_name,
             "name": entity.name,
         }
-        
+
         # External entities don't have filePath, lineStart, lineEnd
         if not is_external:
             props["filePath"] = entity.file_path
@@ -471,7 +469,7 @@ class KuzuClient(DatabaseClient):
         else:
             # External entities have module property
             props["module"] = entity.metadata.get("module", "")
-        
+
         # Add type-specific properties
         if hasattr(entity, 'complexity') and entity.complexity is not None:
             props["complexity"] = entity.complexity
@@ -485,14 +483,14 @@ class KuzuClient(DatabaseClient):
             props["loc"] = entity.loc
         if hasattr(entity, 'is_method') and entity.is_method is not None:
             props["is_method"] = entity.is_method
-        
+
         # Filter out None values (Kuzu doesn't like explicit NULLs in CREATE)
         props = {k: v for k, v in props.items() if v is not None}
-        
+
         # Build CREATE query
         prop_str = ", ".join(f"{k}: ${k}" for k in props.keys())
         query = f"CREATE (n:{table} {{{prop_str}}})"
-        
+
         self._conn.execute(query, props)
         return entity.qualified_name
 
@@ -505,25 +503,25 @@ class KuzuClient(DatabaseClient):
             dst_type: Destination node table name (optional, will be looked up if not provided)
         """
         rel_type = REL_TYPE_TO_TABLE.get(rel.rel_type, "CALLS")
-        
+
         # If types not provided, try to look them up
         if not src_type:
             src_type = self._find_node_type(rel.source_id)
         if not dst_type:
             dst_type = self._find_node_type(rel.target_id)
-        
+
         if not src_type or not dst_type:
             logger.debug(f"Could not find node types for relationship {rel.source_id} -> {rel.target_id}")
             return
-        
+
         # Get specific relationship table for this type combination
         specific_rel = self._get_specific_rel_table(rel_type, src_type, dst_type)
         final_rel = specific_rel if specific_rel else rel_type
-        
+
         # Build relationship properties for CALLS
         rel_props = {}
         params = {"src": rel.source_id, "dst": rel.target_id}
-        
+
         if rel_type == "CALLS" and hasattr(rel, 'properties') and rel.properties:
             # Add CALLS-specific properties
             if 'line' in rel.properties:
@@ -535,7 +533,7 @@ class KuzuClient(DatabaseClient):
             if 'is_self_call' in rel.properties:
                 rel_props['is_self_call'] = rel.properties['is_self_call']
                 params['is_self_call'] = rel.properties['is_self_call']
-        
+
         # Build query with explicit labels and properties
         if rel_props:
             prop_str = ", ".join(f"{k}: ${k}" for k in rel_props.keys())
@@ -548,12 +546,12 @@ class KuzuClient(DatabaseClient):
             MATCH (a:{src_type} {{qualifiedName: $src}}), (b:{dst_type} {{qualifiedName: $dst}})
             CREATE (a)-[:{final_rel}]->(b)
             """
-        
+
         self._conn.execute(query, params)
 
     def _find_node_type(self, qualified_name: str) -> Optional[str]:
         """Find which table a node belongs to."""
-        tables = ["File", "Function", "Class", "Module", "Variable", 
+        tables = ["File", "Function", "Class", "Module", "Variable",
                   "ExternalClass", "ExternalFunction", "BuiltinFunction"]
         for table in tables:
             try:
@@ -584,12 +582,12 @@ class KuzuClient(DatabaseClient):
     def batch_create_nodes(self, entities: List[Entity]) -> Dict[str, str]:
         """Create multiple nodes efficiently."""
         result_map = {}
-        
+
         # Group by node type for batch inserts
         by_type: Dict[NodeType, List[Entity]] = {}
         for entity in entities:
             by_type.setdefault(entity.node_type, []).append(entity)
-        
+
         for node_type, type_entities in by_type.items():
             for entity in type_entities:
                 try:
@@ -597,7 +595,7 @@ class KuzuClient(DatabaseClient):
                     result_map[entity.qualified_name] = entity.qualified_name
                 except Exception as e:
                     logger.warning(f"Failed to create node {entity.qualified_name}: {e}")
-        
+
         return result_map
 
     def batch_create_relationships(self, relationships: List[Relationship]) -> int:
@@ -625,7 +623,7 @@ class KuzuClient(DatabaseClient):
         """Delete all nodes for a specific repository."""
         tables = ["Function", "Class", "File", "Module", "Variable", "DetectorMetadata"]
         total_deleted = 0
-        
+
         for table in tables:
             try:
                 result = self._conn.execute(
@@ -637,7 +635,7 @@ class KuzuClient(DatabaseClient):
                     total_deleted += row[0] if row[0] else 0
             except Exception:
                 pass
-        
+
         return total_deleted
 
     def create_indexes(self) -> None:
@@ -650,7 +648,7 @@ class KuzuClient(DatabaseClient):
         """Get graph statistics."""
         stats = {}
         tables = ["Function", "Class", "File", "Module", "Variable"]
-        
+
         for table in tables:
             try:
                 result = self._conn.execute(f"MATCH (n:{table}) RETURN count(*) AS cnt")
@@ -658,7 +656,7 @@ class KuzuClient(DatabaseClient):
                     stats[table.lower() + "_count"] = result.get_next()[0]
             except Exception:
                 stats[table.lower() + "_count"] = 0
-        
+
         return stats
 
     def get_all_file_paths(self) -> List[str]:
@@ -703,7 +701,7 @@ class KuzuClient(DatabaseClient):
         """
         if not file_paths:
             return {}
-        
+
         # Kuzu supports UNWIND for batch operations
         try:
             result = self._conn.execute(
@@ -732,7 +730,7 @@ class KuzuClient(DatabaseClient):
     def delete_file_entities(self, file_path: str) -> int:
         """Delete a file and all its related entities."""
         deleted = 0
-        
+
         # Delete functions in file
         try:
             result = self._conn.execute(
@@ -743,7 +741,7 @@ class KuzuClient(DatabaseClient):
                 deleted += result.get_next()[0] or 0
         except Exception:
             pass
-        
+
         # Delete classes in file
         try:
             result = self._conn.execute(
@@ -754,7 +752,7 @@ class KuzuClient(DatabaseClient):
                 deleted += result.get_next()[0] or 0
         except Exception:
             pass
-        
+
         # Delete file itself
         try:
             result = self._conn.execute(
@@ -765,7 +763,7 @@ class KuzuClient(DatabaseClient):
                 deleted += result.get_next()[0] or 0
         except Exception:
             pass
-        
+
         return deleted
 
     def batch_delete_file_entities(self, file_paths: list) -> int:
@@ -779,11 +777,11 @@ class KuzuClient(DatabaseClient):
         """
         if not file_paths:
             return 0
-        
+
         total_deleted = 0
         for path in file_paths:
             total_deleted += self.delete_file_entities(path)
-        
+
         return total_deleted
 
 
@@ -805,5 +803,5 @@ def create_kuzu_client(
             db_path = str(Path(repository_path) / ".repotoire" / "kuzu_db")
         else:
             db_path = ".repotoire/kuzu_db"
-    
+
     return KuzuClient(db_path=db_path)

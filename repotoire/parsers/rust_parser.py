@@ -9,20 +9,19 @@ Performance:
 - Memory efficient: No Python GIL contention during parsing
 """
 
-import os
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from collections import defaultdict
 
+from repotoire.logging_config import get_logger
 from repotoire.models import (
+    ClassEntity,
     Entity,
     FileEntity,
-    ClassEntity,
     FunctionEntity,
     Relationship,
     RelationshipType,
 )
-from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -326,7 +325,7 @@ def _convert_parsed_file(
 
                 # Try to resolve the callee to an internal entity
                 resolved_target = None
-                
+
                 # Check if callee matches any known function
                 if callee in func_qn_by_name:
                     # Prefer functions in the same file
@@ -337,11 +336,11 @@ def _convert_parsed_file(
                             break
                     if not resolved_target and candidates:
                         resolved_target = candidates[0]
-                
+
                 # Check class constructors
                 if not resolved_target and callee in class_qn_map:
                     resolved_target = class_qn_map[callee]
-                
+
                 # Create appropriate relationship type
                 if resolved_target:
                     # Resolved internal call

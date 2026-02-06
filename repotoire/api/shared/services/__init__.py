@@ -17,6 +17,18 @@ from .billing import (
     has_feature,
     increment_usage,
 )
+from .circuit_breaker import (
+    CircuitBreaker,
+    CircuitOpenError,
+    CircuitState,
+    circuit_breaker,
+    get_all_circuit_breakers,
+    get_circuit_breaker,
+    get_clerk_circuit_breaker,
+    get_github_circuit_breaker,
+    get_openai_circuit_breaker,
+    get_stripe_circuit_breaker,
+)
 from .encryption import TokenEncryption, get_token_encryption
 from .gdpr import (
     EXPORT_EXPIRY_HOURS,
@@ -43,18 +55,6 @@ from .stripe_service import (
     SEAT_PRICE_IDS,
     StripeService,
     price_id_to_tier,
-)
-from .circuit_breaker import (
-    CircuitBreaker,
-    CircuitOpenError,
-    CircuitState,
-    circuit_breaker,
-    get_circuit_breaker,
-    get_all_circuit_breakers,
-    get_openai_circuit_breaker,
-    get_stripe_circuit_breaker,
-    get_github_circuit_breaker,
-    get_clerk_circuit_breaker,
 )
 
 __all__ = [

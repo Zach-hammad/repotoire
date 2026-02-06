@@ -311,7 +311,7 @@ test.describe("Repository Analysis", () => {
     test("shows total findings count", async ({ page }) => {
       // Skip on mobile - dashboard layout differs
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/dashboard");
@@ -331,7 +331,7 @@ test.describe("Repository Analysis", () => {
     test("shows file hotspots section", async ({ page }) => {
       // Skip on mobile - dashboard layout differs
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/dashboard");
@@ -352,7 +352,7 @@ test.describe("Repository Analysis", () => {
     test("shows AI fixes section", async ({ page }) => {
       // Skip on mobile - dashboard layout differs
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/dashboard");

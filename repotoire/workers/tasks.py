@@ -27,6 +27,7 @@ from uuid import UUID
 from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import select, update
 
+from repotoire.api.shared.services.billing import get_plan_limits
 from repotoire.db.models import (
     AnalysisRun,
     AnalysisStatus,
@@ -39,7 +40,6 @@ from repotoire.db.models.finding import FindingSeverity
 from repotoire.db.session import get_sync_session
 from repotoire.logging_config import get_logger
 from repotoire.workers.celery_app import celery_app
-from repotoire.api.shared.services.billing import get_plan_limits
 from repotoire.workers.limits import with_concurrency_limit
 from repotoire.workers.progress import ProgressTracker
 
@@ -56,34 +56,34 @@ logger = get_logger(__name__)
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict
 
 
 @dataclass
 class AnalysisProfile:
     """Profiling data for analysis runs."""
-    
+
     analysis_run_id: str
     timings: Dict[str, float] = field(default_factory=dict)
     started_at: float = field(default_factory=time.perf_counter)
-    
+
     def record(self, phase: str, duration: float) -> None:
         """Record timing for a phase."""
         self.timings[phase] = duration
         logger.info(f"[PROFILE] {phase}: {duration:.2f}s")
-    
+
     def summary(self) -> str:
         """Generate profiling summary."""
         total = sum(self.timings.values())
         lines = [f"[PROFILE] Analysis {self.analysis_run_id} Summary:"]
         lines.append(f"  Total: {total:.2f}s ({total/60:.1f}min)")
-        
+
         # Sort by duration (longest first)
         sorted_phases = sorted(self.timings.items(), key=lambda x: -x[1])
         for phase, duration in sorted_phases:
             pct = (duration / total * 100) if total > 0 else 0
             lines.append(f"  {phase}: {duration:.2f}s ({pct:.1f}%)")
-        
+
         return "\n".join(lines)
 
 
@@ -1099,7 +1099,6 @@ def ingest_git_history_task(
     import asyncio
     import shutil
     import subprocess
-    from pathlib import Path
 
     # Clone to a temporary directory
     clone_dir = CLONE_BASE_DIR / f"git_history_{repo_full_name.replace('/', '_')}_{repo_id[:8]}"

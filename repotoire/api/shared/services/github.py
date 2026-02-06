@@ -379,8 +379,8 @@ class GitHubAppClient:
         Returns:
             True if signature is valid, False otherwise.
         """
-        import hmac
         import hashlib
+        import hmac
 
         if not self.webhook_secret:
             logger.warning("GITHUB_WEBHOOK_SECRET not set, skipping verification")

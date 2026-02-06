@@ -33,16 +33,15 @@ Stripe Setup:
 
 import logging
 import os
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Optional
+from typing import Any, Optional
 from uuid import UUID
 
 import stripe
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from repotoire.db.models import Organization, Subscription, SubscriptionStatus
+from repotoire.db.models import Organization, SubscriptionStatus
 from repotoire.sandbox.metrics import SandboxMetrics
 
 logger = logging.getLogger(__name__)

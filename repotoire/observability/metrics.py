@@ -33,13 +33,13 @@ logger = get_logger(__name__)
 # Check for prometheus_client availability
 try:
     from prometheus_client import (
-        Counter,
-        Histogram,
-        Gauge,
-        CollectorRegistry,
-        start_http_server,
         REGISTRY,
+        CollectorRegistry,
+        Counter,
+        Gauge,
+        Histogram,
         generate_latest,
+        start_http_server,
     )
     HAS_PROMETHEUS = True
 except ImportError:

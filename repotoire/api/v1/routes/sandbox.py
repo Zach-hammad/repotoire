@@ -1,34 +1,27 @@
 """API routes for sandbox metrics, cost tracking, and quota management."""
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from repotoire.api.shared.auth import ClerkUser, get_current_user, require_org_admin
 from repotoire.db.models import PlanTier
+from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
-from repotoire.sandbox.metrics import SandboxMetricsCollector
-from repotoire.sandbox.quotas import (
-    SandboxQuota,
-    QuotaOverride,
-    TIER_QUOTAS,
-    get_quota_for_tier,
-)
-from repotoire.sandbox.usage import SandboxUsageTracker, get_usage_tracker
+from repotoire.sandbox.billing import get_sandbox_billing_service
 from repotoire.sandbox.enforcement import (
-    QuotaEnforcer,
-    QuotaStatus,
     QuotaCheckResult,
-    QuotaWarningLevel,
-    QuotaType,
+    QuotaStatus,
     get_quota_enforcer,
 )
-from repotoire.sandbox.billing import get_sandbox_billing_service
-from repotoire.db.session import get_db
-from sqlalchemy.ext.asyncio import AsyncSession
-from uuid import UUID
+from repotoire.sandbox.metrics import SandboxMetricsCollector
+from repotoire.sandbox.quotas import (
+    QuotaOverride,
+    get_quota_for_tier,
+)
 
 logger = get_logger(__name__)
 
@@ -747,8 +740,9 @@ async def get_billing_usage(
     service = get_sandbox_billing_service()
 
     # Get organization from user
-    from repotoire.db.models import Organization
     from sqlalchemy import select
+
+    from repotoire.db.models import Organization
 
     org_result = await db.execute(
         select(Organization).where(Organization.clerk_org_id == user.org_id)
@@ -822,8 +816,9 @@ async def get_billing_status(
     service = get_sandbox_billing_service()
 
     # Get organization from user
-    from repotoire.db.models import Organization
     from sqlalchemy import select
+
+    from repotoire.db.models import Organization
 
     subscription_item_id = None
     org_result = await db.execute(

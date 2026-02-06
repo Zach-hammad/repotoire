@@ -793,7 +793,7 @@ async def get_api_key_status(
             org = await session.get(Organization, UUID(org_id))
         except (ValueError, TypeError):
             org = None
-    
+
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
@@ -867,7 +867,7 @@ async def set_api_keys(
             org = await session.get(Organization, UUID(org_id))
         except (ValueError, TypeError):
             org = None
-    
+
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
@@ -986,7 +986,7 @@ async def delete_api_keys(
             org = await session.get(Organization, UUID(org_id))
         except (ValueError, TypeError):
             org = None
-    
+
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 

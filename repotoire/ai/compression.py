@@ -11,11 +11,10 @@ Compression pipeline:
 Storage: 4096 * 4 bytes = 16KB → 2048 * 1 byte = 2KB per embedding
 """
 
-import os
-import json
 import pickle
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional
+
 import numpy as np
 
 from repotoire.logging_config import get_logger

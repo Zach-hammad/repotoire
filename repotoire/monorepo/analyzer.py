@@ -6,11 +6,11 @@ Analyzes individual packages and calculates per-package health scores.
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from repotoire.graph import FalkorDBClient
 from repotoire.detectors import AnalysisEngine
-from repotoire.models import CodebaseHealth, Finding
-from repotoire.monorepo.models import Package, PackageHealth, MonorepoHealth
+from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
+from repotoire.models import Finding
+from repotoire.monorepo.models import MonorepoHealth, Package, PackageHealth
 
 logger = get_logger(__name__)
 

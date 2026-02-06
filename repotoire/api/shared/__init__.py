@@ -11,16 +11,16 @@ This package contains modules shared across API versions:
 # Re-export commonly used items for convenience
 from repotoire.api.shared.auth import (
     ClerkUser,
+    StateStoreError,
+    StateStoreUnavailableError,
+    StateTokenStore,
+    close_redis_client,
     get_clerk_client,
     get_current_user,
     get_optional_user,
+    get_state_store,
     require_org,
     require_org_admin,
-    StateTokenStore,
-    StateStoreError,
-    StateStoreUnavailableError,
-    get_state_store,
-    close_redis_client,
 )
 
 __all__ = [

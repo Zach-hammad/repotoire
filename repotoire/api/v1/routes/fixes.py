@@ -5,45 +5,48 @@ from __future__ import annotations
 import ast
 import time
 from datetime import datetime
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from repotoire.autofix.models import (
-    FixProposal,
-    FixStatus as AutofixFixStatus,
-    FixConfidence as AutofixFixConfidence,
-    FixType as AutofixFixType,
-)
-from repotoire.autofix.entitlements import (
-    FeatureAccess,
-    get_customer_entitlement,
-)
+from repotoire.api.models import PreviewCheck, PreviewResult
+from repotoire.api.shared.auth import ClerkUser, get_current_user
+from repotoire.api.shared.middleware.usage import enforce_feature
 from repotoire.autofix.best_of_n import (
     BestOfNConfig,
     BestOfNGenerator,
     BestOfNNotAvailableError,
     BestOfNUsageLimitError,
 )
-from repotoire.api.shared.auth import ClerkUser, get_current_user
-from repotoire.api.shared.middleware.usage import enforce_feature
-from repotoire.api.models import PreviewResult, PreviewCheck
+from repotoire.autofix.entitlements import (
+    get_customer_entitlement,
+)
+from repotoire.autofix.models import (
+    FixConfidence as AutofixFixConfidence,
+)
+from repotoire.autofix.models import (
+    FixProposal,
+)
+from repotoire.autofix.models import (
+    FixStatus as AutofixFixStatus,
+)
+from repotoire.autofix.models import (
+    FixType as AutofixFixType,
+)
 from repotoire.db.models import Organization, PlanTier
-from repotoire.db.models.fix import Fix, FixStatus, FixConfidence, FixType
+from repotoire.db.models.fix import Fix, FixConfidence, FixStatus, FixType
 from repotoire.db.models.user import User
 from repotoire.db.repositories.fix import FixRepository
 from repotoire.db.session import get_db
-from repotoire.logging_config import get_logger
 from repotoire.detectors.health_delta import (
     HealthScoreDeltaCalculator,
-    HealthScoreDelta,
-    BatchHealthScoreDelta,
-    ImpactLevel,
 )
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from repotoire.logging_config import get_logger
 
 if TYPE_CHECKING:
     from repotoire.cache import PreviewCache
@@ -63,7 +66,8 @@ def _db_fix_to_preview_proposal(fix: Fix) -> FixProposal:
     This allows the preview endpoint to work with fixes stored in the database,
     not just the in-memory _fixes_store used by Best-of-N generation.
     """
-    from repotoire.autofix.models import CodeChange, Evidence, Finding as AutofixFinding
+    from repotoire.autofix.models import CodeChange, Evidence
+    from repotoire.autofix.models import Finding as AutofixFinding
     from repotoire.models import Severity
 
     # Create a minimal finding for the proposal
@@ -532,8 +536,8 @@ async def estimate_fix_impact(
     db: AsyncSession = Depends(get_db),
 ) -> HealthScoreDeltaResponse:
     """Estimate how applying this fix would impact the health score."""
-    from repotoire.db.models import AnalysisRun, Repository
-    from repotoire.models import Finding, Severity, MetricsBreakdown
+    from repotoire.db.models import AnalysisRun
+    from repotoire.models import Finding, MetricsBreakdown, Severity
 
     repo = FixRepository(db)
     try:
@@ -650,7 +654,7 @@ async def estimate_batch_fix_impact(
     db: AsyncSession = Depends(get_db),
 ) -> BatchHealthScoreDeltaResponse:
     """Estimate aggregate impact of applying multiple fixes."""
-    from repotoire.models import Finding, Severity, MetricsBreakdown
+    from repotoire.models import Finding, MetricsBreakdown, Severity
 
     repo = FixRepository(db)
     individual_deltas: List[HealthScoreDeltaResponse] = []
@@ -911,18 +915,28 @@ async def apply_fix(
 ) -> dict:
     """Apply an approved fix to the repository."""
     from pathlib import Path
+
     from repotoire.autofix.applicator import FixApplicator
     from repotoire.autofix.models import (
-        FixProposal as AutofixProposal,
         CodeChange as AutofixCodeChange,
+    )
+    from repotoire.autofix.models import (
         Evidence as AutofixEvidence,
-        FixStatus as AutofixStatus,
+    )
+    from repotoire.autofix.models import (
         FixConfidence as AutofixConfidence,
+    )
+    from repotoire.autofix.models import (
+        FixProposal as AutofixProposal,
+    )
+    from repotoire.autofix.models import (
+        FixStatus as AutofixStatus,
+    )
+    from repotoire.autofix.models import (
         FixType as AutofixType,
     )
-    from repotoire.models import Finding, Severity
     from repotoire.db.models.analysis import AnalysisRun
-    from repotoire.db.models.repository import Repository
+    from repotoire.models import Finding, Severity
 
     repo = FixRepository(db)
     try:
@@ -956,7 +970,7 @@ async def apply_fix(
     if github_repo and github_repo.github_repo_id:
         try:
             from repotoire.api.shared.services.github import GitHubAppClient
-            from repotoire.db.models import GitHubRepository, GitHubInstallation
+            from repotoire.db.models import GitHubInstallation, GitHubRepository
 
             # Look up the CURRENT installation ID from GitHubInstallation table
             # (Repository.github_installation_id may be stale if app was reinstalled)
@@ -1221,8 +1235,8 @@ async def preview_fix(
 
     try:
         # Get repository info for GitHub file fetching
+        from repotoire.db.models import AnalysisRun, GitHubInstallation, GitHubRepository
         from repotoire.db.models.repository import Repository
-        from repotoire.db.models import AnalysisRun, GitHubRepository, GitHubInstallation
 
         if db_fix_obj and db_fix_obj.analysis_run_id:
             analysis_run = await db.get(AnalysisRun, db_fix_obj.analysis_run_id)
@@ -1346,9 +1360,9 @@ async def preview_fix(
         # Import sandbox components
         from repotoire.sandbox import (
             CodeValidator,
-            ValidationConfig,
             SandboxConfig,
             SandboxConfigurationError,
+            ValidationConfig,
         )
 
         # Create validation config
@@ -2113,7 +2127,7 @@ async def trigger_consistency_sync(
         task = sync_fix_finding_status_mismatches.delay()
 
         logger.info(
-            f"Queued status sync task",
+            "Queued status sync task",
             extra={"task_id": task.id, "user_id": user.user_id},
         )
 
@@ -2164,7 +2178,7 @@ async def trigger_orphan_cleanup(
         task = cleanup_orphaned_fixes.delay(max_age_days=max_age_days)
 
         logger.info(
-            f"Queued orphan cleanup task",
+            "Queued orphan cleanup task",
             extra={"task_id": task.id, "user_id": user.user_id, "max_age_days": max_age_days},
         )
 

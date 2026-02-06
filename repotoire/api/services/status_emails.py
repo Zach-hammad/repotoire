@@ -402,7 +402,7 @@ async def send_email(message: EmailMessage) -> bool:
     else:
         # Log email in development
         logger.info(
-            f"Email would be sent (no provider configured)",
+            "Email would be sent (no provider configured)",
             extra={
                 "to": message.to,
                 "subject": message.subject,

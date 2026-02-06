@@ -11,9 +11,9 @@ Key features:
 - YAML/JSON rule definitions
 """
 
+from repotoire.rules.daemon import RuleRefreshDaemon, get_daemon
 from repotoire.rules.engine import RuleEngine
 from repotoire.rules.validator import RuleValidator
-from repotoire.rules.daemon import RuleRefreshDaemon, get_daemon
 
 __all__ = [
     "RuleEngine",

@@ -20,7 +20,6 @@ the centralized config system under the hood.
 from __future__ import annotations
 
 import os
-import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
@@ -85,7 +84,7 @@ class SandboxConfig:
         Returns:
             SandboxConfig instance populated from the centralized config
         """
-        from repotoire.config import load_config, RepotoireConfig
+        from repotoire.config import load_config
 
         if config is None:
             config = load_config()

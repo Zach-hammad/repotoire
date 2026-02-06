@@ -1,9 +1,10 @@
 """Add Clue nodes for AI-generated semantic summaries."""
 
 import re
-from repotoire.migrations.migration import Migration, MigrationError
+
 from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
+from repotoire.migrations.migration import Migration, MigrationError
 
 logger = get_logger(__name__)
 

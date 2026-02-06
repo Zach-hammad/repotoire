@@ -206,7 +206,7 @@ test.describe("Authentication", () => {
     test("pricing page is accessible without auth", async ({ page }) => {
       // Skip on mobile - pricing layout may differ significantly
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/pricing");

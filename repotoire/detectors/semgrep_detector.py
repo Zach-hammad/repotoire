@@ -21,17 +21,17 @@ Performance: ~5-15 seconds even on large codebases
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.external_tool_runner import (
-    run_external_tool,
     get_graph_context,
+    run_external_tool,
 )
 from repotoire.graph import FalkorDBClient
 from repotoire.graph.enricher import GraphEnricher
-from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 logger = get_logger(__name__)
 
@@ -267,7 +267,7 @@ class SemgrepDetector(CodeSmellDetector):
         if graph_context.get("file_loc"):
             description += f"**File Size**: {graph_context['file_loc']} LOC\n"
 
-        description += f"\n**Impact**: Security vulnerability detected by Semgrep pattern matching.\n"
+        description += "\n**Impact**: Security vulnerability detected by Semgrep pattern matching.\n"
 
         # Create finding
         finding_id = str(uuid.uuid4())

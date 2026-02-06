@@ -1,11 +1,10 @@
 """Adaptive confidence adjustment based on historical feedback."""
 
-from typing import Optional, List
+from typing import List, Optional
 
-from repotoire.logging_config import get_logger
+from repotoire.autofix.learning.store import MIN_DECISIONS_FOR_LEARNING, DecisionStore
 from repotoire.autofix.models import FixConfidence
-from repotoire.autofix.learning.store import DecisionStore, MIN_DECISIONS_FOR_LEARNING
-from repotoire.autofix.learning.models import LearningStats, RejectionReason
+from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 

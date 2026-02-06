@@ -10,7 +10,6 @@ from typing import Optional
 
 from repotoire.db.models import PlanTier
 
-
 # Template identifiers (must match e2b.toml names)
 TEMPLATE_ANALYZER = "repotoire-analyzer"
 TEMPLATE_ENTERPRISE = "repotoire-enterprise"

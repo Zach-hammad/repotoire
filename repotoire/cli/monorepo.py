@@ -8,22 +8,23 @@ Provides commands for:
 - Build impact recommendations
 """
 
-import click
 import json
 from pathlib import Path
+
+import click
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 from rich.tree import Tree
 
 from repotoire.graph.factory import create_client
+from repotoire.logging_config import get_logger
 from repotoire.monorepo import (
-    PackageDetector,
-    PackageAnalyzer,
     AffectedPackagesDetector,
     CrossPackageAnalyzer,
+    PackageAnalyzer,
+    PackageDetector,
 )
-from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 console = Console()

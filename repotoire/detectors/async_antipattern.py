@@ -15,8 +15,8 @@ from typing import Dict, List, Optional, Set
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph.base import DatabaseClient
 from repotoire.graph.enricher import GraphEnricher
-from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 logger = get_logger(__name__)
 

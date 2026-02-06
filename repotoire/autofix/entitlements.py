@@ -216,7 +216,7 @@ async def _get_monthly_usage(
     Returns:
         Number of Best-of-N runs this month
     """
-    from sqlalchemy import select, and_
+    from sqlalchemy import and_, select
 
     try:
         # Import the model dynamically to avoid circular imports

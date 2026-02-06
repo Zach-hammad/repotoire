@@ -7,20 +7,20 @@ Provides commands for:
 - Security audits
 """
 
-import click
 from pathlib import Path
+
+import click
 from rich.console import Console
 from rich.table import Table
-from rich.panel import Panel
 
 from repotoire.graph.factory import create_client
+from repotoire.logging_config import get_logger
 from repotoire.security import (
+    ComplianceFramework,
+    ComplianceReporter,
     DependencyScanner,
     SBOMGenerator,
-    ComplianceReporter,
-    ComplianceFramework,
 )
-from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 console = Console()
@@ -201,7 +201,7 @@ def generate_sbom(repository_path, format, output, requirements):
         # Get summary
         summary = generator.get_summary(sbom_path)
 
-        console.print(f"\n[bold green]✅ SBOM generated successfully![/bold green]\n")
+        console.print("\n[bold green]✅ SBOM generated successfully![/bold green]\n")
         console.print(f"[cyan]📄 Output file:[/cyan] {sbom_path}")
         console.print(f"[cyan]📊 Total components:[/cyan] {summary['total_components']}")
 
@@ -274,12 +274,12 @@ def compliance_report(
 
         # Display summary
         summary = report["summary"]
-        console.print(f"\n[bold]Compliance Summary:[/bold]\n")
+        console.print("\n[bold]Compliance Summary:[/bold]\n")
         console.print(f"  [cyan]Score:[/cyan] {summary['compliance_score']}/100")
         console.print(f"  [cyan]Status:[/cyan] {summary['status'].replace('_', ' ').title()}")
         console.print(f"  [cyan]Total Findings:[/cyan] {summary['total_findings']}")
 
-        console.print(f"\n[bold]Findings by Severity:[/bold]")
+        console.print("\n[bold]Findings by Severity:[/bold]")
         for severity, count in summary["by_severity"].items():
             if count > 0:
                 color = {
@@ -295,7 +295,7 @@ def compliance_report(
         passed = sum(1 for c in controls if c["status"] == "pass")
         failed = sum(1 for c in controls if c["status"] == "fail")
 
-        console.print(f"\n[bold]Controls Assessment:[/bold]")
+        console.print("\n[bold]Controls Assessment:[/bold]")
         console.print(f"  [green]✅ Passed:[/green] {passed}")
         console.print(f"  [red]❌ Failed:[/red] {failed}")
 
@@ -399,7 +399,7 @@ def audit(repository_path, output_dir):
         results["failed"].append("Compliance report")
 
     # Summary
-    console.print(f"\n[bold]Security Audit Complete![/bold]")
+    console.print("\n[bold]Security Audit Complete![/bold]")
     console.print(f"  [green]✅ Successful: {len(results['success'])}[/green]")
     if results["failed"]:
         console.print(f"  [red]❌ Failed: {len(results['failed'])}[/red]")

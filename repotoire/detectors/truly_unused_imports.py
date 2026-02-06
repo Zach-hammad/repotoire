@@ -11,11 +11,12 @@ Addresses: FAL-114
 REPO-416: Added path cache support for O(1) reachability queries.
 """
 
-from typing import List, Dict, Any, Optional, Set, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.models import Finding, Severity
 from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
+from repotoire.models import Finding, Severity
 
 # Try to import Rust path cache for O(1) reachability queries (REPO-416)
 try:

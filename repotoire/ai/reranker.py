@@ -15,7 +15,7 @@ import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional, Literal
+from typing import Dict, List, Literal, Optional
 
 from repotoire.logging_config import get_logger
 

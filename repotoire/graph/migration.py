@@ -4,12 +4,12 @@ Provides export, import, and validation for migrating graph data
 between different database backends.
 """
 
-import json
 import gzip
+import json
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
-from dataclasses import dataclass, asdict
+from typing import Any, Dict, List, Optional
 
 from repotoire.graph.base import DatabaseClient
 from repotoire.logging_config import get_logger

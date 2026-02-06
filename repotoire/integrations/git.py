@@ -1,12 +1,12 @@
 """Git repository integration for temporal code analysis."""
 
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Set
-import os
 
-from repotoire.models import GitCommit
 from repotoire.logging_config import get_logger
+from repotoire.models import GitCommit
 
 logger = get_logger(__name__)
 

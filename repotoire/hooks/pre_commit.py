@@ -5,19 +5,16 @@ This script is designed to be called by the pre-commit framework.
 It analyzes staged Python files and blocks commits if critical issues are found.
 """
 
-import sys
 import argparse
-import tempfile
-import shutil
-from pathlib import Path
-from typing import List, Set
 import subprocess
+import sys
+from typing import List
 
-from repotoire.graph import FalkorDBClient, create_falkordb_client
-from repotoire.pipeline.ingestion import IngestionPipeline
 from repotoire.detectors.engine import AnalysisEngine
-from repotoire.models import Severity
+from repotoire.graph import create_falkordb_client
 from repotoire.logging_config import get_logger
+from repotoire.models import Severity
+from repotoire.pipeline.ingestion import IngestionPipeline
 
 logger = get_logger(__name__)
 
@@ -215,7 +212,7 @@ def main() -> int:
         # Determine pass/fail
         if critical_findings:
             print(f"\n❌ Commit blocked: {len(critical_findings)} issue(s) at or above '{args.fail_on}' severity")
-            print(f"   Fix the issues above or use 'git commit --no-verify' to bypass")
+            print("   Fix the issues above or use 'git commit --no-verify' to bypass")
             return 1
         else:
             print(f"\n⚠️  Warning: Found {len(relevant_findings)} issue(s) below '{args.fail_on}' threshold")

@@ -25,16 +25,15 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import sys
 import threading
 from typing import Any
 
 import httpx
+import mcp.types as types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-import mcp.types as types
 
 from repotoire.logging_config import get_logger
 
@@ -651,7 +650,7 @@ async def _handle_ask_question(arguments: dict[str, Any]) -> list[types.TextCont
 
     follow_ups = result.get("follow_up_questions", [])
     if follow_ups:
-        output += f"\n**Suggested follow-up questions:**\n"
+        output += "\n**Suggested follow-up questions:**\n"
         for q in follow_ups[:3]:
             output += f"- {q}\n"
 
@@ -702,7 +701,7 @@ async def _handle_get_prompt_context(arguments: dict[str, Any]) -> list[types.Te
             )
 
             output = f"**Context for task:** {arguments['task']}\n\n"
-            output += f"*Note: Using semantic search for context*\n\n"
+            output += "*Note: Using semantic search for context*\n\n"
 
             for i, entity in enumerate(search_result.get("results", []), 1):
                 output += f"### {i}. {entity['qualified_name']}\n"
@@ -900,7 +899,7 @@ async def _handle_list_repositories(arguments: dict[str, Any]) -> list[types.Tex
 
             output += f"| `{name}` | {health} | {last_analyzed} |\n"
 
-        output += f"\n**Usage:** Use a repository ID with `trigger_analysis` to start analysis.\n"
+        output += "\n**Usage:** Use a repository ID with `trigger_analysis` to start analysis.\n"
         output += "\n**Repository IDs:**\n"
         for repo in repos:
             name = repo.get("full_name", "Unknown")
@@ -946,9 +945,9 @@ async def _handle_trigger_analysis(arguments: dict[str, Any]) -> list[types.Text
         if message:
             output += f"- **Message:** {message}\n"
 
-        output += f"\n**Next steps:**\n"
+        output += "\n**Next steps:**\n"
         output += f"1. Use `get_analysis_status` with ID `{analysis_id}` to check progress\n"
-        output += f"2. Analysis typically takes 1-5 minutes depending on codebase size\n"
+        output += "2. Analysis typically takes 1-5 minutes depending on codebase size\n"
 
         return [types.TextContent(type="text", text=output)]
 
@@ -986,7 +985,7 @@ async def _handle_get_analysis_status(arguments: dict[str, Any]) -> list[types.T
         progress = result.get("progress_percent", 0)
         current_step = result.get("current_step", "")
 
-        output = f"**Analysis Status**\n\n"
+        output = "**Analysis Status**\n\n"
         output += f"- **ID:** `{analysis_run_id}`\n"
         output += f"- **Status:** {status}\n"
 
@@ -1005,8 +1004,8 @@ async def _handle_get_analysis_status(arguments: dict[str, Any]) -> list[types.T
             files_analyzed = result.get("files_analyzed", 0)
             duration = result.get("duration_seconds", 0)
 
-            output += f"- **Progress:** 100%\n\n"
-            output += f"**Results:**\n"
+            output += "- **Progress:** 100%\n\n"
+            output += "**Results:**\n"
 
             if health_score is not None:
                 grade = _get_grade(health_score)
@@ -1019,7 +1018,7 @@ async def _handle_get_analysis_status(arguments: dict[str, Any]) -> list[types.T
             output += f"- **Files Analyzed:** {files_analyzed}\n"
             output += f"- **Duration:** {duration:.1f}s\n"
 
-            output += f"\n*View full report at https://repotoire.com/dashboard*"
+            output += "\n*View full report at https://repotoire.com/dashboard*"
 
         elif status == "failed":
             error = result.get("error_message", "Unknown error")

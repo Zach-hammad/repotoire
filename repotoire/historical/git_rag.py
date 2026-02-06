@@ -20,15 +20,14 @@ Example:
     >>> answer = await rag.ask("What authentication changes were made?")
 """
 
-import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from repotoire.ai.embeddings import CodeEmbedder
 from repotoire.graph.base import DatabaseClient
-from repotoire.models import CommitEntity, GitCommit, RelationshipType
 from repotoire.logging_config import get_logger
+from repotoire.models import CommitEntity, GitCommit
 
 logger = get_logger(__name__)
 

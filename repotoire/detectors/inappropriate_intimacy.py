@@ -12,12 +12,13 @@ REPO-416: Added path cache support for O(1) reachability queries.
 """
 
 import json
-from typing import List, Dict, Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.models import CollaborationMetadata, Finding, Severity
-from repotoire.graph.enricher import GraphEnricher
 from repotoire.graph import FalkorDBClient
+from repotoire.graph.enricher import GraphEnricher
 from repotoire.logging_config import get_logger
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 if TYPE_CHECKING:
     from repotoire_fast import PyPathCache

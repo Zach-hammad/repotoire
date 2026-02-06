@@ -10,8 +10,8 @@ Part of REPO-152 (Deduplication) and REPO-156 (Voting Engine).
 from dataclasses import dataclass
 from typing import List, Optional
 
-from repotoire.models import Finding
 from repotoire.logging_config import get_logger
+from repotoire.models import Finding
 
 logger = get_logger(__name__)
 

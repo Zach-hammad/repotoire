@@ -6,15 +6,15 @@ Provides commands for:
 - Interactive labeling with active learning
 """
 
-import click
 import json
 from pathlib import Path
 from typing import Dict, Optional
 
+import click
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 from repotoire.logging_config import get_logger
 
@@ -249,7 +249,7 @@ def label(
         # Continue from previous session
         repotoire ml label data.json --import-labels previous_labels.json
     """
-    from repotoire.ml.training_data import TrainingDataset, ActiveLearningLabeler
+    from repotoire.ml.training_data import ActiveLearningLabeler, TrainingDataset
 
     try:
         # Check for questionary
@@ -300,7 +300,7 @@ def label(
 
         # Print labeling stats
         stats = labeler.get_labeling_stats()
-        console.print(f"[cyan]Session stats:[/cyan]")
+        console.print("[cyan]Session stats:[/cyan]")
         console.print(f"  Total labeled: {stats['total_labeled']}")
         console.print(f"  Buggy: {stats['buggy_count']}")
         console.print(f"  Clean: {stats['clean_count']}")
@@ -443,8 +443,9 @@ def merge_datasets(
 
         repotoire ml merge-datasets combined.json data1.json data2.json data3.json
     """
-    from repotoire.ml.training_data import TrainingDataset
     from datetime import datetime
+
+    from repotoire.ml.training_data import TrainingDataset
 
     if len(dataset_paths) < 2:
         console.print("[red]Need at least 2 datasets to merge[/red]")
@@ -522,7 +523,6 @@ def merge_datasets(
 
 def _print_stats(dataset) -> None:
     """Print dataset statistics in a formatted table."""
-    from repotoire.ml.training_data import TrainingDataset
 
     table = Table(title="Training Data Statistics", show_header=True, header_style="bold cyan")
     table.add_column("Metric", style="cyan")
@@ -682,8 +682,8 @@ def generate_embeddings(
         # DFS-biased walks (structural roles)
         repotoire ml generate-embeddings --return-factor 2.0 --in-out-factor 0.5
     """
-    from repotoire.ml.node2vec_embeddings import Node2VecEmbedder, Node2VecConfig
     from repotoire.graph.factory import create_client
+    from repotoire.ml.node2vec_embeddings import Node2VecConfig, Node2VecEmbedder
 
     console.print(f"[bold blue]Generating {embedding_type} embeddings[/bold blue]")
     console.print(f"[dim]Dimension: {dimension}, Walk length: {walk_length}[/dim]\n")
@@ -866,12 +866,12 @@ def fine_tune_embeddings(
         repotoire ml fine-tune-embeddings -o models/quick \\
             --max-code-docstring-pairs 1000 --epochs 1
     """
+    from repotoire.graph.factory import create_client
     from repotoire.ml.contrastive_learning import (
         ContrastiveConfig,
         ContrastivePairGenerator,
         ContrastiveTrainer,
     )
-    from repotoire.graph.factory import create_client
 
     console.print("[bold blue]Fine-tuning embeddings with contrastive learning[/bold blue]")
     console.print(f"[dim]Base model: {base_model}[/dim]")
@@ -1035,10 +1035,11 @@ def train_bug_predictor(
         # Custom parameters
         repotoire ml train-bug-predictor -d data.json --n-estimators 200 --max-depth 15
     """
+    from datetime import datetime
+
+    from repotoire.graph.factory import create_client
     from repotoire.ml.bug_predictor import BugPredictor, BugPredictorConfig
     from repotoire.ml.training_data import TrainingDataset, TrainingExample
-    from repotoire.graph.factory import create_client
-    from datetime import datetime
 
     console.print("[bold blue]Training bug prediction model[/bold blue]\n")
 
@@ -1046,7 +1047,7 @@ def train_bug_predictor(
         # Load training data
         with open(training_data) as f:
             data = json.load(f)
-        
+
         # Handle both single-project and multi-project formats
         if "examples" in data:
             # Standard TrainingDataset format
@@ -1064,10 +1065,10 @@ def train_bug_predictor(
                     commit_sha=label.get("commit_sha"),
                     commit_message=label.get("commit_message"),
                 ))
-            
+
             # Get unique projects
             projects = list(set(l.get("project", "unknown") for l in data["labels"]))
-            
+
             dataset = TrainingDataset(
                 examples=examples,
                 repository=", ".join(projects),
@@ -1219,8 +1220,8 @@ def predict_bugs(
         # Predict single function
         repotoire ml predict-bugs -m model.pkl -f mymodule.MyClass.risky_method
     """
-    from repotoire.ml.bug_predictor import BugPredictor
     from repotoire.graph.factory import create_client
+    from repotoire.ml.bug_predictor import BugPredictor
 
     console.print("[bold blue]Predicting bug-prone functions[/bold blue]\n")
 
@@ -1817,7 +1818,7 @@ def _print_multimodal_explanation(explanation) -> None:
         )
     )
 
-    console.print(f"\n[bold]Interpretation:[/bold]")
+    console.print("\n[bold]Interpretation:[/bold]")
     console.print(f"  {explanation.interpretation}")
 
 
@@ -2073,13 +2074,13 @@ def train_graphsage(
             --hidden-dim 256 --num-layers 3 --epochs 200
     """
     try:
+        from repotoire.graph.factory import create_client
         from repotoire.ml.cross_project_trainer import (
-            CrossProjectTrainer,
             CrossProjectDataLoader,
+            CrossProjectTrainer,
             CrossProjectTrainingConfig,
         )
         from repotoire.ml.graphsage_predictor import GraphSAGEConfig
-        from repotoire.graph.factory import create_client
     except ImportError as e:
         console.print(f"[red]Error: {e}[/red]")
         console.print("[yellow]Install with: pip install torch torch-geometric[/yellow]")
@@ -2141,8 +2142,8 @@ def train_graphsage(
             # For true cross-project evaluation, you'd need separate FalkorDB instances
             # or use the load_project_from_json method with exported data
             console.print(
-                f"[yellow]Note: True cross-project holdout requires separate graph exports. "
-                f"Using within-graph test split instead.[/yellow]"
+                "[yellow]Note: True cross-project holdout requires separate graph exports. "
+                "Using within-graph test split instead.[/yellow]"
             )
 
     except Exception as e:
@@ -2249,9 +2250,9 @@ def zero_shot_predict(
         repotoire ml zero-shot-predict -m model.pt --threshold 0.7
     """
     try:
+        from repotoire.graph.factory import create_client
         from repotoire.ml.cross_project_trainer import CrossProjectTrainer
         from repotoire.ml.graphsage_predictor import GraphFeatureExtractor
-        from repotoire.graph.factory import create_client
     except ImportError as e:
         console.print(f"[red]Error: {e}[/red]")
         console.print("[yellow]Install with: pip install torch torch-geometric[/yellow]")
@@ -2449,5 +2450,5 @@ def export_graph_data(
     console.print(f"\n[green]Exported {len(nodes)} nodes to {nodes_file}[/green]")
     console.print(f"[green]Exported {len(edges)} edges to {edges_file}[/green]")
     console.print(
-        f"\n[dim]Use with CrossProjectDataLoader.load_project_from_json()[/dim]"
+        "\n[dim]Use with CrossProjectDataLoader.load_project_from_json()[/dim]"
     )

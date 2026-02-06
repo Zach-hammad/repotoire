@@ -23,17 +23,15 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
-from repotoire.api.shared.auth import ClerkUser, get_current_user, get_current_user_or_api_key
+from repotoire.api.shared.auth import ClerkUser, get_current_user_or_api_key
 from repotoire.db.models import (
     Organization,
-    OrganizationMembership,
     Repository,
 )
 from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
-from repotoire.security.secrets_scanner import SecretsScanner, SecretsScanResult
+from repotoire.security.secrets_scanner import SecretsScanner
 
 logger = get_logger(__name__)
 
@@ -251,7 +249,6 @@ async def _clone_and_scan_repository(
     """
     import fnmatch
     import os
-    import shutil
     import subprocess
 
     from repotoire.integrations.github import get_installation_token

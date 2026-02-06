@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import List, Optional
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -24,7 +23,8 @@ from repotoire.db.models import (
     Organization,
     Repository,
 )
-from repotoire.db.models.finding import Finding as DBFinding, FindingSeverity
+from repotoire.db.models.finding import Finding as DBFinding
+from repotoire.db.models.finding import FindingSeverity
 from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
 
@@ -40,7 +40,7 @@ router = APIRouter(prefix="/cli-sync", tags=["cli-sync"])
 
 class FindingUpload(BaseModel):
     """A finding to upload from CLI."""
-    
+
     detector_id: str
     title: str
     description: str
@@ -58,7 +58,7 @@ class FindingUpload(BaseModel):
 
 class HealthScoreUpload(BaseModel):
     """Health score data from CLI."""
-    
+
     health_score: float = Field(ge=0, le=100)
     structure_score: float = Field(ge=0, le=100)
     quality_score: float = Field(ge=0, le=100)
@@ -67,17 +67,17 @@ class HealthScoreUpload(BaseModel):
 
 class CLISyncRequest(BaseModel):
     """Request to sync CLI analysis to cloud."""
-    
+
     # Repository info
     repo_name: str = Field(..., description="Repository name (e.g., 'my-project')")
     repo_url: Optional[str] = Field(None, description="Git remote URL")
     commit_sha: Optional[str] = Field(None, description="Analyzed commit SHA")
     branch: Optional[str] = Field(None, description="Branch name")
-    
+
     # Analysis results
     health: HealthScoreUpload
     findings: List[FindingUpload] = Field(default_factory=list)
-    
+
     # Metadata
     cli_version: str = Field(..., description="CLI version used")
     analyzed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -88,7 +88,7 @@ class CLISyncRequest(BaseModel):
 
 class CLISyncResponse(BaseModel):
     """Response from CLI sync."""
-    
+
     status: str
     repository_id: str
     analysis_id: str
@@ -108,18 +108,18 @@ async def get_org_from_user(session: AsyncSession, user: ClerkUser) -> Organizat
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No organization context. Create or join an organization first.",
         )
-    
+
     result = await session.execute(
         select(Organization).where(Organization.clerk_org_id == user.org_id)
     )
     org = result.scalar_one_or_none()
-    
+
     if not org:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Organization not found",
         )
-    
+
     return org
 
 
@@ -156,10 +156,10 @@ async def upload_cli_analysis(
     **Requires authentication** - run `repotoire login` first.
     """
     org = await get_org_from_user(session, user)
-    
+
     # Find or create repository
     full_name = f"{org.slug}/{sync_data.repo_name}"
-    
+
     result = await session.execute(
         select(Repository).where(
             Repository.organization_id == org.id,
@@ -167,7 +167,7 @@ async def upload_cli_analysis(
         )
     )
     repo = result.scalar_one_or_none()
-    
+
     if not repo:
         # Create new repository record for CLI-synced repo
         # Use 0 for github_repo_id to indicate a local/CLI repo
@@ -182,7 +182,7 @@ async def upload_cli_analysis(
         session.add(repo)
         await session.flush()
         logger.info(f"Created CLI repository {full_name} for org {org.slug}")
-    
+
     # Create analysis run record
     analysis = AnalysisRun(
         repository_id=repo.id,
@@ -200,7 +200,7 @@ async def upload_cli_analysis(
     )
     session.add(analysis)
     await session.flush()
-    
+
     # Create finding records
     findings_created = 0
     for finding_data in sync_data.findings:
@@ -225,19 +225,19 @@ async def upload_cli_analysis(
         )
         session.add(finding)
         findings_created += 1
-    
+
     await session.commit()
-    
+
     # Build dashboard URL
     base_url = "https://app.repotoire.io"
     repo_slug = sync_data.repo_name
     dashboard_url = f"{base_url}/dashboard/{org.slug}/{repo_slug}/analysis/{analysis.id}"
-    
+
     logger.info(
         f"CLI sync completed: repo={repo.full_name}, analysis={analysis.id}, "
         f"findings={findings_created}, user={user.user_id}"
     )
-    
+
     return CLISyncResponse(
         status="synced",
         repository_id=str(repo.id),
@@ -257,7 +257,7 @@ async def list_synced_repositories(
     Returns all repositories in the organization that have CLI-synced analyses.
     """
     org = await get_org_from_user(session, user)
-    
+
     # Get repositories with CLI analyses
     result = await session.execute(
         select(Repository).where(
@@ -266,7 +266,7 @@ async def list_synced_repositories(
         ).order_by(Repository.updated_at.desc())
     )
     repos = result.scalars().all()
-    
+
     return {
         "repositories": [
             {

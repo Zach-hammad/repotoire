@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
-from repotoire.models import CodebaseHealth, Finding, Severity
 from repotoire.logging_config import get_logger
+from repotoire.models import CodebaseHealth, Finding, Severity
 from repotoire.reporters.base_reporter import BaseReporter
 
 logger = get_logger(__name__)

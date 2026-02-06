@@ -9,12 +9,11 @@ Provides functionality for:
 """
 
 import subprocess
-import json
-from pathlib import Path
-from typing import List, Dict, Optional, Any
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from repotoire.autofix.models import FixBatch, FixProposal, FixStatus, FixConfidence
+from repotoire.autofix.models import FixBatch, FixConfidence, FixProposal
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)

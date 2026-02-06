@@ -11,7 +11,7 @@ saving 98.7% in time and cost." - Anthropic (13:11)
 on a file system enables them to read tool definitions on demand." - Anthropic (15:40)
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, List, Optional
 
 # Tool source definitions - loaded on-demand via resources
 # Each tool is a self-contained Python function with docstring and signature

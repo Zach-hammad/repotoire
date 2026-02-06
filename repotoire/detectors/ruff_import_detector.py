@@ -9,17 +9,17 @@ This hybrid approach combines:
 - Consistent reporting with other detectors
 """
 
-import subprocess
 import json
 import re
+import subprocess
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
-from repotoire.graph.enricher import GraphEnricher
-from repotoire.models import CollaborationMetadata, Finding, Severity
 from repotoire.graph import FalkorDBClient
+from repotoire.graph.enricher import GraphEnricher
 from repotoire.logging_config import get_logger
+from repotoire.models import CollaborationMetadata, Finding, Severity
 
 logger = get_logger(__name__)
 

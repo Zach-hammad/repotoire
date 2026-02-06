@@ -417,7 +417,7 @@ class TrialManager:
             raise ValueError(f"Invalid tier: {new_tier}")
 
         if not self._connected:
-            logger.warning(f"Cannot upgrade tier - no DB connection")
+            logger.warning("Cannot upgrade tier - no DB connection")
             return
 
         loop = asyncio.get_event_loop()

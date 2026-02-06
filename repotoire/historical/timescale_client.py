@@ -1,9 +1,8 @@
 """TimescaleDB client for storing and querying code health metrics over time."""
 
 import logging
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Any, List
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

@@ -8,19 +8,19 @@ REPO-192: Replaced GDS with Rust implementations (10-100x faster, database-agnos
 """
 
 import threading
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
+
 from repotoire.graph import FalkorDBClient
 from repotoire.logging_config import get_logger
-from repotoire.validation import validate_identifier, ValidationError
+from repotoire.validation import ValidationError, validate_identifier
 
 # Rust graph algorithms (no GDS dependency!)
 from repotoire_fast import (
-    graph_find_sccs,
-    graph_find_cycles,
-    graph_pagerank,
     graph_betweenness_centrality,
-    graph_leiden,
+    graph_find_sccs,
     graph_harmonic_centrality,
+    graph_leiden,
+    graph_pagerank,
 )
 
 logger = get_logger(__name__)
@@ -50,11 +50,11 @@ def get_top_from_cache(cache: Dict[str, float], limit: int = 50, percentile: flo
     """
     if not cache:
         return []
-    
+
     sorted_items = sorted(cache.items(), key=lambda x: x[1], reverse=True)
     threshold_idx = int(len(sorted_items) * (100 - percentile) / 100)
     threshold = sorted_items[threshold_idx][1] if threshold_idx < len(sorted_items) else 0
-    
+
     results = []
     for name, score in sorted_items[:limit]:
         if score >= threshold:
@@ -1094,17 +1094,17 @@ class GraphAlgorithms:
         with _cache_lock:
             if not _community_cache:
                 return []
-            
+
             # Count members per community
             community_counts: Dict[int, List[str]] = {}
             for name, community_id in _community_cache.items():
                 if community_id not in community_counts:
                     community_counts[community_id] = []
                 community_counts[community_id].append(name)
-            
+
             total = len(_community_cache)
             threshold = total * threshold_percent / 100
-            
+
             results = []
             for community_id, members in community_counts.items():
                 if len(members) >= threshold:
@@ -1114,7 +1114,7 @@ class GraphAlgorithms:
                         "percentage": len(members) / total * 100,
                         "members": members[:10]  # First 10 for display
                     })
-            
+
             return sorted(results, key=lambda x: x["size"], reverse=True)
 
     # -------------------------------------------------------------------------
@@ -1827,11 +1827,11 @@ class GraphAlgorithms:
         try:
             # Filter by repoId for multi-tenant isolation
             repo_filter = self._get_isolation_filter("f")
-            
+
             # Check if client is read-only (CloudProxyClient or Kuzu)
             client_type = type(self.client).__name__
             is_read_only = client_type in ("CloudProxyClient", "KuzuClient")
-            
+
             if is_read_only:
                 # For read-only clients, compute and cache in memory
                 query = f"""
@@ -1845,7 +1845,7 @@ class GraphAlgorithms:
                 RETURN f.qualifiedName AS name, in_degree, out_degree
                 """
                 result = self.client.execute_query(query, self._get_query_params())
-                
+
                 if result:
                     # Cache results in memory
                     global _degree_cache
@@ -1857,7 +1857,7 @@ class GraphAlgorithms:
                                     "in_degree": row.get("in_degree", 0),
                                     "out_degree": row.get("out_degree", 0)
                                 }
-                    
+
                     elapsed_ms = int((time.time() - start_time) * 1000)
                     logger.info(f"Degree centrality cached: {len(result)} files in {elapsed_ms}ms")
                     return {

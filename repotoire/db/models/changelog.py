@@ -9,7 +9,7 @@ from __future__ import annotations
 import enum
 import secrets
 from datetime import datetime
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import (

@@ -31,19 +31,17 @@ REPO-313: Enhanced with:
 
 import hashlib
 import math
-import os
+import re
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Pattern, Set, Tuple
-import re
+from typing import Any, Dict, List, Optional, Pattern, Tuple
 
-from detect_secrets import SecretsCollection
 from detect_secrets.settings import default_settings
 
-from repotoire.models import SecretMatch, SecretsPolicy
 from repotoire.logging_config import get_logger
+from repotoire.models import SecretMatch, SecretsPolicy
 
 logger = get_logger(__name__)
 
@@ -1094,7 +1092,7 @@ async def scan_with_cache(
             print(f"Found {result.total_secrets} secrets")
         ```
     """
-    from repotoire.cache import ScanCache, get_scan_cache
+    from repotoire.cache import get_scan_cache
 
     # Get the scan cache
     try:

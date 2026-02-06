@@ -28,7 +28,7 @@ test.describe("Billing", () => {
     test("shows repository usage", async ({ page }) => {
       // Skip on mobile - billing layout differs
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/dashboard/billing");

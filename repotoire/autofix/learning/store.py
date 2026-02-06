@@ -1,21 +1,20 @@
 """JSONL-based storage for fix decisions with in-memory caching."""
 
+import threading
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, List, Dict
-import os
-import threading
-import time
+from typing import Dict, List, Optional
 
-from repotoire.logging_config import get_logger
 from repotoire.autofix.learning.models import (
     FixDecision,
     LearningStats,
     RejectionPattern,
-    UserDecision,
     RejectionReason,
+    UserDecision,
 )
+from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 

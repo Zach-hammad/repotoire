@@ -10,14 +10,14 @@ Stability fixes (REPO-500):
 - Circuit breaker pattern for cascading failure prevention
 """
 
-from typing import Any, Dict, List, Optional, Set
 import logging
 import random
 import threading
 import time
+from typing import Any, Dict, List, Optional, Set
 
 from repotoire.graph.base import DatabaseClient
-from repotoire.models import Entity, Relationship, NodeType, RelationshipType
+from repotoire.models import Entity, NodeType, Relationship, RelationshipType
 from repotoire.validation import validate_identifier
 
 logger = logging.getLogger(__name__)
@@ -645,7 +645,10 @@ class FalkorDBClient(DatabaseClient):
         Returns:
             Number of relationships created
         """
-        from repotoire.graph.external_labels import get_external_node_label, is_likely_external_reference
+        from repotoire.graph.external_labels import (
+            get_external_node_label,
+            is_likely_external_reference,
+        )
 
         if not relationships:
             return 0

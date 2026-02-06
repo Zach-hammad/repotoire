@@ -12,8 +12,8 @@ export interface TestUser {
   organizationId?: string;
 }
 
-// Check if running against production
-const isProduction = process.env.TEST_BASE_URL?.includes("repotoire.com");
+// Check if running against production (coerced to boolean)
+const isProduction = !!process.env.TEST_BASE_URL?.includes("repotoire.com");
 
 /**
  * Default test user for authenticated tests.

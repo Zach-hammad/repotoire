@@ -10,17 +10,16 @@ Security:
 """
 
 import asyncio
-import os
 import subprocess
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime
 
 import git
 
-from repotoire.autofix.models import FixProposal, FixStatus, CodeChange
+from repotoire.autofix.models import CodeChange, FixProposal, FixStatus
 from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -28,11 +27,19 @@ logger = get_logger(__name__)
 # Try to import Rust-accelerated functions
 try:
     from repotoire_fast import (
-        apply_changes_parallel as _rust_apply_changes,
-        fuzzy_find_in_file as _rust_fuzzy_find,
-        batch_verify_originals as _rust_batch_verify,
-        code_similarity as _rust_code_similarity,
         CodeChange as RustCodeChange,
+    )
+    from repotoire_fast import (
+        apply_changes_parallel as _rust_apply_changes,
+    )
+    from repotoire_fast import (
+        batch_verify_originals as _rust_batch_verify,
+    )
+    from repotoire_fast import (
+        code_similarity as _rust_code_similarity,
+    )
+    from repotoire_fast import (
+        fuzzy_find_in_file as _rust_fuzzy_find,
     )
     HAS_RUST_APPLICATOR = True
     logger.debug("Rust fix applicator available")
@@ -207,7 +214,7 @@ class FixApplicator:
         # Collect all changes with fix references
         all_changes = []
         change_to_fix: Dict[int, FixProposal] = {}
-        
+
         for fix in approved_fixes:
             for change in fix.changes:
                 idx = len(all_changes)
@@ -267,7 +274,7 @@ class FixApplicator:
 
         failed = list(failed_fixes.values())
         logger.info(f"Applied {len(successful)} fixes, {len(failed)} failed")
-        
+
         return successful, failed
 
     def _get_file_lock(self, file_path: Path) -> threading.Lock:
@@ -374,95 +381,95 @@ class FixApplicator:
         """Rust-accelerated fuzzy code matching using LCS similarity."""
         target_lines = target.strip().splitlines()
         content_lines = content.splitlines()
-        
+
         if not target_lines or not content_lines:
             return None
-        
+
         target_len = len(target_lines)
         target_text = target.strip()
         best_match = None
         best_ratio = 0.0
-        
+
         # Try exact window size and ±1,2 lines
         for delta in [0, 1, 2, -1]:
             adjusted_len = target_len + delta
             if adjusted_len < 1 or adjusted_len > len(content_lines):
                 continue
-            
+
             for i in range(len(content_lines) - adjusted_len + 1):
                 window = content_lines[i:i + adjusted_len]
                 window_text = "\n".join(window)
-                
+
                 # Use Rust LCS-based similarity
                 ratio = _rust_code_similarity(target_text, window_text.strip())
-                
+
                 if ratio > best_ratio:
                     best_ratio = ratio
                     best_match = window_text
-                    
+
                     # Early exit on very high match
                     if ratio > 0.98:
                         return (best_match, best_ratio)
-        
+
         if best_ratio >= threshold and best_match:
             return (best_match, best_ratio)
-        
+
         return None
-    
+
     def _fuzzy_find_code_python(
         self, content: str, target: str, threshold: float = 0.85
     ) -> Optional[Tuple[str, float]]:
         """Python fallback for fuzzy code matching using difflib."""
         import difflib
-        
+
         target_lines = target.strip().splitlines()
         content_lines = content.splitlines()
-        
+
         if not target_lines or not content_lines:
             return None
-        
+
         target_len = len(target_lines)
         best_match = None
         best_ratio = 0.0
-        
+
         # Slide window through content
         for i in range(len(content_lines) - target_len + 1):
             window = content_lines[i:i + target_len]
             window_text = "\n".join(window)
-            
+
             ratio = difflib.SequenceMatcher(
-                None, 
-                target.strip(), 
+                None,
+                target.strip(),
                 window_text.strip()
             ).ratio()
-            
+
             if ratio > best_ratio:
                 best_ratio = ratio
                 best_match = window_text
-        
+
         # Also try with some flexibility on window size (±2 lines)
         for delta in [1, 2, -1]:
             adjusted_len = target_len + delta
             if adjusted_len < 1 or adjusted_len > len(content_lines):
                 continue
-                
+
             for i in range(len(content_lines) - adjusted_len + 1):
                 window = content_lines[i:i + adjusted_len]
                 window_text = "\n".join(window)
-                
+
                 ratio = difflib.SequenceMatcher(
                     None,
                     target.strip(),
                     window_text.strip()
                 ).ratio()
-                
+
                 if ratio > best_ratio:
                     best_ratio = ratio
                     best_match = window_text
-        
+
         if best_ratio >= threshold and best_match:
             return (best_match, best_ratio)
-        
+
         return None
 
     def _create_branch(self, fix: FixProposal) -> None:
@@ -637,6 +644,8 @@ class FixApplicator:
             from repotoire.sandbox.test_executor import (
                 TestExecutor,
                 TestExecutorConfig,
+            )
+            from repotoire.sandbox.test_executor import (
                 TestResult as SandboxTestResult,
             )
         except ImportError:

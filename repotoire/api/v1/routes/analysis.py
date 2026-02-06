@@ -11,31 +11,35 @@ from __future__ import annotations
 
 import io
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
-from typing import AsyncGenerator, Literal
+from typing import AsyncGenerator
 from uuid import UUID
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
-from repotoire.api.shared.auth import ClerkUser, get_current_user, get_current_user_or_api_key, require_org
+from repotoire.api.shared.auth import (
+    ClerkUser,
+    get_current_user,
+    get_current_user_or_api_key,
+    require_org,
+)
 from repotoire.api.shared.middleware.usage import enforce_feature_for_api
 from repotoire.db.models import (
     AnalysisRun,
     AnalysisStatus,
     Organization,
-    OrganizationMembership,
     Repository,
     User,
 )
-from repotoire.db.models.finding import Finding as DBFinding, FindingSeverity
+from repotoire.db.models.finding import FindingSeverity
 from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger
 from repotoire.models import (
@@ -46,7 +50,7 @@ from repotoire.models import (
     Severity,
 )
 from repotoire.reporters.html_reporter import HTMLReporter
-from repotoire.workers.limits import ConcurrencyLimiter, RateLimiter
+from repotoire.workers.limits import ConcurrencyLimiter
 
 logger = get_logger(__name__)
 
@@ -1106,6 +1110,7 @@ def _generate_html_report(reporter: HTMLReporter, health: CodebaseHealth) -> str
         HTML report as string
     """
     from jinja2 import Template
+
     from repotoire.reporters.html_reporter import HTML_TEMPLATE
 
     # Extract code snippets for findings (without repo_path, we skip code snippets)

@@ -24,9 +24,8 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import Response
 
 from repotoire.tenant.context import (
-    set_tenant_context,
     reset_tenant_context,
-    clear_tenant_context,
+    set_tenant_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -279,7 +278,7 @@ class TenantContextDependency:
         Returns the current TenantContext, creating it if necessary
         from the authenticated user.
         """
-        from repotoire.tenant import get_tenant_context, TenantContext
+        from repotoire.tenant import get_tenant_context
 
         # Check if context already set (by middleware)
         ctx = get_tenant_context()

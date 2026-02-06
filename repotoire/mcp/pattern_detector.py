@@ -3,22 +3,23 @@
 Detects FastAPI routes, Click commands, and public functions from Neo4j graph.
 """
 
-import re
 import importlib
+import re
 import sys
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any, List, Optional
+
 from repotoire.graph import FalkorDBClient
+from repotoire.logging_config import get_logger
 from repotoire.mcp.models import (
-    DetectedPattern,
-    RoutePattern,
     CommandPattern,
+    DetectedPattern,
     FunctionPattern,
-    PatternType,
     HTTPMethod,
     Parameter,
+    PatternType,
+    RoutePattern,
 )
-from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 

@@ -8,8 +8,8 @@ Implements:
 REPO-243: Hybrid Search (Dense + BM25)
 """
 
-from dataclasses import dataclass, field
-from typing import List, Dict, Literal
+from dataclasses import dataclass
+from typing import Dict, List, Literal
 
 from repotoire.logging_config import get_logger
 

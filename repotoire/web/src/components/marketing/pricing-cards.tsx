@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { Check, Terminal, Users, Building2, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { useAuth } from "@clerk/nextjs"
+import { useSafeAuth } from "@/lib/use-safe-auth"
 import { toast } from "sonner"
 
 const plans = [
@@ -75,7 +75,7 @@ const plans = [
 export function PricingCards() {
   const [annual, setAnnual] = useState(true)
   const [loading, setLoading] = useState<string | null>(null)
-  const { isSignedIn } = useAuth()
+  const { isSignedIn } = useSafeAuth()
   const router = useRouter()
 
   const handleCheckout = async (plan: string, seats: number = 1) => {

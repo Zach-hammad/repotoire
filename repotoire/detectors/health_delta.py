@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
-from repotoire.models import Finding, Severity, MetricsBreakdown
+from repotoire.models import Finding, MetricsBreakdown, Severity
 
 
 class ImpactLevel(str, Enum):

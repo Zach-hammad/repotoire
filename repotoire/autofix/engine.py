@@ -435,15 +435,15 @@ class AutoFixEngine:
             # Step 3: Generate fix using GPT-4 (with retry on validation failure)
             max_retries = 2
             last_errors: List[str] = []
-            
+
             for attempt in range(max_retries + 1):
                 if attempt == 0:
                     logger.info(f"Generating {fix_type.value} fix using {self.model}")
                 else:
                     logger.info(f"Retry {attempt}/{max_retries}: Regenerating fix with error feedback")
-                
+
                 fix_proposal = await self._generate_fix_with_llm(
-                    finding, context, fix_type, repository_path, 
+                    finding, context, fix_type, repository_path,
                     previous_errors=last_errors if attempt > 0 else None
                 )
 
@@ -456,10 +456,10 @@ class AutoFixEngine:
                 # Check if we should retry
                 if validation_result.is_valid or attempt >= max_retries:
                     break
-                    
+
                 # Collect errors for retry feedback
                 last_errors = [
-                    f"{err.error_type}: {err.message}" 
+                    f"{err.error_type}: {err.message}"
                     for err in validation_result.errors
                 ]
                 logger.info(f"Validation failed with {len(last_errors)} errors, will retry")
@@ -781,7 +781,7 @@ class AutoFixEngine:
         prompt = self._build_fix_prompt(
             finding, context, fix_type, handler, repository_path
         )
-        
+
         # Add error feedback for retries
         if previous_errors:
             error_feedback = "\n".join(f"- {err}" for err in previous_errors)

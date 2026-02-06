@@ -1,7 +1,8 @@
 """Pydantic models for RAG API requests and responses."""
 
-from typing import List, Dict, Any, Optional, Literal
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Any, Dict, List, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CodeSearchRequest(BaseModel):

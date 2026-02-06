@@ -9,13 +9,25 @@ interface ClerkProviderProps {
   children: ReactNode;
 }
 
+// Check if Clerk is configured (env var available at build time)
+const isClerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
 /**
  * Themed ClerkProvider that syncs with the app's dark/light mode
  * Uses shadcn/ui design tokens for consistent styling
+ * 
+ * Falls back to rendering children directly if Clerk is not configured
+ * (allows static pages to build without Clerk env vars)
  */
 export function ClerkProvider({ children }: ClerkProviderProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+
+  // If Clerk isn't configured, just render children directly
+  // This allows marketing/blog pages to work without auth
+  if (!isClerkConfigured) {
+    return <>{children}</>;
+  }
 
   return (
     <BaseClerkProvider

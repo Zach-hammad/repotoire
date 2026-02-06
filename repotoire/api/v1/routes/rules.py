@@ -334,7 +334,7 @@ async def create_rule(
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid severity. Must be one of: critical, high, medium, low, info",
+            detail="Invalid severity. Must be one of: critical, high, medium, low, info",
         )
 
     # Create rule
@@ -460,7 +460,7 @@ async def update_rule(
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid severity. Must be one of: critical, high, medium, low, info",
+                detail="Invalid severity. Must be one of: critical, high, medium, low, info",
             )
 
     # Build update dict

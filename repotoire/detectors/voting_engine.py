@@ -15,10 +15,10 @@ Confidence Scoring:
     - Bayesian (prior + evidence)
 """
 
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import List, Dict, Optional, Tuple
 from collections import defaultdict
+from dataclasses import dataclass
+from enum import Enum
+from typing import Dict, List, Optional, Tuple
 
 # Try to import Rust accelerated version (REPO-405)
 try:
@@ -27,9 +27,9 @@ try:
 except ImportError:
     _HAS_RUST = False
 
-from repotoire.models import Finding, Severity
-from repotoire.logging_config import get_logger
 from repotoire.detectors.grouping import get_finding_group_key, get_issue_category
+from repotoire.logging_config import get_logger
+from repotoire.models import Finding, Severity
 
 logger = get_logger(__name__)
 

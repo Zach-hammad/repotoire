@@ -5,7 +5,7 @@ webhook handling, and repository configuration.
 """
 
 from datetime import datetime, timezone
-from typing import Annotated, Optional
+from typing import Optional
 from uuid import UUID
 
 import httpx
@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from repotoire.api.shared.auth import ClerkUser, require_org
-from repotoire.api.shared.middleware.usage import enforce_repo_limit
 from repotoire.api.shared.services.billing import check_usage_limit, increment_usage
 from repotoire.api.shared.services.encryption import TokenEncryption, get_token_encryption
 from repotoire.api.shared.services.github import GitHubAppClient, get_github_client
@@ -1233,7 +1232,7 @@ async def analyze_repo_by_id(
             select(GitHubRepository).where(GitHubRepository.id == repo_id)
         )
         any_repo = any_repo_result.scalar_one_or_none()
-        
+
         if any_repo:
             # Repo exists but in different org - give helpful error
             raise HTTPException(

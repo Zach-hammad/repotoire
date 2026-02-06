@@ -23,7 +23,7 @@ test.describe("Settings", () => {
     test("shows appearance settings", async ({ page }) => {
       // Skip on mobile - settings layout differs
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/dashboard/settings");
@@ -86,7 +86,7 @@ test.describe("Settings", () => {
     test("shows connected GitHub account", async ({ page }) => {
       // Skip on mobile - settings layout differs
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/dashboard/settings/github");
@@ -98,7 +98,7 @@ test.describe("Settings", () => {
     test("shows repository count", async ({ page }) => {
       // Skip on mobile - settings layout differs
       if (await isMobileViewport(page)) {
-        test.skip();
+        test.skip(true, "Conditional skip");
         return;
       }
       await page.goto("/dashboard/settings/github");

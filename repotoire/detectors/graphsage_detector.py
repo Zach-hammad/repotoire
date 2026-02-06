@@ -14,10 +14,10 @@ These patterns transfer to new codebases because they capture universal
 indicators of defect-prone code.
 """
 
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 import logging
 import uuid
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.models import Finding, Severity

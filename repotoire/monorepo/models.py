@@ -6,9 +6,8 @@ Models for representing packages, package metadata, and package-level health met
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set
-from datetime import datetime
 
-from repotoire.models import CodebaseHealth, MetricsBreakdown, FindingsSummary
+from repotoire.models import CodebaseHealth
 
 
 @dataclass

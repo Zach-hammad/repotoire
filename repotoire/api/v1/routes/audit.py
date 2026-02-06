@@ -10,12 +10,12 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from repotoire.api.shared.auth import ClerkUser, get_current_user, require_org_admin
+from repotoire.api.shared.auth import ClerkUser, require_org_admin
 from repotoire.db.models import AuditLog, AuditStatus, Organization
 from repotoire.db.session import get_db
 from repotoire.logging_config import get_logger

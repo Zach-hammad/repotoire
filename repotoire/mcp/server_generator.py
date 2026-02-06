@@ -15,9 +15,10 @@ Token savings with optimized mode:
 
 import os
 from pathlib import Path
-from typing import List, Dict, Any, Optional
-from repotoire.mcp.models import DetectedPattern, RoutePattern, CommandPattern, FunctionPattern
+from typing import Any, Dict, List, Optional
+
 from repotoire.logging_config import get_logger
+from repotoire.mcp.models import CommandPattern, DetectedPattern, FunctionPattern, RoutePattern
 
 logger = get_logger(__name__)
 
@@ -259,7 +260,7 @@ if __name__ == "__main__":
         imports.append("")
 
         # Add repository to path
-        imports.append(f"# Add repository to Python path")
+        imports.append("# Add repository to Python path")
         imports.append(f"sys.path.insert(0, {repr(repository_path)})")
         imports.append("")
 
@@ -330,11 +331,11 @@ if __name__ == "__main__":
             has_invalid_name = any(part and part[0].isdigit() for part in module_parts)
 
             imports.append(f"# Import from {file_path}")
-            imports.append(f"try:")
+            imports.append("try:")
 
             if has_invalid_name:
                 # Use importlib for modules with names starting with digits
-                imports.append(f"    import importlib")
+                imports.append("    import importlib")
                 imports.append(f"    _module = importlib.import_module('{module}')")
                 for import_name in unique_imports:
                     imports.append(f"    {import_name} = getattr(_module, '{import_name}')")
@@ -345,12 +346,12 @@ if __name__ == "__main__":
                 imports.append(f"    logger.debug('Successfully imported {', '.join(unique_imports)} from {module}')")
 
             # Error handling
-            imports.append(f"except ImportError as e:")
+            imports.append("except ImportError as e:")
             imports.append(f"    logger.warning(f'Could not import from {module}: {{e}}')")
             for name in unique_imports:
                 imports.append(f"    _import_failures['{name}'] = str(e)")
                 imports.append(f"    {name} = None")
-            imports.append(f"except Exception as e:")
+            imports.append("except Exception as e:")
             imports.append(f"    logger.error(f'Unexpected error importing from {module}: {{e}}')")
             for name in unique_imports:
                 imports.append(f"    _import_failures['{name}'] = f'Unexpected error: {{e}}'")
@@ -382,11 +383,11 @@ if __name__ == "__main__":
         ]
 
         for schema in schemas:
-            code.append(f"        types.Tool(")
+            code.append("        types.Tool(")
             code.append(f"            name={repr(schema['name'])},")
             code.append(f"            description={repr(schema['description'])},")
             code.append(f"            inputSchema=TOOL_SCHEMAS[{repr(schema['name'])}]['inputSchema']")
-            code.append(f"        ),")
+            code.append("        ),")
 
         code.append("    ]")
         code.append("")
@@ -424,7 +425,7 @@ if __name__ == "__main__":
 
             # Generate handler call
             code.append(f"            result = await _handle_{tool_name}(arguments)")
-            code.append(f"            return [types.TextContent(type='text', text=str(result))]")
+            code.append("            return [types.TextContent(type='text', text=str(result))]")
             code.append("")
 
         code.append("        else:")
@@ -474,11 +475,11 @@ if __name__ == "__main__":
         code.append(f"        error_msg = f'{display_name} is not available.'")
         code.append(f"        if '{check_name}' in _import_failures:")
         code.append(f"            failure_reason = _import_failures['{check_name}']")
-        code.append(f"            error_msg += f' Import error: {{failure_reason}}'")
-        code.append(f"        else:")
-        code.append(f"            error_msg += ' Function could not be imported from the codebase.'")
-        code.append(f"        logger.error(error_msg)")
-        code.append(f"        raise ImportError(error_msg)")
+        code.append("            error_msg += f' Import error: {failure_reason}'")
+        code.append("        else:")
+        code.append("            error_msg += ' Function could not be imported from the codebase.'")
+        code.append("        logger.error(error_msg)")
+        code.append("        raise ImportError(error_msg)")
         code.append("")
 
         # Add try-except wrapper for better error handling
@@ -559,8 +560,8 @@ if __name__ == "__main__":
         params_str = ", ".join(all_param_names)
 
         # Determine how to call (module function vs instance method vs class method)
-        code.append(f"# Call function (may be async)")
-        code.append(f"import inspect")
+        code.append("# Call function (may be async)")
+        code.append("import inspect")
 
         # Check if this is an instance method (needs object instantiation)
         is_instance_method = (pattern.is_method and
@@ -598,8 +599,8 @@ if __name__ == "__main__":
             # Standalone function
             code.append(f"result = {func_name}({params_str})")
 
-        code.append(f"if inspect.iscoroutine(result):")
-        code.append(f"    result = await result")
+        code.append("if inspect.iscoroutine(result):")
+        code.append("    result = await result")
 
         return code
 
@@ -726,41 +727,41 @@ if __name__ == "__main__":
             if param.type_hint and "Request" in param.type_hint and "CodeSearchRequest" not in param.type_hint and "CodeQuestionRequest" not in param.type_hint:
                 code.append(f"# Create mock Request object for {param.name}")
                 code.append(f"{param.name} = None  # Request object - not supported in MCP context")
-                code.append(f"# Note: FastAPI Request dependencies may not work in MCP context")
+                code.append("# Note: FastAPI Request dependencies may not work in MCP context")
             elif param.required:
                 code.append(f"{param.name}_raw = arguments.get('{param.name}')")
                 code.append(f"if {param.name}_raw is None:")
                 code.append(f"    raise ValueError('Required parameter {param.name} is missing')")
 
                 # Parse and instantiate Pydantic model
-                code.append(f"# Parse and instantiate Pydantic model")
+                code.append("# Parse and instantiate Pydantic model")
                 code.append(f"if isinstance({param.name}_raw, str):")
-                code.append(f"    try:")
+                code.append("    try:")
                 code.append(f"        {param.name}_dict = json.loads({param.name}_raw)")
-                code.append(f"    except json.JSONDecodeError:")
+                code.append("    except json.JSONDecodeError:")
                 code.append(f"        raise ValueError(f'Invalid JSON for parameter {param.name}: {{{param.name}_raw}}')")
-                code.append(f"else:")
+                code.append("else:")
                 code.append(f"    {param.name}_dict = {param.name}_raw")
-                code.append(f"")
+                code.append("")
                 # Determine which Pydantic model to use based on function name
                 if func_name == "search_code":
-                    code.append(f"# Instantiate CodeSearchRequest model")
-                    code.append(f"logger.debug(f'CodeSearchRequest available: {{CodeSearchRequest is not None}}')")
+                    code.append("# Instantiate CodeSearchRequest model")
+                    code.append("logger.debug(f'CodeSearchRequest available: {CodeSearchRequest is not None}')")
                     code.append(f"logger.debug(f'request_dict: {{{param.name}_dict}}')")
-                    code.append(f"if CodeSearchRequest is not None:")
+                    code.append("if CodeSearchRequest is not None:")
                     code.append(f"    {param.name} = CodeSearchRequest(**{param.name}_dict)")
                     code.append(f"    logger.debug(f'Created CodeSearchRequest instance: {{type({param.name})}}')")
-                    code.append(f"else:")
+                    code.append("else:")
                     code.append(f"    {param.name} = {param.name}_dict")
-                    code.append(f"    logger.warning('CodeSearchRequest not available, using dict')")
+                    code.append("    logger.warning('CodeSearchRequest not available, using dict')")
                 elif func_name == "ask_code_question":
-                    code.append(f"# Instantiate CodeAskRequest model")
-                    code.append(f"if CodeAskRequest is not None:")
+                    code.append("# Instantiate CodeAskRequest model")
+                    code.append("if CodeAskRequest is not None:")
                     code.append(f"    {param.name} = CodeAskRequest(**{param.name}_dict)")
-                    code.append(f"else:")
+                    code.append("else:")
                     code.append(f"    {param.name} = {param.name}_dict")
                 else:
-                    code.append(f"# Use dict as-is (no specific Pydantic model for this function)")
+                    code.append("# Use dict as-is (no specific Pydantic model for this function)")
                     code.append(f"{param.name} = {param.name}_dict")
             else:
                 default = param.default_value if param.default_value else "None"
@@ -779,13 +780,13 @@ if __name__ == "__main__":
         code.append("")
 
         # Call the FastAPI route handler
-        code.append(f"# Call FastAPI route handler")
+        code.append("# Call FastAPI route handler")
         code.append(f"sig = inspect.signature({func_name})")
-        code.append(f"# Only pass parameters that the function accepts")
-        code.append(f"filtered_params = {{k: v for k, v in params.items() if k in sig.parameters}}")
+        code.append("# Only pass parameters that the function accepts")
+        code.append("filtered_params = {k: v for k, v in params.items() if k in sig.parameters}")
         code.append(f"result = {func_name}(**filtered_params)")
-        code.append(f"if inspect.iscoroutine(result):")
-        code.append(f"    result = await result")
+        code.append("if inspect.iscoroutine(result):")
+        code.append("    result = await result")
 
         return code
 
@@ -816,10 +817,10 @@ if __name__ == "__main__":
         for arg in pattern.arguments:
             code.append(f"if '{arg.name}' in arguments:")
             code.append(f"    value = arguments['{arg.name}']")
-            code.append(f"    if isinstance(value, list):")
-            code.append(f"        cli_args.extend([str(item) for item in value])")
-            code.append(f"    else:")
-            code.append(f"        cli_args.append(str(value))")
+            code.append("    if isinstance(value, list):")
+            code.append("        cli_args.extend([str(item) for item in value])")
+            code.append("    else:")
+            code.append("        cli_args.append(str(value))")
 
         code.append("")
         code.append("# Options (with -- prefix)")
@@ -829,13 +830,13 @@ if __name__ == "__main__":
 
             code.append(f"if '{opt.name}' in arguments:")
             code.append(f"    value = arguments['{opt.name}']")
-            code.append(f"    if isinstance(value, bool):")
-            code.append(f"        if value:")
+            code.append("    if isinstance(value, bool):")
+            code.append("        if value:")
             code.append(f"            cli_args.append('--{cli_option}')")
-            code.append(f"    elif isinstance(value, list):")
-            code.append(f"        for item in value:")
+            code.append("    elif isinstance(value, list):")
+            code.append("        for item in value:")
             code.append(f"            cli_args.extend(['--{cli_option}', str(item)])")
-            code.append(f"    else:")
+            code.append("    else:")
             code.append(f"        cli_args.extend(['--{cli_option}', str(value)])")
 
         code.append("")
@@ -843,12 +844,12 @@ if __name__ == "__main__":
         # Execute the command using CliRunner
         code.append("# Execute Click command via CliRunner")
         code.append("try:")
-        code.append(f"    runner = CliRunner()")
+        code.append("    runner = CliRunner()")
         code.append(f"    result = runner.invoke({func_name}, cli_args)")
-        code.append(f"    if result.exit_code != 0:")
-        code.append(f"        error_msg = result.output or str(result.exception) if result.exception else 'Command failed'")
-        code.append(f"        raise RuntimeError(f'Command failed with exit code {{result.exit_code}}: {{error_msg}}')")
-        code.append(f"    return result.output")
+        code.append("    if result.exit_code != 0:")
+        code.append("        error_msg = result.output or str(result.exception) if result.exception else 'Command failed'")
+        code.append("        raise RuntimeError(f'Command failed with exit code {result.exit_code}: {error_msg}')")
+        code.append("    return result.output")
         code.append("except Exception as e:")
         code.append("    raise RuntimeError(f'Failed to execute Click command: {str(e)}')")
 
@@ -1002,7 +1003,7 @@ if __name__ == "__main__":
             lines.append(f"        'name': {repr(schema['name'])},")
             lines.append(f"        'description': {repr(schema['description'])},")
             lines.append(f"        'inputSchema': {repr(schema['inputSchema'])}")
-            lines.append(f"    }},")
+            lines.append("    },")
         return "\n".join(lines)
 
     def _generate_handlers(self, patterns: List[DetectedPattern], repository_path: str) -> Path:

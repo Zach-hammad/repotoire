@@ -22,15 +22,6 @@ from repotoire.api.shared.auth.clerk import (
     require_scope,
 )
 
-# Re-export state store utilities
-from repotoire.api.shared.auth.state_store import (
-    StateStoreError,
-    StateStoreUnavailableError,
-    StateTokenStore,
-    close_redis_client,
-    get_state_store,
-)
-
 # Re-export password derivation utilities
 from repotoire.api.shared.auth.password_utils import (
     derive_tenant_password,
@@ -38,6 +29,15 @@ from repotoire.api.shared.auth.password_utils import (
     get_hmac_secret,
     validate_timing_safe,
     verify_derived_password,
+)
+
+# Re-export state store utilities
+from repotoire.api.shared.auth.state_store import (
+    StateStoreError,
+    StateStoreUnavailableError,
+    StateTokenStore,
+    close_redis_client,
+    get_state_store,
 )
 
 __all__ = [

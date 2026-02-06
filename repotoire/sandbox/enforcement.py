@@ -28,7 +28,6 @@ import asyncio
 import os
 import threading
 from dataclasses import dataclass
-from datetime import date
 from enum import Enum
 from typing import Optional
 
@@ -36,10 +35,10 @@ from repotoire.db.models import PlanTier
 from repotoire.logging_config import get_logger
 from repotoire.sandbox.exceptions import SandboxError
 from repotoire.sandbox.quotas import (
-    SandboxQuota,
     QuotaOverride,
-    get_quota_for_tier,
+    SandboxQuota,
     apply_override,
+    get_quota_for_tier,
 )
 from repotoire.sandbox.usage import SandboxUsageTracker, get_usage_tracker
 
@@ -409,7 +408,7 @@ class QuotaEnforcer:
             logger.error(f"Error checking quota for {customer_id}: {e}")
             if self._fail_open:
                 logger.warning(
-                    f"Failing open - allowing operation despite quota check error"
+                    "Failing open - allowing operation despite quota check error"
                 )
                 return QuotaCheckResult(
                     allowed=True,

@@ -31,12 +31,12 @@ Usage:
         background_tasks.add_task(process_data, tenant_context=ctx)
 """
 
+import logging
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 from uuid import UUID
-import logging
 
 logger = logging.getLogger(__name__)
 

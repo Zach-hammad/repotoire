@@ -21,18 +21,16 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
-    Text,
     UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
-    from .organization import Organization
-    from .repository import Repository
+    pass
 
 
 class Developer(Base, UUIDPrimaryKeyMixin):
@@ -54,9 +52,9 @@ class Developer(Base, UUIDPrimaryKeyMixin):
         expertise_areas: Top file patterns/directories (JSON object)
         linked_user_id: Optional link to a User account (for auth users)
     """
-    
+
     __tablename__ = "developers"
-    
+
     organization_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"),
         nullable=False,
@@ -107,7 +105,7 @@ class Developer(Base, UUIDPrimaryKeyMixin):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -119,7 +117,7 @@ class Developer(Base, UUIDPrimaryKeyMixin):
         onupdate=func.now(),
         nullable=False,
     )
-    
+
     __table_args__ = (
         UniqueConstraint("organization_id", "email", name="uq_developer_org_email"),
         Index("ix_developer_org_commits", "organization_id", "total_commits"),
@@ -128,7 +126,7 @@ class Developer(Base, UUIDPrimaryKeyMixin):
 
 class OwnershipType(str, enum.Enum):
     """Type of code ownership."""
-    
+
     FILE = "file"  # Ownership of entire file
     FUNCTION = "function"  # Ownership of specific function
     CLASS = "class"  # Ownership of specific class
@@ -154,9 +152,9 @@ class CodeOwnership(Base, UUIDPrimaryKeyMixin):
         commit_count: Number of commits by this developer to this code
         extra_data: Additional ownership metadata (JSON)
     """
-    
+
     __tablename__ = "code_ownership"
-    
+
     repository_id: Mapped[UUID] = mapped_column(
         ForeignKey("repositories.id", ondelete="CASCADE"),
         nullable=False,
@@ -202,7 +200,7 @@ class CodeOwnership(Base, UUIDPrimaryKeyMixin):
         JSONB,
         nullable=True,
     )
-    
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -214,7 +212,7 @@ class CodeOwnership(Base, UUIDPrimaryKeyMixin):
         onupdate=func.now(),
         nullable=False,
     )
-    
+
     __table_args__ = (
         UniqueConstraint(
             "repository_id", "developer_id", "ownership_type", "path",
@@ -245,9 +243,9 @@ class Collaboration(Base, UUIDPrimaryKeyMixin):
         handoff_count: Times one modified code originally written by other
         last_interaction_at: Most recent collaboration timestamp
     """
-    
+
     __tablename__ = "collaborations"
-    
+
     organization_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"),
         nullable=False,
@@ -295,7 +293,7 @@ class Collaboration(Base, UUIDPrimaryKeyMixin):
         DateTime(timezone=True),
         nullable=True,
     )
-    
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -307,7 +305,7 @@ class Collaboration(Base, UUIDPrimaryKeyMixin):
         onupdate=func.now(),
         nullable=False,
     )
-    
+
     __table_args__ = (
         # Ensure unique pair (order doesn't matter, but we'll enforce A < B)
         UniqueConstraint(
@@ -331,9 +329,9 @@ class TeamInsight(Base, UUIDPrimaryKeyMixin):
         insight_data: Computed insight data (JSON)
         computed_at: When this insight was computed
     """
-    
+
     __tablename__ = "team_insights"
-    
+
     organization_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"),
         nullable=False,
@@ -358,7 +356,7 @@ class TeamInsight(Base, UUIDPrimaryKeyMixin):
         server_default=func.now(),
         nullable=False,
     )
-    
+
     __table_args__ = (
         Index("ix_team_insight_org_type", "organization_id", "insight_type"),
     )

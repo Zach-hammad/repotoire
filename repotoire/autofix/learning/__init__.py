@@ -4,23 +4,23 @@ This module provides adaptive confidence adjustment based on user feedback
 from fix approval/rejection decisions.
 """
 
+from repotoire.autofix.learning.adaptive import (
+    HIGH_APPROVAL_THRESHOLD,
+    LOW_APPROVAL_THRESHOLD,
+    AdaptiveConfidence,
+)
 from repotoire.autofix.learning.models import (
-    UserDecision,
-    RejectionReason,
     FixDecision,
     LearningStats,
     RejectionPattern,
+    RejectionReason,
+    UserDecision,
 )
 from repotoire.autofix.learning.store import (
-    DecisionStore,
-    create_decision_id,
     DEFAULT_STORAGE_PATH,
     MIN_DECISIONS_FOR_LEARNING,
-)
-from repotoire.autofix.learning.adaptive import (
-    AdaptiveConfidence,
-    LOW_APPROVAL_THRESHOLD,
-    HIGH_APPROVAL_THRESHOLD,
+    DecisionStore,
+    create_decision_id,
 )
 
 __all__ = [
