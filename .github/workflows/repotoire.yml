@@ -1,0 +1,131 @@
+# Repotoire Code Analysis
+# Add this workflow to your repository to enable automated code health checks on PRs
+#
+# Copy this file to .github/workflows/repotoire.yml in your repository
+
+name: Code Health
+
+on:
+  pull_request:
+    branches: [main, master, develop]
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write  # For SARIF upload
+
+jobs:
+  analyze:
+    name: Repotoire Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for accurate change detection
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install Repotoire
+        run: pip install repotoire
+      
+      - name: Run Analysis
+        id: analyze
+        run: |
+          # For PRs, only analyze changed files
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            repotoire ci --changed ${{ github.event.pull_request.base.sha }} \
+              --sarif .repotoire/results.sarif \
+              --fail-on high
+          else
+            repotoire ci \
+              --sarif .repotoire/results.sarif \
+              --fail-on critical
+          fi
+        continue-on-error: true
+      
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: .repotoire/results.sarif
+          category: repotoire
+        continue-on-error: true
+      
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // Read health summary
+            let grade = 'N/A', score = 0;
+            let critical = 0, high = 0, medium = 0, low = 0;
+            
+            if (fs.existsSync('.repotoire/last_health.json')) {
+              const health = JSON.parse(fs.readFileSync('.repotoire/last_health.json'));
+              grade = health.grade || 'N/A';
+              score = health.health_score || 0;
+            }
+            
+            if (fs.existsSync('.repotoire/last_findings.json')) {
+              const data = JSON.parse(fs.readFileSync('.repotoire/last_findings.json'));
+              const findings = data.findings || [];
+              critical = findings.filter(f => f.severity === 'critical').length;
+              high = findings.filter(f => f.severity === 'high').length;
+              medium = findings.filter(f => f.severity === 'medium').length;
+              low = findings.filter(f => f.severity === 'low').length;
+            }
+            
+            const emoji = critical > 0 ? '🚨' : high > 0 ? '⚠️' : '✅';
+            const total = critical + high + medium + low;
+            
+            const body = `## ${emoji} Code Health: Grade ${grade} (${score}/100)
+
+| Severity | Count |
+|----------|-------|
+| 🔴 Critical | ${critical} |
+| 🟠 High | ${high} |
+| 🟡 Medium | ${medium} |
+| 🟢 Low | ${low} |
+
+**Total findings:** ${total}
+
+---
+<sub>Powered by [Repotoire](https://repotoire.com)</sub>`;
+            
+            // Find and update existing comment or create new
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const existing = comments.find(c => c.body?.includes('Code Health: Grade'));
+            
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+      
+      - name: Check result
+        if: steps.analyze.outcome == 'failure'
+        run: exit 1

@@ -267,7 +267,8 @@ def _graph_has_data(db) -> bool:
         function_count = stats.get("function_count", 0) or 0
         class_count = stats.get("class_count", 0) or 0
         return (file_count + function_count + class_count) > 0
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to check graph for entities: {e}")
         return False
 
 
@@ -777,6 +778,87 @@ def whoami() -> None:
 
 
 # =============================================================================
+# Init Command
+# =============================================================================
+
+
+@cli.command()
+@click.argument("repo_path", type=click.Path(exists=True), default=".")
+@click.option(
+    "--skip-auth",
+    is_flag=True,
+    default=False,
+    help="Skip authentication prompt",
+)
+@click.option(
+    "--skip-analysis",
+    is_flag=True,
+    default=False,
+    help="Skip running first analysis",
+)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    default=False,
+    help="Force re-initialization even if already initialized",
+)
+@click.option(
+    "--quiet",
+    "-q",
+    is_flag=True,
+    default=False,
+    help="Minimal output",
+)
+def init(repo_path: str, skip_auth: bool, skip_analysis: bool, force: bool, quiet: bool) -> None:
+    """Initialize Repotoire in a project with guided setup.
+
+    \b
+    USAGE:
+      $ repotoire init              # Initialize current directory
+      $ repotoire init ./my-repo    # Initialize specific directory
+
+    \b
+    This command provides a guided first-run experience:
+      1. Detects your project type (Python, JS/TS, Go, etc.)
+      2. Creates a .reporc config file with smart defaults
+      3. Optionally connects to Repotoire Cloud for team features
+      4. Runs your first code health analysis
+
+    \b
+    EXAMPLES:
+      # Full guided setup
+      $ repotoire init
+
+      # Quick setup without prompts
+      $ repotoire init --skip-auth --quiet
+
+      # Re-initialize existing project
+      $ repotoire init --force
+
+    \b
+    FILES CREATED:
+      .reporc           Configuration file (customize as needed)
+      .repotoire/       Local data directory (auto-added to .gitignore)
+
+    \b
+    AFTER INIT:
+      repotoire analyze .    Re-run analysis
+      repotoire sync         Upload to cloud dashboard
+      repotoire ask "..."    Query with natural language
+    """
+    from repotoire.cli.init import run_init
+
+    run_init(
+        repo_path=repo_path,
+        skip_auth=skip_auth,
+        skip_analysis=skip_analysis,
+        force=force,
+        quiet=quiet,
+    )
+
+
+# =============================================================================
 # Status Command
 # =============================================================================
 
@@ -836,7 +918,8 @@ def status(repo_path: str) -> None:
         if not auth_info:
             try:
                 auth_info = _validate_api_key(api_key)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"API key validation failed for status display: {e}")
                 auth_info = None
 
         if auth_info:
@@ -909,8 +992,8 @@ def status(repo_path: str) -> None:
                     time_ago = f"{minutes}m ago"
                 else:
                     time_ago = "just now"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to parse health cache timestamp: {e}")
 
     # Get file modification time as fallback
     if not time_ago:
@@ -928,7 +1011,8 @@ def status(repo_path: str) -> None:
                 time_ago = f"{minutes}m ago"
             else:
                 time_ago = "just now"
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get file modification time: {e}")
             time_ago = "unknown"
 
     # Display repo path (relative if inside cwd)
@@ -983,8 +1067,8 @@ def status(repo_path: str) -> None:
                     sev = finding.get("severity", "info").lower()
                     if sev in findings_summary:
                         findings_summary[sev] += 1
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to load findings for status: {e}")
 
     critical = findings_summary.get("critical", 0)
     high = findings_summary.get("high", 0)
@@ -2647,6 +2731,217 @@ def _display_findings_tree(findings, severity_colors, severity_emoji):
 
         console.print(tree)
         console.print()  # Add spacing between detectors
+
+
+@cli.command()
+@click.argument("repo_path", type=click.Path(exists=True), default=".")
+@click.option(
+    "--changed",
+    type=str,
+    default=None,
+    help="Base ref to compare against (e.g., origin/main, HEAD~1). Only analyze changed files.",
+)
+@click.option(
+    "--sarif",
+    type=click.Path(),
+    default=None,
+    help="Output SARIF file for GitHub Code Scanning integration.",
+)
+@click.option(
+    "--fail-on",
+    type=click.Choice(["info", "low", "medium", "high", "critical", "none"]),
+    default="high",
+    help="Exit with code 1 if findings at this severity or above are found.",
+)
+@click.option(
+    "--json",
+    "json_output",
+    type=click.Path(),
+    default=None,
+    help="Output findings as JSON to the specified file.",
+)
+@click.pass_context
+@handle_errors()
+def ci(
+    ctx: click.Context,
+    repo_path: str,
+    changed: str | None,
+    sarif: str | None,
+    fail_on: str,
+    json_output: str | None,
+) -> None:
+    """Run analysis optimized for CI/CD pipelines.
+
+    \b
+    This command is designed for GitHub Actions, GitLab CI, and other
+    CI/CD systems. It provides:
+    - Quiet output by default (minimal noise in logs)
+    - SARIF output for GitHub Code Scanning
+    - Exit codes for quality gates
+    - Delta analysis for pull requests
+
+    \b
+    EXAMPLES:
+      # Basic CI check (fails on high/critical)
+      $ repotoire ci
+
+      # PR analysis with SARIF output
+      $ repotoire ci --changed origin/main --sarif results.sarif
+
+      # Strict mode (fail on any finding)
+      $ repotoire ci --fail-on info
+
+      # Lenient mode (only fail on critical)
+      $ repotoire ci --fail-on critical
+
+    \b
+    GITHUB ACTIONS:
+      - name: Repotoire Analysis
+        run: |
+          pip install repotoire
+          repotoire ci --changed ${{ github.event.pull_request.base.sha }} \\
+            --sarif .repotoire/results.sarif
+      
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: .repotoire/results.sarif
+
+    \b
+    EXIT CODES:
+      0   Success (no findings at or above threshold)
+      1   Findings detected at or above --fail-on threshold
+      2   Analysis error
+    """
+    import json
+    import subprocess
+
+    from repotoire.models import Severity
+
+    config: FalkorConfig = ctx.obj['config']
+
+    # Validate repository path
+    try:
+        validated_repo_path = validate_repository_path(repo_path)
+    except ValidationError as e:
+        console.print(f"[red]Error:[/red] {e.message}")
+        sys.exit(2)
+
+    # Get changed files if --changed is specified
+    changed_files = None
+    if changed:
+        try:
+            result = subprocess.run(
+                ["git", "diff", "--name-only", changed],
+                cwd=str(validated_repo_path),
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            changed_files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
+            console.print(f"[dim]Analyzing {len(changed_files)} changed files since {changed}[/dim]")
+        except subprocess.CalledProcessError as e:
+            console.print(f"[yellow]Warning: Could not get git diff: {e.stderr.strip()}[/yellow]")
+        except FileNotFoundError:
+            console.print("[yellow]Warning: git not found, analyzing all files[/yellow]")
+
+    # Create database client and ensure data exists
+    db = _get_db_client(quiet=True, repository_path=str(validated_repo_path))
+
+    try:
+        # Auto-ingest if needed
+        if not _graph_has_data(db):
+            console.print("[dim]Running initial code scan...[/dim]")
+            if not _run_auto_ingest(validated_repo_path, db, config, quiet=True):
+                console.print("[red]Error: Failed to scan codebase[/red]")
+                sys.exit(2)
+
+        # Run analysis
+        detector_config_dict = asdict(config.detectors)
+        engine = get_analysis_engine()(
+            db,
+            detector_config=detector_config_dict,
+            repository_path=str(validated_repo_path),
+            keep_metadata=False,
+            parallel=True,
+            changed_files=changed_files,
+        )
+
+        health = engine.analyze()
+
+        # Cache results
+        cache_dir = Path(validated_repo_path) / ".repotoire"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save health summary
+        health_dict = {
+            "health_score": health.overall_score,
+            "grade": health.grade,
+            "structure_score": getattr(health, 'structure_score', 0),
+            "quality_score": getattr(health, 'quality_score', 0),
+            "architecture_score": getattr(health, 'architecture_score', None),
+            "total_files": getattr(health, 'total_files', 0),
+            "total_functions": getattr(health, 'total_functions', 0),
+        }
+        with open(cache_dir / "last_health.json", "w") as f:
+            json.dump(health_dict, f, indent=2)
+
+        # Save findings
+        findings_list = [
+            {
+                "detector_id": f.detector,
+                "title": f.title,
+                "description": f.description,
+                "severity": f.severity.value if hasattr(f.severity, 'value') else str(f.severity),
+                "file_path": f.affected_files[0] if f.affected_files else "",
+                "line_start": f.line_start or 1,
+                "line_end": f.line_end,
+                "suggested_fix": f.suggested_fix,
+            }
+            for f in health.findings
+        ]
+        with open(cache_dir / "last_findings.json", "w") as f:
+            json.dump({"findings": findings_list}, f, indent=2)
+
+        # Output JSON if requested
+        if json_output:
+            with open(json_output, "w") as f:
+                json.dump(findings_list, f, indent=2)
+            console.print(f"[dim]Findings written to {json_output}[/dim]")
+
+        # Output SARIF if requested
+        if sarif:
+            from repotoire.reporters import SARIFReporter
+            reporter = SARIFReporter(repo_path=validated_repo_path)
+            reporter.generate(health, sarif)
+            console.print(f"[dim]SARIF written to {sarif}[/dim]")
+
+        # Summary output
+        severity_order = {
+            Severity.CRITICAL: 0, Severity.HIGH: 1, Severity.MEDIUM: 2,
+            Severity.LOW: 3, Severity.INFO: 4
+        }
+        critical = sum(1 for f in health.findings if f.severity == Severity.CRITICAL)
+        high = sum(1 for f in health.findings if f.severity == Severity.HIGH)
+        medium = sum(1 for f in health.findings if f.severity == Severity.MEDIUM)
+        low = sum(1 for f in health.findings if f.severity == Severity.LOW)
+
+        console.print(f"\n[bold]Grade:[/bold] {health.grade} ({health.overall_score:.0f}/100)")
+        console.print(f"[bold]Findings:[/bold] {critical} critical, {high} high, {medium} medium, {low} low")
+
+        # Check fail threshold
+        if fail_on != "none":
+            fail_severity = Severity(fail_on)
+            fail_threshold = severity_order.get(fail_severity, 5)
+            blocking = [f for f in health.findings if severity_order.get(f.severity, 5) <= fail_threshold]
+
+            if blocking:
+                console.print(f"\n[red]✗ Found {len(blocking)} findings at {fail_on} severity or above[/red]")
+                sys.exit(1)
+
+        console.print("\n[green]✓ No blocking issues[/green]")
+
+    finally:
+        db.close()
 
 
 @cli.command()

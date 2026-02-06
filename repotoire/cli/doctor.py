@@ -77,8 +77,11 @@ def check_local_database(repository_path: str = ".") -> Tuple[str, str]:
         if not db_path.exists():
             return ("warning", "Not initialized (run 'repotoire ingest' first)")
         
-        # Calculate directory size
-        total_size = sum(f.stat().st_size for f in db_path.rglob("*") if f.is_file())
+        # Calculate size (handle both file and directory)
+        if db_path.is_file():
+            total_size = db_path.stat().st_size
+        else:
+            total_size = sum(f.stat().st_size for f in db_path.rglob("*") if f.is_file())
         
         # Format size
         if total_size < 1024:
