@@ -244,56 +244,227 @@ class PortalUrlResponse(BaseModel):
     url: str | None = None
 
 
-@router.get(
-    "/invoices",
-    summary="Get invoices (deprecated)",
-    description="This endpoint has been removed. Use Clerk's AccountPortal component.",
-    responses={410: {"description": "Resource no longer available"}},
+# ============================================================================
+# Stripe Checkout & Portal Endpoints
+# ============================================================================
+
+
+class CheckoutRequest(BaseModel):
+    """Request to create a checkout session."""
+    plan: str = Field(..., description="Plan: 'team' or 'enterprise'")
+    seats: int = Field(default=1, ge=1, le=100, description="Number of seats")
+    success_url: str | None = Field(None, description="Custom success redirect URL")
+    cancel_url: str | None = Field(None, description="Custom cancel redirect URL")
+
+
+class CheckoutResponse(BaseModel):
+    """Checkout session response."""
+    checkout_url: str = Field(..., description="Stripe Checkout URL")
+    session_id: str = Field(..., description="Stripe session ID")
+
+
+class PortalResponse(BaseModel):
+    """Billing portal response."""
+    portal_url: str = Field(..., description="Stripe Customer Portal URL")
+
+
+@router.post(
+    "/checkout",
+    response_model=CheckoutResponse,
+    summary="Create checkout session",
+    description="""
+Create a Stripe Checkout session for subscription signup.
+
+Plans:
+- **team**: $15/dev/month (billed annually at $180/dev/year)
+- **enterprise**: Custom pricing - contact sales
+
+Includes 7-day free trial for team plan.
+    """,
 )
-async def get_invoices(
-    limit: int = 10,
+async def create_checkout(
+    request: CheckoutRequest,
     user: ClerkUser = Depends(get_current_user),
-) -> None:
-    """Deprecated endpoint - invoices are now managed via Clerk."""
-    raise HTTPException(
-        status_code=410,
-        detail="Invoice management has moved to Clerk. Use the AccountPortal component.",
+    db: AsyncSession = Depends(get_db),
+) -> CheckoutResponse:
+    """Create a Stripe Checkout session for subscription."""
+    import os
+    from repotoire.api.shared.services import StripeService
+    
+    # Validate plan
+    price_map = {
+        "team": os.environ.get("STRIPE_PRICE_TEAM", ""),
+        "enterprise": os.environ.get("STRIPE_PRICE_ENTERPRISE", ""),
+    }
+    
+    if request.plan not in price_map:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid plan. Choose 'team' or 'enterprise'.",
+        )
+    
+    price_id = price_map[request.plan]
+    if not price_id:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Price not configured for plan '{request.plan}'. Contact support.",
+        )
+    
+    # Get or create organization
+    org = None
+    if user.org_slug:
+        try:
+            org = await get_org_by_slug(db, user.org_slug)
+        except HTTPException:
+            pass
+    
+    if not org:
+        raise HTTPException(
+            status_code=400,
+            detail="You need to create an organization first.",
+        )
+    
+    # Get or create Stripe customer
+    customer = StripeService.get_or_create_customer(
+        email=user.email or f"org-{org.id}@repotoire.io",
+        name=org.name,
+        metadata={
+            "org_id": str(org.id),
+            "org_slug": org.slug,
+        },
     )
-
-
-@router.get(
-    "/payment-method",
-    summary="Get payment method (deprecated)",
-    description="This endpoint has been removed. Use Clerk's AccountPortal component.",
-    responses={410: {"description": "Resource no longer available"}},
-)
-async def get_payment_method(
-    user: ClerkUser = Depends(get_current_user),
-) -> None:
-    """Deprecated endpoint - payment methods are now managed via Clerk."""
-    raise HTTPException(
-        status_code=410,
-        detail="Payment method management has moved to Clerk. Use the AccountPortal component.",
+    
+    # Update org with Stripe customer ID
+    if not org.stripe_customer_id:
+        org.stripe_customer_id = customer.id
+        await db.commit()
+    
+    # Create checkout session
+    trial_days = 7 if request.plan == "team" else None
+    
+    session = StripeService.create_checkout_session(
+        customer_id=customer.id,
+        price_id=price_id,
+        quantity=request.seats,
+        success_url=request.success_url,
+        cancel_url=request.cancel_url,
+        trial_days=trial_days,
+        metadata={
+            "org_id": str(org.id),
+            "org_slug": org.slug,
+            "plan": request.plan,
+            "seats": str(request.seats),
+        },
+    )
+    
+    logger.info(f"Created checkout session {session.id} for org {org.slug}")
+    
+    return CheckoutResponse(
+        checkout_url=session.url,
+        session_id=session.id,
     )
 
 
 @router.get(
     "/portal",
-    summary="Get billing portal URL (deprecated)",
-    description="This endpoint has been removed. Use Clerk's AccountPortal component.",
-    responses={410: {"description": "Resource no longer available"}},
+    response_model=PortalResponse,
+    summary="Get billing portal URL",
+    description="""
+Get a Stripe Customer Portal URL for managing subscription.
+
+The portal allows customers to:
+- Update payment method
+- View and download invoices
+- Change or cancel subscription
+- Update billing information
+    """,
 )
-async def get_billing_portal_url(
+async def get_billing_portal(
     user: ClerkUser = Depends(get_current_user),
-) -> None:
-    """Deprecated endpoint - billing portal is now via Clerk's AccountPortal component."""
-    raise HTTPException(
-        status_code=410,
-        detail="Billing portal has moved to Clerk. Use the AccountPortal component.",
+    db: AsyncSession = Depends(get_db),
+) -> PortalResponse:
+    """Get Stripe Customer Portal URL."""
+    from repotoire.api.shared.services import StripeService
+    
+    # Get organization
+    if not user.org_slug:
+        raise HTTPException(
+            status_code=400,
+            detail="You need to be in an organization to access billing.",
+        )
+    
+    org = await get_org_by_slug(db, user.org_slug)
+    
+    if not org.stripe_customer_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No billing account found. Subscribe to a plan first.",
+        )
+    
+    # Create portal session
+    session = StripeService.create_portal_session(
+        customer_id=org.stripe_customer_id,
     )
+    
+    logger.info(f"Created portal session for org {org.slug}")
+    
+    return PortalResponse(portal_url=session.url)
 
 
-# NOTE: Full checkout, portal, calculate-price, and plans endpoints have been removed.
-# Use Clerk's <PricingTable /> and <AccountPortal /> components instead.
-# Subscription webhooks from Clerk are handled in /webhooks/clerk
-# Plan information is now managed in Clerk Dashboard.
+@router.get(
+    "/plans",
+    summary="Get available plans",
+    description="Get information about available subscription plans.",
+)
+async def get_plans() -> dict:
+    """Get available subscription plans."""
+    return {
+        "plans": [
+            {
+                "id": "free",
+                "name": "CLI (Free)",
+                "description": "For individual developers",
+                "price_monthly": 0,
+                "features": [
+                    "Unlimited local analysis",
+                    "42 code detectors",
+                    "AI-powered fixes (BYOK)",
+                    "Python, JS, TS, Rust, Go",
+                ],
+            },
+            {
+                "id": "team",
+                "name": "Team",
+                "description": "For engineering teams",
+                "price_monthly": 15,
+                "price_annual": 180,
+                "per": "developer",
+                "trial_days": 7,
+                "features": [
+                    "Everything in CLI",
+                    "Team dashboard",
+                    "Code ownership analysis",
+                    "Bus factor alerts",
+                    "PR quality gates",
+                    "90-day history",
+                    "Unlimited repos",
+                ],
+            },
+            {
+                "id": "enterprise",
+                "name": "Enterprise",
+                "description": "For large organizations",
+                "price_monthly": "custom",
+                "features": [
+                    "Everything in Team",
+                    "SSO/SAML authentication",
+                    "Audit logs",
+                    "Custom integrations",
+                    "Dedicated support",
+                    "SLA guarantee",
+                    "Unlimited history",
+                    "On-prem option",
+                ],
+            },
+        ],
+    }

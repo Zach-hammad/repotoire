@@ -249,3 +249,172 @@ class StripeService:
                 status_code=500,
                 detail="Failed to retrieve subscription. Please try again or contact support."
             )
+
+    @staticmethod
+    def get_or_create_customer(
+        email: str,
+        name: str | None = None,
+        metadata: Dict[str, str] | None = None,
+    ) -> stripe.Customer:
+        """Get existing or create new Stripe customer.
+        
+        Args:
+            email: Customer email
+            name: Customer/org name
+            metadata: Additional metadata (org_id, etc.)
+            
+        Returns:
+            Stripe Customer object
+        """
+        try:
+            # Search for existing customer
+            customers = stripe.Customer.list(email=email, limit=1)
+            if customers.data:
+                return customers.data[0]
+            
+            # Create new customer
+            return stripe.Customer.create(
+                email=email,
+                name=name,
+                metadata=metadata or {},
+            )
+        except stripe.error.StripeError as e:
+            raise handle_stripe_error(e, "get_or_create_customer")
+
+    @staticmethod
+    def create_checkout_session(
+        customer_id: str,
+        price_id: str,
+        quantity: int = 1,
+        success_url: str = "",
+        cancel_url: str = "",
+        trial_days: int | None = 7,
+        metadata: Dict[str, str] | None = None,
+    ) -> stripe.checkout.Session:
+        """Create a Stripe Checkout session for subscription.
+        
+        Args:
+            customer_id: Stripe customer ID
+            price_id: Stripe price ID for the subscription
+            quantity: Number of seats (default 1)
+            success_url: Redirect URL after successful payment
+            cancel_url: Redirect URL if user cancels
+            trial_days: Free trial period (None to skip)
+            metadata: Additional metadata (org_id, etc.)
+            
+        Returns:
+            Stripe Checkout Session object
+        """
+        base_url = os.environ.get("APP_BASE_URL", "https://app.repotoire.io")
+        
+        session_params = {
+            "customer": customer_id,
+            "mode": "subscription",
+            "line_items": [{
+                "price": price_id,
+                "quantity": quantity,
+            }],
+            "success_url": success_url or f"{base_url}/dashboard?checkout=success",
+            "cancel_url": cancel_url or f"{base_url}/pricing?checkout=canceled",
+            "metadata": metadata or {},
+            "subscription_data": {
+                "metadata": metadata or {},
+            },
+            "allow_promotion_codes": True,
+            "billing_address_collection": "auto",
+            "tax_id_collection": {"enabled": True},
+        }
+        
+        # Add trial if specified
+        if trial_days:
+            session_params["subscription_data"]["trial_period_days"] = trial_days
+        
+        try:
+            return stripe.checkout.Session.create(**session_params)
+        except stripe.error.StripeError as e:
+            raise handle_stripe_error(e, "create_checkout_session")
+
+    @staticmethod
+    def create_portal_session(
+        customer_id: str,
+        return_url: str = "",
+    ) -> stripe.billing_portal.Session:
+        """Create a Stripe Billing Portal session.
+        
+        Allows customers to manage their subscription, update payment
+        methods, view invoices, and cancel.
+        
+        Args:
+            customer_id: Stripe customer ID
+            return_url: URL to return to after portal session
+            
+        Returns:
+            Stripe Billing Portal Session object
+        """
+        base_url = os.environ.get("APP_BASE_URL", "https://app.repotoire.io")
+        
+        try:
+            return stripe.billing_portal.Session.create(
+                customer=customer_id,
+                return_url=return_url or f"{base_url}/dashboard",
+            )
+        except stripe.error.StripeError as e:
+            raise handle_stripe_error(e, "create_portal_session")
+
+    @staticmethod
+    def cancel_subscription(
+        subscription_id: str,
+        at_period_end: bool = True,
+    ) -> stripe.Subscription:
+        """Cancel a subscription.
+        
+        Args:
+            subscription_id: Stripe subscription ID
+            at_period_end: If True, cancel at end of billing period
+            
+        Returns:
+            Updated Stripe Subscription object
+        """
+        try:
+            if at_period_end:
+                return stripe.Subscription.modify(
+                    subscription_id,
+                    cancel_at_period_end=True,
+                )
+            else:
+                return stripe.Subscription.cancel(subscription_id)
+        except stripe.error.StripeError as e:
+            raise handle_stripe_error(e, "cancel_subscription")
+
+    @staticmethod
+    def update_subscription_seats(
+        subscription_id: str,
+        new_quantity: int,
+    ) -> stripe.Subscription:
+        """Update the number of seats on a subscription.
+        
+        Args:
+            subscription_id: Stripe subscription ID
+            new_quantity: New number of seats
+            
+        Returns:
+            Updated Stripe Subscription object
+        """
+        try:
+            subscription = stripe.Subscription.retrieve(subscription_id)
+            
+            # Get the first subscription item (seat-based pricing)
+            if subscription.items.data:
+                item_id = subscription.items.data[0].id
+                return stripe.Subscription.modify(
+                    subscription_id,
+                    items=[{
+                        "id": item_id,
+                        "quantity": new_quantity,
+                    }],
+                    proration_behavior="create_prorations",
+                )
+            
+            return subscription
+        except stripe.error.StripeError as e:
+            raise handle_stripe_error(e, "update_subscription_seats")
