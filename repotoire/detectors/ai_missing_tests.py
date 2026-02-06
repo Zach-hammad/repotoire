@@ -264,8 +264,7 @@ class AIMissingTestsDetector(CodeSmellDetector):
                f.language AS language,
                collect(DISTINCT {{
                    name: func.name,
-                   loc: func.loc,
-                   source: func.source
+                   loc: func.loc
                }}) AS test_funcs
         """
 
@@ -294,12 +293,11 @@ class AIMissingTestsDetector(CodeSmellDetector):
                 if not name:
                     continue
                     
-                source = func.get("source", "") or ""
                 loc = func.get("loc", 0) or 0
                 
-                # Analyze test quality
-                assertion_count = self._count_assertions(source, language)
-                has_error_tests = self._has_error_handling_tests(source, name, language)
+                # Skip quality analysis (no source in graph) - just check existence
+                assertion_count = 0
+                has_error_tests = False
                 
                 test_info = TestInfo(
                     name=name,
@@ -320,7 +318,6 @@ class AIMissingTestsDetector(CodeSmellDetector):
         OPTIONAL MATCH (f:File)-[:CONTAINS*]->(func)
         RETURN DISTINCT func.name AS name,
                func.loc AS loc,
-               func.source AS source,
                f.filePath AS file_path,
                f.language AS language
         """
@@ -332,13 +329,13 @@ class AIMissingTestsDetector(CodeSmellDetector):
                 if not name or name.lower() in test_info_map:
                     continue
                     
-                source = row.get("source", "") or ""
                 language = (row.get("language") or "python").lower()
                 loc = row.get("loc", 0) or 0
                 file_path = row.get("file_path", "")
                 
-                assertion_count = self._count_assertions(source, language)
-                has_error_tests = self._has_error_handling_tests(source, name, language)
+                # Skip quality analysis (no source in graph)
+                assertion_count = 0
+                has_error_tests = False
                 
                 test_info = TestInfo(
                     name=name,
@@ -405,67 +402,10 @@ class AIMissingTestsDetector(CodeSmellDetector):
         return False
 
     def _get_recent_functions(self) -> List[Dict[str, Any]]:
-        """Get functions added in recent commits.
-
-        First tries to query functions via Session/MODIFIED relationships.
-        Falls back to querying all functions if Session tracking doesn't exist.
+        """Get functions to check for test coverage.
 
         Returns:
-            List of function data dictionaries
-        """
-        # Calculate cutoff timestamp for recent commits
-        cutoff = datetime.now(timezone.utc) - timedelta(days=self.window_days)
-        cutoff_timestamp = int(cutoff.timestamp())
-
-        repo_filter = self._get_isolation_filter("f")
-
-        # Try Session-based query first (for repos with git history tracking)
-        session_query = f"""
-        MATCH (s:Session)-[:MODIFIED]->(f:File)-[:CONTAINS*]->(func:Function)
-        WHERE s.committedAt >= $cutoff_timestamp
-          AND func.name IS NOT NULL
-          AND f.isTest <> true {repo_filter}
-        WITH func, f, max(s.committedAt) AS last_modified, s.author AS author
-        WHERE func.loc >= $min_loc OR func.loc IS NULL
-        RETURN DISTINCT 
-               func.qualifiedName AS qualified_name,
-               func.name AS name,
-               func.lineStart AS line_start,
-               func.lineEnd AS line_end,
-               func.loc AS loc,
-               func.isMethod AS is_method,
-               f.filePath AS file_path,
-               f.language AS language,
-               last_modified,
-               author
-        ORDER BY last_modified DESC
-        LIMIT $max_results
-        """
-
-        try:
-            results = self.db.execute_query(
-                session_query,
-                self._get_query_params(
-                    cutoff_timestamp=cutoff_timestamp,
-                    min_loc=self.min_function_loc,
-                    max_results=self.max_findings * 3,
-                ),
-            )
-            if results:
-                return results
-            # Empty results might mean no recent commits, fall through to fallback
-            logger.debug("No recent functions via Session query, using fallback")
-        except Exception as e:
-            logger.warning(f"Could not query recent functions via Session (falling back): {e}")
-
-        # Fallback: query all functions if Session tracking doesn't exist
-        return self._get_functions_fallback()
-
-    def _get_functions_fallback(self) -> List[Dict[str, Any]]:
-        """Fallback query when Session/MODIFIED relationships don't exist.
-
-        Returns:
-            List of function data dictionaries
+            List of function data dictionaries (non-test functions)
         """
         repo_filter = self._get_isolation_filter("f")
 
@@ -479,7 +419,6 @@ class AIMissingTestsDetector(CodeSmellDetector):
                func.lineStart AS line_start,
                func.lineEnd AS line_end,
                func.loc AS loc,
-               func.isMethod AS is_method,
                f.filePath AS file_path,
                f.language AS language
         LIMIT $max_results
