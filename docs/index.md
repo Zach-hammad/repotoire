@@ -1,106 +1,102 @@
 # Repotoire Documentation
 
-Welcome to the Repotoire documentation. Repotoire is a graph-powered code health platform that analyzes codebases using Neo4j knowledge graphs to detect code smells, architectural issues, and technical debt.
+Repotoire is a graph-powered code health platform. Analyze your codebase locally with 42+ detectors, get AI-powered fixes, and optionally sync to a team dashboard.
+
+## Quick Start
+
+```bash
+pip install repotoire
+repotoire analyze .
+```
+
+That's it. No signup, no Docker, no external services.
 
 ## Quick Links
 
-- [Getting Started](getting-started/installation.md) - Set up Repotoire in 5 minutes
-- [CLI Reference](cli/overview.md) - Command-line interface documentation
-- [API Reference](api/overview.md) - REST API documentation
-- [Guides](guides/overview.md) - Step-by-step tutorials
+- [Quick Start](getting-started/quickstart.md) — First analysis in 30 seconds
+- [CLI Reference](reference/cli-reference.md) — All commands and options
+- [Team Features](/teams) — Dashboard, code ownership, PR checks
 
-## What is Repotoire?
+## What Makes Repotoire Different?
 
-Unlike traditional linters that examine files in isolation, Repotoire builds a Neo4j knowledge graph combining:
+Unlike traditional linters that examine files in isolation, Repotoire builds a **knowledge graph** of your code:
 
-- **Structural Analysis** - AST parsing to understand code structure
-- **Semantic Understanding** - NLP and AI to understand code meaning
-- **Relational Patterns** - Graph algorithms to detect architectural issues
+```
+┌─────────────────────────────────────────────┐
+│  Traditional Linters    │    Repotoire      │
+├─────────────────────────┼───────────────────┤
+│  File by file           │  Graph analysis   │
+│  Syntax only            │  Semantic context │
+│  No relationships       │  Calls, imports   │
+│  Miss architecture      │  Detects patterns │
+└─────────────────────────┴───────────────────┘
+```
 
-This multi-layered approach enables detection of complex issues that traditional tools miss:
+This enables detection of complex issues that traditional tools miss:
 
-- Circular dependencies across modules
-- Architectural bottlenecks and coupling
-- Dead code and unused imports
-- Security vulnerabilities with context
-- Code duplication patterns
+- **Circular dependencies** across modules
+- **Architectural bottlenecks** — high coupling, low cohesion
+- **Dead code** with call graph proof
+- **Security vulnerabilities** with context
+- **God classes** that should be split
 
 ## How to Use Repotoire
 
-### CLI (Command Line)
+### CLI (Free)
 
-Best for local development and CI/CD pipelines:
-
-```bash
-# Install
-pip install repotoire
-
-# Analyze a codebase
-repotoire ingest ./my-project
-repotoire analyze ./my-project
-
-# Ask questions with natural language
-repotoire ask "Where is authentication handled?"
-```
-
-See the [CLI Reference](cli/overview.md) for all commands.
-
-### REST API
-
-Best for integrating with web applications and services:
+Local analysis on your machine. Code never leaves your computer.
 
 ```bash
-# Trigger analysis
-curl -X POST https://api.repotoire.io/api/v1/analysis/trigger \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"repository_id": "550e8400-e29b-41d4-a716-446655440000"}'
+# Analyze
+repotoire analyze .
 
-# Get findings
-curl https://api.repotoire.io/api/v1/findings \
-  -H "Authorization: Bearer $TOKEN"
+# Fix with AI (bring your own key)
+export OPENAI_API_KEY=sk-...
+repotoire fix 1
+
+# Sync to team dashboard
+repotoire login
+repotoire sync
 ```
 
-See the [API Reference](api/overview.md) for all endpoints.
+### Team Dashboard (Paid)
 
-### Web Dashboard
+Cloud features for engineering teams:
 
-Visit [app.repotoire.io](https://app.repotoire.io) for a visual interface with:
+- **Code ownership** — Who owns what code?
+- **Bus factor alerts** — Knowledge concentration risks
+- **PR quality gates** — Block PRs with critical issues
+- **Team trends** — 90-day health history
+- **Slack/Teams integration** — Get notified
 
-- Repository health dashboards
-- Finding browser with code context
-- AI-powered fix suggestions
-- Team analytics and trends
+Visit [repotoire.com/teams](/teams) to get started.
 
-## Documentation Sections
+## Documentation
 
 ### Getting Started
 
-- [Installation](getting-started/installation.md) - Install Repotoire and dependencies
-- [Quick Start](getting-started/quickstart.md) - Your first analysis in 5 minutes
-- [Configuration](getting-started/configuration.md) - Configure Repotoire for your needs
+- [Installation](getting-started/installation.md) — Install with pip
+- [Quick Start](getting-started/quickstart.md) — Your first analysis
+- [Configuration](getting-started/configuration.md) — Customize behavior
 
 ### CLI Reference
 
-- [Overview](cli/overview.md) - CLI introduction and concepts
-- [Commands](reference/cli-reference.md) - Complete command reference
-- [Environment Variables](cli/environment.md) - Environment variable reference
+- [Overview](cli/overview.md) — CLI introduction
+- [Commands](reference/cli-reference.md) — Full command reference
 
 ### API Reference
 
-- [Overview](api/overview.md) - API introduction and authentication
-- [Endpoints](api/endpoints.md) - All REST API endpoints
-- [Webhooks](webhooks/overview.md) - Webhook event payloads
+- [Overview](api/overview.md) — REST API introduction
+- [Endpoints](api/endpoints.md) — All endpoints
 
 ### Guides
 
-- [GitHub Integration](guides/github-integration.md) - Connect GitHub repositories
-- [CI/CD Setup](guides/cicd.md) - Integrate with CI/CD pipelines
-- [Custom Rules](guides/custom-rules.md) - Create custom detection rules
-- [RAG & AI Features](guides/rag.md) - Use AI-powered features
+- [GitHub Integration](GITHUB_APP.md) — Connect GitHub repos
+- [CI/CD Setup](CI_CD_AUTO_FIX.md) — Automated PR checks
+- [Webhooks](webhooks/overview.md) — Event notifications
 
 ## Support
 
-- **GitHub Issues**: [github.com/repotoire/repotoire/issues](https://github.com/repotoire/repotoire/issues)
+- **GitHub**: [github.com/repotoire/repotoire](https://github.com/repotoire/repotoire)
 - **Email**: support@repotoire.io
-- **Documentation**: https://docs.repotoire.io
+- **Discord**: [discord.gg/repotoire](https://discord.gg/repotoire)
