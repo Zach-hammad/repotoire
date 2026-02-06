@@ -7,6 +7,7 @@ Repotoire automatically analyzes your codebase using knowledge graphs to detect 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Formally Verified](https://img.shields.io/badge/Formally%20Verified-Lean%204-blue)](docs/VERIFICATION.md)
+[![Code Health](https://img.shields.io/badge/code%20health-A-brightgreen)](https://repotoire.com)
 
 ## What Makes Repotoire Different?
 
@@ -443,6 +444,41 @@ if (( $(echo "$SCORE < 70" | bc -l) )); then
 fi
 
 echo "✅ Code health check passed (score: $SCORE)"
+```
+
+### README Badges
+
+Display your repository's code health grade with a dynamic badge:
+
+**Dynamic Badge (recommended):**
+
+Use our API endpoint with shields.io for real-time badge data:
+
+```markdown
+<!-- By repository ID -->
+![Code Health](https://img.shields.io/endpoint?url=https://api.repotoire.com/api/v1/badge/{repo_id})
+
+<!-- By repository name -->
+![Code Health](https://img.shields.io/endpoint?url=https://api.repotoire.com/api/v1/badge/name/{owner}/{repo})
+```
+
+The badge automatically updates when analysis completes (cached for 5 minutes).
+
+**Badge Colors:**
+| Grade | Score | Color |
+|-------|-------|-------|
+| A | 90-100 | ![A](https://img.shields.io/badge/code%20health-A-brightgreen) |
+| B | 80-89 | ![B](https://img.shields.io/badge/code%20health-B-green) |
+| C | 70-79 | ![C](https://img.shields.io/badge/code%20health-C-yellow) |
+| D | 60-69 | ![D](https://img.shields.io/badge/code%20health-D-orange) |
+| F | 0-59 | ![F](https://img.shields.io/badge/code%20health-F-red) |
+
+**Static Badge (for quick setup):**
+
+If you prefer a static badge, use shields.io directly:
+
+```markdown
+[![Code Health](https://img.shields.io/badge/code%20health-A-brightgreen)](https://repotoire.com)
 ```
 
 ## Troubleshooting

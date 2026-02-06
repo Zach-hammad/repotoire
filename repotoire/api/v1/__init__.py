@@ -11,6 +11,7 @@ from repotoire.api.v1.routes import (
     analysis,
     analytics,
     audit,
+    badge,
     billing,
     changelog,
     cli_auth,
@@ -150,6 +151,11 @@ V1_OPENAPI_TAGS = [
         "scheduled maintenance, and subscription to status updates. No authentication required.",
     },
     {
+        "name": "badge",
+        "description": "Public code health badges for shields.io integration. Dynamic badge data "
+        "showing repository health grades (A-F). No authentication required.",
+    },
+    {
         "name": "changelog",
         "description": "Public changelog and release notes. View new features, improvements, "
         "bug fixes, and subscribe to updates. No authentication required for public endpoints.",
@@ -269,6 +275,7 @@ v1_app.include_router(team_analytics.router)
 v1_app.include_router(usage.router)
 v1_app.include_router(webhooks.router)
 v1_app.include_router(status.router)
+v1_app.include_router(badge.router)
 v1_app.include_router(changelog.router)
 v1_app.include_router(admin_overrides.router)
 v1_app.include_router(admin_status.router)
