@@ -181,14 +181,37 @@ async def get_team_overview(
     return TeamOverviewResponse(**overview)
 
 
-@router.post("/analyze-ownership/{repository_id}")
+class JobResponse(BaseModel):
+    """Response for async job submission."""
+    
+    job_id: str
+    status: str
+    message: str
+    status_url: str
+
+
+class JobStatusResponse(BaseModel):
+    """Response for job status check."""
+    
+    job_id: str
+    status: str
+    progress: int
+    current_step: Optional[str] = None
+    result: Optional[dict] = None
+    error: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+@router.post("/analyze-ownership/{repository_id}", response_model=JobResponse)
 async def analyze_ownership(
     repository_id: UUID,
     days: int = 90,
     max_commits: int = 500,
+    sync: bool = False,
     user: ClerkUser = Depends(require_org),
     session: AsyncSession = Depends(get_db),
-) -> dict:
+) -> JobResponse | dict:
     """Trigger code ownership analysis for a repository.
     
     Analyzes git history to determine code ownership based on:
@@ -200,12 +223,15 @@ async def analyze_ownership(
         repository_id: Repository to analyze
         days: Number of days of history to analyze (default 90)
         max_commits: Maximum commits to process (default 500)
+        sync: If true, run synchronously (slower but immediate result)
+    
+    Returns:
+        Job ID for async status polling, or immediate result if sync=true.
     
     **Cloud-only feature** - requires organization membership.
     """
-    from datetime import datetime, timedelta, timezone
+    import uuid
     from repotoire.services.github_git import get_git_service_for_repo
-    from repotoire.db.models import GitHubRepository
     
     org_id = await get_user_org_id(session, user)
     if not org_id:
@@ -216,7 +242,7 @@ async def analyze_ownership(
     
     repo = await verify_repo_access(session, repository_id, org_id)
     
-    # Get GitHub service for the repo
+    # Verify GitHub connection before starting job
     git_service = await get_git_service_for_repo(session, repository_id)
     if not git_service:
         raise HTTPException(
@@ -224,7 +250,7 @@ async def analyze_ownership(
             detail="Repository not connected to GitHub. Please install the GitHub App.",
         )
     
-    # Get GitHub repo info for full name
+    # Get GitHub repo info for validation
     github_repo_result = await session.execute(
         select(GitHubRepository).where(GitHubRepository.repository_id == repository_id)
     )
@@ -235,51 +261,102 @@ async def analyze_ownership(
             detail="GitHub repository mapping not found",
         )
     
-    logger.info(f"Starting ownership analysis for repo {repository_id} ({github_repo.full_name})")
-    
-    # Fetch git log
-    since = datetime.now(timezone.utc) - timedelta(days=days)
-    try:
-        git_log = await git_service.fetch_git_log(
-            github_repo.full_name,
-            since=since,
-            max_commits=max_commits,
-        )
-    except Exception as e:
-        logger.error(f"Failed to fetch git log: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to fetch git history from GitHub: {str(e)}",
-        )
-    
-    if not git_log:
+    # Sync mode: run immediately (for small repos or testing)
+    if sync:
+        from datetime import datetime, timedelta, timezone
+        
+        logger.info(f"Starting sync ownership analysis for repo {repository_id}")
+        since = datetime.now(timezone.utc) - timedelta(days=days)
+        
+        try:
+            git_log = await git_service.fetch_git_log(
+                github_repo.full_name,
+                since=since,
+                max_commits=max_commits,
+            )
+        except Exception as e:
+            logger.error(f"Failed to fetch git log: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to fetch git history from GitHub: {str(e)}",
+            )
+        
+        if not git_log:
+            return {
+                "status": "completed",
+                "message": "No commits found",
+                "repository_id": str(repository_id),
+                "commits_analyzed": 0,
+            }
+        
+        service = TeamAnalyticsService(session, org_id)
+        result = await service.analyze_git_ownership(repository_id, git_log)
+        
         return {
             "status": "completed",
-            "message": "No commits found in the specified time range",
+            "message": "Ownership analysis completed",
             "repository_id": str(repository_id),
-            "commits_analyzed": 0,
+            "commits_analyzed": len(git_log),
+            **result,
         }
     
-    # Analyze ownership
-    service = TeamAnalyticsService(session, org_id)
-    try:
-        result = await service.analyze_git_ownership(repository_id, git_log)
-    except Exception as e:
-        logger.error(f"Failed to analyze ownership: {e}")
+    # Async mode: queue background job
+    from repotoire.workers.team_analytics_tasks import analyze_ownership_async
+    
+    job_id = str(uuid.uuid4())
+    
+    logger.info(f"Queuing ownership analysis job {job_id} for repo {repository_id}")
+    
+    analyze_ownership_async.delay(
+        job_id=job_id,
+        org_id=str(org_id),
+        repository_id=str(repository_id),
+        days=days,
+        max_commits=max_commits,
+    )
+    
+    return JobResponse(
+        job_id=job_id,
+        status="queued",
+        message="Ownership analysis started in background",
+        status_url=f"/api/v1/team-analytics/jobs/{job_id}",
+    )
+
+
+@router.get("/jobs/{job_id}", response_model=JobStatusResponse)
+async def get_job_status(
+    job_id: str,
+    user: ClerkUser = Depends(require_org),
+) -> JobStatusResponse:
+    """Get the status of a background analytics job.
+    
+    Poll this endpoint to check job progress and get results.
+    
+    Args:
+        job_id: Job ID returned from analyze-ownership or collaboration-graph
+    
+    Returns:
+        Job status with progress and result (when complete).
+    """
+    from repotoire.workers.team_analytics_tasks import get_job_status as get_status
+    
+    status_data = get_status(job_id)
+    if not status_data:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to analyze ownership: {str(e)}",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
         )
     
-    logger.info(f"Ownership analysis completed for repo {repository_id}: {result}")
-    
-    return {
-        "status": "completed",
-        "message": "Ownership analysis completed successfully",
-        "repository_id": str(repository_id),
-        "commits_analyzed": len(git_log),
-        **result,
-    }
+    return JobStatusResponse(
+        job_id=job_id,
+        status=status_data.get("status", "unknown"),
+        progress=status_data.get("progress", 0),
+        current_step=status_data.get("current_step"),
+        result=status_data.get("result"),
+        error=status_data.get("error"),
+        started_at=status_data.get("started_at"),
+        completed_at=status_data.get("completed_at"),
+    )
 
 
 @router.get("/bus-factor/{repository_id}", response_model=BusFactorResponse)
@@ -418,19 +495,29 @@ async def list_developers(
     }
 
 
-@router.post("/collaboration-graph")
+@router.post("/collaboration-graph", response_model=JobResponse)
 async def compute_collaboration_graph(
     repository_id: Optional[UUID] = None,
+    sync: bool = False,
     user: ClerkUser = Depends(require_org),
     session: AsyncSession = Depends(get_db),
-) -> dict:
+) -> JobResponse | dict:
     """Compute or refresh the collaboration graph.
     
     Analyzes shared file ownership to determine which developers
     collaborate frequently.
     
+    Args:
+        repository_id: Optional repository to scope analysis
+        sync: If true, run synchronously (slower but immediate result)
+    
+    Returns:
+        Job ID for async status polling, or immediate result if sync=true.
+    
     **Cloud-only feature** - requires organization membership.
     """
+    import uuid
+    
     org_id = await get_user_org_id(session, user)
     if not org_id:
         raise HTTPException(
@@ -441,13 +528,31 @@ async def compute_collaboration_graph(
     if repository_id:
         await verify_repo_access(session, repository_id, org_id)
     
-    service = TeamAnalyticsService(session, org_id)
-    result = await service.compute_collaboration_graph(repository_id)
+    # Sync mode
+    if sync:
+        service = TeamAnalyticsService(session, org_id)
+        result = await service.compute_collaboration_graph(repository_id)
+        return {"status": "completed", **result}
     
-    return {
-        "status": "completed",
-        **result,
-    }
+    # Async mode
+    from repotoire.workers.team_analytics_tasks import compute_collaboration_async
+    
+    job_id = str(uuid.uuid4())
+    
+    logger.info(f"Queuing collaboration graph job {job_id}")
+    
+    compute_collaboration_async.delay(
+        job_id=job_id,
+        org_id=str(org_id),
+        repository_id=str(repository_id) if repository_id else None,
+    )
+    
+    return JobResponse(
+        job_id=job_id,
+        status="queued",
+        message="Collaboration graph computation started in background",
+        status_url=f"/api/v1/team-analytics/jobs/{job_id}",
+    )
 
 
 @router.get("/collaboration-graph")

@@ -2,9 +2,12 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { Check, Terminal, Users, Building2 } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Check, Terminal, Users, Building2, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { useAuth } from "@clerk/nextjs"
+import { toast } from "sonner"
 
 const plans = [
   {
@@ -71,6 +74,45 @@ const plans = [
 
 export function PricingCards() {
   const [annual, setAnnual] = useState(true)
+  const [loading, setLoading] = useState<string | null>(null)
+  const { isSignedIn } = useAuth()
+  const router = useRouter()
+
+  const handleCheckout = async (plan: string, seats: number = 1) => {
+    if (!isSignedIn) {
+      // Redirect to sign-up with plan intent
+      router.push(`/sign-up?plan=${plan}`)
+      return
+    }
+
+    setLoading(plan)
+    try {
+      const res = await fetch("/api/v1/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plan,
+          seats,
+          success_url: `${window.location.origin}/dashboard?checkout=success`,
+          cancel_url: `${window.location.origin}/pricing?checkout=cancelled`,
+        }),
+      })
+
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.detail || "Failed to create checkout session")
+      }
+
+      const data = await res.json()
+      // Redirect to Stripe Checkout
+      window.location.href = data.checkout_url
+    } catch (err) {
+      console.error("Checkout error:", err)
+      toast.error(err instanceof Error ? err.message : "Failed to start checkout")
+    } finally {
+      setLoading(null)
+    }
+  }
 
   return (
     <div>
@@ -180,22 +222,49 @@ export function PricingCards() {
               ))}
             </ul>
 
-            <Link href={plan.href} className="w-full">
+            {plan.name === "Team" ? (
               <Button
                 className={cn(
                   "w-full font-display transition-all duration-300",
-                  plan.popular
-                    ? "bg-brand-gradient hover:opacity-90 text-white border-0"
-                    : plan.highlight === "emerald"
-                      ? "border-emerald-500/30 hover:bg-emerald-500/5 hover:border-emerald-500/50"
-                      : "hover:border-primary/50"
+                  "bg-brand-gradient hover:opacity-90 text-white border-0"
                 )}
-                variant={plan.popular ? "default" : "outline"}
                 size="lg"
+                onClick={() => handleCheckout("team")}
+                disabled={loading === "team"}
               >
-                {plan.cta}
+                {loading === "team" ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  plan.cta
+                )}
               </Button>
-            </Link>
+            ) : plan.name === "Enterprise" ? (
+              <Link href="/contact" className="w-full">
+                <Button
+                  className="w-full font-display transition-all duration-300 hover:border-primary/50"
+                  variant="outline"
+                  size="lg"
+                >
+                  {plan.cta}
+                </Button>
+              </Link>
+            ) : (
+              <Link href={plan.href} className="w-full">
+                <Button
+                  className={cn(
+                    "w-full font-display transition-all duration-300",
+                    "border-emerald-500/30 hover:bg-emerald-500/5 hover:border-emerald-500/50"
+                  )}
+                  variant="outline"
+                  size="lg"
+                >
+                  {plan.cta}
+                </Button>
+              </Link>
+            )}
           </div>
         ))}
       </div>

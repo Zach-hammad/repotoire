@@ -68,6 +68,7 @@ celery_app = Celery(
         "repotoire.workers.health_checks",
         "repotoire.workers.changelog",
         "repotoire.workers.cleanup",
+        "repotoire.workers.team_analytics_tasks",
     ],
 )
 

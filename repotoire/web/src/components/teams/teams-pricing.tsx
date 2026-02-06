@@ -1,11 +1,53 @@
 "use client"
 
+import { useState } from "react"
 import { motion } from "framer-motion"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Check, ArrowRight, Terminal } from "lucide-react"
+import { Check, ArrowRight, Terminal, Loader2 } from "lucide-react"
 import Link from "next/link"
+import { useAuth } from "@clerk/nextjs"
+import { toast } from "sonner"
 
 export function TeamsPricing() {
+  const [loading, setLoading] = useState(false)
+  const { isSignedIn } = useAuth()
+  const router = useRouter()
+
+  const handleCheckout = async () => {
+    if (!isSignedIn) {
+      router.push("/sign-up?plan=team")
+      return
+    }
+
+    setLoading(true)
+    try {
+      const res = await fetch("/api/v1/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plan: "team",
+          seats: 1,
+          success_url: `${window.location.origin}/dashboard?checkout=success`,
+          cancel_url: `${window.location.origin}/teams?checkout=cancelled`,
+        }),
+      })
+
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.detail || "Failed to create checkout session")
+      }
+
+      const data = await res.json()
+      window.location.href = data.checkout_url
+    } catch (err) {
+      console.error("Checkout error:", err)
+      toast.error(err instanceof Error ? err.message : "Failed to start checkout")
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <section className="py-20 px-4 sm:px-6 lg:px-8 bg-muted/30 border-t border-border/50">
       <div className="max-w-4xl mx-auto">
@@ -67,12 +109,23 @@ export function TeamsPricing() {
               ))}
             </ul>
 
-            <Link href="/sign-up?plan=team">
-              <Button className="w-full h-12 font-display bg-primary hover:bg-primary/90 text-primary-foreground">
-                Start Free Trial
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </Link>
+            <Button 
+              className="w-full h-12 font-display bg-primary hover:bg-primary/90 text-primary-foreground"
+              onClick={handleCheckout}
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Loading...
+                </>
+              ) : (
+                <>
+                  Start Free Trial
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </>
+              )}
+            </Button>
             <p className="text-xs text-center text-muted-foreground mt-3">
               7 days free · No credit card required
             </p>
