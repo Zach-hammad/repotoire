@@ -2,187 +2,264 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { motion, useMotionValue, useTransform, useReducedMotion } from "framer-motion"
+import { motion, useReducedMotion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { Terminal, Users, Download, ArrowRight, Sparkles, Shield, Zap, GitBranch, LucideIcon } from "lucide-react"
 import {
   EASING,
   DURATION,
   DELAY,
   OFFSET,
   SCALE,
-  SEVERITY_COLORS
 } from "@/lib/animation-constants"
 
-// Animated progress bar component
-function AnimatedProgress({
-  value,
-  color,
-  delay = 0,
-}: {
-  value: number
-  color: string
-  delay?: number
-}) {
-  const prefersReducedMotion = useReducedMotion()
-
-  return (
-    <div
-      className="h-1.5 bg-muted rounded-full overflow-hidden"
-      role="progressbar"
-      aria-valuenow={value}
-      aria-valuemin={0}
-      aria-valuemax={100}
-    >
-      <motion.div
-        className={cn("h-full rounded-full", color)}
-        initial={{ width: prefersReducedMotion ? `${value}%` : 0 }}
-        animate={{ width: `${value}%` }}
-        transition={{
-          delay: prefersReducedMotion ? 0 : delay + DURATION.medium,
-          duration: prefersReducedMotion ? 0 : DURATION.extended,
-          ease: EASING.smooth
-        }}
-      />
-    </div>
-  )
-}
-
-// Animated counter component
-function AnimatedCounter({ value, delay = 0 }: { value: number; delay?: number }) {
-  const [count, setCount] = useState(0)
+// Typing animation for terminal
+function TypingText({ text, delay = 0 }: { text: string; delay?: number }) {
+  const [displayed, setDisplayed] = useState("")
   const prefersReducedMotion = useReducedMotion()
 
   useEffect(() => {
-    // Skip animation if user prefers reduced motion
     if (prefersReducedMotion) {
-      setCount(value)
+      setDisplayed(text)
       return
     }
 
     const timeout = setTimeout(() => {
-      const duration = DURATION.counter * 1000 // Convert to ms
-      const steps = 30
-      const increment = value / steps
-      let current = 0
+      let i = 0
       const interval = setInterval(() => {
-        current += increment
-        if (current >= value) {
-          setCount(value)
-          clearInterval(interval)
+        if (i <= text.length) {
+          setDisplayed(text.slice(0, i))
+          i++
         } else {
-          setCount(Math.floor(current))
+          clearInterval(interval)
         }
-      }, duration / steps)
+      }, 50)
       return () => clearInterval(interval)
     }, delay * 1000)
+
     return () => clearTimeout(timeout)
-  }, [value, delay, prefersReducedMotion])
+  }, [text, delay, prefersReducedMotion])
 
-  return <>{count}</>
-}
-
-// Pulsing severity dot
-function SeverityDot({ color, pulse = false }: { color: string; pulse?: boolean }) {
   return (
-    <span className="relative flex h-2 w-2">
-      {pulse && (
-        <span
-          className={cn("absolute inline-flex h-full w-full animate-ping rounded-full opacity-75", color)}
-        />
-      )}
-      <span className={cn("relative inline-flex h-2 w-2 rounded-full", color)} />
+    <span>
+      {displayed}
+      <motion.span
+        animate={{ opacity: [1, 0] }}
+        transition={{ duration: 0.5, repeat: Infinity }}
+        className="text-primary"
+      >
+        _
+      </motion.span>
     </span>
   )
 }
 
-// Issue row with hover animation
-function IssueRow({
-  severity,
-  text,
-  action,
-  delay,
-  pulse = false,
-}: {
-  severity: string
-  text: string
-  action: string
-  delay: number
-  pulse?: boolean
-}) {
-  const severityColors: Record<string, string> = {
-    critical: "bg-red-500",
-    high: "bg-orange-500",
-    medium: "bg-amber-500",
-    low: "bg-blue-500",
-  }
-
-  const severityLabels: Record<string, string> = {
-    critical: "Critical severity",
-    high: "High severity",
-    medium: "Medium severity",
-    low: "Low severity",
-  }
-
+// Feature pill component
+function FeaturePill({ icon: Icon, text, delay }: { icon: LucideIcon; text: string; delay: number }) {
   return (
     <motion.div
-      initial={{ opacity: 0, x: OFFSET.medium }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay, duration: DURATION.normal, ease: EASING.smooth }}
-      whileHover={{ x: 4, backgroundColor: "var(--muted)" }}
-      className="flex items-center justify-between py-2.5 px-3 rounded-lg bg-muted/50 transition-colors cursor-pointer group"
-      role="listitem"
-      aria-label={`${severityLabels[severity]}: ${text}. Action: ${action}`}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay, duration: 0.3 }}
+      className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/50 border border-border/50 text-sm text-muted-foreground"
     >
-      <div className="flex items-center gap-3">
-        <SeverityDot color={severityColors[severity]} pulse={pulse} />
-        <span className="text-foreground">{text}</span>
+      <Icon className="w-3.5 h-3.5 text-primary" />
+      <span>{text}</span>
+    </motion.div>
+  )
+}
+
+// CLI Card Component
+function CLICard() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.3, duration: 0.5, ease: EASING.smooth }}
+      className="relative"
+    >
+      {/* Terminal window */}
+      <div className="card-elevated rounded-xl overflow-hidden shadow-2xl border border-border/50">
+        {/* Terminal header */}
+        <div className="flex items-center gap-2 px-4 py-3 bg-muted/50 border-b border-border">
+          <div className="flex gap-1.5">
+            <span className="w-3 h-3 rounded-full bg-red-500/80" />
+            <span className="w-3 h-3 rounded-full bg-amber-500/80" />
+            <span className="w-3 h-3 rounded-full bg-emerald-500/80" />
+          </div>
+          <span className="text-xs text-muted-foreground font-mono ml-2">Terminal</span>
+        </div>
+
+        {/* Terminal content */}
+        <div className="p-4 font-mono text-sm space-y-2 bg-background/50">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <span className="text-emerald-500">$</span>
+            <TypingText text="pip install repotoire" delay={0.5} />
+          </div>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 2 }}
+            className="text-muted-foreground/70 text-xs"
+          >
+            Successfully installed repotoire-0.1.32
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 2.5 }}
+            className="flex items-center gap-2 text-muted-foreground pt-2"
+          >
+            <span className="text-emerald-500">$</span>
+            <span>repotoire analyze .</span>
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 3 }}
+            className="pt-2 space-y-1"
+          >
+            <div className="text-emerald-500">✓ Found 3 circular dependencies</div>
+            <div className="text-amber-500">✓ Found 12 dead exports</div>
+            <div className="text-blue-500">✓ Found 5 god classes</div>
+            <div className="text-muted-foreground pt-1">Health Score: <span className="text-foreground font-bold">87/100</span></div>
+          </motion.div>
+        </div>
       </div>
-      <motion.span
-        initial={{ opacity: 0, x: -10 }}
-        whileHover={{ x: 0 }}
-        className="text-primary text-xs font-display flex items-center gap-1"
-        aria-hidden="true"
+
+      {/* Floating badge */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ delay: 1, duration: 0.3 }}
+        className="absolute -top-3 -right-3 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-xs font-medium"
       >
-        {action}
-        <motion.span
-          animate={{ x: [0, 4, 0] }}
-          transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
-        >
-          →
-        </motion.span>
-      </motion.span>
+        100% Local
+      </motion.div>
+    </motion.div>
+  )
+}
+
+// Teams Card Component
+function TeamsCard() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.4, duration: 0.5, ease: EASING.smooth }}
+      className="relative"
+    >
+      {/* Dashboard preview */}
+      <div className="card-elevated rounded-xl overflow-hidden shadow-2xl border border-border/50">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 bg-muted/50 border-b border-border">
+          <span className="text-sm font-medium text-foreground">Team Dashboard</span>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-xs text-muted-foreground">Live</span>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-4 space-y-4 bg-background/50">
+          {/* Bus Factor */}
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.6 }}
+            className="p-3 rounded-lg bg-muted/30 border border-border/50"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-muted-foreground">Bus Factor</span>
+              <span className="text-xs text-amber-500 font-medium">⚠️ At Risk</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex -space-x-2">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="w-6 h-6 rounded-full bg-primary/20 border-2 border-background flex items-center justify-center text-[10px] text-primary font-medium">
+                    {String.fromCharCode(64 + i)}
+                  </div>
+                ))}
+              </div>
+              <span className="text-sm text-foreground font-medium">3 critical owners</span>
+            </div>
+          </motion.div>
+
+          {/* Ownership Graph Preview */}
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.8 }}
+            className="p-3 rounded-lg bg-muted/30 border border-border/50"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-muted-foreground">Code Ownership</span>
+              <span className="text-xs text-primary">View Graph →</span>
+            </div>
+            <div className="flex gap-1 h-8">
+              {[40, 25, 20, 10, 5].map((width, i) => (
+                <motion.div
+                  key={i}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${width}%` }}
+                  transition={{ delay: 1 + i * 0.1, duration: 0.5 }}
+                  className={cn(
+                    "rounded h-full",
+                    i === 0 && "bg-primary",
+                    i === 1 && "bg-primary/70",
+                    i === 2 && "bg-primary/50",
+                    i === 3 && "bg-primary/30",
+                    i === 4 && "bg-primary/20"
+                  )}
+                />
+              ))}
+            </div>
+          </motion.div>
+
+          {/* Team Stats */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1.2 }}
+            className="grid grid-cols-3 gap-2 text-center"
+          >
+            <div className="p-2 rounded-lg bg-muted/30">
+              <div className="text-lg font-bold text-foreground">12</div>
+              <div className="text-[10px] text-muted-foreground">Repos</div>
+            </div>
+            <div className="p-2 rounded-lg bg-muted/30">
+              <div className="text-lg font-bold text-foreground">8</div>
+              <div className="text-[10px] text-muted-foreground">Devs</div>
+            </div>
+            <div className="p-2 rounded-lg bg-muted/30">
+              <div className="text-lg font-bold text-foreground">94</div>
+              <div className="text-[10px] text-muted-foreground">Health</div>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+
+      {/* Floating badge */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ delay: 1.2, duration: 0.3 }}
+        className="absolute -top-3 -right-3 px-3 py-1 rounded-full bg-primary/10 border border-primary/30 text-primary text-xs font-medium"
+      >
+        Team Insights
+      </motion.div>
     </motion.div>
   )
 }
 
 export function Hero() {
   const [isVisible, setIsVisible] = useState(false)
-  const mouseX = useMotionValue(0)
-  const mouseY = useMotionValue(0)
   const prefersReducedMotion = useReducedMotion()
-
-  // Parallax effect for the product card (reduced for subtlety)
-  const rotateX = useTransform(mouseY, [-300, 300], [3, -3])
-  const rotateY = useTransform(mouseX, [-300, 300], [-3, 3])
 
   useEffect(() => {
     setIsVisible(true)
   }, [])
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (prefersReducedMotion) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    const centerX = rect.left + rect.width / 2
-    const centerY = rect.top + rect.height / 2
-    mouseX.set(e.clientX - centerX)
-    mouseY.set(e.clientY - centerY)
-  }
-
-  const handleMouseLeave = () => {
-    mouseX.set(0)
-    mouseY.set(0)
-  }
 
   return (
     <section
@@ -195,7 +272,7 @@ export function Hero() {
         <div className="absolute inset-0 dot-grid opacity-50" />
         <motion.div
           className="absolute top-1/4 -left-32 w-96 h-96 rounded-full bg-primary/5 blur-3xl"
-          animate={{
+          animate={prefersReducedMotion ? {} : {
             scale: [1, 1.2, 1],
             opacity: [0.3, 0.5, 0.3],
           }}
@@ -203,7 +280,7 @@ export function Hero() {
         />
         <motion.div
           className="absolute bottom-1/4 -right-32 w-96 h-96 rounded-full bg-primary/5 blur-3xl"
-          animate={{
+          animate={prefersReducedMotion ? {} : {
             scale: [1.2, 1, 1.2],
             opacity: [0.5, 0.3, 0.5],
           }}
@@ -212,264 +289,175 @@ export function Hero() {
       </div>
 
       <div className="max-w-6xl mx-auto">
-        <div className="grid lg:grid-cols-2 gap-16 items-center">
-          {/* Left: Copy */}
-          <div>
-            <motion.h1
-              id="hero-heading"
-              initial={{ opacity: 0, y: OFFSET.large }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: DURATION.slow, ease: EASING.smooth }}
-              className="text-5xl sm:text-6xl lg:text-7xl tracking-tight text-foreground mb-6 leading-[1.05]"
-            >
-              <span className="font-display font-bold text-gradient">See what your linter</span>
-              <br />
-              <motion.span
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: DELAY.secondary, duration: DURATION.medium }}
-                className="font-serif italic text-muted-foreground"
-              >
-                can't see.
-              </motion.span>
-            </motion.h1>
+        {/* Main headline */}
+        <div className="text-center mb-16">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="inline-flex items-center gap-2 px-4 py-1.5 mb-6 rounded-full bg-primary/10 border border-primary/20 text-sm text-primary"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Graph-powered code analysis</span>
+          </motion.div>
 
-            <motion.p
-              initial={{ opacity: 0, y: OFFSET.medium }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: DELAY.heroContent, duration: DURATION.medium }}
-              className="text-lg text-muted-foreground mb-10 max-w-md leading-relaxed"
-            >
-              Repotoire builds a knowledge graph of your code—finding architectural debt, code smells, and issues that
-              linters miss.
-            </motion.p>
-
-            <motion.div
-              initial={{ opacity: 0, y: OFFSET.medium }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: DELAY.secondary, duration: DURATION.medium }}
-              className="flex flex-col sm:flex-row gap-4 mb-8"
-              role="group"
-              aria-label="Get started actions"
-            >
-              <motion.div whileHover={{ scale: SCALE.hover }} whileTap={{ scale: SCALE.pressed }}>
-                <Button
-                  asChild
-                  size="lg"
-                  className="relative overflow-hidden bg-primary hover:bg-primary/90 text-primary-foreground h-12 px-6 text-base font-display font-medium shadow-lg hover:shadow-xl transition-shadow"
-                >
-                  <Link href="/dashboard">
-                    <span className="relative z-10">Analyze Your Repo</span>
-                    <motion.span
-                      className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent"
-                      initial={{ x: "-100%" }}
-                      whileHover={{ x: "100%" }}
-                      transition={{ duration: 0.5 }}
-                    />
-                  </Link>
-                </Button>
-              </motion.div>
-              <motion.div whileHover={{ scale: SCALE.hover }} whileTap={{ scale: SCALE.pressed }}>
-                <Button
-                  asChild
-                  size="lg"
-                  variant="outline"
-                  className="h-12 px-6 text-base font-display border-border hover:bg-muted bg-transparent transition-all"
-                >
-                  <Link href="/samples">See Sample Report</Link>
-                </Button>
-              </motion.div>
-            </motion.div>
-
-            <motion.div
+          <motion.h1
+            id="hero-heading"
+            initial={{ opacity: 0, y: OFFSET.large }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: DURATION.slow, ease: EASING.smooth }}
+            className="text-4xl sm:text-5xl lg:text-6xl tracking-tight text-foreground mb-6 leading-[1.1]"
+          >
+            <span className="font-display font-bold">Find what your linter</span>
+            <br />
+            <motion.span
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.5, duration: 0.5 }}
-              className="flex items-center gap-6"
+              transition={{ delay: DELAY.secondary, duration: DURATION.medium }}
+              className="font-serif italic text-muted-foreground"
             >
-              <motion.a
-                href="https://github.com/repotoire/repotoire"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors group"
-                whileHover={{ x: 2 }}
-              >
-                <svg className="w-5 h-5 transition-transform group-hover:scale-110" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-                </svg>
-                <span className="font-display font-medium">Open Source</span>
-              </motion.a>
-              <span className="w-px h-4 bg-border" />
-              <span className="text-sm text-muted-foreground">Apache 2.0 License</span>
-            </motion.div>
-          </div>
+              can't see.
+            </motion.span>
+          </motion.h1>
 
-          {/* Right: Product card with 3D effect */}
-          <motion.div
-            initial={{ opacity: 0, x: 50, rotateY: -10 }}
-            animate={{ opacity: 1, x: 0, rotateY: 0 }}
-            transition={{ delay: DELAY.secondary, duration: 0.7, ease: EASING.smooth }}
-            aria-label="Interactive demo showing Repotoire code analysis results"
-            style={{
-              perspective: 1000,
-            }}
-            onMouseMove={handleMouseMove}
-            onMouseLeave={handleMouseLeave}
+          <motion.p
+            initial={{ opacity: 0, y: OFFSET.medium }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: DELAY.heroContent, duration: DURATION.medium }}
+            className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto"
           >
+            Repotoire builds a knowledge graph of your codebase—surfacing architectural debt,
+            circular dependencies, and code smells that traditional tools miss.
+          </motion.p>
+        </div>
+
+        {/* Split: CLI vs Teams */}
+        <div className="grid lg:grid-cols-2 gap-8 lg:gap-12">
+          {/* Left: For You (CLI) */}
+          <motion.div
+            initial={{ opacity: 0, x: -30 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.2, duration: 0.5 }}
+            className="space-y-6"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                <Terminal className="w-5 h-5 text-emerald-500" />
+              </div>
+              <div>
+                <h2 className="text-xl font-display font-semibold text-foreground">For You</h2>
+                <p className="text-sm text-muted-foreground">Free CLI, runs locally</p>
+              </div>
+            </div>
+
+            <CLICard />
+
+            {/* Feature pills */}
+            <div className="flex flex-wrap gap-2">
+              <FeaturePill icon={Shield} text="Code stays local" delay={1.5} />
+              <FeaturePill icon={Zap} text="42 detectors" delay={1.6} />
+              <FeaturePill icon={Sparkles} text="AI fixes (BYOK)" delay={1.7} />
+            </div>
+
+            {/* CTA */}
             <motion.div
-              style={{
-                rotateX,
-                rotateY,
-                transformStyle: "preserve-3d",
-              }}
-              transition={{ type: "spring", stiffness: 100, damping: 30 }}
-              className="card-elevated rounded-xl overflow-hidden shadow-2xl"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.8 }}
+              className="pt-2"
             >
-              {/* Header */}
-              <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-gradient-to-r from-muted/50 to-transparent">
-                <div className="flex items-center gap-3">
-                  <div className="flex gap-1.5">
-                    <motion.span
-                      className="w-3 h-3 rounded-full bg-red-500/80"
-                      whileHover={{ scale: 1.2 }}
-                    />
-                    <motion.span
-                      className="w-3 h-3 rounded-full bg-amber-500/80"
-                      whileHover={{ scale: 1.2 }}
-                    />
-                    <motion.span
-                      className="w-3 h-3 rounded-full bg-emerald-500/80"
-                      whileHover={{ scale: 1.2 }}
-                    />
-                  </div>
-                  <span className="text-sm font-mono text-muted-foreground">myapp/</span>
-                </div>
-                <motion.span
-                  className="text-xs text-muted-foreground"
-                  animate={{ opacity: [0.5, 1, 0.5] }}
-                  transition={{ duration: 2, repeat: Infinity }}
+              <Link href="/cli">
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="group h-12 px-6 text-base font-display border-emerald-500/30 hover:border-emerald-500/50 hover:bg-emerald-500/5"
                 >
-                  analyzing...
-                </motion.span>
-              </div>
+                  <Download className="w-4 h-4 mr-2 text-emerald-500" />
+                  <span>Download CLI</span>
+                  <ArrowRight className="w-4 h-4 ml-2 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+                </Button>
+              </Link>
+              <p className="text-xs text-muted-foreground mt-3">
+                <code className="px-1.5 py-0.5 rounded bg-muted text-foreground">pip install repotoire</code>
+                {" "}— Free forever
+              </p>
+            </motion.div>
+          </motion.div>
 
-              {/* Health Score */}
-              <div className="p-5 border-b border-border">
-                <div className="flex items-baseline justify-between mb-4">
-                  <span className="text-sm text-muted-foreground font-display">Health Score</span>
-                  <motion.span
-                    className="text-4xl font-display font-bold text-foreground"
-                    initial={{ opacity: 0, scale: 0.5 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.6, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-                  >
-                    <AnimatedCounter value={72} delay={0.6} />
-                  </motion.span>
-                </div>
-                <div className="grid grid-cols-3 gap-4 text-xs">
-                  <div>
-                    <div className="text-muted-foreground mb-1.5">Structure</div>
-                    <AnimatedProgress value={85} color="bg-emerald-500" delay={0.2} />
-                    <motion.div
-                      className="text-muted-foreground mt-1"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: 1.2 }}
-                    >
-                      <AnimatedCounter value={85} delay={0.8} />%
-                    </motion.div>
-                  </div>
-                  <div>
-                    <div className="text-muted-foreground mb-1.5">Quality</div>
-                    <AnimatedProgress value={68} color="bg-amber-500" delay={0.3} />
-                    <motion.div
-                      className="text-muted-foreground mt-1"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: 1.3 }}
-                    >
-                      <AnimatedCounter value={68} delay={0.9} />%
-                    </motion.div>
-                  </div>
-                  <div>
-                    <div className="text-muted-foreground mb-1.5">Architecture</div>
-                    <AnimatedProgress value={52} color="bg-red-500" delay={0.4} />
-                    <motion.div
-                      className="text-muted-foreground mt-1"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: 1.4 }}
-                    >
-                      <AnimatedCounter value={52} delay={1.0} />%
-                    </motion.div>
-                  </div>
-                </div>
+          {/* Right: For Teams (Cloud) */}
+          <motion.div
+            initial={{ opacity: 0, x: 30 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.3, duration: 0.5 }}
+            className="space-y-6"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 rounded-lg bg-primary/10 border border-primary/20">
+                <Users className="w-5 h-5 text-primary" />
               </div>
-
-              {/* Issues */}
-              <div className="p-5 space-y-2 font-mono text-sm" role="list" aria-label="Code issues detected">
-                <IssueRow
-                  severity="critical"
-                  text="3 circular dependencies"
-                  action="Fix"
-                  delay={1.0}
-                  pulse
-                />
-                <IssueRow
-                  severity="medium"
-                  text="847 dead exports"
-                  action="Fix"
-                  delay={1.1}
-                />
-                <IssueRow
-                  severity="low"
-                  text="12 bottleneck modules"
-                  action="View"
-                  delay={1.2}
-                />
+              <div>
+                <h2 className="text-xl font-display font-semibold text-foreground">For Teams</h2>
+                <p className="text-sm text-muted-foreground">Cloud dashboard, team insights</p>
               </div>
+            </div>
 
-              {/* Footer */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 1.4 }}
-                className="px-5 py-3 border-t border-border flex items-center justify-between bg-muted/30"
-              >
-                <div className="flex items-center gap-2">
-                  {["Ruff", "Pylint", "Mypy", "Bandit", "Semgrep"].map((tool, i) => (
-                    <motion.span
-                      key={tool}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 1.5 + i * 0.05 }}
-                      className="text-xs text-muted-foreground"
-                    >
-                      {tool}{i < 4 && " ·"}
-                    </motion.span>
-                  ))}
-                </div>
-                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: SCALE.pressed }}>
-                  <Button
-                    size="sm"
-                    className="h-7 text-xs font-display bg-primary hover:bg-primary/90 text-primary-foreground shadow-md"
-                    aria-label="Apply automatic AI-powered code fixes"
-                  >
-                    <motion.span
-                      className="mr-1"
-                      animate={{ rotate: [0, 15, -15, 0] }}
-                      transition={{ duration: DURATION.medium, repeat: Infinity, repeatDelay: 3 }}
-                      aria-hidden="true"
-                    >
-                      ✨
-                    </motion.span>
-                    Apply AI Fix
-                  </Button>
-                </motion.div>
-              </motion.div>
+            <TeamsCard />
+
+            {/* Feature pills */}
+            <div className="flex flex-wrap gap-2">
+              <FeaturePill icon={Users} text="Code ownership" delay={1.8} />
+              <FeaturePill icon={GitBranch} text="Cross-repo insights" delay={1.9} />
+              <FeaturePill icon={Shield} text="PR gates" delay={2.0} />
+            </div>
+
+            {/* CTA */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.9 }}
+              className="pt-2"
+            >
+              <Link href="/sign-up">
+                <Button
+                  size="lg"
+                  className="group h-12 px-6 text-base font-display bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-shadow"
+                >
+                  <span>Start Free Trial</span>
+                  <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+                </Button>
+              </Link>
+              <p className="text-xs text-muted-foreground mt-3">
+                7 days free · No credit card required
+              </p>
             </motion.div>
           </motion.div>
         </div>
+
+        {/* Trust bar */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1.5 }}
+          className="mt-20 pt-12 border-t border-border/50"
+        >
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-10 text-sm text-muted-foreground">
+            <a
+              href="https://github.com/repotoire/repotoire"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 hover:text-foreground transition-colors group"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+              </svg>
+              <span className="font-display font-medium">Open Source</span>
+            </a>
+            <span className="hidden sm:block w-px h-4 bg-border" />
+            <span>Apache 2.0 License</span>
+            <span className="hidden sm:block w-px h-4 bg-border" />
+            <span>Python & Rust</span>
+          </div>
+        </motion.div>
       </div>
     </section>
   )

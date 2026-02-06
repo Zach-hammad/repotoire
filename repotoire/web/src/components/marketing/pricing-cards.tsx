@@ -2,44 +2,70 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { Check } from "lucide-react"
+import { Check, Terminal, Users, Building2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 const plans = [
   {
-    name: "Pro",
-    price: { monthly: "33", annual: "26" },
-    description: "For professional developers",
+    name: "CLI",
+    icon: Terminal,
+    price: { monthly: "0", annual: "0" },
+    description: "For individual developers",
     features: [
-      "5 repositories per seat",
-      "Unlimited analyses",
-      "AI-powered auto-fix",
-      "Best-of-N sampling",
-      "Private repositories",
-      "Priority support",
+      "Unlimited local analysis",
+      "42 code detectors",
+      "AI-powered fixes (BYOK)",
+      "Graph-based insights",
+      "Python, JS, TS, Rust, Go",
+      "Apache 2.0 license",
     ],
-    cta: "Start 7-Day Free Trial",
-    href: "/sign-up?plan=pro",
+    cta: "Download Free",
+    href: "/cli",
+    popular: false,
+    highlight: "emerald",
+    note: "Free forever",
+  },
+  {
+    name: "Team",
+    icon: Users,
+    price: { monthly: "19", annual: "15" },
+    description: "For engineering teams",
+    features: [
+      "Everything in CLI",
+      "Team dashboard",
+      "Code ownership analysis",
+      "Bus factor alerts",
+      "PR quality gates",
+      "Slack/Teams integration",
+      "90-day history",
+      "Unlimited repos",
+    ],
+    cta: "Start Free Trial",
+    href: "/sign-up?plan=team",
     popular: true,
-    trial: "7 days free, then $33/mo",
+    highlight: "primary",
+    trial: "7 days free",
   },
   {
     name: "Enterprise",
-    price: { monthly: "199", annual: "159" },
-    description: "For organizations",
+    icon: Building2,
+    price: { monthly: "Custom", annual: "Custom" },
+    description: "For large organizations",
     features: [
-      "Unlimited repositories",
-      "Everything in Pro",
+      "Everything in Team",
       "SSO/SAML authentication",
-      "Custom quality rules",
-      "SLA guarantee",
+      "Audit logs",
+      "Custom integrations",
       "Dedicated support",
-      "Best-of-N unlimited",
+      "SLA guarantee",
+      "Unlimited history",
+      "On-prem option",
     ],
     cta: "Contact Sales",
     href: "/contact",
     popular: false,
+    highlight: "primary",
   },
 ]
 
@@ -73,13 +99,17 @@ export function PricingCards() {
       </div>
 
       {/* Pricing cards */}
-      <div className="grid gap-6 md:grid-cols-2 max-w-3xl mx-auto">
+      <div className="grid gap-6 lg:grid-cols-3 max-w-5xl mx-auto">
         {plans.map((plan, index) => (
           <div
             key={plan.name}
             className={cn(
-              "relative flex flex-col card-elevated rounded-xl p-6 transition-all duration-300 hover:border-primary/30",
-              plan.popular && "border-primary/50 md:scale-105 shadow-xl shadow-primary/10"
+              "relative flex flex-col card-elevated rounded-xl p-6 transition-all duration-300",
+              plan.popular 
+                ? "border-primary/50 lg:scale-105 shadow-xl shadow-primary/10 z-10" 
+                : plan.highlight === "emerald"
+                  ? "hover:border-emerald-500/30"
+                  : "hover:border-primary/30"
             )}
             style={{ animationDelay: `${index * 100}ms` }}
           >
@@ -92,8 +122,19 @@ export function PricingCards() {
             )}
 
             <div className="mb-6">
-              <h3 className="text-xl font-display font-semibold text-foreground">{plan.name}</h3>
-              <p className="text-sm text-muted-foreground mt-1">{plan.description}</p>
+              <div className="flex items-center gap-3 mb-2">
+                <div className={cn(
+                  "p-2 rounded-lg",
+                  plan.highlight === "emerald" ? "bg-emerald-500/10" : "bg-primary/10"
+                )}>
+                  <plan.icon className={cn(
+                    "w-5 h-5",
+                    plan.highlight === "emerald" ? "text-emerald-500" : "text-primary"
+                  )} />
+                </div>
+                <h3 className="text-xl font-display font-semibold text-foreground">{plan.name}</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">{plan.description}</p>
             </div>
 
             <div className="mb-6">
@@ -102,25 +143,38 @@ export function PricingCards() {
                   <span className="text-5xl font-display font-bold text-foreground">
                     ${annual ? plan.price.annual : plan.price.monthly}
                   </span>
-                  <span className="text-muted-foreground ml-1">/month</span>
-                  {annual && (
+                  {plan.price.monthly !== "0" && (
+                    <span className="text-muted-foreground ml-1">/dev/month</span>
+                  )}
+                  {annual && plan.price.monthly !== "0" && (
                     <p className="text-sm text-muted-foreground mt-2">
-                      Billed annually (${parseInt(plan.price.annual) * 12}/year)
+                      Billed annually (${parseInt(plan.price.annual) * 12}/dev/year)
                     </p>
                   )}
                   {plan.trial && (
                     <p className="text-sm text-primary mt-2 font-medium">{plan.trial}</p>
                   )}
+                  {plan.note && (
+                    <p className={cn(
+                      "text-sm mt-2 font-medium",
+                      plan.highlight === "emerald" ? "text-emerald-500" : "text-primary"
+                    )}>
+                      {plan.note}
+                    </p>
+                  )}
                 </>
               ) : (
-                <span className="text-5xl font-display font-bold text-foreground">Custom</span>
+                <span className="text-4xl font-display font-bold text-foreground">Custom</span>
               )}
             </div>
 
             <ul className="space-y-3 flex-1 mb-6">
               {plan.features.map((feature) => (
                 <li key={feature} className="flex items-start gap-3">
-                  <Check className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
+                  <Check className={cn(
+                    "h-5 w-5 flex-shrink-0 mt-0.5",
+                    plan.highlight === "emerald" ? "text-emerald-500" : "text-primary"
+                  )} />
                   <span className="text-sm text-muted-foreground">{feature}</span>
                 </li>
               ))}
@@ -132,7 +186,9 @@ export function PricingCards() {
                   "w-full font-display transition-all duration-300",
                   plan.popular
                     ? "bg-brand-gradient hover:opacity-90 text-white border-0"
-                    : "hover:border-primary/50"
+                    : plan.highlight === "emerald"
+                      ? "border-emerald-500/30 hover:bg-emerald-500/5 hover:border-emerald-500/50"
+                      : "hover:border-primary/50"
                 )}
                 variant={plan.popular ? "default" : "outline"}
                 size="lg"
@@ -146,7 +202,7 @@ export function PricingCards() {
 
       {/* Trust note */}
       <p className="mt-10 text-center text-sm text-muted-foreground">
-        Try free for 7 days. Cancel anytime. No commitment.
+        CLI is free forever. Team plans include 7-day free trial. Cancel anytime.
       </p>
     </div>
   )
