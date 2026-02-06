@@ -570,29 +570,27 @@ class AIBoilerplateDetector(CodeSmellDetector):
         query = f"""
         MATCH (f:Function)
         WHERE f.name IS NOT NULL 
-          AND f.loc IS NOT NULL 
-          AND f.loc >= $min_loc
+          AND f.lineStart IS NOT NULL
+          AND f.lineEnd IS NOT NULL
+          AND f.filePath IS NOT NULL
+          AND f.filePath ENDS WITH '.py'
           {repo_filter}
         OPTIONAL MATCH (f)<-[:CONTAINS]-(c:Class)
-        OPTIONAL MATCH (f)<-[:CONTAINS*]-(file:File)
-        WHERE file.language = 'python' OR file.filePath ENDS WITH '.py'
         RETURN f.qualifiedName AS qualified_name,
                f.name AS name,
                f.lineStart AS line_start,
                f.lineEnd AS line_end,
-               f.loc AS loc,
                f.decorators AS decorators,
                f.is_method AS is_method,
                c.qualifiedName AS parent_class,
-               file.filePath AS file_path
-        ORDER BY f.loc DESC
+               f.filePath AS file_path
         LIMIT 1000
         """
         
         try:
             results = self.db.execute_query(
                 query,
-                self._get_query_params(min_loc=self.min_loc),
+                self._get_query_params(),
             )
             return [r for r in results if r.get("file_path")]
         except Exception as e:
