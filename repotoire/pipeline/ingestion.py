@@ -2198,12 +2198,18 @@ class IngestionPipeline:
                         RETURN f.filePath as dst, e.name as name
                         """
                     else:
+                        # Use UNION for label-specific queries (uses indexes)
                         entities_query = """
-                        MATCH (f:File)-[:CONTAINS]->(e)
-                        WHERE ('Function' IN labels(e) OR 'Class' IN labels(e))
-                          AND e.qualifiedName IS NOT NULL
-                          AND e.name IS NOT NULL
-                        RETURN f.filePath as dst, e.name as name
+                        CALL {
+                            MATCH (f:File)-[:CONTAINS]->(e:Function)
+                            WHERE e.qualifiedName IS NOT NULL AND e.name IS NOT NULL
+                            RETURN f.filePath as dst, e.name as name
+                            UNION ALL
+                            MATCH (f:File)-[:CONTAINS]->(e:Class)
+                            WHERE e.qualifiedName IS NOT NULL AND e.name IS NOT NULL
+                            RETURN f.filePath as dst, e.name as name
+                        }
+                        RETURN dst, name
                         """
                     entity_start = time_module.time()
                     entities_data = self.db.execute_query(entities_query)

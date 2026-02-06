@@ -247,14 +247,13 @@ class Node2VecEmbedder:
 
         rel_pattern = "|".join(relationship_types)
 
-        # Build OR condition for labels (Neo4j n:A:B means AND, we need OR)
-        label_conditions = " OR ".join([f"n:{label}" for label in node_labels])
-
-        # Step 1: Get all nodes and build ID mapping
+        # Step 1: Get all nodes and build ID mapping using UNION (uses indexes)
+        union_parts = [f"MATCH (n:{label}) RETURN n.qualifiedName AS name" for label in node_labels]
         node_query = f"""
-        MATCH (n)
-        WHERE {label_conditions}
-        RETURN n.qualifiedName AS name
+        CALL {{
+            {' UNION ALL '.join(union_parts)}
+        }}
+        RETURN name
         """
         nodes = self.client.execute_query(node_query)
 

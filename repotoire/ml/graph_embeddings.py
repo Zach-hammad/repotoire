@@ -392,18 +392,22 @@ class FastRPEmbedder:
             - coverage_percent: Percentage of nodes with embeddings
             - by_label: Breakdown by node label
         """
-        # Count total and embedded nodes
+        # Count total and embedded nodes using UNION for label-specific queries (uses indexes)
+        labels = self.config.node_labels
+        union_parts = []
+        for label in labels:
+            union_parts.append(f"""
+                MATCH (n:{label})
+                RETURN 1 as cnt, CASE WHEN n.{self.config.write_property} IS NOT NULL THEN 1 ELSE 0 END as has_emb
+            """)
         query = f"""
-        MATCH (n)
-        WHERE any(label IN labels(n) WHERE label IN $labels)
-        WITH count(n) AS total,
-             count(CASE WHEN n.{self.config.write_property} IS NOT NULL THEN 1 END) AS embedded
-        RETURN total, embedded
+        CALL {{
+            {' UNION ALL '.join(union_parts)}
+        }}
+        RETURN sum(cnt) AS total, sum(has_emb) AS embedded
         """
 
-        result = self.client.execute_query(
-            query, {"labels": self.config.node_labels}
-        )
+        result = self.client.execute_query(query)
 
         if not result:
             return {"total_nodes": 0, "nodes_with_embeddings": 0, "coverage_percent": 0}
@@ -411,20 +415,23 @@ class FastRPEmbedder:
         total = result[0]["total"]
         embedded = result[0]["embedded"]
 
-        # Get breakdown by label
+        # Get breakdown by label using UNION (uses indexes)
+        label_union_parts = []
+        for label in labels:
+            label_union_parts.append(f"""
+                MATCH (n:{label})
+                RETURN '{label}' as label, 1 as cnt, 
+                       CASE WHEN n.{self.config.write_property} IS NOT NULL THEN 1 ELSE 0 END as has_emb
+            """)
         label_query = f"""
-        MATCH (n)
-        WHERE any(label IN labels(n) WHERE label IN $labels)
-        WITH labels(n)[0] AS label,
-             count(n) AS total,
-             count(CASE WHEN n.{self.config.write_property} IS NOT NULL THEN 1 END) AS embedded
-        RETURN label, total, embedded
+        CALL {{
+            {' UNION ALL '.join(label_union_parts)}
+        }}
+        RETURN label, sum(cnt) AS total, sum(has_emb) AS embedded
         ORDER BY total DESC
         """
 
-        label_result = self.client.execute_query(
-            label_query, {"labels": self.config.node_labels}
-        )
+        label_result = self.client.execute_query(label_query)
 
         by_label = {
             r["label"]: {"total": r["total"], "embedded": r["embedded"]}
