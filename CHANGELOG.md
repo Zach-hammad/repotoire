@@ -5,6 +5,28 @@ All notable changes to Repotoire will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.34] - 2026-02-05
+
+### Features
+
+- **web:** Split landing page into CLI + Teams sections
+- **web:** New `/cli` page with download instructions and quickstart
+- **web:** New `/teams` page with team analytics value proposition
+- **web:** 3-tier pricing: Free CLI, Team ($15/dev), Enterprise
+- **cli:** Add `repotoire sync` command to upload analysis to cloud
+- **api:** Complete team analytics backend with GitHub git integration
+- **api:** Add Stripe checkout and customer portal endpoints
+- **api:** Add `/api/v1/cli-sync/upload` endpoint for CLI sync
+
+### Bug Fixes
+
+- **models:** Rename `CodeOwnership.metadata` to `extra_data` (SQLAlchemy reserved)
+- **cli:** Fix findings cache creation (wrong attribute names)
+
+### Documentation
+
+- Add `.env.example` for frontend development
+
 ## [0.1.6] - 2026-02-05
 
 ### Bug Fixes
