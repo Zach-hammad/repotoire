@@ -19,7 +19,11 @@ from sqlalchemy.orm import selectinload
 from repotoire.api.shared.auth import ClerkUser, require_org
 from repotoire.api.shared.services.billing import check_usage_limit, increment_usage
 from repotoire.api.shared.services.encryption import TokenEncryption, get_token_encryption
-from repotoire.api.shared.services.github import GitHubAppClient, get_github_client
+from repotoire.api.shared.services.github import (
+    GitHubAppClient,
+    WebhookSecretNotConfiguredError,
+    get_github_client,
+)
 from repotoire.db.models import (
     AnalysisRun,
     AnalysisStatus,
@@ -460,11 +464,23 @@ async def github_webhook(
     body = await request.body()
     signature = request.headers.get("X-Hub-Signature-256", "")
 
-    if not github.verify_webhook_signature(body, signature):
-        logger.warning("Invalid webhook signature")
+    try:
+        if not github.verify_webhook_signature(body, signature):
+            logger.warning("Invalid webhook signature")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid webhook signature",
+            )
+    except WebhookSecretNotConfiguredError as e:
+        # Webhook secret not configured in production - this is a server error
+        logger.error(
+            f"Webhook rejected: {e}",
+            extra={"error_type": "webhook_secret_not_configured"},
+        )
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid webhook signature",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Webhook processing unavailable: server configuration error. "
+            "Please contact the administrator.",
         )
 
     event_type = request.headers.get("X-GitHub-Event", "")

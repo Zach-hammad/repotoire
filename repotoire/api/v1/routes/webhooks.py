@@ -1534,7 +1534,10 @@ async def github_webhook_alias(
     GitHub App webhook URL may be configured to either this path or /api/v1/github/webhook.
     """
     from repotoire.api.shared.services.encryption import get_token_encryption
-    from repotoire.api.shared.services.github import GitHubAppClient
+    from repotoire.api.shared.services.github import (
+        GitHubAppClient,
+        WebhookSecretNotConfiguredError,
+    )
     from repotoire.api.v1.routes.github import (
         handle_installation_event,
         handle_installation_repos_event,
@@ -1549,11 +1552,23 @@ async def github_webhook_alias(
     body = await request.body()
     signature = request.headers.get("X-Hub-Signature-256", "")
 
-    if not github.verify_webhook_signature(body, signature):
-        logger.warning("Invalid GitHub webhook signature")
+    try:
+        if not github.verify_webhook_signature(body, signature):
+            logger.warning("Invalid GitHub webhook signature")
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid webhook signature",
+            )
+    except WebhookSecretNotConfiguredError as e:
+        # Webhook secret not configured in production - this is a server error
+        logger.error(
+            f"Webhook rejected: {e}",
+            extra={"error_type": "webhook_secret_not_configured"},
+        )
         raise HTTPException(
-            status_code=401,
-            detail="Invalid webhook signature",
+            status_code=503,
+            detail="Webhook processing unavailable: server configuration error. "
+            "Please contact the administrator.",
         )
 
     event_type = request.headers.get("X-GitHub-Event", "")

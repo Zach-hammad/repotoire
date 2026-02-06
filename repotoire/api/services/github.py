@@ -16,6 +16,22 @@ from repotoire.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+
+class WebhookSecretNotConfiguredError(Exception):
+    """Raised when webhook secret is not configured in production.
+
+    This is a security-critical error that should result in rejecting
+    the webhook with a 500/503 status code. Webhooks must not be processed
+    without signature verification in production environments.
+    """
+
+    def __init__(self, service_name: str = "GitHub"):
+        self.service_name = service_name
+        super().__init__(
+            f"{service_name} webhook secret not configured. "
+            f"Set {service_name.upper()}_WEBHOOK_SECRET environment variable."
+        )
+
 # GitHub API base URL
 GITHUB_API_BASE = "https://api.github.com"
 
@@ -287,13 +303,33 @@ class GitHubAppClient:
 
         Returns:
             True if signature is valid, False otherwise.
+
+        Raises:
+            WebhookSecretNotConfiguredError: If webhook secret is not set in production.
+                In development/testing, returns True with a warning instead.
         """
         import hashlib
         import hmac
 
         if not self.webhook_secret:
-            logger.warning("GITHUB_WEBHOOK_SECRET not set, skipping verification")
-            return False
+            environment = os.getenv("ENVIRONMENT", "development")
+            is_production = environment.lower() in ("production", "prod", "staging")
+
+            if is_production:
+                logger.error(
+                    "GITHUB_WEBHOOK_SECRET not configured in production - rejecting webhook",
+                    extra={"environment": environment},
+                )
+                raise WebhookSecretNotConfiguredError("GitHub")
+            else:
+                # Development/testing: allow with loud warning
+                logger.warning(
+                    "⚠️  SECURITY WARNING: GITHUB_WEBHOOK_SECRET not set! "
+                    "Skipping signature verification. This is only allowed in development. "
+                    "Set GITHUB_WEBHOOK_SECRET before deploying to production.",
+                    extra={"environment": environment},
+                )
+                return True  # Allow in development without verification
 
         if not signature.startswith("sha256="):
             return False
