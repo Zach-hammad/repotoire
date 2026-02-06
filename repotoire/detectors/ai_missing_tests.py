@@ -7,10 +7,16 @@ generates implementation code but neglects to generate tests.
 This detector supports multiple language conventions:
 - Python: pytest conventions (test_<function>, test_<module>.py, <module>_test.py)
 - JavaScript/TypeScript: jest conventions (*.test.ts, *.spec.ts, describe blocks)
+
+Enhanced with test quality analysis:
+- Detects weak tests (single assertion)
+- Detects incomplete tests (no error handling coverage)
+- MEDIUM severity for missing tests, LOW for weak/incomplete tests
 """
 
 import re
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from repotoire.detectors.base import CodeSmellDetector
@@ -22,18 +28,53 @@ from repotoire.models import CollaborationMetadata, Finding, Severity
 logger = get_logger(__name__)
 
 
-class AIMissingTestsDetector(CodeSmellDetector):
-    """Detects new functions/methods that lack corresponding tests.
+class TestQuality(str, Enum):
+    """Test quality classification."""
+    MISSING = "missing"           # No test exists
+    WEAK = "weak"                 # Test exists but has only 1 assertion
+    INCOMPLETE = "incomplete"     # Test exists but lacks error handling coverage
+    ADEQUATE = "adequate"         # Test exists with multiple assertions
 
-    This detector identifies code that was recently added (configurable window,
-    default 30 days) but doesn't have test coverage. This is especially common
-    when AI assistants generate implementation code without generating tests.
+
+@dataclass
+class TestInfo:
+    """Information about a test function."""
+    name: str
+    file_path: str
+    assertion_count: int
+    has_error_tests: bool
+    loc: int = 0
+    
+    @property
+    def quality(self) -> TestQuality:
+        """Determine test quality based on metrics."""
+        if self.assertion_count == 0:
+            return TestQuality.MISSING
+        elif self.assertion_count == 1:
+            return TestQuality.WEAK
+        elif not self.has_error_tests:
+            return TestQuality.INCOMPLETE
+        return TestQuality.ADEQUATE
+
+
+class AIMissingTestsDetector(CodeSmellDetector):
+    """Detects functions/methods that lack corresponding tests or have weak tests.
+
+    This detector identifies code that doesn't have adequate test coverage. This is
+    especially common when AI assistants generate implementation code without tests.
 
     Detection Strategy:
-    1. Find all functions added in recent commits (via Session/Commit relationships)
+    1. Find all functions in non-test files (detected by path pattern)
     2. Exclude functions that are themselves test functions
     3. Check for corresponding test functions using naming conventions
-    4. Flag functions without matching tests as MEDIUM severity
+    4. Analyze test quality (assertion count, error handling coverage)
+    5. Flag functions based on test coverage quality:
+       - MEDIUM severity: No test exists
+       - LOW severity: Test exists but is weak (1 assertion) or incomplete (no error tests)
+
+    Test File Detection (by path pattern):
+    - Python: test_*.py, *_test.py, tests/*.py
+    - JavaScript/TypeScript: *.test.js, *.spec.ts, __tests__/*
 
     Naming Conventions Checked:
     - Python: test_<function_name>, <function_name>_test, Test<ClassName>
@@ -42,11 +83,12 @@ class AIMissingTestsDetector(CodeSmellDetector):
 
     # Default configuration
     DEFAULT_CONFIG = {
-        "window_days": 30,           # Look back window for "recent" commits
         "min_function_loc": 5,       # Minimum LOC to consider (skip trivial functions)
         "exclude_private": True,     # Exclude _private functions
         "exclude_dunder": True,      # Exclude __dunder__ methods
         "max_findings": 50,          # Maximum findings to return
+        "check_test_quality": True,  # Also flag weak/incomplete tests
+        "min_assertions": 2,         # Minimum assertions for adequate test
     }
 
     # Test file patterns for different languages
@@ -69,21 +111,55 @@ class AIMissingTestsDetector(CodeSmellDetector):
         ],
     }
 
-    # Test function name patterns
-    TEST_FUNCTION_PATTERNS = {
+    # Assertion patterns for different languages
+    ASSERTION_PATTERNS = {
         "python": [
-            r"^test_",                # test_function_name
-            r"_test$",                # function_name_test
+            r"\bassert\b",            # assert statement
+            r"\.assert",              # unittest assertions (self.assertEqual, etc.)
+            r"pytest\.",              # pytest assertions
         ],
         "javascript": [
-            r"^test",                 # testFunctionName
-            r"^it\(",                 # it('should...')
-            r"^describe\(",           # describe('module')
+            r"\bexpect\(",            # Jest/Chai expect
+            r"\.toBe\(",              # Jest matchers
+            r"\.toEqual\(",
+            r"\.toThrow\(",
+            r"\.assert",              # Chai assert
         ],
         "typescript": [
-            r"^test",
-            r"^it\(",
-            r"^describe\(",
+            r"\bexpect\(",
+            r"\.toBe\(",
+            r"\.toEqual\(",
+            r"\.toThrow\(",
+            r"\.assert",
+        ],
+    }
+
+    # Error handling test patterns
+    ERROR_TEST_PATTERNS = {
+        "python": [
+            r"pytest\.raises",        # pytest.raises(Exception)
+            r"assertRaises",          # unittest assertRaises
+            r"with_raises",           # various frameworks
+            r"test.*error",           # test_handles_error, test_error_case
+            r"test.*exception",       # test_raises_exception
+            r"test.*invalid",         # test_invalid_input
+            r"test.*fail",            # test_should_fail
+        ],
+        "javascript": [
+            r"\.toThrow\(",           # expect(...).toThrow()
+            r"\.rejects\(",           # expect(...).rejects
+            r"catch\s*\(",            # try/catch in tests
+            r"error",                 # test names with 'error'
+            r"invalid",               # test names with 'invalid'
+            r"fail",                  # test names with 'fail'
+        ],
+        "typescript": [
+            r"\.toThrow\(",
+            r"\.rejects\(",
+            r"catch\s*\(",
+            r"error",
+            r"invalid",
+            r"fail",
         ],
     }
 
@@ -98,34 +174,36 @@ class AIMissingTestsDetector(CodeSmellDetector):
         Args:
             graph_client: FalkorDB database client
             detector_config: Optional configuration dict with:
-                - window_days: Days to look back for recent commits
                 - min_function_loc: Minimum LOC to consider
                 - exclude_private: Whether to exclude _private functions
                 - exclude_dunder: Whether to exclude __dunder__ methods
                 - max_findings: Maximum number of findings to return
+                - check_test_quality: Whether to also flag weak/incomplete tests
+                - min_assertions: Minimum assertions for adequate test
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
         super().__init__(graph_client, detector_config)
         self.enricher = enricher
 
         config = detector_config or {}
-        self.window_days = config.get("window_days", self.DEFAULT_CONFIG["window_days"])
         self.min_function_loc = config.get("min_function_loc", self.DEFAULT_CONFIG["min_function_loc"])
         self.exclude_private = config.get("exclude_private", self.DEFAULT_CONFIG["exclude_private"])
         self.exclude_dunder = config.get("exclude_dunder", self.DEFAULT_CONFIG["exclude_dunder"])
         self.max_findings = config.get("max_findings", self.DEFAULT_CONFIG["max_findings"])
+        self.check_test_quality = config.get("check_test_quality", self.DEFAULT_CONFIG["check_test_quality"])
+        self.min_assertions = config.get("min_assertions", self.DEFAULT_CONFIG["min_assertions"])
 
     def detect(self) -> List[Finding]:
-        """Detect recently added functions without tests.
+        """Detect recently added functions without tests or with weak tests.
 
         Returns:
-            List of findings for functions missing test coverage
+            List of findings for functions with inadequate test coverage
         """
         findings: List[Finding] = []
 
         try:
-            # Step 1: Get all test functions and test files in the codebase
-            test_functions, test_files = self._get_test_coverage_info()
+            # Step 1: Get all test functions with quality info
+            test_info_map, test_files = self._get_test_coverage_info()
 
             # Step 2: Get recently added functions
             recent_functions = self._get_recent_functions()
@@ -134,151 +212,210 @@ class AIMissingTestsDetector(CodeSmellDetector):
                 logger.debug("No recent functions found for missing tests analysis")
                 return findings
 
-            # Step 3: Check each function for test coverage
+            # Step 3: Check each function for test coverage and quality
             for func_data in recent_functions:
                 if self._should_skip_function(func_data):
                     continue
 
-                if not self._has_test_coverage(func_data, test_functions, test_files):
-                    finding = self._create_finding(func_data)
+                test_quality, test_info = self._check_test_coverage(
+                    func_data, test_info_map, test_files
+                )
+
+                # Create findings based on test quality
+                if test_quality == TestQuality.MISSING:
+                    finding = self._create_finding(func_data, TestQuality.MISSING, None)
+                    findings.append(finding)
+                elif self.check_test_quality and test_quality in (TestQuality.WEAK, TestQuality.INCOMPLETE):
+                    finding = self._create_finding(func_data, test_quality, test_info)
                     findings.append(finding)
 
-                    # Flag entity for cross-detector collaboration
-                    if self.enricher:
-                        self._flag_entity(func_data, finding)
+                # Flag entity for cross-detector collaboration
+                if findings and self.enricher:
+                    self._flag_entity(func_data, findings[-1])
 
-                    if len(findings) >= self.max_findings:
-                        break
+                if len(findings) >= self.max_findings:
+                    break
 
-            logger.info(f"AIMissingTestsDetector found {len(findings)} untested functions")
+            logger.info(f"AIMissingTestsDetector found {len(findings)} test coverage issues")
             return findings
 
         except Exception as e:
             logger.error(f"Error in AIMissingTestsDetector: {e}")
             return []
 
-    def _get_test_coverage_info(self) -> Tuple[Set[str], Set[str]]:
-        """Get existing test functions and test files.
+    def _get_test_coverage_info(self) -> Tuple[Dict[str, TestInfo], Set[str]]:
+        """Get existing test functions with quality metrics.
 
         Returns:
-            Tuple of (test_function_names, test_file_paths)
+            Tuple of (test_function_name -> TestInfo, test_file_paths)
         """
         repo_filter = self._get_isolation_filter("f")
 
-        # Query for test files and their test functions
+        # Query for all files and filter test files by path pattern
         query = f"""
         MATCH (f:File)
-        WHERE f.filePath IS NOT NULL 
-          AND f.isTest = true {repo_filter}
+        WHERE f.filePath IS NOT NULL {repo_filter}
         OPTIONAL MATCH (f)-[:CONTAINS*]->(func:Function)
         WHERE func.name IS NOT NULL
         RETURN f.filePath AS file_path,
-               collect(DISTINCT func.name) AS test_func_names
+               f.language AS language,
+               collect(DISTINCT {{
+                   name: func.name,
+                   loc: func.loc,
+                   source: func.source
+               }}) AS test_funcs
         """
 
         try:
             results = self.db.execute_query(query, self._get_query_params())
         except Exception as e:
-            logger.warning(f"Could not query test files: {e}")
-            return set(), set()
+            logger.warning(f"Could not query files: {e}")
+            return {}, set()
 
         test_files: Set[str] = set()
-        test_functions: Set[str] = set()
+        test_info_map: Dict[str, TestInfo] = {}
 
         for row in results:
             file_path = row.get("file_path", "")
-            if file_path:
-                test_files.add(file_path.lower())
+            language = (row.get("language") or "python").lower()
+            
+            # Filter test files by path pattern instead of isTest property
+            if not file_path or not self._is_test_file(file_path.lower()):
+                continue
+                
+            test_files.add(file_path.lower())
 
-            func_names = row.get("test_func_names", []) or []
-            for name in func_names:
-                if name:
-                    test_functions.add(name.lower())
+            test_funcs = row.get("test_funcs", []) or []
+            for func in test_funcs:
+                name = func.get("name", "")
+                if not name:
+                    continue
+                    
+                source = func.get("source", "") or ""
+                loc = func.get("loc", 0) or 0
+                
+                # Analyze test quality
+                assertion_count = self._count_assertions(source, language)
+                has_error_tests = self._has_error_handling_tests(source, name, language)
+                
+                test_info = TestInfo(
+                    name=name,
+                    file_path=file_path,
+                    assertion_count=assertion_count,
+                    has_error_tests=has_error_tests,
+                    loc=loc,
+                )
+                test_info_map[name.lower()] = test_info
 
-        # Also get test function names directly (for files not marked as isTest)
+        # Also get test functions by name pattern (for files that might not match path patterns)
         func_query = f"""
         MATCH (func:Function)
         WHERE func.name IS NOT NULL {self._get_isolation_filter("func")}
           AND (func.name STARTS WITH 'test_' 
                OR func.name STARTS WITH 'test'
                OR func.name ENDS WITH '_test')
-        RETURN DISTINCT func.name AS name
+        OPTIONAL MATCH (f:File)-[:CONTAINS*]->(func)
+        RETURN DISTINCT func.name AS name,
+               func.loc AS loc,
+               func.source AS source,
+               f.filePath AS file_path,
+               f.language AS language
         """
 
         try:
             func_results = self.db.execute_query(func_query, self._get_query_params())
             for row in func_results:
                 name = row.get("name", "")
-                if name:
-                    test_functions.add(name.lower())
+                if not name or name.lower() in test_info_map:
+                    continue
+                    
+                source = row.get("source", "") or ""
+                language = (row.get("language") or "python").lower()
+                loc = row.get("loc", 0) or 0
+                file_path = row.get("file_path", "")
+                
+                assertion_count = self._count_assertions(source, language)
+                has_error_tests = self._has_error_handling_tests(source, name, language)
+                
+                test_info = TestInfo(
+                    name=name,
+                    file_path=file_path,
+                    assertion_count=assertion_count,
+                    has_error_tests=has_error_tests,
+                    loc=loc,
+                )
+                test_info_map[name.lower()] = test_info
         except Exception as e:
             logger.warning(f"Could not query test functions: {e}")
 
-        return test_functions, test_files
+        return test_info_map, test_files
+
+    def _count_assertions(self, source: str, language: str) -> int:
+        """Count assertions in test source code.
+
+        Args:
+            source: Test function source code
+            language: Programming language
+
+        Returns:
+            Number of assertions found
+        """
+        if not source:
+            # If no source, assume at least 1 assertion (benefit of doubt)
+            return 1
+
+        patterns = self.ASSERTION_PATTERNS.get(language, self.ASSERTION_PATTERNS["python"])
+        count = 0
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, source, re.IGNORECASE)
+            count += len(matches)
+        
+        return count
+
+    def _has_error_handling_tests(self, source: str, test_name: str, language: str) -> bool:
+        """Check if test covers error handling cases.
+
+        Args:
+            source: Test function source code
+            test_name: Name of the test function
+            language: Programming language
+
+        Returns:
+            True if test appears to cover error cases
+        """
+        patterns = self.ERROR_TEST_PATTERNS.get(language, self.ERROR_TEST_PATTERNS["python"])
+        
+        # Check source code for error handling patterns
+        if source:
+            for pattern in patterns:
+                if re.search(pattern, source, re.IGNORECASE):
+                    return True
+        
+        # Check test name for error-related keywords
+        test_name_lower = test_name.lower()
+        error_keywords = ["error", "exception", "invalid", "fail", "raise", "throw", "reject"]
+        for keyword in error_keywords:
+            if keyword in test_name_lower:
+                return True
+        
+        return False
 
     def _get_recent_functions(self) -> List[Dict[str, Any]]:
-        """Get functions added in recent commits.
+        """Get functions to check for test coverage.
 
-        Returns:
-            List of function data dictionaries
-        """
-        # Calculate cutoff timestamp for recent commits
-        cutoff = datetime.now(timezone.utc) - timedelta(days=self.window_days)
-        cutoff_timestamp = int(cutoff.timestamp())
-
-        repo_filter = self._get_isolation_filter("f")
-
-        # Query for recently added/modified functions
-        # We look for functions in files that were modified recently
-        query = f"""
-        MATCH (s:Session)-[:MODIFIED]->(f:File)-[:CONTAINS*]->(func:Function)
-        WHERE s.committedAt >= $cutoff_timestamp
-          AND func.name IS NOT NULL
-          AND f.isTest <> true {repo_filter}
-        WITH func, f, max(s.committedAt) AS last_modified, s.author AS author
-        WHERE func.loc >= $min_loc OR func.loc IS NULL
-        RETURN DISTINCT 
-               func.qualifiedName AS qualified_name,
-               func.name AS name,
-               func.lineStart AS line_start,
-               func.lineEnd AS line_end,
-               func.loc AS loc,
-               func.isMethod AS is_method,
-               f.filePath AS file_path,
-               f.language AS language,
-               last_modified,
-               author
-        ORDER BY last_modified DESC
-        LIMIT $max_results
-        """
-
-        try:
-            results = self.db.execute_query(
-                query,
-                self._get_query_params(
-                    cutoff_timestamp=cutoff_timestamp,
-                    min_loc=self.min_function_loc,
-                    max_results=self.max_findings * 3,  # Get more to account for filtering
-                ),
-            )
-            return results
-        except Exception as e:
-            logger.warning(f"Could not query recent functions (falling back): {e}")
-            # Fallback: just get all non-test functions
-            return self._get_functions_fallback()
-
-    def _get_functions_fallback(self) -> List[Dict[str, Any]]:
-        """Fallback query when Session/MODIFIED relationships don't exist.
+        Since Session/Commit tracking may not exist, we query all functions
+        and filter out test files by path pattern.
 
         Returns:
             List of function data dictionaries
         """
         repo_filter = self._get_isolation_filter("f")
 
+        # Query all functions, filtering test files by path pattern
         query = f"""
         MATCH (f:File)-[:CONTAINS*]->(func:Function)
-        WHERE func.name IS NOT NULL
-          AND f.isTest <> true {repo_filter}
+        WHERE func.name IS NOT NULL {repo_filter}
           AND (func.loc >= $min_loc OR func.loc IS NULL)
         RETURN DISTINCT 
                func.qualifiedName AS qualified_name,
@@ -293,15 +430,20 @@ class AIMissingTestsDetector(CodeSmellDetector):
         """
 
         try:
-            return self.db.execute_query(
+            results = self.db.execute_query(
                 query,
                 self._get_query_params(
                     min_loc=self.min_function_loc,
-                    max_results=self.max_findings * 2,
+                    max_results=self.max_findings * 3,
                 ),
             )
+            # Filter out functions in test files by path pattern
+            return [
+                r for r in results 
+                if not self._is_test_file((r.get("file_path") or "").lower())
+            ]
         except Exception as e:
-            logger.error(f"Fallback query also failed: {e}")
+            logger.error(f"Could not query functions: {e}")
             return []
 
     def _should_skip_function(self, func_data: Dict[str, Any]) -> bool:
@@ -351,7 +493,6 @@ class AIMissingTestsDetector(CodeSmellDetector):
         if not file_path:
             return False
 
-        # Check common patterns
         for patterns in self.TEST_FILE_PATTERNS.values():
             for pattern in patterns:
                 if re.search(pattern, file_path, re.IGNORECASE):
@@ -359,45 +500,48 @@ class AIMissingTestsDetector(CodeSmellDetector):
 
         return False
 
-    def _has_test_coverage(
+    def _check_test_coverage(
         self,
         func_data: Dict[str, Any],
-        test_functions: Set[str],
+        test_info_map: Dict[str, TestInfo],
         test_files: Set[str],
-    ) -> bool:
-        """Check if a function has corresponding test coverage.
+    ) -> Tuple[TestQuality, Optional[TestInfo]]:
+        """Check test coverage and quality for a function.
 
         Args:
             func_data: Function data dictionary
-            test_functions: Set of known test function names
+            test_info_map: Map of test function names to TestInfo
             test_files: Set of known test file paths
 
         Returns:
-            True if function appears to have test coverage
+            Tuple of (TestQuality, Optional[TestInfo])
         """
         name = func_data.get("name", "")
         file_path = func_data.get("file_path", "")
         language = (func_data.get("language") or "python").lower()
 
         if not name:
-            return True  # Can't check, assume covered
+            return TestQuality.ADEQUATE, None
 
         name_lower = name.lower()
 
         # Check for test function with matching name
         test_variants = self._get_test_function_variants(name_lower, language)
         for variant in test_variants:
-            if variant in test_functions:
-                return True
+            if variant in test_info_map:
+                test_info = test_info_map[variant]
+                return test_info.quality, test_info
 
         # Check for test file with matching module name
         if file_path:
             test_file_variants = self._get_test_file_variants(file_path, language)
             for variant in test_file_variants:
                 if variant.lower() in test_files:
-                    return True
+                    # Test file exists but couldn't find specific test function
+                    # Assume some coverage exists
+                    return TestQuality.ADEQUATE, None
 
-        return False
+        return TestQuality.MISSING, None
 
     def _get_test_function_variants(self, func_name: str, language: str) -> List[str]:
         """Get possible test function names for a given function.
@@ -420,7 +564,6 @@ class AIMissingTestsDetector(CodeSmellDetector):
         ])
 
         # For methods, also check class-based test names
-        # e.g., TestMyClass.test_method
         if "_" in func_name:
             parts = func_name.split("_")
             for part in parts:
@@ -441,12 +584,9 @@ class AIMissingTestsDetector(CodeSmellDetector):
         """
         variants = []
 
-        # Extract module name from file path
-        # e.g., "src/utils/helper.py" -> "helper"
         parts = file_path.replace("\\", "/").split("/")
         filename = parts[-1] if parts else ""
 
-        # Remove extension
         if "." in filename:
             module_name = filename.rsplit(".", 1)[0]
         else:
@@ -478,11 +618,18 @@ class AIMissingTestsDetector(CodeSmellDetector):
 
         return variants
 
-    def _create_finding(self, func_data: Dict[str, Any]) -> Finding:
-        """Create a finding for a function without tests.
+    def _create_finding(
+        self,
+        func_data: Dict[str, Any],
+        test_quality: TestQuality,
+        test_info: Optional[TestInfo],
+    ) -> Finding:
+        """Create a finding for a function with inadequate test coverage.
 
         Args:
             func_data: Function data dictionary
+            test_quality: Quality classification
+            test_info: Optional test info if test exists
 
         Returns:
             Finding object
@@ -499,119 +646,287 @@ class AIMissingTestsDetector(CodeSmellDetector):
 
         func_type = "method" if is_method else "function"
 
-        description = (
-            f"The {func_type} '{name}' was recently added but has no corresponding test. "
-            f"This is a common pattern when AI generates implementation code without tests."
-        )
+        # Build description and title based on test quality
+        if test_quality == TestQuality.MISSING:
+            title = f"Missing tests for {func_type}: {name}"
+            description = (
+                f"The {func_type} '{name}' was recently added but has no corresponding test. "
+                f"This is a common pattern when AI generates implementation code without tests."
+            )
+            severity = Severity.MEDIUM
+            evidence = ["no_test_function", "recently_added"]
+            
+        elif test_quality == TestQuality.WEAK:
+            title = f"Weak test for {func_type}: {name}"
+            assertion_count = test_info.assertion_count if test_info else 0
+            description = (
+                f"The {func_type} '{name}' has a test but it only contains {assertion_count} assertion(s). "
+                f"Weak tests may not adequately verify correct behavior and can miss bugs."
+            )
+            severity = Severity.LOW
+            evidence = ["weak_test", "single_assertion"]
+            
+        elif test_quality == TestQuality.INCOMPLETE:
+            title = f"Incomplete test for {func_type}: {name}"
+            description = (
+                f"The {func_type} '{name}' has a test but it lacks error handling coverage. "
+                f"Tests should verify behavior for invalid inputs and error conditions."
+            )
+            severity = Severity.LOW
+            evidence = ["incomplete_test", "no_error_handling"]
+        else:
+            # Should not reach here
+            return None
+
         if loc > 0:
             description += f" The {func_type} has {loc} lines of code."
         if author:
             description += f" Last modified by: {author}."
 
-        suggested_fix = self._generate_test_suggestion(name, file_path, language)
+        suggested_fix = self._generate_test_suggestion(name, file_path, language, test_quality, test_info)
+
+        graph_context = {
+            "function_name": name,
+            "loc": loc,
+            "is_method": is_method,
+            "language": language,
+            "test_quality": test_quality.value,
+        }
+        
+        if test_info:
+            graph_context["test_name"] = test_info.name
+            graph_context["assertion_count"] = test_info.assertion_count
+            graph_context["has_error_tests"] = test_info.has_error_tests
 
         finding = Finding(
-            id=f"ai_missing_tests_{qualified_name}",
+            id=f"ai_missing_tests_{test_quality.value}_{qualified_name}",
             detector="AIMissingTestsDetector",
-            severity=Severity.MEDIUM,
-            title=f"Missing tests for {func_type}: {name}",
+            severity=severity,
+            title=title,
             description=description,
             affected_nodes=[qualified_name],
             affected_files=[file_path] if file_path != "unknown" else [],
             line_start=line_start,
             line_end=line_end,
             suggested_fix=suggested_fix,
-            estimated_effort="Small (15-45 minutes)",
-            graph_context={
-                "function_name": name,
-                "loc": loc,
-                "is_method": is_method,
-                "language": language,
-            },
-            why_it_matters=(
-                "Untested code is a risk. Tests catch bugs early, document expected behavior, "
-                "and make refactoring safer. AI-generated code especially needs tests since "
-                "AI may produce subtly incorrect implementations."
-            ),
+            estimated_effort=self._estimate_effort(test_quality),
+            graph_context=graph_context,
+            why_it_matters=self._get_why_it_matters(test_quality),
         )
 
         # Add collaboration metadata
         finding.add_collaboration_metadata(CollaborationMetadata(
             detector="AIMissingTestsDetector",
-            confidence=0.8,
-            evidence=["no_test_function", "recently_added"],
-            tags=["missing_tests", "ai_code", "test_coverage"],
+            confidence=0.8 if test_quality == TestQuality.MISSING else 0.7,
+            evidence=evidence,
+            tags=["missing_tests", "ai_code", "test_coverage", test_quality.value],
         ))
 
         return finding
 
-    def _generate_test_suggestion(self, func_name: str, file_path: str, language: str) -> str:
-        """Generate a test suggestion for the function.
+    def _generate_test_suggestion(
+        self,
+        func_name: str,
+        file_path: str,
+        language: str,
+        test_quality: TestQuality,
+        test_info: Optional[TestInfo],
+    ) -> str:
+        """Generate a test suggestion based on quality issue.
 
         Args:
             func_name: Function name
             file_path: Source file path
             language: Programming language
+            test_quality: Quality classification
+            test_info: Optional existing test info
 
         Returns:
             Suggested fix text
         """
         language = (language or "python").lower()
 
+        if test_quality == TestQuality.MISSING:
+            return self._generate_new_test_suggestion(func_name, language)
+        elif test_quality == TestQuality.WEAK:
+            return self._generate_strengthen_test_suggestion(func_name, language, test_info)
+        elif test_quality == TestQuality.INCOMPLETE:
+            return self._generate_error_test_suggestion(func_name, language, test_info)
+        
+        return ""
+
+    def _generate_new_test_suggestion(self, func_name: str, language: str) -> str:
+        """Generate suggestion for creating a new test."""
         if language == "python":
             return (
-                f"Create a test for '{func_name}' in the appropriate test file:\n\n"
+                f"Create a comprehensive test for '{func_name}':\n\n"
                 f"```python\n"
-                f"def test_{func_name}():\n"
-                f'    """Test {func_name} functionality."""\n'
-                f"    # Arrange\n"
-                f"    # ... set up test data\n\n"
-                f"    # Act\n"
-                f"    result = {func_name}(...)\n\n"
-                f"    # Assert\n"
-                f"    assert result == expected\n"
-                f"```\n\n"
-                f"Consider testing:\n"
-                f"- Normal/happy path cases\n"
-                f"- Edge cases and boundary conditions\n"
-                f"- Error handling and invalid inputs"
+                f"def test_{func_name}_success():\n"
+                f'    """Test {func_name} with valid input."""\n'
+                f"    result = {func_name}(valid_input)\n"
+                f"    assert result is not None\n"
+                f"    assert result == expected_value\n\n"
+                f"def test_{func_name}_edge_cases():\n"
+                f'    """Test {func_name} edge cases."""\n'
+                f"    # Test boundary conditions\n"
+                f"    assert {func_name}(min_value) == expected_min\n"
+                f"    assert {func_name}(max_value) == expected_max\n\n"
+                f"def test_{func_name}_error_handling():\n"
+                f'    """Test {func_name} error handling."""\n'
+                f"    with pytest.raises(ValueError):\n"
+                f"        {func_name}(invalid_input)\n"
+                f"```"
             )
         elif language in ("javascript", "typescript"):
             return (
-                f"Create a test for '{func_name}' in a test file:\n\n"
+                f"Create a comprehensive test for '{func_name}':\n\n"
                 f"```{language}\n"
                 f"describe('{func_name}', () => {{\n"
-                f"  it('should handle normal case', () => {{\n"
-                f"    // Arrange\n"
-                f"    // ... set up test data\n\n"
-                f"    // Act\n"
-                f"    const result = {func_name}(...);\n\n"
-                f"    // Assert\n"
-                f"    expect(result).toEqual(expected);\n"
+                f"  it('should handle valid input', () => {{\n"
+                f"    const result = {func_name}(validInput);\n"
+                f"    expect(result).toBeDefined();\n"
+                f"    expect(result).toEqual(expectedValue);\n"
+                f"  }});\n\n"
+                f"  it('should handle edge cases', () => {{\n"
+                f"    expect({func_name}(minValue)).toEqual(expectedMin);\n"
+                f"    expect({func_name}(maxValue)).toEqual(expectedMax);\n"
+                f"  }});\n\n"
+                f"  it('should throw on invalid input', () => {{\n"
+                f"    expect(() => {func_name}(invalidInput)).toThrow();\n"
                 f"  }});\n"
                 f"}});\n"
-                f"```\n\n"
-                f"Consider testing:\n"
-                f"- Normal/happy path cases\n"
-                f"- Edge cases and boundary conditions\n"
-                f"- Error handling and invalid inputs"
+                f"```"
             )
-        else:
+        return f"Add comprehensive test coverage for '{func_name}' with multiple assertions and error handling tests."
+
+    def _generate_strengthen_test_suggestion(
+        self,
+        func_name: str,
+        language: str,
+        test_info: Optional[TestInfo],
+    ) -> str:
+        """Generate suggestion for strengthening a weak test."""
+        test_name = test_info.name if test_info else f"test_{func_name}"
+        
+        if language == "python":
             return (
-                f"Add test coverage for '{func_name}':\n"
-                f"1. Create a test file following your project's conventions\n"
-                f"2. Write tests for normal operation\n"
-                f"3. Test edge cases and error conditions\n"
-                f"4. Verify expected outputs for various inputs"
+                f"Strengthen the existing test '{test_name}' with additional assertions:\n\n"
+                f"```python\n"
+                f"def {test_name}():\n"
+                f"    # Test the main behavior\n"
+                f"    result = {func_name}(input_data)\n"
+                f"    \n"
+                f"    # Add multiple assertions to verify correctness\n"
+                f"    assert result is not None  # Verify result exists\n"
+                f"    assert isinstance(result, ExpectedType)  # Verify type\n"
+                f"    assert result.value == expected  # Verify content\n"
+                f"    assert len(result) > 0  # Verify non-empty (if applicable)\n"
+                f"```\n\n"
+                f"Good tests verify:\n"
+                f"- Return value correctness\n"
+                f"- Output type/structure\n"
+                f"- Side effects (if any)\n"
+                f"- State changes"
             )
+        elif language in ("javascript", "typescript"):
+            return (
+                f"Strengthen the existing test with additional assertions:\n\n"
+                f"```{language}\n"
+                f"it('should handle input correctly', () => {{\n"
+                f"  const result = {func_name}(inputData);\n"
+                f"  \n"
+                f"  // Add multiple assertions\n"
+                f"  expect(result).toBeDefined();\n"
+                f"  expect(typeof result).toBe('expected_type');\n"
+                f"  expect(result.value).toEqual(expected);\n"
+                f"  expect(result.length).toBeGreaterThan(0);\n"
+                f"}});\n"
+                f"```"
+            )
+        return f"Add more assertions to the existing test to verify multiple aspects of '{func_name}'."
+
+    def _generate_error_test_suggestion(
+        self,
+        func_name: str,
+        language: str,
+        test_info: Optional[TestInfo],
+    ) -> str:
+        """Generate suggestion for adding error handling tests."""
+        if language == "python":
+            return (
+                f"Add error handling tests for '{func_name}':\n\n"
+                f"```python\n"
+                f"def test_{func_name}_invalid_input():\n"
+                f'    """Test {func_name} rejects invalid input."""\n'
+                f"    with pytest.raises(ValueError):\n"
+                f"        {func_name}(None)\n"
+                f"    \n"
+                f"    with pytest.raises(TypeError):\n"
+                f"        {func_name}(wrong_type)\n\n"
+                f"def test_{func_name}_boundary_conditions():\n"
+                f'    """Test {func_name} handles edge cases."""\n'
+                f"    # Empty input\n"
+                f"    with pytest.raises(ValueError):\n"
+                f"        {func_name}([])\n"
+                f"    \n"
+                f"    # Boundary values\n"
+                f"    result = {func_name}(min_valid)\n"
+                f"    assert result is not None\n"
+                f"```"
+            )
+        elif language in ("javascript", "typescript"):
+            return (
+                f"Add error handling tests for '{func_name}':\n\n"
+                f"```{language}\n"
+                f"describe('{func_name} error handling', () => {{\n"
+                f"  it('should throw on null input', () => {{\n"
+                f"    expect(() => {func_name}(null)).toThrow();\n"
+                f"  }});\n\n"
+                f"  it('should throw on invalid type', () => {{\n"
+                f"    expect(() => {func_name}(wrongType)).toThrow(TypeError);\n"
+                f"  }});\n\n"
+                f"  it('should handle empty input gracefully', () => {{\n"
+                f"    expect(() => {func_name}([])).toThrow('Empty input');\n"
+                f"  }});\n"
+                f"}});\n"
+                f"```"
+            )
+        return f"Add tests for error conditions and invalid inputs for '{func_name}'."
+
+    def _estimate_effort(self, test_quality: TestQuality) -> str:
+        """Estimate effort to fix based on test quality."""
+        if test_quality == TestQuality.MISSING:
+            return "Small (15-45 minutes)"
+        elif test_quality == TestQuality.WEAK:
+            return "Minimal (5-15 minutes)"
+        elif test_quality == TestQuality.INCOMPLETE:
+            return "Small (10-20 minutes)"
+        return "Small (15-30 minutes)"
+
+    def _get_why_it_matters(self, test_quality: TestQuality) -> str:
+        """Get explanation of why this issue matters."""
+        if test_quality == TestQuality.MISSING:
+            return (
+                "Untested code is a risk. Tests catch bugs early, document expected behavior, "
+                "and make refactoring safer. AI-generated code especially needs tests since "
+                "AI may produce subtly incorrect implementations."
+            )
+        elif test_quality == TestQuality.WEAK:
+            return (
+                "Tests with only one assertion may pass while the code has bugs. "
+                "Multiple assertions verify different aspects of correctness. "
+                "A green test with a single assertion gives false confidence."
+            )
+        elif test_quality == TestQuality.INCOMPLETE:
+            return (
+                "Tests that only cover happy paths miss bugs in error handling. "
+                "Real-world code must handle invalid inputs, edge cases, and failures. "
+                "Error handling bugs are often the most critical in production."
+            )
+        return "Adequate test coverage is essential for maintainable code."
 
     def _flag_entity(self, func_data: Dict[str, Any], finding: Finding) -> None:
-        """Flag entity in graph for cross-detector collaboration.
-
-        Args:
-            func_data: Function data dictionary
-            finding: The finding created for this function
-        """
+        """Flag entity in graph for cross-detector collaboration."""
         qualified_name = func_data.get("qualified_name", "")
         if not qualified_name or not self.enricher:
             return
@@ -626,18 +941,22 @@ class AIMissingTestsDetector(CodeSmellDetector):
                 metadata={
                     "function_name": func_data.get("name", ""),
                     "loc": func_data.get("loc", 0),
+                    "test_quality": finding.graph_context.get("test_quality", "missing"),
                 },
             )
         except Exception:
-            pass  # Don't fail detection if enrichment fails
+            pass
 
     def severity(self, finding: Finding) -> Severity:
-        """Calculate severity (always MEDIUM for missing tests).
+        """Calculate severity based on test quality.
 
         Args:
             finding: Finding to assess
 
         Returns:
-            Severity level (MEDIUM)
+            Severity level (MEDIUM for missing, LOW for weak/incomplete)
         """
-        return Severity.MEDIUM
+        test_quality = finding.graph_context.get("test_quality", "missing")
+        if test_quality == "missing":
+            return Severity.MEDIUM
+        return Severity.LOW
