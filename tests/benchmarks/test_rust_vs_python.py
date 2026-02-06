@@ -227,6 +227,7 @@ class TestGraphAlgorithms:
     @pytest.mark.benchmark(group="graph_algorithms")
     def test_pagerank_networkx(self, benchmark, graph_edges):
         """Benchmark NetworkX PageRank for comparison."""
+        pytest.importorskip("scipy", reason="scipy required for NetworkX sparse PageRank")
         import networkx as nx
 
         num_nodes, edges = graph_edges
