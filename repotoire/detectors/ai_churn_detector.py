@@ -194,20 +194,52 @@ class AIChurnDetector(CodeSmellDetector):
                 - analysis_window_days: How far back to analyze (default: 90)
         """
         super().__init__(graph_client, detector_config)
-        self.repo_path = self.config.get("repo_path")
+        self.repo_path = self._find_git_root(self.config.get("repo_path"))
         self.analysis_window_days = self.config.get("analysis_window_days", self.ANALYSIS_WINDOW_DAYS)
         self._git_repo: Optional["git.Repo"] = None
+    
+    def _find_git_root(self, start_path: Optional[str]) -> Optional[str]:
+        """Find the git repository root by looking for .git directory.
+        
+        Args:
+            start_path: Path to start searching from. If None, uses current directory.
+            
+        Returns:
+            Path to git root, or None if not found.
+        """
+        if start_path:
+            search_path = Path(start_path).resolve()
+        else:
+            search_path = Path.cwd()
+        
+        # Check the path itself and all parents
+        for path in [search_path, *search_path.parents]:
+            git_dir = path / ".git"
+            if git_dir.exists():
+                logger.debug(f"Found git repository at {path}")
+                return str(path)
+        
+        logger.debug(f"No git repository found starting from {search_path}")
+        return None
     
     @property
     def git_repo(self) -> Optional["git.Repo"]:
         """Lazy-load git repository."""
         if not GIT_AVAILABLE:
             return None
-        if self._git_repo is None and self.repo_path:
-            try:
-                self._git_repo = git.Repo(self.repo_path, search_parent_directories=True)
-            except Exception as e:
-                logger.warning(f"Failed to open git repository at {self.repo_path}: {e}")
+        if self._git_repo is None:
+            if self.repo_path:
+                try:
+                    self._git_repo = git.Repo(self.repo_path)
+                except Exception as e:
+                    logger.warning(f"Failed to open git repository at {self.repo_path}: {e}")
+            else:
+                # Try current directory as fallback
+                try:
+                    self._git_repo = git.Repo(Path.cwd(), search_parent_directories=True)
+                    logger.debug(f"Found git repository via cwd: {self._git_repo.working_dir}")
+                except Exception as e:
+                    logger.debug(f"No git repository found from cwd: {e}")
         return self._git_repo
     
     def detect(self) -> List[Finding]:
@@ -219,11 +251,15 @@ class AIChurnDetector(CodeSmellDetector):
         findings = []
         
         if not GIT_AVAILABLE:
-            logger.warning("GitPython not available, skipping AI churn detection")
+            logger.warning("GitPython not available, skipping AI churn detection. Install with: pip install gitpython")
             return findings
         
         if not self.git_repo:
-            logger.warning("No git repository available for churn analysis")
+            search_path = self.config.get("repo_path") or Path.cwd()
+            logger.info(
+                f"No git repository found (searched from {search_path}). "
+                "AI churn detection requires git history. Returning empty findings."
+            )
             return findings
         
         try:
