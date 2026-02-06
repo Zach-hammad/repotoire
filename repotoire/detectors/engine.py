@@ -659,10 +659,22 @@ class AnalysisEngine:
                 MATCH (n:Module) WHERE n.qualifiedName IS NOT NULL RETURN n.qualifiedName AS name
                 """
             else:
+                # Use UNION for label-specific queries (uses indexes)
                 nodes_query = f"""
-                MATCH (n)
-                WHERE n.qualifiedName IS NOT NULL {repo_filter}
-                RETURN n.qualifiedName AS name
+                CALL {{
+                    MATCH (n:File) WHERE n.qualifiedName IS NOT NULL {repo_filter}
+                    RETURN n.qualifiedName AS name
+                    UNION ALL
+                    MATCH (n:Class) WHERE n.qualifiedName IS NOT NULL {repo_filter}
+                    RETURN n.qualifiedName AS name
+                    UNION ALL
+                    MATCH (n:Function) WHERE n.qualifiedName IS NOT NULL {repo_filter}
+                    RETURN n.qualifiedName AS name
+                    UNION ALL
+                    MATCH (n:Module) WHERE n.qualifiedName IS NOT NULL {repo_filter}
+                    RETURN n.qualifiedName AS name
+                }}
+                RETURN name
                 ORDER BY name
                 """
             query_start = time_module.time()
@@ -1467,10 +1479,28 @@ class AnalysisEngine:
         )
         god_classes = sum(1 for f in findings if f.detector == "GodClassDetector")
         dead_code_items = sum(1 for f in findings if f.detector == "DeadCodeDetector")
+        bottleneck_items = sum(
+            1 for f in findings if f.detector in ("ArchitecturalBottleneckDetector", "HubDependencyDetector")
+        )
+        duplication_items = sum(
+            1 for f in findings if f.detector in ("JscpdDetector", "DuplicateRustDetector")
+        )
+        layer_violation_items = sum(
+            1 for f in findings if f.detector == "LayeredArchitectureDetector"
+        )
+        boundary_violation_items = sum(
+            1 for f in findings if f.detector in ("InappropriateIntimacyDetector", "FeatureEnvyDetector")
+        )
 
         # Calculate dead code percentage
         total_nodes = stats.get("total_classes", 0) + stats.get("total_functions", 0)
         dead_code_pct = (dead_code_items / total_nodes) if total_nodes > 0 else 0.0
+
+        # Calculate duplication percentage (estimate from findings)
+        # Each duplication finding typically represents ~10-50 lines of duplicated code
+        total_loc = stats.get("total_loc", 0) or 1  # Avoid division by zero
+        estimated_dup_lines = duplication_items * 30  # ~30 lines per finding average
+        duplication_pct = min(1.0, estimated_dup_lines / total_loc)
 
         # Calculate average coupling from graph
         coupling_query = """
@@ -1484,6 +1514,25 @@ class AnalysisEngine:
         else:
             avg_coupling = 0.0
 
+        # Calculate abstraction ratio (abstract classes / total classes)
+        total_classes = stats.get("total_classes", 0)
+        if total_classes > 0:
+            abstraction_query = """
+            MATCH (c:Class)
+            RETURN 
+                count(CASE WHEN c.is_abstract = true THEN 1 END) as abstract_count,
+                count(c) as total_count
+            """
+            abstraction_result = self.db.execute_query(abstraction_query)
+            if abstraction_result and abstraction_result[0].get("total_count", 0) > 0:
+                abstract_count = abstraction_result[0].get("abstract_count", 0) or 0
+                total_count = abstraction_result[0].get("total_count", 1)
+                abstraction_ratio = abstract_count / total_count
+            else:
+                abstraction_ratio = 0.5  # Default if no data
+        else:
+            abstraction_ratio = 0.5  # Default for codebases without classes
+
         # Calculate modularity using community detection
         modularity = self._calculate_modularity()
 
@@ -1494,13 +1543,13 @@ class AnalysisEngine:
             modularity=modularity,
             avg_coupling=avg_coupling,
             circular_dependencies=circular_deps,
-            bottleneck_count=0,  # TODO: Implement bottleneck detection
+            bottleneck_count=bottleneck_items,
             dead_code_percentage=dead_code_pct,
-            duplication_percentage=0.0,  # TODO: Implement duplication detection
+            duplication_percentage=duplication_pct,
             god_class_count=god_classes,
-            layer_violations=0,  # TODO: Implement layer violation detection
-            boundary_violations=0,  # TODO: Implement boundary violation detection
-            abstraction_ratio=0.5,  # TODO: Calculate from abstract classes
+            layer_violations=layer_violation_items,
+            boundary_violations=boundary_violation_items,
+            abstraction_ratio=abstraction_ratio,
         )
 
     def _score_structure(self, m: MetricsBreakdown) -> float:
