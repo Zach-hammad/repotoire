@@ -369,11 +369,11 @@ def detect_available_backends() -> List[str]:
 def select_best_backend() -> Tuple[str, str]:
     """Select the best available backend based on environment.
 
-    Prioritizes backends in this order:
-    1. Voyage (best for code, purpose-built)
-    2. OpenAI (high quality, widely used)
-    3. DeepInfra (cheap Qwen3 access)
-    4. Local (free, always available)
+    Prioritizes backends in BACKEND_PRIORITY order:
+    1. DeepInfra (best value: $0.01/1M tokens, 4096 dims)
+    2. Voyage (best accuracy for code)
+    3. OpenAI (high quality, widely used)
+    4. Local (free fallback)
 
     Returns:
         Tuple of (backend_name, reason_string)
