@@ -1,7 +1,7 @@
-"""Tests for AI complexity spike detector.
+"""Tests for AI complexity spike detector (baseline comparison approach).
 
-Tests the AIComplexitySpikeDetector for detecting sudden complexity
-increases in previously simple functions.
+Tests the AIComplexitySpikeDetector which uses statistical outlier detection
+based on codebase-wide complexity baselines.
 """
 
 import uuid
@@ -14,8 +14,11 @@ import pytest
 
 from repotoire.detectors.ai_complexity_spike import (
     AIComplexitySpikeDetector,
+    CodebaseBaseline,
     ComplexitySpike,
+    FunctionComplexity,
     GIT_AVAILABLE,
+    RADON_AVAILABLE,
 )
 from repotoire.models import Finding, Severity
 
@@ -33,10 +36,10 @@ def detector_config(tmp_path):
     """Create detector configuration with a temp directory."""
     return {
         "repository_path": str(tmp_path),
-        "spike_threshold": 10,
-        "before_max": 5,
-        "after_min": 15,
         "window_days": 30,
+        "z_score_threshold": 2.0,
+        "spike_before_max": 5,
+        "spike_after_min": 15,
         "max_findings": 50,
     }
 
@@ -45,6 +48,67 @@ def detector_config(tmp_path):
 def detector(mock_graph_client, detector_config):
     """Create an AIComplexitySpikeDetector instance."""
     return AIComplexitySpikeDetector(mock_graph_client, detector_config)
+
+
+@pytest.fixture
+def sample_baseline():
+    """Create a sample codebase baseline."""
+    return CodebaseBaseline(
+        total_functions=100,
+        median_complexity=4.0,
+        mean_complexity=5.5,
+        stddev_complexity=3.0,
+        min_complexity=1,
+        max_complexity=30,
+        p75_complexity=6.0,
+        p90_complexity=10.0,
+    )
+
+
+class TestCodebaseBaseline:
+    """Tests for CodebaseBaseline dataclass."""
+
+    def test_z_score_calculation(self, sample_baseline):
+        """Test z-score calculation."""
+        # Median is 4.0, stddev is 3.0
+        # z_score = (complexity - median) / stddev
+        
+        # Complexity at median should have z-score 0
+        assert sample_baseline.z_score(4) == 0.0
+        
+        # Complexity 1 stddev above median
+        assert sample_baseline.z_score(7) == pytest.approx(1.0)
+        
+        # Complexity 2 stddev above median
+        assert sample_baseline.z_score(10) == pytest.approx(2.0)
+
+    def test_is_outlier_default_threshold(self, sample_baseline):
+        """Test outlier detection with default threshold (2.0)."""
+        # z_score > 2.0 is outlier
+        assert sample_baseline.is_outlier(4) is False  # z=0
+        assert sample_baseline.is_outlier(7) is False  # z=1
+        assert sample_baseline.is_outlier(10) is False  # z=2.0 (not > 2.0)
+        assert sample_baseline.is_outlier(11) is True  # z=2.33
+
+    def test_is_outlier_custom_threshold(self, sample_baseline):
+        """Test outlier detection with custom threshold."""
+        assert sample_baseline.is_outlier(7, threshold=0.5) is True
+        assert sample_baseline.is_outlier(7, threshold=1.5) is False
+
+    def test_z_score_zero_stddev(self):
+        """Test z-score returns 0 when stddev is 0."""
+        baseline = CodebaseBaseline(
+            total_functions=10,
+            median_complexity=5.0,
+            mean_complexity=5.0,
+            stddev_complexity=0.0,  # All functions have same complexity
+            min_complexity=5,
+            max_complexity=5,
+            p75_complexity=5.0,
+            p90_complexity=5.0,
+        )
+        
+        assert baseline.z_score(10) == 0.0
 
 
 class TestComplexitySpike:
@@ -56,21 +120,44 @@ class TestComplexitySpike:
             file_path="src/service.py",
             function_name="process_data",
             qualified_name="src/service.py::process_data",
-            before_complexity=3,
-            after_complexity=25,
+            current_complexity=25,
+            previous_complexity=3,
             complexity_delta=22,
+            z_score=7.0,
             spike_date=datetime.now(timezone.utc),
             commit_sha="abc123def456",
             commit_message="Add feature",
             author="dev@example.com",
             line_number=42,
+            baseline_median=4.0,
+            baseline_stddev=3.0,
         )
 
         assert spike.file_path == "src/service.py"
         assert spike.function_name == "process_data"
-        assert spike.before_complexity == 3
-        assert spike.after_complexity == 25
+        assert spike.current_complexity == 25
+        assert spike.previous_complexity == 3
         assert spike.complexity_delta == 22
+        assert spike.z_score == 7.0
+
+
+class TestFunctionComplexity:
+    """Tests for FunctionComplexity dataclass."""
+
+    def test_function_complexity_creation(self):
+        """Test creating a FunctionComplexity."""
+        fc = FunctionComplexity(
+            file_path="src/utils.py",
+            function_name="helper",
+            qualified_name="src/utils.py::helper",
+            complexity=8,
+            line_number=25,
+        )
+
+        assert fc.file_path == "src/utils.py"
+        assert fc.function_name == "helper"
+        assert fc.complexity == 8
+        assert fc.previous_complexity is None  # Optional field
 
 
 class TestAIComplexitySpikeDetector:
@@ -80,9 +167,9 @@ class TestAIComplexitySpikeDetector:
         """Test detector initialization with config."""
         detector = AIComplexitySpikeDetector(mock_graph_client, detector_config)
 
-        assert detector.spike_threshold == 10
-        assert detector.before_max == 5
-        assert detector.after_min == 15
+        assert detector.z_score_threshold == 2.0
+        assert detector.spike_before_max == 5
+        assert detector.spike_after_min == 15
         assert detector.window_days == 30
         assert detector.max_findings == 50
 
@@ -91,9 +178,9 @@ class TestAIComplexitySpikeDetector:
         config = {"repository_path": str(tmp_path)}
         detector = AIComplexitySpikeDetector(mock_graph_client, config)
 
-        assert detector.spike_threshold == 10
-        assert detector.before_max == 5
-        assert detector.after_min == 15
+        assert detector.z_score_threshold == 2.0
+        assert detector.spike_before_max == 5
+        assert detector.spike_after_min == 15
         assert detector.window_days == 30
         assert detector.max_findings == 50
 
@@ -110,9 +197,8 @@ class TestAIComplexitySpikeDetector:
     def test_detect_without_git(self, mock_graph_client, detector_config):
         """Test detection returns empty when GitPython not available."""
         detector = AIComplexitySpikeDetector(mock_graph_client, detector_config)
-
-        with patch.object(detector, "_find_complexity_spikes", return_value=[]):
-            findings = detector.detect()
+        
+        findings = detector.detect()
 
         assert findings == []
 
@@ -202,242 +288,194 @@ def broken_function(
         assert complexities == []
 
 
-class TestSpikeDetection:
-    """Tests for spike detection logic."""
+class TestBaselineComputation:
+    """Tests for baseline computation."""
 
-    def test_detect_spike_in_history_simple(self, detector):
-        """Test detecting a spike in function history."""
-        now = datetime.now(timezone.utc)
-        recent = now - timedelta(days=5)
-        old = now - timedelta(days=60)
-        cutoff = now - timedelta(days=30)
+    def test_compute_baseline_normal(self, detector):
+        """Test baseline computation with normal distribution."""
+        complexities = {
+            "a.py::func1": FunctionComplexity("a.py", "func1", "a.py::func1", 2, 1),
+            "a.py::func2": FunctionComplexity("a.py", "func2", "a.py::func2", 3, 10),
+            "b.py::func3": FunctionComplexity("b.py", "func3", "b.py::func3", 5, 1),
+            "b.py::func4": FunctionComplexity("b.py", "func4", "b.py::func4", 6, 10),
+            "c.py::func5": FunctionComplexity("c.py", "func5", "c.py::func5", 10, 1),
+        }
 
-        # History: function was simple (complexity 3), then became complex (complexity 20)
-        history = [
-            ("sha1", old, 3, 10, "Initial implementation", "dev1"),
-            ("sha2", recent, 20, 15, "Add many features", "dev2"),
-        ]
+        baseline = detector._compute_baseline(complexities)
 
-        spike = detector._detect_spike_in_history(
-            "src/module.py", "my_function", history, cutoff
-        )
+        assert baseline.total_functions == 5
+        assert baseline.min_complexity == 2
+        assert baseline.max_complexity == 10
+        # Median of [2, 3, 5, 6, 10] is 5
+        assert baseline.median_complexity == 5
 
-        assert spike is not None
-        assert spike.before_complexity == 3
-        assert spike.after_complexity == 20
-        assert spike.complexity_delta == 17
-        assert spike.function_name == "my_function"
-        assert spike.commit_sha == "sha2"
+    def test_compute_baseline_empty(self, detector):
+        """Test baseline computation with empty input."""
+        baseline = detector._compute_baseline({})
 
-    def test_detect_spike_no_spike_small_delta(self, detector):
-        """Test no spike detected for small complexity increase."""
-        now = datetime.now(timezone.utc)
-        recent = now - timedelta(days=5)
-        old = now - timedelta(days=60)
-        cutoff = now - timedelta(days=30)
-
-        # History: complexity increase is too small
-        history = [
-            ("sha1", old, 3, 10, "Initial", "dev1"),
-            ("sha2", recent, 8, 10, "Small change", "dev2"),  # Only +5
-        ]
-
-        spike = detector._detect_spike_in_history(
-            "src/module.py", "my_function", history, cutoff
-        )
-
-        assert spike is None
-
-    def test_detect_spike_no_spike_already_complex(self, detector):
-        """Test no spike when function was already complex."""
-        now = datetime.now(timezone.utc)
-        recent = now - timedelta(days=5)
-        old = now - timedelta(days=60)
-        cutoff = now - timedelta(days=30)
-
-        # History: function was already complex (before_max is 5)
-        history = [
-            ("sha1", old, 10, 10, "Already complex", "dev1"),
-            ("sha2", recent, 25, 10, "Made worse", "dev2"),
-        ]
-
-        spike = detector._detect_spike_in_history(
-            "src/module.py", "my_function", history, cutoff
-        )
-
-        assert spike is None  # before_complexity (10) > before_max (5)
-
-    def test_detect_spike_no_spike_outside_window(self, detector):
-        """Test no spike when change is outside time window."""
-        now = datetime.now(timezone.utc)
-        old_change = now - timedelta(days=45)  # Outside 30-day window
-        very_old = now - timedelta(days=90)
-        cutoff = now - timedelta(days=30)
-
-        history = [
-            ("sha1", very_old, 3, 10, "Initial", "dev1"),
-            ("sha2", old_change, 20, 10, "Old spike", "dev2"),
-        ]
-
-        spike = detector._detect_spike_in_history(
-            "src/module.py", "my_function", history, cutoff
-        )
-
-        assert spike is None
-
-    def test_detect_spike_insufficient_history(self, detector):
-        """Test no spike with insufficient history."""
-        now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(days=30)
-
-        # Only one data point
-        history = [("sha1", now - timedelta(days=5), 20, 10, "Only commit", "dev1")]
-
-        spike = detector._detect_spike_in_history(
-            "src/module.py", "my_function", history, cutoff
-        )
-
-        assert spike is None
+        assert baseline.total_functions == 0
+        assert baseline.stddev_complexity == 1  # Avoid division by zero
 
 
 class TestFindingCreation:
     """Tests for finding creation."""
 
-    def test_create_finding_high_severity_recent(self, detector):
-        """Test HIGH severity for very recent spikes."""
+    def test_create_finding_high_severity_high_zscore(self, detector, sample_baseline):
+        """Test HIGH severity for high z-score spikes."""
         spike = ComplexitySpike(
             file_path="src/service.py",
             function_name="process",
             qualified_name="src/service.py::process",
-            before_complexity=3,
-            after_complexity=25,
+            current_complexity=25,
+            previous_complexity=3,
             complexity_delta=22,
+            z_score=7.0,  # Very high z-score
             spike_date=datetime.now(timezone.utc) - timedelta(days=3),
             commit_sha="abc123",
             commit_message="Add feature",
             author="dev@example.com",
             line_number=42,
+            baseline_median=4.0,
+            baseline_stddev=3.0,
         )
 
-        finding = detector._create_finding(spike)
+        finding = detector._create_finding(spike, sample_baseline)
 
         assert isinstance(finding, Finding)
         assert finding.severity == Severity.HIGH
         assert finding.detector == "AIComplexitySpikeDetector"
         assert "process" in finding.title
-        assert "3 → 25" in finding.title
+        assert "3 to 25" in finding.title
         assert "src/service.py" in finding.affected_files
 
-    def test_create_finding_medium_severity(self, detector):
-        """Test MEDIUM severity for spikes 1-2 weeks old."""
+    def test_create_finding_medium_severity(self, detector, sample_baseline):
+        """Test MEDIUM severity for moderate z-score."""
         spike = ComplexitySpike(
             file_path="src/utils.py",
             function_name="helper",
             qualified_name="src/utils.py::helper",
-            before_complexity=4,
-            after_complexity=18,
-            complexity_delta=14,
+            current_complexity=16,
+            previous_complexity=4,
+            complexity_delta=12,
+            z_score=2.2,  # Just above threshold
             spike_date=datetime.now(timezone.utc) - timedelta(days=10),
             commit_sha="def456",
             commit_message="Expand helper",
             author="dev@example.com",
             line_number=100,
+            baseline_median=4.0,
+            baseline_stddev=3.0,
         )
 
-        finding = detector._create_finding(spike)
+        finding = detector._create_finding(spike, sample_baseline)
 
         assert finding.severity == Severity.MEDIUM
 
-    def test_create_finding_low_severity_older(self, detector):
-        """Test LOW severity for older spikes."""
-        spike = ComplexitySpike(
-            file_path="src/old.py",
-            function_name="old_func",
-            qualified_name="src/old.py::old_func",
-            before_complexity=2,
-            after_complexity=16,
-            complexity_delta=14,
-            spike_date=datetime.now(timezone.utc) - timedelta(days=25),
-            commit_sha="ghi789",
-            commit_message="Old change",
-            author="dev@example.com",
-            line_number=50,
-        )
-
-        finding = detector._create_finding(spike)
-
-        assert finding.severity == Severity.LOW
-
-    def test_create_finding_extreme_spike_high_severity(self, detector):
-        """Test extreme spikes (delta >= 20) get HIGH severity regardless of age."""
+    def test_create_finding_high_severity_large_delta(self, detector, sample_baseline):
+        """Test HIGH severity for large complexity delta (>=20)."""
         spike = ComplexitySpike(
             file_path="src/extreme.py",
             function_name="extreme_func",
             qualified_name="src/extreme.py::extreme_func",
-            before_complexity=2,
-            after_complexity=45,
-            complexity_delta=43,  # Extreme spike
-            spike_date=datetime.now(timezone.utc) - timedelta(days=25),  # Older
+            current_complexity=45,
+            previous_complexity=2,
+            complexity_delta=43,  # Large delta
+            z_score=2.3,  # Moderate z-score
+            spike_date=datetime.now(timezone.utc) - timedelta(days=25),
             commit_sha="jkl012",
             commit_message="Massive change",
             author="dev@example.com",
             line_number=200,
+            baseline_median=4.0,
+            baseline_stddev=3.0,
         )
 
-        finding = detector._create_finding(spike)
+        finding = detector._create_finding(spike, sample_baseline)
 
         assert finding.severity == Severity.HIGH
 
-    def test_create_finding_graph_context(self, detector):
+    def test_create_finding_graph_context(self, detector, sample_baseline):
         """Test finding includes correct graph context."""
         spike = ComplexitySpike(
             file_path="src/api.py",
             function_name="handle_request",
             qualified_name="src/api.py::handle_request",
-            before_complexity=5,
-            after_complexity=20,
+            current_complexity=20,
+            previous_complexity=5,
             complexity_delta=15,
+            z_score=5.3,
             spike_date=datetime.now(timezone.utc) - timedelta(days=5),
             commit_sha="mno345pqr",
             commit_message="Add request handling",
             author="developer@example.com",
             line_number=75,
+            baseline_median=4.0,
+            baseline_stddev=3.0,
         )
 
-        finding = detector._create_finding(spike)
+        finding = detector._create_finding(spike, sample_baseline)
 
-        assert finding.graph_context["before_complexity"] == 5
-        assert finding.graph_context["after_complexity"] == 20
+        assert finding.graph_context["current_complexity"] == 20
+        assert finding.graph_context["previous_complexity"] == 5
         assert finding.graph_context["complexity_delta"] == 15
+        assert finding.graph_context["z_score"] == 5.3
+        assert finding.graph_context["baseline_median"] == 4.0
         assert finding.graph_context["commit_sha"] == "mno345pq"
         assert finding.graph_context["author"] == "developer@example.com"
-        assert finding.graph_context["line_number"] == 75
+        assert finding.line_start == 75  # Line number stored on finding object
 
-    def test_create_finding_collaboration_metadata(self, detector):
+    def test_create_finding_collaboration_metadata(self, detector, sample_baseline):
         """Test finding includes collaboration metadata."""
         spike = ComplexitySpike(
             file_path="src/api.py",
             function_name="process",
             qualified_name="src/api.py::process",
-            before_complexity=3,
-            after_complexity=18,
+            current_complexity=18,
+            previous_complexity=3,
             complexity_delta=15,
+            z_score=4.67,
             spike_date=datetime.now(timezone.utc) - timedelta(days=5),
             commit_sha="abc123",
             commit_message="Add processing",
             author="dev@example.com",
             line_number=50,
+            baseline_median=4.0,
+            baseline_stddev=3.0,
         )
 
-        finding = detector._create_finding(spike)
+        finding = detector._create_finding(spike, sample_baseline)
 
         assert finding.collaboration_metadata is not None
         assert len(finding.collaboration_metadata) > 0
         metadata = finding.collaboration_metadata[0]
         assert metadata.detector == "AIComplexitySpikeDetector"
-        assert metadata.confidence == 0.85
-        assert "complexity_spike" in metadata.evidence
-        assert "ai-generated" in metadata.tags
+        assert 0.7 <= metadata.confidence <= 0.95
+        assert "baseline_comparison" in metadata.evidence
+        assert "statistical-outlier" in metadata.tags
+
+    def test_create_finding_new_function(self, detector, sample_baseline):
+        """Test finding for new function (previous_complexity=0)."""
+        spike = ComplexitySpike(
+            file_path="src/new.py",
+            function_name="new_func",
+            qualified_name="src/new.py::new_func",
+            current_complexity=20,
+            previous_complexity=0,  # New function
+            complexity_delta=20,
+            z_score=5.3,
+            spike_date=datetime.now(timezone.utc) - timedelta(days=2),
+            commit_sha="xyz789",
+            commit_message="Add new complex function",
+            author="dev@example.com",
+            line_number=10,
+            baseline_median=4.0,
+            baseline_stddev=3.0,
+        )
+
+        finding = detector._create_finding(spike, sample_baseline)
+
+        assert "New function" in finding.title
+        assert "outlier complexity" in finding.title
 
 
 class TestEffortEstimation:
@@ -449,14 +487,17 @@ class TestEffortEstimation:
             file_path="test.py",
             function_name="test",
             qualified_name="test.py::test",
-            before_complexity=3,
-            after_complexity=15,
+            current_complexity=15,
+            previous_complexity=3,
             complexity_delta=12,
+            z_score=3.67,
             spike_date=datetime.now(timezone.utc),
             commit_sha="abc",
             commit_message="test",
             author="dev",
             line_number=1,
+            baseline_median=4.0,
+            baseline_stddev=3.0,
         )
 
         effort = detector._estimate_effort(spike)
@@ -468,14 +509,17 @@ class TestEffortEstimation:
             file_path="test.py",
             function_name="test",
             qualified_name="test.py::test",
-            before_complexity=3,
-            after_complexity=25,
+            current_complexity=25,
+            previous_complexity=3,
             complexity_delta=22,
+            z_score=7.0,
             spike_date=datetime.now(timezone.utc),
             commit_sha="abc",
             commit_message="test",
             author="dev",
             line_number=1,
+            baseline_median=4.0,
+            baseline_stddev=3.0,
         )
 
         effort = detector._estimate_effort(spike)
@@ -487,14 +531,17 @@ class TestEffortEstimation:
             file_path="test.py",
             function_name="test",
             qualified_name="test.py::test",
-            before_complexity=3,
-            after_complexity=40,
+            current_complexity=40,
+            previous_complexity=3,
             complexity_delta=37,
+            z_score=12.0,
             spike_date=datetime.now(timezone.utc),
             commit_sha="abc",
             commit_message="test",
             author="dev",
             line_number=1,
+            baseline_median=4.0,
+            baseline_stddev=3.0,
         )
 
         effort = detector._estimate_effort(spike)
@@ -506,14 +553,17 @@ class TestEffortEstimation:
             file_path="test.py",
             function_name="test",
             qualified_name="test.py::test",
-            before_complexity=5,
-            after_complexity=60,
+            current_complexity=60,
+            previous_complexity=5,
             complexity_delta=55,
+            z_score=18.67,
             spike_date=datetime.now(timezone.utc),
             commit_sha="abc",
             commit_message="test",
             author="dev",
             line_number=1,
+            baseline_median=4.0,
+            baseline_stddev=3.0,
         )
 
         effort = detector._estimate_effort(spike)
@@ -523,31 +573,36 @@ class TestEffortEstimation:
 class TestDescriptionBuilding:
     """Tests for description and suggested fix building."""
 
-    def test_build_description_content(self, detector):
+    def test_build_description_content(self, detector, sample_baseline):
         """Test description contains all relevant information."""
         spike = ComplexitySpike(
             file_path="src/handler.py",
             function_name="handle",
             qualified_name="src/handler.py::handle",
-            before_complexity=4,
-            after_complexity=22,
+            current_complexity=22,
+            previous_complexity=4,
             complexity_delta=18,
+            z_score=6.0,
             spike_date=datetime.now(timezone.utc) - timedelta(days=7),
             commit_sha="commit123abc",
             commit_message="Implement complex logic",
             author="author@company.com",
             line_number=100,
+            baseline_median=4.0,
+            baseline_stddev=3.0,
         )
 
-        description = detector._build_description(spike)
+        description = detector._build_description(spike, sample_baseline, days_ago=7)
 
         assert "handle" in description
-        assert "Before" in description
+        assert "Previous complexity" in description
         assert "4" in description
-        assert "After" in description
+        assert "Current complexity" in description
         assert "22" in description
         assert "+18" in description
-        assert "commit12" in description  # First 8 chars of commit sha
+        assert "Z-score" in description
+        assert "6.0" in description
+        assert "commit12" in description  # First 8 chars
         assert "Implement complex logic" in description
         assert "author@company.com" in description
         assert "7 days ago" in description
@@ -558,45 +613,51 @@ class TestDescriptionBuilding:
             file_path="test.py",
             function_name="test",
             qualified_name="test.py::test",
-            before_complexity=3,
-            after_complexity=25,
+            current_complexity=25,
+            previous_complexity=3,
             complexity_delta=22,
+            z_score=7.0,
             spike_date=datetime.now(timezone.utc),
             commit_sha="abc123",
             commit_message="test",
             author="dev",
             line_number=1,
+            baseline_median=4.0,
+            baseline_stddev=3.0,
         )
 
         fix = detector._build_suggested_fix(spike)
 
         assert "Review commit" in fix
         assert "abc123" in fix
-        assert "Extract" in fix
-        assert "Refactoring" in fix or "refactoring" in fix
-        assert "25" in fix  # Current complexity
+        assert "Decompose" in fix
+        assert "Extract Method" in fix
+        assert "Target complexity" in fix
 
 
 class TestSeverityMethod:
     """Tests for severity method."""
 
-    def test_severity_returns_finding_severity(self, detector):
+    def test_severity_returns_finding_severity(self, detector, sample_baseline):
         """Test severity method returns the finding's severity."""
         spike = ComplexitySpike(
             file_path="test.py",
             function_name="test",
             qualified_name="test.py::test",
-            before_complexity=3,
-            after_complexity=20,
+            current_complexity=20,
+            previous_complexity=3,
             complexity_delta=17,
+            z_score=5.3,
             spike_date=datetime.now(timezone.utc) - timedelta(days=3),
             commit_sha="abc",
             commit_message="test",
             author="dev",
             line_number=1,
+            baseline_median=4.0,
+            baseline_stddev=3.0,
         )
 
-        finding = detector._create_finding(spike)
+        finding = detector._create_finding(spike, sample_baseline)
         severity = detector.severity(finding)
 
         assert severity == finding.severity

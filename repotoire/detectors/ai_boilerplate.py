@@ -1,25 +1,31 @@
-"""AI Boilerplate Explosion detector using AST clustering.
+"""AI Boilerplate Explosion detector - identifies excessive boilerplate code.
 
-Research-backed approach: Parse functions to normalized ASTs, cluster by
-structural similarity, and flag clusters without shared abstractions.
+Uses AST-based clustering to find groups of structurally similar functions
+that could be abstracted. AI assistants often generate verbose, repetitive
+code patterns that should be consolidated.
 
-Key insight: AI assistants generate structurally identical code with different
-variable names. By normalizing identifiers to TYPE_N placeholders, we can
-detect semantic duplicates that simple string matching would miss.
+Research-backed approach (ICSE 2025):
+1. Parse all functions to normalized AST
+2. Cluster functions by AST similarity (>70% threshold)
+3. For clusters with 3+ functions, check for shared abstraction
+4. Flag groups lacking abstraction as boilerplate
 
-REPO-XXX: AI-generated code quality detection.
+Key patterns detected:
+- Same try/except structure
+- Same validation logic
+- Same API call patterns with minor variations
+- CRUD operations that could be genericized
 """
 
 import ast
 import hashlib
-import re
+import textwrap
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
-from difflib import SequenceMatcher
-from itertools import combinations
-from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple, Union
+from pathlib import Path
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph.base import DatabaseClient
@@ -30,737 +36,782 @@ from repotoire.models import CollaborationMetadata, Finding, Severity
 logger = get_logger(__name__)
 
 
-# =============================================================================
-# AST Normalization
-# =============================================================================
+# ============================================================================
+# AST Normalization (shared patterns with ai_duplicate_block)
+# ============================================================================
 
-class ASTNormalizer(ast.NodeTransformer):
-    """Normalizes AST by replacing identifiers with TYPE_N placeholders.
+class ASTNormalizer:
+    """Normalizes Python AST for similarity comparison.
     
-    This allows detection of structurally identical code with different
-    variable/function names - a common pattern in AI-generated boilerplate.
-    
-    Example:
-        def get_user(user_id):       def get_order(order_id):
-            return db.get(user_id)       return db.get(order_id)
-            
-    Both normalize to:
-        def FUNC_0(VAR_0):
-            return ATTR_0.ATTR_1(VAR_0)
+    Replaces identifiers with type-based placeholders:
+    - Variables → VAR_N
+    - Functions → FUNC_N
+    - Classes → CLASS_N
+    - Strings/numbers → TYPE placeholder
     """
     
     def __init__(self):
-        self.name_counters: Dict[str, int] = defaultdict(int)
+        self.var_counter = 0
+        self.func_counter = 0
         self.name_map: Dict[str, str] = {}
-        super().__init__()
-    
-    def _get_placeholder(self, category: str, original: str) -> str:
-        """Get or create a placeholder for an identifier.
         
-        Args:
-            category: Type category (VAR, FUNC, ATTR, etc.)
-            original: Original identifier name
-            
-        Returns:
-            Normalized placeholder like VAR_0, FUNC_1, etc.
-        """
-        key = f"{category}:{original}"
-        if key not in self.name_map:
-            idx = self.name_counters[category]
-            self.name_counters[category] += 1
-            self.name_map[key] = f"{category}_{idx}"
-        return self.name_map[key]
-    
-    def visit_Name(self, node: ast.Name) -> ast.Name:
-        """Normalize variable names."""
-        # Preserve builtins and special names
-        if node.id in {'True', 'False', 'None', 'self', 'cls', 'super'}:
-            return node
-        # Preserve common type annotations
-        if node.id in {'str', 'int', 'float', 'bool', 'list', 'dict', 'set', 
-                       'tuple', 'List', 'Dict', 'Set', 'Tuple', 'Optional',
-                       'Union', 'Any', 'Callable', 'Type', 'Sequence'}:
-            return node
+    def normalize_name(self, name: str, ctx_type: str = "var") -> str:
+        """Normalize identifier to type-based placeholder."""
+        if name in self.name_map:
+            return self.name_map[name]
         
-        node.id = self._get_placeholder("VAR", node.id)
-        return node
-    
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
-        """Normalize function definitions."""
-        # Normalize function name (but keep __special__ names)
-        if not (node.name.startswith('__') and node.name.endswith('__')):
-            node.name = self._get_placeholder("FUNC", node.name)
+        if ctx_type == "func":
+            self.func_counter += 1
+            placeholder = f"FUNC_{self.func_counter}"
+        else:
+            self.var_counter += 1
+            placeholder = f"VAR_{self.var_counter}"
         
-        # Normalize argument names
-        for arg in node.args.args:
-            if arg.arg not in {'self', 'cls'}:
-                arg.arg = self._get_placeholder("ARG", arg.arg)
-        for arg in node.args.kwonlyargs:
-            arg.arg = self._get_placeholder("ARG", arg.arg)
-        if node.args.vararg:
-            node.args.vararg.arg = self._get_placeholder("ARG", node.args.vararg.arg)
-        if node.args.kwarg:
-            node.args.kwarg.arg = self._get_placeholder("ARG", node.args.kwarg.arg)
-        
-        # Remove docstring
-        if (node.body and isinstance(node.body[0], ast.Expr) and
-            isinstance(node.body[0].value, (ast.Str, ast.Constant))):
-            # Check if it's a string constant (docstring)
-            val = node.body[0].value
-            if isinstance(val, ast.Str) or (isinstance(val, ast.Constant) and isinstance(val.value, str)):
-                node.body = node.body[1:] if len(node.body) > 1 else [ast.Pass()]
-        
-        # Process body
-        self.generic_visit(node)
-        return node
+        self.name_map[name] = placeholder
+        return placeholder
     
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
-        """Normalize async function definitions (same as sync)."""
-        # Normalize function name
-        if not (node.name.startswith('__') and node.name.endswith('__')):
-            node.name = self._get_placeholder("FUNC", node.name)
-        
-        # Normalize arguments
-        for arg in node.args.args:
-            if arg.arg not in {'self', 'cls'}:
-                arg.arg = self._get_placeholder("ARG", arg.arg)
-        for arg in node.args.kwonlyargs:
-            arg.arg = self._get_placeholder("ARG", arg.arg)
-        if node.args.vararg:
-            node.args.vararg.arg = self._get_placeholder("ARG", node.args.vararg.arg)
-        if node.args.kwarg:
-            node.args.kwarg.arg = self._get_placeholder("ARG", node.args.kwarg.arg)
-        
-        # Remove docstring
-        if (node.body and isinstance(node.body[0], ast.Expr) and
-            isinstance(node.body[0].value, (ast.Str, ast.Constant))):
-            val = node.body[0].value
-            if isinstance(val, ast.Str) or (isinstance(val, ast.Constant) and isinstance(val.value, str)):
-                node.body = node.body[1:] if len(node.body) > 1 else [ast.Pass()]
-        
-        self.generic_visit(node)
-        return node
-    
-    def visit_Attribute(self, node: ast.Attribute) -> ast.Attribute:
-        """Normalize attribute access (but preserve structure)."""
-        self.generic_visit(node)
-        # Don't normalize common method names that indicate patterns
-        if node.attr not in {'append', 'extend', 'get', 'set', 'update', 'delete',
-                            'create', 'read', 'write', 'close', 'open', 'save',
-                            'load', 'items', 'keys', 'values', 'format', 'join',
-                            'split', 'strip', 'lower', 'upper', 'replace'}:
-            node.attr = self._get_placeholder("ATTR", node.attr)
-        return node
-    
-    def visit_Constant(self, node: ast.Constant) -> ast.Constant:
-        """Normalize string/numeric constants."""
-        if isinstance(node.value, str) and len(node.value) > 0:
-            # Preserve empty strings and single chars, normalize others
-            if len(node.value) > 1:
-                node.value = "STR"
-        elif isinstance(node.value, (int, float)) and node.value not in {0, 1, -1}:
-            node.value = 0  # Normalize non-trivial numbers
-        return node
-    
-    def visit_Str(self, node: ast.Str) -> ast.Str:
-        """Normalize string literals (Python < 3.8 compat)."""
-        if len(node.s) > 1:
-            node.s = "STR"
-        return node
-    
-    def visit_Num(self, node: ast.Num) -> ast.Num:
-        """Normalize numeric literals (Python < 3.8 compat)."""
-        if node.n not in {0, 1, -1}:
-            node.n = 0
-        return node
+    def reset(self):
+        """Reset for a new function."""
+        self.var_counter = 0
+        self.func_counter = 0
+        self.name_map.clear()
 
 
-def normalize_ast(source: str) -> Optional[ast.AST]:
-    """Parse and normalize source code to canonical AST.
+class BoilerplateASTHasher(ast.NodeVisitor):
+    """AST visitor that produces normalized hash strings for pattern detection.
     
-    Args:
-        source: Python source code string
-        
-    Returns:
-        Normalized AST or None if parsing fails
+    Focuses on detecting boilerplate patterns:
+    - try/except blocks
+    - validation patterns
+    - API call patterns
+    - CRUD patterns
     """
-    if not source:
-        return None
     
-    try:
-        tree = ast.parse(source)
-        normalizer = ASTNormalizer()
-        normalized = normalizer.visit(tree)
-        ast.fix_missing_locations(normalized)
-        return normalized
-    except (SyntaxError, ValueError, TypeError):
-        return None
-
-
-def serialize_ast(node: ast.AST) -> str:
-    """Serialize AST to a canonical string representation.
-    
-    Uses ast.dump with consistent formatting for comparison.
-    
-    Args:
-        node: AST node to serialize
+    def __init__(self, normalizer: ASTNormalizer):
+        self.normalizer = normalizer
+        self.hashes: List[str] = []
+        self.patterns: Dict[str, int] = defaultdict(int)  # Pattern type -> count
         
-    Returns:
-        Canonical string representation
-    """
-    try:
-        return ast.dump(node, annotate_fields=False, include_attributes=False)
-    except Exception:
-        return ""
-
-
-def hash_ast(node: ast.AST) -> str:
-    """Compute hash of serialized AST.
+    def _hash(self, s: str) -> str:
+        """Create short hash of string."""
+        return hashlib.md5(s.encode()).hexdigest()[:8]
     
-    Args:
-        node: AST node to hash
+    def visit_Name(self, node: ast.Name) -> str:
+        normalized = self.normalizer.normalize_name(node.id, "var")
+        return f"Name({normalized})"
+    
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> str:
+        normalized_name = self.normalizer.normalize_name(node.name, "func")
+        args = self._visit_arguments(node.args)
+        # Skip docstrings
+        body = [self.visit(stmt) for stmt in node.body 
+                if not (isinstance(stmt, ast.Expr) and 
+                       isinstance(stmt.value, ast.Constant) and 
+                       isinstance(stmt.value.value, str))]
+        decorators = [self.visit(d) for d in node.decorator_list]
+        result = f"FunctionDef({normalized_name},{args},{body},{decorators})"
+        self.hashes.append(self._hash(result))
+        return result
+    
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> str:
+        normalized_name = self.normalizer.normalize_name(node.name, "func")
+        args = self._visit_arguments(node.args)
+        body = [self.visit(stmt) for stmt in node.body 
+                if not (isinstance(stmt, ast.Expr) and 
+                       isinstance(stmt.value, ast.Constant) and 
+                       isinstance(stmt.value.value, str))]
+        decorators = [self.visit(d) for d in node.decorator_list]
+        result = f"AsyncFunctionDef({normalized_name},{args},{body},{decorators})"
+        self.hashes.append(self._hash(result))
+        self.patterns["async"] += 1
+        return result
+    
+    def visit_Try(self, node: ast.Try) -> str:
+        """Track try/except pattern."""
+        body = [self.visit(stmt) for stmt in node.body]
+        handlers = [self._visit_handler(h) for h in node.handlers]
+        orelse = [self.visit(stmt) for stmt in node.orelse]
+        finalbody = [self.visit(stmt) for stmt in node.finalbody]
+        result = f"Try({body},{handlers},{orelse},{finalbody})"
+        self.hashes.append(self._hash(result))
+        self.patterns["try_except"] += 1
+        return result
+    
+    def visit_If(self, node: ast.If) -> str:
+        """Track validation patterns."""
+        test = self.visit(node.test)
+        body = [self.visit(stmt) for stmt in node.body]
+        orelse = [self.visit(stmt) for stmt in node.orelse]
+        result = f"If({test},{body},{orelse})"
+        self.hashes.append(self._hash(result))
         
-    Returns:
-        MD5 hash of serialized AST
-    """
-    serialized = serialize_ast(node)
-    return hashlib.md5(serialized.encode()).hexdigest()
-
-
-def compute_ast_similarity(ast1: ast.AST, ast2: ast.AST) -> float:
-    """Compute similarity between two ASTs using sequence matching.
+        # Detect validation patterns (if not x, raise/return)
+        if len(node.body) == 1:
+            stmt = node.body[0]
+            if isinstance(stmt, (ast.Raise, ast.Return)):
+                self.patterns["validation"] += 1
+        return result
     
-    Args:
-        ast1: First AST
-        ast2: Second AST
+    def visit_Call(self, node: ast.Call) -> str:
+        """Track API call patterns."""
+        func = self.visit(node.func)
+        args = [self.visit(a) for a in node.args]
+        keywords = [f"{kw.arg}={self.visit(kw.value)}" for kw in node.keywords]
+        result = f"Call({func},{args},{keywords})"
+        self.hashes.append(self._hash(result))
         
-    Returns:
-        Similarity ratio (0.0 - 1.0)
-    """
-    s1 = serialize_ast(ast1)
-    s2 = serialize_ast(ast2)
+        # Detect common API patterns
+        if isinstance(node.func, ast.Attribute):
+            attr = node.func.attr.lower()
+            if attr in ("get", "post", "put", "delete", "patch"):
+                self.patterns["http_method"] += 1
+            elif attr in ("query", "execute", "fetch", "find"):
+                self.patterns["database"] += 1
+            elif attr in ("create", "read", "update", "delete", "list"):
+                self.patterns["crud"] += 1
+        return result
     
-    if not s1 or not s2:
-        return 0.0
+    def visit_With(self, node: ast.With) -> str:
+        """Track context manager usage."""
+        items = [f"{self.visit(item.context_expr)}as{self.visit(item.optional_vars) if item.optional_vars else 'None'}" 
+                 for item in node.items]
+        body = [self.visit(stmt) for stmt in node.body]
+        result = f"With({items},{body})"
+        self.hashes.append(self._hash(result))
+        self.patterns["context_manager"] += 1
+        return result
     
-    return SequenceMatcher(None, s1, s2).ratio()
+    def visit_For(self, node: ast.For) -> str:
+        target = self.visit(node.target)
+        iter_val = self.visit(node.iter)
+        body = [self.visit(stmt) for stmt in node.body]
+        result = f"For({target},{iter_val},{body})"
+        self.hashes.append(self._hash(result))
+        self.patterns["loop"] += 1
+        return result
+    
+    def visit_While(self, node: ast.While) -> str:
+        test = self.visit(node.test)
+        body = [self.visit(stmt) for stmt in node.body]
+        result = f"While({test},{body})"
+        self.hashes.append(self._hash(result))
+        self.patterns["loop"] += 1
+        return result
+    
+    def visit_Return(self, node: ast.Return) -> str:
+        value = self.visit(node.value) if node.value else "None"
+        result = f"Return({value})"
+        self.hashes.append(self._hash(result))
+        return result
+    
+    def visit_Assign(self, node: ast.Assign) -> str:
+        targets = [self.visit(t) for t in node.targets]
+        value = self.visit(node.value)
+        result = f"Assign({targets}={value})"
+        self.hashes.append(self._hash(result))
+        return result
+    
+    def visit_AugAssign(self, node: ast.AugAssign) -> str:
+        target = self.visit(node.target)
+        op = type(node.op).__name__
+        value = self.visit(node.value)
+        result = f"AugAssign({target}{op}={value})"
+        self.hashes.append(self._hash(result))
+        return result
+    
+    def visit_Raise(self, node: ast.Raise) -> str:
+        exc = self.visit(node.exc) if node.exc else "None"
+        result = f"Raise({exc})"
+        self.hashes.append(self._hash(result))
+        self.patterns["error_handling"] += 1
+        return result
+    
+    def visit_Attribute(self, node: ast.Attribute) -> str:
+        value = self.visit(node.value)
+        return f"Attr({value}.{node.attr})"
+    
+    def visit_Subscript(self, node: ast.Subscript) -> str:
+        value = self.visit(node.value)
+        slice_val = self.visit(node.slice)
+        result = f"Subscript({value}[{slice_val}])"
+        self.hashes.append(self._hash(result))
+        return result
+    
+    def visit_BinOp(self, node: ast.BinOp) -> str:
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+        op = type(node.op).__name__
+        result = f"BinOp({left}{op}{right})"
+        self.hashes.append(self._hash(result))
+        return result
+    
+    def visit_Compare(self, node: ast.Compare) -> str:
+        left = self.visit(node.left)
+        ops = [type(op).__name__ for op in node.ops]
+        comparators = [self.visit(c) for c in node.comparators]
+        result = f"Compare({left},{ops},{comparators})"
+        self.hashes.append(self._hash(result))
+        return result
+    
+    def visit_BoolOp(self, node: ast.BoolOp) -> str:
+        op = type(node.op).__name__
+        values = [self.visit(v) for v in node.values]
+        result = f"BoolOp({op},{values})"
+        self.hashes.append(self._hash(result))
+        return result
+    
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> str:
+        op = type(node.op).__name__
+        operand = self.visit(node.operand)
+        return f"UnaryOp({op},{operand})"
+    
+    def visit_Constant(self, node: ast.Constant) -> str:
+        return f"Const({type(node.value).__name__})"
+    
+    def visit_List(self, node: ast.List) -> str:
+        elts = [self.visit(e) for e in node.elts]
+        return f"List({elts})"
+    
+    def visit_Dict(self, node: ast.Dict) -> str:
+        keys = [self.visit(k) if k else "None" for k in node.keys]
+        values = [self.visit(v) for v in node.values]
+        return f"Dict({keys},{values})"
+    
+    def visit_Tuple(self, node: ast.Tuple) -> str:
+        elts = [self.visit(e) for e in node.elts]
+        return f"Tuple({elts})"
+    
+    def visit_ListComp(self, node: ast.ListComp) -> str:
+        elt = self.visit(node.elt)
+        generators = [self._visit_comprehension(g) for g in node.generators]
+        result = f"ListComp({elt},{generators})"
+        self.hashes.append(self._hash(result))
+        return result
+    
+    def visit_DictComp(self, node: ast.DictComp) -> str:
+        key = self.visit(node.key)
+        value = self.visit(node.value)
+        generators = [self._visit_comprehension(g) for g in node.generators]
+        result = f"DictComp({key}:{value},{generators})"
+        self.hashes.append(self._hash(result))
+        return result
+    
+    def visit_Await(self, node: ast.Await) -> str:
+        value = self.visit(node.value)
+        result = f"Await({value})"
+        self.hashes.append(self._hash(result))
+        self.patterns["async"] += 1
+        return result
+    
+    def visit_Expr(self, node: ast.Expr) -> str:
+        return self.visit(node.value)
+    
+    def visit_Pass(self, node: ast.Pass) -> str:
+        return "Pass"
+    
+    def visit_Break(self, node: ast.Break) -> str:
+        return "Break"
+    
+    def visit_Continue(self, node: ast.Continue) -> str:
+        return "Continue"
+    
+    def _visit_arguments(self, args: ast.arguments) -> str:
+        all_args = []
+        for arg in args.posonlyargs + args.args:
+            all_args.append(self.normalizer.normalize_name(arg.arg, "var"))
+        if args.vararg:
+            all_args.append(f"*{self.normalizer.normalize_name(args.vararg.arg, 'var')}")
+        for arg in args.kwonlyargs:
+            all_args.append(self.normalizer.normalize_name(arg.arg, "var"))
+        if args.kwarg:
+            all_args.append(f"**{self.normalizer.normalize_name(args.kwarg.arg, 'var')}")
+        return f"Args({all_args})"
+    
+    def _visit_comprehension(self, comp: ast.comprehension) -> str:
+        target = self.visit(comp.target)
+        iter_val = self.visit(comp.iter)
+        ifs = [self.visit(if_clause) for if_clause in comp.ifs]
+        return f"Gen({target},{iter_val},{ifs})"
+    
+    def _visit_handler(self, handler: ast.ExceptHandler) -> str:
+        exc_type = handler.type.id if handler.type and isinstance(handler.type, ast.Name) else "Exception"
+        if handler.name:
+            name = self.normalizer.normalize_name(handler.name, "var")
+        else:
+            name = "None"
+        body = [self.visit(stmt) for stmt in handler.body]
+        return f"Handler({exc_type},{name},{body})"
+    
+    def generic_visit(self, node: ast.AST) -> str:
+        children = []
+        for child in ast.iter_child_nodes(node):
+            children.append(self.visit(child))
+        return f"{type(node).__name__}({children})"
+    
+    def get_hash_set(self) -> Set[str]:
+        return set(self.hashes)
+    
+    def get_dominant_patterns(self) -> List[str]:
+        """Get pattern types that appear multiple times."""
+        return [p for p, count in self.patterns.items() if count >= 1]
 
 
-# =============================================================================
-# Data Models
-# =============================================================================
+# ============================================================================
+# Data Structures
+# ============================================================================
 
 @dataclass
-class NormalizedFunction:
-    """A function with its normalized AST representation."""
-    
+class FunctionAST:
+    """Parsed function with AST analysis."""
     qualified_name: str
+    name: str
     file_path: str
-    original_source: str
-    normalized_ast: Optional[ast.AST]
-    ast_hash: str
-    ast_serialized: str
-    
-    # Metadata for abstraction checking
-    decorators: FrozenSet[str]
+    line_start: int
+    line_end: int
+    loc: int
+    hash_set: Set[str]
+    patterns: List[str]
+    decorators: List[str]
     parent_class: Optional[str]
-    is_async: bool
-    param_count: int
-    line_count: int
-    complexity: int
-    
-    # Structural features
-    has_try_except: bool
-    has_return: bool
-    has_yield: bool
-    call_count: int  # Number of function calls in body
+    is_method: bool
 
 
 @dataclass
-class FunctionCluster:
+class BoilerplateCluster:
     """A cluster of structurally similar functions."""
-    
-    functions: List[NormalizedFunction]
-    centroid_hash: str  # Hash of representative function
+    functions: List[FunctionAST]
     avg_similarity: float
-    
-    # Abstraction analysis
-    shared_decorators: FrozenSet[str]
-    shared_parent_class: Optional[str]
+    dominant_patterns: List[str]
     has_shared_abstraction: bool
-    abstraction_type: Optional[str]  # "decorator", "base_class", "factory", None
+    abstraction_type: Optional[str]  # "base_class", "decorator", "mixin", etc.
 
 
-# =============================================================================
-# Detector Implementation
-# =============================================================================
+# ============================================================================
+# Similarity Calculation
+# ============================================================================
+
+def jaccard_similarity(set1: Set[str], set2: Set[str]) -> float:
+    """Calculate Jaccard similarity between two sets."""
+    if not set1 and not set2:
+        return 1.0
+    if not set1 or not set2:
+        return 0.0
+    intersection = len(set1 & set2)
+    union = len(set1 | set2)
+    return intersection / union if union > 0 else 0.0
+
+
+def cluster_by_similarity(
+    functions: List[FunctionAST],
+    threshold: float = 0.70
+) -> List[List[FunctionAST]]:
+    """Cluster functions by AST similarity using single-linkage clustering.
+    
+    Args:
+        functions: List of parsed functions
+        threshold: Minimum Jaccard similarity (default 70%)
+        
+    Returns:
+        List of clusters (each cluster is a list of similar functions)
+    """
+    if len(functions) < 2:
+        return []
+    
+    # Build similarity matrix
+    n = len(functions)
+    similar_pairs: Dict[int, Set[int]] = defaultdict(set)
+    
+    for i in range(n):
+        for j in range(i + 1, n):
+            sim = jaccard_similarity(functions[i].hash_set, functions[j].hash_set)
+            if sim >= threshold:
+                similar_pairs[i].add(j)
+                similar_pairs[j].add(i)
+    
+    # Single-linkage clustering via union-find
+    parent = list(range(n))
+    
+    def find(x: int) -> int:
+        if parent[x] != x:
+            parent[x] = find(parent[x])
+        return parent[x]
+    
+    def union(x: int, y: int):
+        px, py = find(x), find(y)
+        if px != py:
+            parent[px] = py
+    
+    for i, neighbors in similar_pairs.items():
+        for j in neighbors:
+            union(i, j)
+    
+    # Group by cluster
+    clusters_map: Dict[int, List[int]] = defaultdict(list)
+    for i in range(n):
+        clusters_map[find(i)].append(i)
+    
+    # Convert to function lists, filter by minimum size
+    clusters = []
+    for indices in clusters_map.values():
+        if len(indices) >= 3:  # Minimum cluster size
+            cluster = [functions[i] for i in indices]
+            clusters.append(cluster)
+    
+    return clusters
+
+
+# ============================================================================
+# Main Detector
+# ============================================================================
 
 class AIBoilerplateDetector(CodeSmellDetector):
-    """Detects AI-generated boilerplate using AST clustering.
+    """Detects excessive boilerplate code using AST clustering.
     
-    Research-backed approach:
-    1. Parse ALL functions to normalized AST (identifiers → TYPE_N)
-    2. Serialize and hash each function's AST
-    3. Cluster functions by AST similarity (>70% threshold)
-    4. For clusters with 3+ functions: check for shared abstraction
-    5. Flag clusters WITHOUT shared abstraction as boilerplate explosion
+    Uses research-backed approach:
+    1. Parse all functions to normalized AST
+    2. Cluster by AST similarity (>70% Jaccard threshold)
+    3. For each cluster with 3+ functions, check for shared abstraction
+    4. Flag clusters without abstraction as boilerplate
     
-    This catches:
-    - Same try/except structure repeated
-    - Same validation logic in multiple places  
+    Key patterns detected:
+    - Same try/except structure
+    - Same validation logic  
     - Same API call patterns with minor variations
     - CRUD operations that could be genericized
     """
     
-    THRESHOLDS = {
-        "min_cluster_size": 3,           # Min similar functions to report
-        "similarity_threshold": 0.70,     # 70% AST similarity
-        "min_function_lines": 3,          # Ignore tiny functions
-    }
-    
-    # Patterns that indicate intentional/acceptable repetition
-    ACCEPTABLE_PATTERNS = {
-        "test_",          # Test functions often repeat structure
-        "__init__",       # Constructors are naturally similar
-        "__str__",        # Dunder methods have fixed patterns
-        "__repr__",
-        "setUp",          # Test fixtures
-        "tearDown",
-    }
+    # Thresholds
+    DEFAULT_SIMILARITY_THRESHOLD = 0.70  # 70% AST similarity
+    DEFAULT_MIN_CLUSTER_SIZE = 3
+    DEFAULT_MIN_LOC = 5
+    DEFAULT_MAX_FINDINGS = 50
     
     def __init__(
         self,
         graph_client: DatabaseClient,
-        detector_config: Optional[dict] = None,
+        detector_config: Optional[Dict] = None,
         enricher: Optional[GraphEnricher] = None
     ):
         """Initialize AI boilerplate detector.
         
         Args:
             graph_client: FalkorDB database client
-            detector_config: Optional detector configuration
+            detector_config: Configuration with:
+                - repository_path: Path to repository root
+                - similarity_threshold: Jaccard threshold (default: 0.70)
+                - min_cluster_size: Minimum cluster size (default: 3)
+                - min_loc: Minimum lines of code (default: 5)
+                - max_findings: Maximum findings (default: 50)
             enricher: Optional GraphEnricher for cross-detector collaboration
         """
         super().__init__(graph_client, detector_config)
         self.enricher = enricher
         
-        # Allow config to override thresholds
         config = detector_config or {}
-        self.min_cluster_size = config.get("min_cluster_size", self.THRESHOLDS["min_cluster_size"])
-        self.similarity_threshold = config.get("similarity_threshold", self.THRESHOLDS["similarity_threshold"])
-        self.min_function_lines = config.get("min_function_lines", self.THRESHOLDS["min_function_lines"])
+        self.repository_path = Path(config.get("repository_path", "."))
+        self.similarity_threshold = config.get(
+            "similarity_threshold", self.DEFAULT_SIMILARITY_THRESHOLD
+        )
+        self.min_cluster_size = config.get(
+            "min_cluster_size", self.DEFAULT_MIN_CLUSTER_SIZE
+        )
+        self.min_loc = config.get("min_loc", self.DEFAULT_MIN_LOC)
+        self.max_findings = config.get("max_findings", self.DEFAULT_MAX_FINDINGS)
     
     def detect(self) -> List[Finding]:
-        """Detect AI-generated boilerplate patterns using AST clustering.
+        """Detect boilerplate patterns using AST clustering.
         
         Returns:
-            List of findings for detected boilerplate patterns
+            List of findings for boilerplate patterns
         """
-        logger.info("Running AIBoilerplateDetector (AST clustering)")
+        logger.info("Running AIBoilerplateDetector with AST clustering")
         
-        # Step 1: Get all functions and normalize their ASTs
-        functions = self._get_normalized_functions()
-        
-        if len(functions) < self.min_cluster_size:
-            logger.info(f"Found only {len(functions)} parseable functions, need at least {self.min_cluster_size}")
+        # Fetch functions from graph
+        raw_functions = self._fetch_functions()
+        if not raw_functions:
+            logger.info("No functions found in graph")
             return []
         
-        logger.debug(f"Normalized {len(functions)} functions for clustering")
+        logger.debug(f"Fetched {len(raw_functions)} functions from graph")
         
-        # Step 2: Cluster by AST hash (exact matches)
-        exact_clusters = self._cluster_by_hash(functions)
+        # Parse to AST and compute hashes
+        parsed_functions = self._parse_functions(raw_functions)
+        if len(parsed_functions) < self.min_cluster_size:
+            logger.info(f"Only {len(parsed_functions)} parseable functions, need at least {self.min_cluster_size}")
+            return []
         
-        # Step 3: Cluster by AST similarity (>70% threshold)
-        similarity_clusters = self._cluster_by_similarity(functions, exact_clusters)
+        logger.debug(f"Parsed {len(parsed_functions)} functions to AST")
         
-        # Step 4: Merge exact and similarity clusters
-        all_clusters = exact_clusters + similarity_clusters
+        # Cluster by similarity
+        clusters = cluster_by_similarity(parsed_functions, self.similarity_threshold)
+        logger.debug(f"Found {len(clusters)} clusters with 3+ functions")
         
-        # Step 5: Filter to clusters without shared abstraction
-        boilerplate_clusters = self._filter_unabstracted_clusters(all_clusters)
+        # Analyze clusters for abstraction opportunities
+        boilerplate_clusters = []
+        for cluster_funcs in clusters:
+            cluster = self._analyze_cluster(cluster_funcs)
+            if not cluster.has_shared_abstraction:
+                boilerplate_clusters.append(cluster)
         
-        # Step 6: Create findings
+        logger.info(f"Found {len(boilerplate_clusters)} boilerplate clusters without abstraction")
+        
+        # Create findings
         findings = []
         for cluster in boilerplate_clusters:
             finding = self._create_finding(cluster)
             findings.append(finding)
         
-        logger.info(f"Found {len(findings)} boilerplate explosion pattern(s)")
-        return findings
+        return findings[:self.max_findings]
     
-    def severity(self, finding: Finding) -> Severity:
-        """Calculate severity based on cluster size and pattern type.
-        
-        Args:
-            finding: Finding to assess
-            
-        Returns:
-            Severity level
-        """
-        cluster_size = finding.graph_context.get("cluster_size", 0)
-        similarity = finding.graph_context.get("avg_similarity", 0.0)
-        
-        # Large clusters with high similarity are more severe
-        if cluster_size >= 6 and similarity >= 0.85:
-            return Severity.HIGH
-        elif cluster_size >= 4 or similarity >= 0.80:
-            return Severity.MEDIUM
-        return Severity.LOW
-    
-    def _get_normalized_functions(self) -> List[NormalizedFunction]:
-        """Get all functions and normalize their ASTs.
-        
-        Returns:
-            List of NormalizedFunction objects
-        """
+    def _fetch_functions(self) -> List[Dict[str, Any]]:
+        """Fetch Python functions from the graph."""
         repo_filter = self._get_isolation_filter("f")
         
         query = f"""
         MATCH (f:Function)
-        WHERE true {repo_filter}
-        OPTIONAL MATCH (file:File)-[:CONTAINS*]->(f)
-        OPTIONAL MATCH (c:Class)-[:DEFINES]->(f)
-        RETURN 
-            f.qualifiedName AS name,
-            f.sourceCode AS source,
-            f.decorators AS decorators,
-            f.isAsync AS isAsync,
-            f.parameters AS params,
-            f.lineStart AS lineStart,
-            f.lineEnd AS lineEnd,
-            f.complexity AS complexity,
-            file.filePath AS filePath,
-            c.qualifiedName AS parentClass
+        WHERE f.name IS NOT NULL 
+          AND f.loc IS NOT NULL 
+          AND f.loc >= $min_loc
+          {repo_filter}
+        OPTIONAL MATCH (f)<-[:CONTAINS]-(c:Class)
+        OPTIONAL MATCH (f)<-[:CONTAINS*]-(file:File)
+        WHERE file.language = 'python' OR file.filePath ENDS WITH '.py'
+        RETURN f.qualifiedName AS qualified_name,
+               f.name AS name,
+               f.lineStart AS line_start,
+               f.lineEnd AS line_end,
+               f.loc AS loc,
+               f.decorators AS decorators,
+               f.isMethod AS is_method,
+               c.qualifiedName AS parent_class,
+               file.filePath AS file_path
+        ORDER BY f.loc DESC
+        LIMIT 1000
         """
         
-        results = self.db.execute_query(query, self._get_query_params())
-        
-        functions = []
-        for row in results:
-            func = self._build_normalized_function(row)
-            if func and self._should_include_function(func):
-                functions.append(func)
-        
-        return functions
-    
-    def _build_normalized_function(self, row: Dict) -> Optional[NormalizedFunction]:
-        """Build a NormalizedFunction from query result row.
-        
-        Args:
-            row: Query result row
-            
-        Returns:
-            NormalizedFunction or None if insufficient data
-        """
-        name = row.get("name")
-        source = row.get("source", "") or ""
-        
-        if not name or not source:
-            return None
-        
-        # Parse and normalize AST
-        normalized_ast = normalize_ast(source)
-        if normalized_ast is None:
-            return None
-        
-        ast_serialized = serialize_ast(normalized_ast)
-        if not ast_serialized:
-            return None
-        
-        ast_hash = hash_ast(normalized_ast)
-        
-        # Extract metadata
-        decorators_raw = row.get("decorators", []) or []
-        decorators = frozenset(str(d) for d in decorators_raw)
-        
-        params = row.get("params", []) or []
-        param_count = len([p for p in params if p not in ("self", "cls")])
-        
-        line_start = row.get("lineStart", 0) or 0
-        line_end = row.get("lineEnd", 0) or 0
-        line_count = max(0, line_end - line_start + 1)
-        
-        # Analyze structure
-        has_try_except = "try:" in source and "except" in source
-        has_return = bool(re.search(r'\breturn\b', source))
-        has_yield = bool(re.search(r'\byield\b', source))
-        call_count = source.count('(') - source.count('def ') - source.count('class ')
-        
-        return NormalizedFunction(
-            qualified_name=name,
-            file_path=row.get("filePath", "") or "",
-            original_source=source,
-            normalized_ast=normalized_ast,
-            ast_hash=ast_hash,
-            ast_serialized=ast_serialized,
-            decorators=decorators,
-            parent_class=row.get("parentClass"),
-            is_async=row.get("isAsync", False) or False,
-            param_count=param_count,
-            line_count=line_count,
-            complexity=row.get("complexity", 0) or 0,
-            has_try_except=has_try_except,
-            has_return=has_return,
-            has_yield=has_yield,
-            call_count=max(0, call_count),
-        )
-    
-    def _should_include_function(self, func: NormalizedFunction) -> bool:
-        """Check if function should be included in analysis.
-        
-        Args:
-            func: Function to check
-            
-        Returns:
-            True if function should be analyzed
-        """
-        # Skip tiny functions
-        if func.line_count < self.min_function_lines:
-            return False
-        
-        # Skip acceptable patterns
-        func_basename = func.qualified_name.split(".")[-1] if func.qualified_name else ""
-        for pattern in self.ACCEPTABLE_PATTERNS:
-            if func_basename.startswith(pattern) or func_basename == pattern:
-                return False
-        
-        return True
-    
-    def _cluster_by_hash(self, functions: List[NormalizedFunction]) -> List[FunctionCluster]:
-        """Cluster functions with identical AST hashes.
-        
-        Args:
-            functions: List of normalized functions
-            
-        Returns:
-            List of clusters with exact AST matches
-        """
-        hash_groups: Dict[str, List[NormalizedFunction]] = defaultdict(list)
-        
-        for func in functions:
-            hash_groups[func.ast_hash].append(func)
-        
-        clusters = []
-        for ast_hash, group in hash_groups.items():
-            if len(group) >= self.min_cluster_size:
-                cluster = self._analyze_cluster(group, ast_hash, 1.0)
-                clusters.append(cluster)
-        
-        return clusters
-    
-    def _cluster_by_similarity(
-        self,
-        functions: List[NormalizedFunction],
-        existing_clusters: List[FunctionCluster]
-    ) -> List[FunctionCluster]:
-        """Cluster functions by AST similarity (>70% threshold).
-        
-        Uses greedy clustering: for each unclustered function, find similar
-        functions and form a cluster if enough are found.
-        
-        Args:
-            functions: List of normalized functions
-            existing_clusters: Already-formed exact-match clusters
-            
-        Returns:
-            Additional clusters based on similarity
-        """
-        # Get functions not already in exact-match clusters
-        clustered_names = set()
-        for cluster in existing_clusters:
-            for func in cluster.functions:
-                clustered_names.add(func.qualified_name)
-        
-        unclustered = [f for f in functions if f.qualified_name not in clustered_names]
-        
-        if len(unclustered) < self.min_cluster_size:
+        try:
+            results = self.db.execute_query(
+                query,
+                self._get_query_params(min_loc=self.min_loc),
+            )
+            return [r for r in results if r.get("file_path")]
+        except Exception as e:
+            logger.error(f"Error fetching functions: {e}")
             return []
+    
+    def _parse_functions(self, raw_functions: List[Dict]) -> List[FunctionAST]:
+        """Parse functions to AST and compute hashes."""
+        file_cache: Dict[str, str] = {}
+        parsed: List[FunctionAST] = []
         
-        # Group by structural features first (optimization)
-        # Functions with different structural features won't be similar
-        feature_groups: Dict[Tuple, List[NormalizedFunction]] = defaultdict(list)
-        
-        for func in unclustered:
-            # Key: (has_try, has_return, has_yield, param_bucket, async)
-            param_bucket = min(func.param_count, 5)  # Bucket params: 0,1,2,3,4,5+
-            key = (func.has_try_except, func.has_return, func.has_yield, param_bucket, func.is_async)
-            feature_groups[key].append(func)
-        
-        clusters = []
-        processed = set()
-        
-        for group in feature_groups.values():
-            if len(group) < self.min_cluster_size:
+        for func in raw_functions:
+            file_path = func.get("file_path")
+            if not file_path:
                 continue
             
-            # Within each feature group, find similarity clusters
-            for i, func1 in enumerate(group):
-                if func1.qualified_name in processed:
+            # Load file content
+            if file_path not in file_cache:
+                full_path = self.repository_path / file_path
+                if not full_path.exists():
                     continue
-                
-                # Find similar functions
-                similar = [func1]
-                for j, func2 in enumerate(group):
-                    if i == j or func2.qualified_name in processed:
-                        continue
-                    
-                    if func1.normalized_ast and func2.normalized_ast:
-                        sim = compute_ast_similarity(func1.normalized_ast, func2.normalized_ast)
-                        if sim >= self.similarity_threshold:
-                            similar.append(func2)
-                
-                if len(similar) >= self.min_cluster_size:
-                    # Calculate average similarity
-                    sims = []
-                    for f1, f2 in combinations(similar, 2):
-                        if f1.normalized_ast and f2.normalized_ast:
-                            sims.append(compute_ast_similarity(f1.normalized_ast, f2.normalized_ast))
-                    avg_sim = sum(sims) / len(sims) if sims else self.similarity_threshold
-                    
-                    cluster = self._analyze_cluster(similar, func1.ast_hash, avg_sim)
-                    clusters.append(cluster)
-                    
-                    # Mark as processed
-                    for f in similar:
-                        processed.add(f.qualified_name)
-        
-        return clusters
-    
-    def _analyze_cluster(
-        self,
-        functions: List[NormalizedFunction],
-        centroid_hash: str,
-        avg_similarity: float
-    ) -> FunctionCluster:
-        """Analyze a cluster for shared abstractions.
-        
-        Args:
-            functions: Functions in the cluster
-            centroid_hash: Representative AST hash
-            avg_similarity: Average pairwise similarity
+                try:
+                    file_cache[file_path] = full_path.read_text(encoding="utf-8")
+                except Exception:
+                    continue
             
-        Returns:
-            FunctionCluster with abstraction analysis
+            source = file_cache[file_path]
+            line_start = func.get("line_start", 1)
+            line_end = func.get("line_end", line_start + 10)
+            
+            # Extract function source
+            lines = source.split("\n")
+            start_idx = max(0, line_start - 1)
+            end_idx = min(len(lines), line_end)
+            func_source = "\n".join(lines[start_idx:end_idx])
+            
+            if not func_source.strip():
+                continue
+            
+            # Parse to AST
+            try:
+                dedented = textwrap.dedent(func_source)
+                tree = ast.parse(dedented)
+            except SyntaxError:
+                continue
+            
+            # Find the function node
+            func_node = None
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    func_node = node
+                    break
+            
+            if not func_node:
+                continue
+            
+            # Compute hashes
+            normalizer = ASTNormalizer()
+            hasher = BoilerplateASTHasher(normalizer)
+            try:
+                hasher.visit(func_node)
+            except Exception:
+                continue
+            
+            hash_set = hasher.get_hash_set()
+            if len(hash_set) < 3:  # Too small to cluster meaningfully
+                continue
+            
+            # Extract decorators
+            decorators = func.get("decorators", []) or []
+            if isinstance(decorators, str):
+                decorators = [decorators]
+            
+            parsed.append(FunctionAST(
+                qualified_name=func.get("qualified_name", ""),
+                name=func.get("name", ""),
+                file_path=file_path,
+                line_start=line_start,
+                line_end=line_end,
+                loc=func.get("loc", 0),
+                hash_set=hash_set,
+                patterns=hasher.get_dominant_patterns(),
+                decorators=decorators,
+                parent_class=func.get("parent_class"),
+                is_method=func.get("is_method", False) or False,
+            ))
+        
+        return parsed
+    
+    def _analyze_cluster(self, functions: List[FunctionAST]) -> BoilerplateCluster:
+        """Analyze a cluster of similar functions.
+        
+        Checks if they share a common abstraction:
+        - Same parent class (methods of same class)
+        - Same decorators (decorator-based abstraction)
+        - Same base class inheritance
         """
-        # Find shared decorators
-        if functions:
-            shared_decorators = functions[0].decorators
-            for func in functions[1:]:
-                shared_decorators = shared_decorators & func.decorators
-        else:
-            shared_decorators = frozenset()
+        # Calculate average similarity
+        similarities = []
+        for i, f1 in enumerate(functions):
+            for f2 in functions[i + 1:]:
+                sim = jaccard_similarity(f1.hash_set, f2.hash_set)
+                similarities.append(sim)
+        avg_similarity = sum(similarities) / len(similarities) if similarities else 0.0
         
-        # Find shared parent class
-        parent_classes = {f.parent_class for f in functions if f.parent_class}
-        shared_parent_class = parent_classes.pop() if len(parent_classes) == 1 else None
+        # Collect dominant patterns
+        all_patterns = []
+        for f in functions:
+            all_patterns.extend(f.patterns)
+        pattern_counts = defaultdict(int)
+        for p in all_patterns:
+            pattern_counts[p] += 1
+        dominant = [p for p, c in pattern_counts.items() if c >= len(functions) // 2]
         
-        # Determine if cluster has a shared abstraction
-        has_shared_abstraction = False
+        # Check for shared abstraction
+        has_abstraction = False
         abstraction_type = None
         
-        if shared_parent_class:
-            has_shared_abstraction = True
-            abstraction_type = "base_class"
-        elif shared_decorators:
-            # Check if decorators indicate an abstraction pattern
-            abstraction_decorators = {
-                "route", "get", "post", "put", "delete", "patch",  # Web frameworks
-                "property", "staticmethod", "classmethod",          # Built-ins
-                "abstractmethod", "overload",                       # Typing
-                "dataclass", "attrs",                               # Data classes
-                "task", "job", "worker",                            # Task queues
-                "cached", "cache", "memoize",                       # Caching
-            }
-            for dec in shared_decorators:
-                dec_name = dec.split(".")[-1].lower() if dec else ""
-                if dec_name in abstraction_decorators:
-                    has_shared_abstraction = True
-                    abstraction_type = "decorator"
-                    break
+        # Check 1: Same parent class
+        parent_classes = {f.parent_class for f in functions if f.parent_class}
+        if len(parent_classes) == 1:
+            has_abstraction = True
+            abstraction_type = "same_class"
         
-        return FunctionCluster(
+        # Check 2: Shared decorators suggesting abstraction
+        if not has_abstraction:
+            shared_decorators = None
+            for f in functions:
+                dec_set = frozenset(f.decorators)
+                if shared_decorators is None:
+                    shared_decorators = dec_set
+                else:
+                    shared_decorators &= dec_set
+            
+            if shared_decorators:
+                # Check if decorators indicate an existing pattern
+                abstraction_decorators = {
+                    "abstractmethod", "abc.abstractmethod",
+                    "property", "staticmethod", "classmethod",
+                    "route", "app.route", "api_view",
+                }
+                if shared_decorators & abstraction_decorators:
+                    has_abstraction = True
+                    abstraction_type = "decorator_pattern"
+        
+        # Check 3: Different files but same naming pattern (likely intentional)
+        if not has_abstraction:
+            files = {f.file_path for f in functions}
+            if len(files) == 1:
+                # All in same file - more likely to be boilerplate
+                pass
+            elif len(files) == len(functions):
+                # Each in different file with similar structure - could be intentional
+                # Check if names follow a pattern (e.g., test_*, handle_*)
+                names = [f.name for f in functions]
+                prefixes = [n.split("_")[0] if "_" in n else n[:3] for n in names]
+                if len(set(prefixes)) == 1:
+                    # Same prefix pattern - might be intentional convention
+                    # Still flag it but with lower confidence
+                    pass
+        
+        return BoilerplateCluster(
             functions=functions,
-            centroid_hash=centroid_hash,
             avg_similarity=avg_similarity,
-            shared_decorators=shared_decorators,
-            shared_parent_class=shared_parent_class,
-            has_shared_abstraction=has_shared_abstraction,
+            dominant_patterns=dominant,
+            has_shared_abstraction=has_abstraction,
             abstraction_type=abstraction_type,
         )
     
-    def _filter_unabstracted_clusters(
-        self,
-        clusters: List[FunctionCluster]
-    ) -> List[FunctionCluster]:
-        """Filter to clusters without shared abstractions.
-        
-        These are the "boilerplate explosions" - similar code that SHOULD
-        have been abstracted but wasn't.
-        
-        Args:
-            clusters: All detected clusters
-            
-        Returns:
-            Clusters flagged as boilerplate (no shared abstraction)
-        """
-        return [c for c in clusters if not c.has_shared_abstraction]
-    
-    def _create_finding(self, cluster: FunctionCluster) -> Finding:
-        """Create a finding from a function cluster.
-        
-        Args:
-            cluster: FunctionCluster to convert
-            
-        Returns:
-            Finding object
-        """
+    def _create_finding(self, cluster: BoilerplateCluster) -> Finding:
+        """Create a finding from a boilerplate cluster."""
         finding_id = str(uuid.uuid4())
         
-        # Calculate severity
-        if len(cluster.functions) >= 6 and cluster.avg_similarity >= 0.85:
+        # Determine severity
+        size = len(cluster.functions)
+        if size >= 6 and cluster.avg_similarity >= 0.85:
             severity = Severity.HIGH
-        elif len(cluster.functions) >= 4 or cluster.avg_similarity >= 0.80:
+        elif size >= 4 or cluster.avg_similarity >= 0.80:
             severity = Severity.MEDIUM
         else:
             severity = Severity.LOW
         
-        # Build function list
-        func_names = sorted([f.qualified_name for f in cluster.functions])
+        # Build title
+        pattern_str = ", ".join(cluster.dominant_patterns[:2]) if cluster.dominant_patterns else "similar structure"
+        title = f"Boilerplate: {size} functions with {pattern_str} ({int(cluster.avg_similarity * 100)}% similar)"
+        
+        # Build description
+        func_names = sorted([f.name for f in cluster.functions])
         if len(func_names) > 5:
             func_display = ", ".join(func_names[:5]) + f" ... and {len(func_names) - 5} more"
         else:
             func_display = ", ".join(func_names)
         
-        # Determine pattern type
-        pattern_indicators = []
-        if all(f.has_try_except for f in cluster.functions):
-            pattern_indicators.append("try/except handling")
-        if cluster.avg_similarity >= 0.95:
-            pattern_indicators.append("near-identical structure")
-        if all(f.has_return for f in cluster.functions):
-            # Check for CRUD-like patterns
-            names_lower = [f.qualified_name.lower() for f in cluster.functions]
-            crud_keywords = {"get", "create", "update", "delete", "list", "fetch", "save"}
-            if any(any(kw in name for kw in crud_keywords) for name in names_lower):
-                pattern_indicators.append("CRUD operations")
-        
-        pattern_desc = " with " + ", ".join(pattern_indicators) if pattern_indicators else ""
-        
-        # Suggest abstraction
-        suggestion = self._generate_abstraction_suggestion(cluster)
-        
-        title = f"Boilerplate explosion: {len(cluster.functions)} functions share {cluster.avg_similarity:.0%} structural similarity"
+        files = sorted({f.file_path for f in cluster.functions})
+        file_display = ", ".join(files[:3])
+        if len(files) > 3:
+            file_display += f" ... and {len(files) - 3} more files"
         
         description = (
-            f"**{len(cluster.functions)} functions** have nearly identical AST structure{pattern_desc}.\n\n"
-            f"**Similarity:** {cluster.avg_similarity:.0%}\n"
+            f"Found {size} functions with {int(cluster.avg_similarity * 100)}% AST similarity "
+            f"that lack a shared abstraction.\n\n"
             f"**Functions:** {func_display}\n\n"
-            f"This pattern suggests AI-generated boilerplate that was copy-pasted "
-            f"with minor modifications instead of being properly abstracted."
+            f"**Files:** {file_display}\n\n"
         )
         
-        # Get unique file paths
-        file_paths = list({f.file_path for f in cluster.functions if f.file_path})
+        if cluster.dominant_patterns:
+            description += f"**Patterns detected:** {', '.join(cluster.dominant_patterns)}\n\n"
+        
+        description += (
+            "These similar functions could be consolidated into a single parameterized "
+            "function, decorator, or base class to reduce code duplication and improve "
+            "maintainability."
+        )
+        
+        # Generate suggestion based on patterns
+        suggestion = self._generate_suggestion(cluster)
+        
+        # Calculate abstraction potential
+        abstraction_potential = min(1.0, cluster.avg_similarity + (size / 10))
         
         finding = Finding(
             id=finding_id,
@@ -768,42 +819,38 @@ class AIBoilerplateDetector(CodeSmellDetector):
             severity=severity,
             title=title,
             description=description,
-            affected_nodes=func_names,
-            affected_files=file_paths,
+            affected_nodes=[f.qualified_name for f in cluster.functions],
+            affected_files=list(files),
             graph_context={
-                "cluster_size": len(cluster.functions),
-                "avg_similarity": cluster.avg_similarity,
-                "centroid_hash": cluster.centroid_hash,
-                "has_try_except": all(f.has_try_except for f in cluster.functions),
-                "shared_decorators": list(cluster.shared_decorators),
-                "functions": func_names,
+                "cluster_size": size,
+                "avg_similarity": round(cluster.avg_similarity, 3),
+                "dominant_patterns": cluster.dominant_patterns,
+                "abstraction_potential": round(abstraction_potential, 2),
+                "functions": [f.name for f in cluster.functions],
             },
             suggested_fix=suggestion,
-            estimated_effort=self._estimate_effort(len(cluster.functions)),
+            estimated_effort=self._estimate_effort(size),
             created_at=datetime.now(),
             why_it_matters=(
-                "Repeated boilerplate code increases maintenance burden exponentially. "
-                "When the pattern needs to change, every copy must be updated. "
-                "Abstracting common patterns improves consistency, reduces bugs, "
-                "and makes the codebase more maintainable."
+                "Repeated boilerplate code increases maintenance burden. "
+                "When the pattern needs to change, you must update every copy. "
+                "Abstracting common patterns reduces bugs and improves consistency."
             ),
         )
         
         # Add collaboration metadata
-        confidence = 0.7 + (cluster.avg_similarity * 0.25)
-        confidence = min(0.95, confidence)
+        evidence = [f"ast_similarity_{int(cluster.avg_similarity * 100)}pct"]
+        evidence.extend([f"pattern_{p}" for p in cluster.dominant_patterns[:3]])
         
+        confidence = 0.6 + (cluster.avg_similarity * 0.3) + (min(size, 10) / 50)
         finding.add_collaboration_metadata(CollaborationMetadata(
             detector="AIBoilerplateDetector",
-            confidence=confidence,
-            evidence=[
-                f"ast_similarity_{cluster.avg_similarity:.0%}",
-                f"cluster_size_{len(cluster.functions)}",
-            ],
-            tags=["boilerplate", "ai_generated", "refactoring", "ast_clustering"],
+            confidence=min(0.95, confidence),
+            evidence=evidence,
+            tags=["boilerplate", "ai_generated", "refactoring"] + cluster.dominant_patterns[:2],
         ))
         
-        # Flag entities for cross-detector collaboration
+        # Flag entities
         if self.enricher:
             for func in cluster.functions:
                 try:
@@ -811,89 +858,115 @@ class AIBoilerplateDetector(CodeSmellDetector):
                         entity_qualified_name=func.qualified_name,
                         detector="AIBoilerplateDetector",
                         severity=severity.value,
-                        issues=["boilerplate_explosion", "ast_duplicate"],
+                        issues=["boilerplate", "missing_abstraction"],
                         confidence=confidence,
                         metadata={
-                            "cluster_size": len(cluster.functions),
-                            "avg_similarity": cluster.avg_similarity,
+                            "cluster_size": size,
+                            "avg_similarity": round(cluster.avg_similarity, 3),
+                            "patterns": cluster.dominant_patterns,
                         }
                     )
                 except Exception:
-                    pass  # Don't fail detection if enrichment fails
+                    pass
         
         return finding
     
-    def _generate_abstraction_suggestion(self, cluster: FunctionCluster) -> str:
-        """Generate context-aware abstraction suggestion.
+    def _generate_suggestion(self, cluster: BoilerplateCluster) -> str:
+        """Generate abstraction suggestion based on detected patterns."""
+        patterns = set(cluster.dominant_patterns)
         
-        Args:
-            cluster: Function cluster to analyze
-            
-        Returns:
-            Detailed suggestion string
-        """
-        n = len(cluster.functions)
-        
-        # Check for common patterns
-        all_try_except = all(f.has_try_except for f in cluster.functions)
-        all_async = all(f.is_async for f in cluster.functions)
-        similar_params = len({f.param_count for f in cluster.functions}) == 1
-        
-        suggestions = []
-        
-        if all_try_except:
-            suggestions.append(
-                "**Error handling decorator:**\n"
+        if "try_except" in patterns or "error_handling" in patterns:
+            return (
+                "**Suggested abstraction: Error handling decorator**\n\n"
                 "```python\n"
-                "@handle_errors(on_error=default_handler)\n"
-                "def function(...):\n"
-                "    # Just the core logic, no try/except\n"
-                "```"
+                "def handle_errors(error_handler=None):\n"
+                "    def decorator(func):\n"
+                "        @wraps(func)\n"
+                "        def wrapper(*args, **kwargs):\n"
+                "            try:\n"
+                "                return func(*args, **kwargs)\n"
+                "            except Exception as e:\n"
+                "                if error_handler:\n"
+                "                    return error_handler(e)\n"
+                "                raise\n"
+                "        return wrapper\n"
+                "    return decorator\n"
+                "```\n\n"
+                "Apply `@handle_errors()` to consolidate the try/except pattern."
             )
         
-        if similar_params:
-            param_count = cluster.functions[0].param_count
-            if param_count >= 3:
-                suggestions.append(
-                    "**Parameter dataclass:**\n"
-                    "```python\n"
-                    "@dataclass\n"
-                    "class RequestContext:\n"
-                    "    # Bundle common parameters\n"
-                    "    ...\n"
-                    "```"
-                )
-        
-        if all_async:
-            suggestions.append(
-                "**Base async handler:**\n"
+        if "validation" in patterns:
+            return (
+                "**Suggested abstraction: Validation decorator or helper**\n\n"
                 "```python\n"
-                "class BaseAsyncHandler:\n"
-                "    async def handle(self, context): ...\n"
-                "```"
+                "def validate(*validators):\n"
+                "    def decorator(func):\n"
+                "        @wraps(func)\n"
+                "        def wrapper(*args, **kwargs):\n"
+                "            for validator in validators:\n"
+                "                validator(*args, **kwargs)\n"
+                "            return func(*args, **kwargs)\n"
+                "        return wrapper\n"
+                "    return decorator\n"
+                "```\n\n"
+                "Or create reusable validation functions."
+            )
+        
+        if "crud" in patterns or "http_method" in patterns:
+            return (
+                "**Suggested abstraction: Generic CRUD handler or base class**\n\n"
+                "```python\n"
+                "class BaseCRUDHandler:\n"
+                "    model = None  # Override in subclass\n"
+                "    \n"
+                "    def create(self, data): ...\n"
+                "    def read(self, id): ...\n"
+                "    def update(self, id, data): ...\n"
+                "    def delete(self, id): ...\n"
+                "```\n\n"
+                "Or use a factory function to generate endpoints."
+            )
+        
+        if "database" in patterns:
+            return (
+                "**Suggested abstraction: Repository pattern or generic query helper**\n\n"
+                "```python\n"
+                "class BaseRepository:\n"
+                "    model = None\n"
+                "    \n"
+                "    def get(self, **filters): ...\n"
+                "    def create(self, **data): ...\n"
+                "    def update(self, id, **data): ...\n"
+                "```\n\n"
+                "Consolidate database access patterns."
+            )
+        
+        if "async" in patterns:
+            return (
+                "**Suggested abstraction: Async handler base or decorator**\n\n"
+                "Create a base async handler or use a decorator to wrap common "
+                "async patterns like connection management, retry logic, etc."
             )
         
         # Generic suggestion
-        suggestions.append(
-            f"**Generic function pattern:**\n"
-            f"These {n} functions could be consolidated into a single generic function "
-            f"with a mode/type parameter, or into a factory that generates handlers."
+        return (
+            "**Suggested abstractions:**\n\n"
+            "1. **Extract common logic** into a shared helper function\n"
+            "2. **Create a decorator** if there's a wrapper pattern\n"
+            "3. **Use a factory function** to generate variations\n"
+            "4. **Create a base class** with template method pattern\n"
+            "5. **Consolidate into single function** with parameters for variations"
         )
-        
-        return "\n\n".join(suggestions)
     
     def _estimate_effort(self, cluster_size: int) -> str:
-        """Estimate effort to refactor based on cluster size.
-        
-        Args:
-            cluster_size: Number of functions to refactor
-            
-        Returns:
-            Effort estimate string
-        """
+        """Estimate refactoring effort."""
         if cluster_size >= 8:
             return "Large (1-2 days)"
         elif cluster_size >= 5:
             return "Medium (4-8 hours)"
         else:
             return "Small (2-4 hours)"
+    
+    def severity(self, finding: Finding) -> Severity:
+        """Calculate severity from finding context."""
+        return finding.severity
