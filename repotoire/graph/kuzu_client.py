@@ -82,7 +82,7 @@ class KuzuClient(DatabaseClient):
         self,
         db_path: str = ".repotoire/kuzu_db",
         read_only: bool = False,
-        buffer_pool_size: int = 256 * 1024 * 1024,  # 256MB default
+        buffer_pool_size: int = 1024 * 1024 * 1024,  # 1GB default
         max_num_threads: int = 0,  # 0 = auto-detect
     ):
         """Initialize Kùzu client.
@@ -407,7 +407,13 @@ class KuzuClient(DatabaseClient):
             return records
 
         except Exception as e:
-            logger.error(f"Kuzu query failed: {e}\nQuery: {adapted_query}")
+            # Binder exceptions are expected for missing properties (schema mismatches)
+            # Log at debug level to reduce noise - callers handle gracefully
+            error_str = str(e)
+            if "Binder exception" in error_str or "Cannot find property" in error_str:
+                logger.debug(f"Kuzu query schema mismatch: {e}")
+            else:
+                logger.error(f"Kuzu query failed: {e}\nQuery: {adapted_query}")
             raise
 
     def _adapt_query(self, query: str) -> str:

@@ -5,12 +5,15 @@ for 40-60% false positive reduction.
 REPO-416: Added path cache support for O(1) reachability queries.
 """
 
+import logging
 import re
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
 from repotoire.detectors.base import CodeSmellDetector
+
+logger = logging.getLogger(__name__)
 from repotoire.detectors.graph_algorithms import GraphAlgorithms
 from repotoire.graph.enricher import GraphEnricher
 from repotoire.models import CollaborationMetadata, Finding, Severity
@@ -654,7 +657,7 @@ class GodClassDetector(CodeSmellDetector):
             results = self.db.execute_query(query, {"class_name": qualified_name})
             return list(results) if results else []
         except Exception as e:
-            self.logger.debug(f"Method cluster analysis failed for {qualified_name}: {e}")
+            logger.debug(f"Method cluster analysis failed for {qualified_name}: {e}")
             return []
 
     def _suggest_refactoring(

@@ -653,6 +653,8 @@ class GraphAlgorithms:
     ) -> List[Dict[str, Any]]:
         """Get functions with low harmonic centrality scores (isolated code).
 
+        For Kuzu mode, reads from in-memory cache.
+
         Args:
             threshold: Maximum harmonic centrality score
             limit: Maximum number of results
@@ -660,6 +662,18 @@ class GraphAlgorithms:
         Returns:
             List of function data with low harmonic centrality scores
         """
+        # Check if we're in Kuzu mode - use cached results
+        client_type = type(self.client).__name__
+        if client_type == "KuzuClient":
+            global _harmonic_cache
+            with _cache_lock:
+                results = [
+                    {"qualified_name": name, "harmonic_centrality": score}
+                    for name, score in sorted(_harmonic_cache.items(), key=lambda x: x[1])
+                    if 0 < score < threshold
+                ][:limit]
+            return results
+
         # Filter by repoId for multi-tenant isolation
         repo_filter = self._get_isolation_filter("f")
         query = f"""

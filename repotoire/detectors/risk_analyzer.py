@@ -149,7 +149,7 @@ class BottleneckRiskAnalyzer:
 
         for finding in findings:
             # Index by affected nodes (qualified names)
-            for node in finding.affected_nodes:
+            for node in finding.affected_nodes or []:
                 if node not in index:
                     index[node] = []
                 index[node].append(finding)
