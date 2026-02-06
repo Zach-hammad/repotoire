@@ -17,6 +17,7 @@ _DETECTOR_REGISTRY = {
     "CodeSmellDetector": ("repotoire.detectors.base", "CodeSmellDetector"),
     # AI-generated code detectors
     "AIDuplicateBlockDetector": ("repotoire.detectors.ai_duplicate_block", "AIDuplicateBlockDetector"),
+    "AIMissingTestsDetector": ("repotoire.detectors.ai_missing_tests", "AIMissingTestsDetector"),
     # Graph detectors
     "AIBoilerplateDetector": ("repotoire.detectors.ai_boilerplate", "AIBoilerplateDetector"),
     "ArchitecturalBottleneckDetector": ("repotoire.detectors.architectural_bottleneck", "ArchitecturalBottleneckDetector"),
