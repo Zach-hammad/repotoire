@@ -92,11 +92,13 @@ runs:
           LOW=0
         fi
         
-        # Get grade from health report
+        # Get grade and score from health report
         if [ -f .repotoire/last_health.json ]; then
           GRADE=$(cat .repotoire/last_health.json | jq -r '.grade // "N/A"')
+          SCORE=$(cat .repotoire/last_health.json | jq -r '.health_score // 0')
         else
           GRADE="N/A"
+          SCORE=0
         fi
         
         echo "findings-count=$TOTAL" >> $GITHUB_OUTPUT
@@ -105,6 +107,7 @@ runs:
         echo "medium-count=$MEDIUM" >> $GITHUB_OUTPUT
         echo "low-count=$LOW" >> $GITHUB_OUTPUT
         echo "grade=$GRADE" >> $GITHUB_OUTPUT
+        echo "score=$SCORE" >> $GITHUB_OUTPUT
 
     - name: Post PR comment
       if: github.event_name == 'pull_request'
@@ -116,6 +119,7 @@ runs:
         MEDIUM_COUNT: ${{ steps.analyze.outputs.medium-count }}
         LOW_COUNT: ${{ steps.analyze.outputs.low-count }}
         GRADE: ${{ steps.analyze.outputs.grade }}
+        SCORE: ${{ steps.analyze.outputs.score }}
       with:
         github-token: ${{ inputs.token }}
         script: |
@@ -127,6 +131,18 @@ runs:
           const medium = parseInt(process.env.MEDIUM_COUNT) || 0;
           const low = parseInt(process.env.LOW_COUNT) || 0;
           const grade = process.env.GRADE || 'N/A';
+          const score = parseInt(process.env.SCORE) || 0;
+          
+          // Load findings for detailed view
+          let findings = [];
+          if (fs.existsSync('.repotoire/findings.json')) {
+            try {
+              findings = JSON.parse(fs.readFileSync('.repotoire/findings.json', 'utf8'));
+              if (!Array.isArray(findings)) findings = [];
+            } catch (e) {
+              console.log('Could not parse findings:', e);
+            }
+          }
           
           // Build status emoji
           let statusEmoji = '✅';
@@ -134,53 +150,7 @@ runs:
           else if (high > 0) statusEmoji = '⚠️';
           else if (medium > 0) statusEmoji = '📋';
           
-          // Build findings table
-          let findingsTable = '';
-          if (fs.existsSync('.repotoire/findings.json')) {
-            try {
-              const findings = JSON.parse(fs.readFileSync('.repotoire/findings.json', 'utf8'));
-              if (findings.length > 0) {
-                findingsTable = '\n\n<details>\n<summary>📋 Top Findings</summary>\n\n';
-                findingsTable += '| Severity | Issue | File | Line |\n';
-                findingsTable += '|----------|-------|------|------|\n';
-                
-                const topFindings = findings.slice(0, 10);
-                for (const f of topFindings) {
-                  const severity = f.severity === 'critical' ? '🔴' : 
-                                   f.severity === 'high' ? '🟠' : 
-                                   f.severity === 'medium' ? '🟡' : '🟢';
-                  const file = f.file_path || f.path || 'N/A';
-                  const line = f.line_start || f.line || '-';
-                  const issue = (f.title || f.message || 'Issue').substring(0, 60);
-                  findingsTable += `| ${severity} ${f.severity} | ${issue} | \`${file}\` | ${line} |\n`;
-                }
-                
-                if (findings.length > 10) {
-                  findingsTable += `\n*...and ${findings.length - 10} more*\n`;
-                }
-                findingsTable += '\n</details>';
-              }
-            } catch (e) {
-              console.log('Could not parse findings:', e);
-            }
-          }
-          
-          const body = `## ${statusEmoji} Repotoire Analysis
-
-          **Grade:** ${grade} | **Findings:** ${total}
-
-          | Severity | Count |
-          |----------|-------|
-          | 🔴 Critical | ${critical} |
-          | 🟠 High | ${high} |
-          | 🟡 Medium | ${medium} |
-          | 🟢 Low | ${low} |
-          ${findingsTable}
-
-          ---
-          <sub>Powered by [Repotoire](https://repotoire.com) · [View full report](https://repotoire.com/cli)</sub>`;
-          
-          // Find existing comment
+          // Get previous counts from existing comment for trend indicators
           const { data: comments } = await github.rest.issues.listComments({
             owner: context.repo.owner,
             repo: context.repo.repo,
@@ -190,6 +160,122 @@ runs:
           const botComment = comments.find(c => 
             c.user.type === 'Bot' && c.body.includes('Repotoire Analysis')
           );
+          
+          let prevCounts = null;
+          if (botComment) {
+            const match = botComment.body.match(/🔴 Critical \| (\d+)/);
+            const matchHigh = botComment.body.match(/🟠 High \| (\d+)/);
+            const matchMedium = botComment.body.match(/🟡 Medium \| (\d+)/);
+            const matchLow = botComment.body.match(/🟢 Low \| (\d+)/);
+            if (match) {
+              prevCounts = {
+                critical: parseInt(match[1]) || 0,
+                high: parseInt(matchHigh?.[1]) || 0,
+                medium: parseInt(matchMedium?.[1]) || 0,
+                low: parseInt(matchLow?.[1]) || 0
+              };
+            }
+          }
+          
+          // Trend indicator
+          const trend = (current, prev) => {
+            if (prev === null || prev === undefined) return '';
+            const diff = current - prev;
+            if (diff > 0) return ` +${diff} ↑`;
+            if (diff < 0) return ` ${diff} ↓`;
+            return ' →';
+          };
+          
+          // Build file breakdown
+          const fileIssues = {};
+          for (const f of findings) {
+            const file = f.file_path || f.path || 'unknown';
+            fileIssues[file] = (fileIssues[file] || 0) + 1;
+          }
+          const sortedFiles = Object.entries(fileIssues)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10);
+          
+          // Build link to file in PR diff
+          const fileLink = (f) => {
+            const file = f.file_path || f.path;
+            const line = f.line_start || f.line || 1;
+            if (!file) return '';
+            const base = `https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.issue.number}/files`;
+            const anchor = `#diff-${Buffer.from(file).toString('hex')}R${line}`;
+            return `${base}${anchor}`;
+          };
+          
+          // Sort findings by severity
+          const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+          const sortedFindings = [...findings].sort((a, b) => 
+            (severityOrder[a.severity] || 4) - (severityOrder[b.severity] || 4)
+          );
+          
+          // Build top 5 issues section (inline)
+          let topIssues = '';
+          if (sortedFindings.length > 0) {
+            topIssues = '\n### Top Issues\n';
+            const top5 = sortedFindings.slice(0, 5);
+            for (let i = 0; i < top5.length; i++) {
+              const f = top5[i];
+              const sev = f.severity === 'critical' ? '🔴' : 
+                         f.severity === 'high' ? '🟠' : 
+                         f.severity === 'medium' ? '🟡' : '🟢';
+              const file = f.file_path || f.path || 'N/A';
+              const line = f.line_start || f.line || '';
+              const title = f.title || f.message || f.rule_id || 'Issue';
+              const loc = line ? `\`${file}:${line}\`` : `\`${file}\``;
+              const link = fileLink(f);
+              const linkPart = link ? ` - [View](${link})` : '';
+              topIssues += `${i + 1}. ${sev} **${title}** in ${loc}${linkPart}\n`;
+            }
+          }
+          
+          // Build collapsible full findings list
+          let fullFindings = '';
+          if (sortedFindings.length > 5) {
+            fullFindings = `\n<details>\n<summary>📋 All findings (${sortedFindings.length})</summary>\n\n`;
+            fullFindings += '| Severity | Issue | Location |\n';
+            fullFindings += '|----------|-------|----------|\n';
+            for (const f of sortedFindings) {
+              const sev = f.severity === 'critical' ? '🔴' : 
+                         f.severity === 'high' ? '🟠' : 
+                         f.severity === 'medium' ? '🟡' : '🟢';
+              const file = f.file_path || f.path || 'N/A';
+              const line = f.line_start || f.line || '';
+              const title = (f.title || f.message || f.rule_id || 'Issue').substring(0, 50);
+              const loc = line ? `${file}:${line}` : file;
+              const link = fileLink(f);
+              const locCell = link ? `[\`${loc}\`](${link})` : `\`${loc}\``;
+              fullFindings += `| ${sev} ${f.severity} | ${title} | ${locCell} |\n`;
+            }
+            fullFindings += '\n</details>';
+          }
+          
+          // Build file breakdown section
+          let fileBreakdown = '';
+          if (sortedFiles.length > 0) {
+            fileBreakdown = `\n<details>\n<summary>📁 Files with most issues (${sortedFiles.length})</summary>\n\n`;
+            for (const [file, count] of sortedFiles) {
+              fileBreakdown += `- \`${file}\` - ${count} issue${count > 1 ? 's' : ''}\n`;
+            }
+            fileBreakdown += '\n</details>';
+          }
+          
+          const body = `## ${statusEmoji} Repotoire Analysis: ${grade} (${score}/100)
+
+### Summary
+| Severity | Count | Change |
+|----------|-------|--------|
+| 🔴 Critical | ${critical} |${prevCounts ? trend(critical, prevCounts.critical) : ' -'} |
+| 🟠 High | ${high} |${prevCounts ? trend(high, prevCounts.high) : ' -'} |
+| 🟡 Medium | ${medium} |${prevCounts ? trend(medium, prevCounts.medium) : ' -'} |
+| 🟢 Low | ${low} |${prevCounts ? trend(low, prevCounts.low) : ' -'} |
+${topIssues}${fullFindings}${fileBreakdown}
+
+---
+<sub>Powered by [Repotoire](https://repotoire.com) · [View full report](https://repotoire.com/cli)</sub>`;
           
           if (botComment) {
             await github.rest.issues.updateComment({
