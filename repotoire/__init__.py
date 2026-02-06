@@ -5,7 +5,7 @@ Analyzes codebases using knowledge graphs to detect code smells,
 architectural issues, and technical debt.
 """
 
-__version__ = "0.1.35"
+__version__ = "0.1.36"
 
 
 def __getattr__(name: str):
