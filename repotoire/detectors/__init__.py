@@ -61,6 +61,7 @@ _DETECTOR_REGISTRY = {
     "TechnicalDebtHotspotDetector": ("repotoire.detectors.rust_graph_detectors", "TechnicalDebtHotspotDetector"),
     # AI code quality detectors
     "AIChurnDetector": ("repotoire.detectors.ai_churn_detector", "AIChurnDetector"),
+    "AINamingPatternDetector": ("repotoire.detectors.ai_naming_pattern", "AINamingPatternDetector"),
 }
 
 
