@@ -290,15 +290,17 @@ async def create_checkout(
     from repotoire.api.shared.services import StripeService
 
     # Validate plan
+    # Maps plan names to Stripe price IDs (base subscription price)
     price_map = {
-        "team": os.environ.get("STRIPE_PRICE_TEAM", ""),
-        "enterprise": os.environ.get("STRIPE_PRICE_ENTERPRISE", ""),
+        "team": os.environ.get("STRIPE_PRICE_PRO_BASE", ""),  # "team" plan uses PRO pricing
+        "pro": os.environ.get("STRIPE_PRICE_PRO_BASE", ""),
+        "enterprise": os.environ.get("STRIPE_PRICE_ENTERPRISE_BASE", ""),
     }
 
     if request.plan not in price_map:
         raise HTTPException(
             status_code=400,
-            detail="Invalid plan. Choose 'team' or 'enterprise'.",
+            detail="Invalid plan. Choose 'team', 'pro', or 'enterprise'.",
         )
 
     price_id = price_map[request.plan]
