@@ -1032,19 +1032,27 @@ class TestFallbackQuery:
         """Test fallback query is used when main query fails."""
         detector = AIMissingTestsDetector(mock_client)
 
-        mock_client.execute_query.side_effect = [
-            [],  # Test files
-            [],  # Test functions
-            Exception("No Session nodes"),  # Recent functions fails
-            [  # Fallback succeeds
-                {
-                    "qualified_name": "module.py::function",
-                    "name": "function",
-                    "file_path": "src/module.py",
-                    "language": "python",
-                }
-            ],
-        ]
+        # Create a function to return different values on different calls
+        call_count = [0]
+        def side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return []  # Test files
+            elif call_count[0] == 2:
+                return []  # Test functions
+            elif call_count[0] == 3:
+                raise Exception("No Session nodes")  # Recent functions fails
+            else:
+                return [  # Fallback succeeds
+                    {
+                        "qualified_name": "module.py::function",
+                        "name": "function",
+                        "file_path": "src/module.py",
+                        "language": "python",
+                    }
+                ]
+        
+        mock_client.execute_query.side_effect = side_effect
 
         findings = detector.detect()
 

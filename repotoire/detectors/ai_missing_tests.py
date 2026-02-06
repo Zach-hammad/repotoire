@@ -16,6 +16,7 @@ Enhanced with test quality analysis:
 
 import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -83,6 +84,7 @@ class AIMissingTestsDetector(CodeSmellDetector):
 
     # Default configuration
     DEFAULT_CONFIG = {
+        "window_days": 30,           # Look back window for "recent" commits
         "min_function_loc": 5,       # Minimum LOC to consider (skip trivial functions)
         "exclude_private": True,     # Exclude _private functions
         "exclude_dunder": True,      # Exclude __dunder__ methods
@@ -186,6 +188,7 @@ class AIMissingTestsDetector(CodeSmellDetector):
         self.enricher = enricher
 
         config = detector_config or {}
+        self.window_days = config.get("window_days", self.DEFAULT_CONFIG["window_days"])
         self.min_function_loc = config.get("min_function_loc", self.DEFAULT_CONFIG["min_function_loc"])
         self.exclude_private = config.get("exclude_private", self.DEFAULT_CONFIG["exclude_private"])
         self.exclude_dunder = config.get("exclude_dunder", self.DEFAULT_CONFIG["exclude_dunder"])
@@ -402,17 +405,70 @@ class AIMissingTestsDetector(CodeSmellDetector):
         return False
 
     def _get_recent_functions(self) -> List[Dict[str, Any]]:
-        """Get functions to check for test coverage.
+        """Get functions added in recent commits.
 
-        Since Session/Commit tracking may not exist, we query all functions
-        and filter out test files by path pattern.
+        First tries to query functions via Session/MODIFIED relationships.
+        Falls back to querying all functions if Session tracking doesn't exist.
+
+        Returns:
+            List of function data dictionaries
+        """
+        # Calculate cutoff timestamp for recent commits
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self.window_days)
+        cutoff_timestamp = int(cutoff.timestamp())
+
+        repo_filter = self._get_isolation_filter("f")
+
+        # Try Session-based query first (for repos with git history tracking)
+        session_query = f"""
+        MATCH (s:Session)-[:MODIFIED]->(f:File)-[:CONTAINS*]->(func:Function)
+        WHERE s.committedAt >= $cutoff_timestamp
+          AND func.name IS NOT NULL
+          AND f.isTest <> true {repo_filter}
+        WITH func, f, max(s.committedAt) AS last_modified, s.author AS author
+        WHERE func.loc >= $min_loc OR func.loc IS NULL
+        RETURN DISTINCT 
+               func.qualifiedName AS qualified_name,
+               func.name AS name,
+               func.lineStart AS line_start,
+               func.lineEnd AS line_end,
+               func.loc AS loc,
+               func.isMethod AS is_method,
+               f.filePath AS file_path,
+               f.language AS language,
+               last_modified,
+               author
+        ORDER BY last_modified DESC
+        LIMIT $max_results
+        """
+
+        try:
+            results = self.db.execute_query(
+                session_query,
+                self._get_query_params(
+                    cutoff_timestamp=cutoff_timestamp,
+                    min_loc=self.min_function_loc,
+                    max_results=self.max_findings * 3,
+                ),
+            )
+            if results:
+                return results
+            # Empty results might mean no recent commits, fall through to fallback
+            logger.debug("No recent functions via Session query, using fallback")
+        except Exception as e:
+            logger.warning(f"Could not query recent functions via Session (falling back): {e}")
+
+        # Fallback: query all functions if Session tracking doesn't exist
+        return self._get_functions_fallback()
+
+    def _get_functions_fallback(self) -> List[Dict[str, Any]]:
+        """Fallback query when Session/MODIFIED relationships don't exist.
 
         Returns:
             List of function data dictionaries
         """
         repo_filter = self._get_isolation_filter("f")
 
-        # Query all functions, filtering test files by path pattern
         query = f"""
         MATCH (f:File)-[:CONTAINS*]->(func:Function)
         WHERE func.name IS NOT NULL {repo_filter}

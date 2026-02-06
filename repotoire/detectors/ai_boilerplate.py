@@ -582,7 +582,7 @@ class AIBoilerplateDetector(CodeSmellDetector):
                f.lineEnd AS line_end,
                f.loc AS loc,
                f.decorators AS decorators,
-               f.isMethod AS is_method,
+               f.is_method AS is_method,
                c.qualifiedName AS parent_class,
                file.filePath AS file_path
         ORDER BY f.loc DESC
