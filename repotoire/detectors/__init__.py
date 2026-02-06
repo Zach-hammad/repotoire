@@ -1,93 +1,88 @@
-"""Code smell detectors and analysis engine."""
+"""Code smell detectors and analysis engine.
 
-from repotoire.detectors.architectural_bottleneck import ArchitecturalBottleneckDetector
-from repotoire.detectors.bandit_detector import BanditDetector
-from repotoire.detectors.base import CodeSmellDetector
-from repotoire.detectors.circular_dependency import CircularDependencyDetector
-from repotoire.detectors.core_utility import CoreUtilityDetector
-from repotoire.detectors.dead_code import DeadCodeDetector
-from repotoire.detectors.degree_centrality import DegreeCentralityDetector
-from repotoire.detectors.engine import AnalysisEngine
-from repotoire.detectors.eslint_detector import ESLintDetector
+Lazy-loading module to avoid importing all detectors at import time.
+AnalysisEngine loads detectors dynamically when needed.
+"""
 
-# Graph-unique detectors (FAL-115: Graph-Enhanced Linting Strategy)
-from repotoire.detectors.feature_envy import FeatureEnvyDetector
-from repotoire.detectors.god_class import GodClassDetector
-from repotoire.detectors.inappropriate_intimacy import InappropriateIntimacyDetector
-from repotoire.detectors.infinite_loop_detector import InfiniteLoopDetector
+from typing import TYPE_CHECKING
 
-# GDS-based detectors (REPO-169, REPO-170, REPO-171)
-from repotoire.detectors.influential_code import InfluentialCodeDetector
-from repotoire.detectors.jscpd_detector import JscpdDetector
+if TYPE_CHECKING:
+    from repotoire.detectors.base import CodeSmellDetector
+    from repotoire.detectors.engine import AnalysisEngine
 
-# Design smell detectors (REPO-222, REPO-230)
-from repotoire.detectors.lazy_class import LazyClassDetector
-from repotoire.detectors.middle_man import MiddleManDetector
+# Registry of detector names to module paths for lazy loading
+_DETECTOR_REGISTRY = {
+    # Core detectors
+    "AnalysisEngine": ("repotoire.detectors.engine", "AnalysisEngine"),
+    "CodeSmellDetector": ("repotoire.detectors.base", "CodeSmellDetector"),
+    # Graph detectors
+    "ArchitecturalBottleneckDetector": ("repotoire.detectors.architectural_bottleneck", "ArchitecturalBottleneckDetector"),
+    "CircularDependencyDetector": ("repotoire.detectors.circular_dependency", "CircularDependencyDetector"),
+    "CoreUtilityDetector": ("repotoire.detectors.core_utility", "CoreUtilityDetector"),
+    "DeadCodeDetector": ("repotoire.detectors.dead_code", "DeadCodeDetector"),
+    "DegreeCentralityDetector": ("repotoire.detectors.degree_centrality", "DegreeCentralityDetector"),
+    "FeatureEnvyDetector": ("repotoire.detectors.feature_envy", "FeatureEnvyDetector"),
+    "GodClassDetector": ("repotoire.detectors.god_class", "GodClassDetector"),
+    "InappropriateIntimacyDetector": ("repotoire.detectors.inappropriate_intimacy", "InappropriateIntimacyDetector"),
+    "InfluentialCodeDetector": ("repotoire.detectors.influential_code", "InfluentialCodeDetector"),
+    "LazyClassDetector": ("repotoire.detectors.lazy_class", "LazyClassDetector"),
+    "MiddleManDetector": ("repotoire.detectors.middle_man", "MiddleManDetector"),
+    "ModuleCohesionDetector": ("repotoire.detectors.module_cohesion", "ModuleCohesionDetector"),
+    "RefusedBequestDetector": ("repotoire.detectors.refused_bequest", "RefusedBequestDetector"),
+    "ShotgunSurgeryDetector": ("repotoire.detectors.shotgun_surgery", "ShotgunSurgeryDetector"),
+    "TrulyUnusedImportsDetector": ("repotoire.detectors.truly_unused_imports", "TrulyUnusedImportsDetector"),
+    # Hybrid detectors (external tool + graph)
+    "BanditDetector": ("repotoire.detectors.bandit_detector", "BanditDetector"),
+    "ESLintDetector": ("repotoire.detectors.eslint_detector", "ESLintDetector"),
+    "JscpdDetector": ("repotoire.detectors.jscpd_detector", "JscpdDetector"),
+    "MypyDetector": ("repotoire.detectors.mypy_detector", "MypyDetector"),
+    "NpmAuditDetector": ("repotoire.detectors.npm_audit_detector", "NpmAuditDetector"),
+    "PylintDetector": ("repotoire.detectors.pylint_detector", "PylintDetector"),
+    "RadonDetector": ("repotoire.detectors.radon_detector", "RadonDetector"),
+    "RuffImportDetector": ("repotoire.detectors.ruff_import_detector", "RuffImportDetector"),
+    "RuffLintDetector": ("repotoire.detectors.ruff_lint_detector", "RuffLintDetector"),
+    "SATDDetector": ("repotoire.detectors.satd_detector", "SATDDetector"),
+    "SemgrepDetector": ("repotoire.detectors.semgrep_detector", "SemgrepDetector"),
+    "TscDetector": ("repotoire.detectors.tsc_detector", "TscDetector"),
+    "VultureDetector": ("repotoire.detectors.vulture_detector", "VultureDetector"),
+    # Rust-based detectors
+    "InfiniteLoopDetector": ("repotoire.detectors.infinite_loop_detector", "InfiniteLoopDetector"),
+    "CallChainDepthDetector": ("repotoire.detectors.rust_graph_detectors", "CallChainDepthDetector"),
+    "ChangeCouplingDetector": ("repotoire.detectors.rust_graph_detectors", "ChangeCouplingDetector"),
+    "HubDependencyDetector": ("repotoire.detectors.rust_graph_detectors", "HubDependencyDetector"),
+    "LayeredArchitectureDetector": ("repotoire.detectors.rust_graph_detectors", "LayeredArchitectureDetector"),
+    "PackageStabilityDetector": ("repotoire.detectors.rust_graph_detectors", "PackageStabilityDetector"),
+    "TechnicalDebtHotspotDetector": ("repotoire.detectors.rust_graph_detectors", "TechnicalDebtHotspotDetector"),
+}
 
-# GDS-based graph detectors (REPO-172, REPO-173)
-from repotoire.detectors.module_cohesion import ModuleCohesionDetector
-from repotoire.detectors.mypy_detector import MypyDetector
-from repotoire.detectors.npm_audit_detector import NpmAuditDetector
-from repotoire.detectors.pylint_detector import PylintDetector
-from repotoire.detectors.radon_detector import RadonDetector
-from repotoire.detectors.refused_bequest import RefusedBequestDetector
 
-# Hybrid detectors (external tool + graph)
-from repotoire.detectors.ruff_import_detector import RuffImportDetector
-from repotoire.detectors.ruff_lint_detector import RuffLintDetector
+def __getattr__(name: str):
+    """Lazy import detectors on first access."""
+    if name in _DETECTOR_REGISTRY:
+        module_path, class_name = _DETECTOR_REGISTRY[name]
+        import importlib
+        module = importlib.import_module(module_path)
+        return getattr(module, class_name)
+    raise AttributeError(f"module 'repotoire.detectors' has no attribute {name!r}")
 
-# Rust-based graph detectors (REPO-433)
-from repotoire.detectors.rust_graph_detectors import (
-    CallChainDepthDetector,
-    ChangeCouplingDetector,
-    HubDependencyDetector,
-    LayeredArchitectureDetector,
-    PackageStabilityDetector,
-    TechnicalDebtHotspotDetector,
-)
-from repotoire.detectors.satd_detector import SATDDetector
-from repotoire.detectors.semgrep_detector import SemgrepDetector
-from repotoire.detectors.shotgun_surgery import ShotgunSurgeryDetector
-from repotoire.detectors.truly_unused_imports import TrulyUnusedImportsDetector
-from repotoire.detectors.tsc_detector import TscDetector
-from repotoire.detectors.vulture_detector import VultureDetector
+
+def get_all_detector_classes():
+    """Get all available detector classes (loads them lazily).
+    
+    Returns:
+        dict: Mapping of detector names to their classes
+    """
+    result = {}
+    for name in _DETECTOR_REGISTRY:
+        if name not in ("AnalysisEngine", "CodeSmellDetector"):
+            result[name] = __getattr__(name)
+    return result
+
 
 __all__ = [
     "AnalysisEngine",
     "CodeSmellDetector",
-    "CircularDependencyDetector",
-    "DeadCodeDetector",
-    "GodClassDetector",
-    "ArchitecturalBottleneckDetector",
-    # GDS-based graph detectors
-    "ModuleCohesionDetector",
-    "CoreUtilityDetector",
-    # GDS-based detectors (REPO-169, REPO-170, REPO-171)
-    "InfluentialCodeDetector",
-    "DegreeCentralityDetector",
-    # Graph-unique detectors
-    "FeatureEnvyDetector",
-    "ShotgunSurgeryDetector",
-    "MiddleManDetector",
-    "InappropriateIntimacyDetector",
-    "TrulyUnusedImportsDetector",
-    # Design smell detectors
-    "LazyClassDetector",
-    "RefusedBequestDetector",
-    # Hybrid detectors
-    "RuffImportDetector",
-    "RuffLintDetector",
-    "MypyDetector",
-    "PylintDetector",
-    "BanditDetector",
-    "RadonDetector",
-    "JscpdDetector",
-    "VultureDetector",
-    "SemgrepDetector",
-    "SATDDetector",
-    "ESLintDetector",
-    "TscDetector",
-    "NpmAuditDetector",
-    # Rust-based detectors
-    "InfiniteLoopDetector",
+    "get_all_detector_classes",
+    # All detector names from registry
+    *[k for k in _DETECTOR_REGISTRY.keys() if k not in ("AnalysisEngine", "CodeSmellDetector")],
 ]
