@@ -183,18 +183,15 @@ async def upload_cli_analysis(
     # Create analysis run record
     analysis = AnalysisRun(
         repository_id=repo.id,
-        commit_sha=sync_data.commit_sha or "local",
+        commit_sha=sync_data.commit_sha or "cli-local",
         branch=sync_data.branch or "unknown",
         status=AnalysisStatus.COMPLETED,
-        health_score=sync_data.health.health_score,
-        structure_score=sync_data.health.structure_score,
-        quality_score=sync_data.health.quality_score,
-        architecture_score=sync_data.health.architecture_score,
-        total_files=sync_data.total_files or 0,
-        total_functions=sync_data.total_functions or 0,
-        total_classes=sync_data.total_classes or 0,
-        source="cli",
-        cli_version=sync_data.cli_version,
+        health_score=int(sync_data.health.health_score),
+        structure_score=int(sync_data.health.structure_score),
+        quality_score=int(sync_data.health.quality_score),
+        architecture_score=int(sync_data.health.architecture_score) if sync_data.health.architecture_score else None,
+        findings_count=len(sync_data.findings),
+        files_analyzed=sync_data.total_files or 0,
         started_at=sync_data.analyzed_at,
         completed_at=datetime.now(timezone.utc),
     )
@@ -206,21 +203,22 @@ async def upload_cli_analysis(
     for finding_data in sync_data.findings:
         finding = DBFinding(
             analysis_run_id=analysis.id,
-            repository_id=repo.id,
-            detector_id=finding_data.detector_id,
+            detector=finding_data.detector_id,
             title=finding_data.title,
-            description=finding_data.description,
+            description=finding_data.description or "",
             severity=map_severity(finding_data.severity),
-            file_path=finding_data.file_path,
+            affected_files=[finding_data.file_path] if finding_data.file_path else [],
+            affected_nodes=[],
             line_start=finding_data.line_start,
             line_end=finding_data.line_end or finding_data.line_start,
-            category=finding_data.category,
-            cwe_id=finding_data.cwe_id,
-            why_it_matters=finding_data.why_it_matters,
             suggested_fix=finding_data.suggested_fix,
-            code_snippet=finding_data.code_snippet,
-            metadata=finding_data.metadata,
-            is_active=True,
+            graph_context={
+                "category": finding_data.category,
+                "cwe_id": finding_data.cwe_id,
+                "why_it_matters": finding_data.why_it_matters,
+                "code_snippet": finding_data.code_snippet,
+                **(finding_data.metadata or {}),
+            } if any([finding_data.category, finding_data.cwe_id, finding_data.why_it_matters, finding_data.code_snippet, finding_data.metadata]) else None,
         )
         session.add(finding)
         findings_created += 1
