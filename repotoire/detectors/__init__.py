@@ -15,7 +15,10 @@ _DETECTOR_REGISTRY = {
     # Core detectors
     "AnalysisEngine": ("repotoire.detectors.engine", "AnalysisEngine"),
     "CodeSmellDetector": ("repotoire.detectors.base", "CodeSmellDetector"),
+    # AI-generated code detectors
+    "AIDuplicateBlockDetector": ("repotoire.detectors.ai_duplicate_block", "AIDuplicateBlockDetector"),
     # Graph detectors
+    "AIBoilerplateDetector": ("repotoire.detectors.ai_boilerplate", "AIBoilerplateDetector"),
     "ArchitecturalBottleneckDetector": ("repotoire.detectors.architectural_bottleneck", "ArchitecturalBottleneckDetector"),
     "CircularDependencyDetector": ("repotoire.detectors.circular_dependency", "CircularDependencyDetector"),
     "CoreUtilityDetector": ("repotoire.detectors.core_utility", "CoreUtilityDetector"),
@@ -45,6 +48,8 @@ _DETECTOR_REGISTRY = {
     "SemgrepDetector": ("repotoire.detectors.semgrep_detector", "SemgrepDetector"),
     "TscDetector": ("repotoire.detectors.tsc_detector", "TscDetector"),
     "VultureDetector": ("repotoire.detectors.vulture_detector", "VultureDetector"),
+    # AI pattern detectors
+    "AIComplexitySpikeDetector": ("repotoire.detectors.ai_complexity_spike", "AIComplexitySpikeDetector"),
     # Rust-based detectors
     "InfiniteLoopDetector": ("repotoire.detectors.infinite_loop_detector", "InfiniteLoopDetector"),
     "CallChainDepthDetector": ("repotoire.detectors.rust_graph_detectors", "CallChainDepthDetector"),
@@ -53,6 +58,8 @@ _DETECTOR_REGISTRY = {
     "LayeredArchitectureDetector": ("repotoire.detectors.rust_graph_detectors", "LayeredArchitectureDetector"),
     "PackageStabilityDetector": ("repotoire.detectors.rust_graph_detectors", "PackageStabilityDetector"),
     "TechnicalDebtHotspotDetector": ("repotoire.detectors.rust_graph_detectors", "TechnicalDebtHotspotDetector"),
+    # AI code quality detectors
+    "AIChurnDetector": ("repotoire.detectors.ai_churn_detector", "AIChurnDetector"),
 }
 
 
