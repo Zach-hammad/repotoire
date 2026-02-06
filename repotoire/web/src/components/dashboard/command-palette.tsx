@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { useTheme } from 'next-themes';
-import { useClerk } from '@clerk/nextjs';
+import { useSafeClerk } from '@/lib/use-safe-clerk';
 import { useRepositoryContext } from '@/contexts/repository-context';
 
 interface CommandItem {
@@ -41,7 +41,7 @@ export function CommandPalette() {
   const [search, setSearch] = useState('');
   const router = useRouter();
   const { setTheme, theme } = useTheme();
-  const { signOut } = useClerk();
+  const { signOut } = useSafeClerk();
   const { repositories, setSelectedRepositoryId } = useRepositoryContext();
 
   // Toggle the menu when ⌘K is pressed

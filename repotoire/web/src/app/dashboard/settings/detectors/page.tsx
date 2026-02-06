@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useOrganization } from '@clerk/nextjs';
+import { useSafeOrganization } from '@/lib/use-safe-clerk';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -213,7 +213,7 @@ function ThresholdGroup({
 }
 
 export default function DetectorSettingsPage() {
-  const { organization, isLoaded: orgLoaded } = useOrganization();
+  const { organization, isLoaded: orgLoaded } = useSafeOrganization();
   const { isAuthReady } = useApiAuth();
   // Use organization.id (org_xxx format) for API calls - the API accepts both Clerk org IDs and internal slugs
   const orgSlug = organization?.id;

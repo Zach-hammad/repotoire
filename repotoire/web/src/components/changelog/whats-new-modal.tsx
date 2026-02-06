@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useAuth } from "@clerk/nextjs";
+import { useSafeAuth } from "@/lib/use-safe-clerk";
 import { Sparkles, X, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,7 +30,7 @@ interface WhatsNewModalProps {
 }
 
 export function WhatsNewModal({ autoShow = true, onDismiss }: WhatsNewModalProps) {
-  const { isSignedIn, getToken } = useAuth();
+  const { isSignedIn, getToken } = useSafeAuth();
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<ChangelogEntry[]>([]);
   const [loading, setLoading] = useState(true);

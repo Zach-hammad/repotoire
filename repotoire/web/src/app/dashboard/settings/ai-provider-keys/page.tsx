@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useOrganization } from '@clerk/nextjs';
+import { useSafeOrganization } from '@/lib/use-safe-clerk';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -37,7 +37,7 @@ import {
 import { useAIProviderKeys, useSetAIProviderKeys, useDeleteAIProviderKeys } from '@/lib/hooks';
 
 export default function AIProviderKeysPage() {
-  const { organization, isLoaded: orgLoaded } = useOrganization();
+  const { organization, isLoaded: orgLoaded } = useSafeOrganization();
   const orgId = organization?.id;
 
   // Fetch current key status

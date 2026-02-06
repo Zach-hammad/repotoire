@@ -11,7 +11,7 @@
 
 import { Suspense, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useClerk } from '@clerk/nextjs';
+import { useSafeClerk } from '@/lib/use-safe-clerk';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -28,7 +28,7 @@ import {
 function BillingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { openOrganizationProfile } = useClerk();
+  const { openOrganizationProfile } = useSafeClerk();
   const success = searchParams.get('success');
   const canceled = searchParams.get('canceled');
 

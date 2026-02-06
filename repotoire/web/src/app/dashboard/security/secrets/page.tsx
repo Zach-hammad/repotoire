@@ -42,7 +42,7 @@ import { cn } from '@/lib/utils';
 import { useRepositoryContext } from '@/contexts/repository-context';
 import { request, API_BASE_URL } from '@/lib/api';
 import { toast } from 'sonner';
-import { useAuth } from '@clerk/nextjs';
+import { useSafeAuth } from '@/lib/use-safe-clerk';
 
 // =============================================================================
 // Types
@@ -101,7 +101,7 @@ const riskLevelOrder: Record<RiskLevel, number> = {
 
 export default function SecretsPage() {
   const { selectedRepository, isLoading: repoLoading } = useRepositoryContext();
-  const { getToken } = useAuth();
+  const { getToken } = useSafeAuth();
   const [scanResult, setScanResult] = useState<ScanSecretsResponse | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [minRisk, setMinRisk] = useState<RiskLevel>('low');

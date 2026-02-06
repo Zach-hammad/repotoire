@@ -27,7 +27,7 @@ import { SWRConfig } from 'swr';
 import { ThemeToggle } from '@/components/dashboard/theme-toggle';
 import { UserNav } from '@/components/auth/user-nav';
 import { ApiAuthProvider } from '@/components/providers/api-auth-provider';
-import { OrganizationSwitcher } from '@clerk/nextjs';
+import { SafeOrganizationSwitcher } from '@/components/auth/safe-organization-switcher';
 import { PageTransition } from '@/components/transitions/page-transition';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { LazyNotificationCenter, LazyKeyboardShortcuts, LazyCommandPalette } from '@/components/lazy-components';
@@ -146,7 +146,7 @@ function Sidebar({ className, onNavigate }: { className?: string; onNavigate?: (
       <div className="border-t border-border/50 p-4 space-y-4">
         <div className="space-y-2">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Organization</span>
-          <OrganizationSwitcher
+          <SafeOrganizationSwitcher
             hidePersonal={false}
             afterCreateOrganizationUrl="/dashboard"
             afterSelectOrganizationUrl="/dashboard"

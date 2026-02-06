@@ -40,7 +40,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { API_BASE_URL } from '@/lib/api';
-import { useAuth } from '@clerk/nextjs';
+import { useSafeAuth } from '@/lib/use-safe-clerk';
 
 // =============================================================================
 // Types
@@ -99,7 +99,7 @@ export function AnalysisHistoryTable({
   generatingFixesId,
   onRunAnalysis,
 }: AnalysisHistoryTableProps) {
-  const { getToken } = useAuth();
+  const { getToken } = useSafeAuth();
 
   // Handle download report with authentication
   const handleDownloadReport = async (runId: string, format: 'html' | 'json') => {

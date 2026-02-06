@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useOrganization } from '@clerk/nextjs';
+import { useSafeOrganization } from '@/lib/use-safe-clerk';
 import Editor from '@monaco-editor/react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -608,7 +608,7 @@ function RuleTestDialog({
 }
 
 export default function RulesPage() {
-  const { organization, isLoaded: orgLoaded } = useOrganization();
+  const { organization, isLoaded: orgLoaded } = useSafeOrganization();
   const { isAuthReady } = useApiAuth();
   // Use organization.id (org_xxx format) for API calls - the API accepts both Clerk org IDs and internal slugs
   const orgSlug = organization?.id;

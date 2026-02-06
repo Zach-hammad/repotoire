@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useAuth, useUser, useOrganization } from '@clerk/nextjs';
+import { useSafeAuth, useSafeUser, useSafeOrganization } from '@/lib/use-safe-clerk';
 import {
   CheckCircle2,
   AlertCircle,
@@ -101,9 +101,9 @@ function LoadingFallback() {
  */
 function CliCallbackContent() {
   const searchParams = useSearchParams();
-  const { isLoaded: authLoaded, userId, orgId } = useAuth();
-  const { isLoaded: userLoaded } = useUser();
-  const { isLoaded: orgLoaded } = useOrganization();
+  const { isLoaded: authLoaded, userId, orgId } = useSafeAuth();
+  const { isLoaded: userLoaded } = useSafeUser();
+  const { isLoaded: orgLoaded } = useSafeOrganization();
 
   const [state, setState] = useState<PageState>({ status: 'loading' });
 
