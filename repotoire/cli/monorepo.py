@@ -8,8 +8,11 @@ Provides commands for:
 - Build impact recommendations
 """
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
@@ -17,14 +20,42 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.tree import Tree
 
-from repotoire.graph.factory import create_client
 from repotoire.logging_config import get_logger
-from repotoire.monorepo import (
-    AffectedPackagesDetector,
-    CrossPackageAnalyzer,
-    PackageAnalyzer,
-    PackageDetector,
-)
+
+# Type checking imports
+if TYPE_CHECKING:
+    from repotoire.monorepo import (
+        AffectedPackagesDetector,
+        CrossPackageAnalyzer,
+        PackageAnalyzer,
+        PackageDetector,
+    )
+
+# Lazy imports cache
+_monorepo_cache: dict = {}
+
+
+def _get_monorepo_module():
+    """Lazy import for monorepo module."""
+    if not _monorepo_cache:
+        from repotoire.monorepo import (
+            AffectedPackagesDetector,
+            CrossPackageAnalyzer,
+            PackageAnalyzer,
+            PackageDetector,
+        )
+        _monorepo_cache["AffectedPackagesDetector"] = AffectedPackagesDetector
+        _monorepo_cache["CrossPackageAnalyzer"] = CrossPackageAnalyzer
+        _monorepo_cache["PackageAnalyzer"] = PackageAnalyzer
+        _monorepo_cache["PackageDetector"] = PackageDetector
+    return _monorepo_cache
+
+
+def _get_create_client():
+    """Lazy import for create_client."""
+    from repotoire.graph.factory import create_client
+    return create_client
+
 
 logger = get_logger(__name__)
 console = Console()
@@ -57,7 +88,8 @@ def detect_packages(repository_path, output):
     console.print("[bold blue]📦 Detecting packages in monorepo...[/bold blue]")
 
     try:
-        detector = PackageDetector(Path(repository_path))
+        mono = _get_monorepo_module()
+        detector = mono["PackageDetector"](Path(repository_path))
         packages = detector.detect_packages()
 
         if not packages:
@@ -129,10 +161,11 @@ def analyze_monorepo(repository_path, package, output):
 
     try:
         # Connect to graph database
-        client = create_client()
+        client = _get_create_client()()
 
         # Detect packages
-        detector = PackageDetector(Path(repository_path))
+        mono = _get_monorepo_module()
+        detector = mono["PackageDetector"](Path(repository_path))
         packages = detector.detect_packages()
 
         if not packages:
@@ -140,7 +173,8 @@ def analyze_monorepo(repository_path, package, output):
             return
 
         # Initialize analyzer
-        analyzer = PackageAnalyzer(client, repository_path)
+        mono = _get_monorepo_module()
+        analyzer = mono["PackageAnalyzer"](client, repository_path)
 
         if package:
             # Analyze specific package
@@ -284,7 +318,8 @@ def affected_packages(repository_path, since, max_depth, show_commands, tool, ou
             return
 
         # Detect affected packages
-        detector = AffectedPackagesDetector(Path(repository_path), packages)
+        mono = _get_monorepo_module()
+        detector = mono["AffectedPackagesDetector"](Path(repository_path), packages)
         result = detector.detect_affected_since(since, max_depth=max_depth)
 
         # Display results
@@ -352,7 +387,8 @@ def cross_package_analysis(repository_path, output):
 
     try:
         # Detect packages
-        detector = PackageDetector(Path(repository_path))
+        mono = _get_monorepo_module()
+        detector = mono["PackageDetector"](Path(repository_path))
         packages = detector.detect_packages()
 
         if not packages:
@@ -360,7 +396,8 @@ def cross_package_analysis(repository_path, output):
             return
 
         # Analyze cross-package issues
-        analyzer = CrossPackageAnalyzer(packages)
+        mono = _get_monorepo_module()
+        analyzer = mono["CrossPackageAnalyzer"](packages)
         findings = analyzer.detect_cross_package_issues()
 
         if not findings:
@@ -452,7 +489,8 @@ def dependency_graph(repository_path, visualize, output):
             return
 
         # Get dependency graph
-        detector = AffectedPackagesDetector(Path(repository_path), packages)
+        mono = _get_monorepo_module()
+        detector = mono["AffectedPackagesDetector"](Path(repository_path), packages)
         graph = detector.get_dependency_graph()
 
         if visualize:
