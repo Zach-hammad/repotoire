@@ -20,6 +20,7 @@ ACADEMIC REFERENCES:
 REPO-416: Added path cache support for O(1) reachability queries.
 """
 
+import threading
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
@@ -45,6 +46,9 @@ from repotoire_fast import (
 )
 
 logger = get_logger(__name__)
+
+# Module-level lock for Rust library calls (not thread-safe when called concurrently)
+_rust_lock = threading.Lock()
 
 
 def _normalize_graph_id(raw_id):
@@ -93,11 +97,12 @@ class PackageStabilityDetector(CodeSmellDetector):
                 logger.debug("No packages found for stability analysis")
                 return findings
 
-            # Run Rust detector
+            # Run Rust detector (with lock for thread safety)
             num_packages = len(package_names)
-            results = detect_unstable_packages(
-                edges, num_packages, abstract_counts, self.distance_threshold
-            )
+            with _rust_lock:
+                results = detect_unstable_packages(
+                    edges, num_packages, abstract_counts, self.distance_threshold
+                )
 
             for detector, severity, message, affected_nodes, metadata in results:
                 finding = self._create_finding(
@@ -311,8 +316,9 @@ class TechnicalDebtHotspotDetector(CodeSmellDetector):
                 logger.debug("No file metrics found for hotspot analysis")
                 return findings
 
-            # Run Rust detector
-            hotspots = detect_hotspots(file_metrics, self.min_churn, self.min_complexity)
+            # Run Rust detector (with lock for thread safety)
+            with _rust_lock:
+                hotspots = detect_hotspots(file_metrics, self.min_churn, self.min_complexity)
 
             for file_id, score, churn, complexity, health, percentile in hotspots:
                 if percentile <= self.percentile_threshold:
@@ -478,8 +484,9 @@ class LayeredArchitectureDetector(CodeSmellDetector):
                 logger.debug("No import edges found for layer analysis")
                 return findings
 
-            # Run Rust detector
-            violations = detect_layer_violations(edges, file_layers, layer_defs)
+            # Run Rust detector (with lock for thread safety)
+            with _rust_lock:
+                violations = detect_layer_violations(edges, file_layers, layer_defs)
 
             # Group violations by type and layers
             grouped = self._group_violations(violations, layer_defs, file_paths)
@@ -696,16 +703,17 @@ class CallChainDepthDetector(CodeSmellDetector):
 
             num_functions = len(function_names)
 
-            # Run Rust detector
-            chains = detect_deep_call_chains(call_edges, num_functions, self.max_depth)
+            # Run Rust detector (with lock for thread safety)
+            with _rust_lock:
+                chains = detect_deep_call_chains(call_edges, num_functions, self.max_depth)
 
-            # Also find bottleneck functions
-            bottlenecks = find_bottleneck_functions(
-                call_edges, num_functions,
-                min_chain_depth=self.depth_threshold,
-                min_appearances=3,
-                max_depth=self.max_depth
-            )
+                # Also find bottleneck functions
+                bottlenecks = find_bottleneck_functions(
+                    call_edges, num_functions,
+                    min_chain_depth=self.depth_threshold,
+                    min_appearances=3,
+                    max_depth=self.max_depth
+                )
 
             # Create findings for deep chains
             seen_starts: Set[int] = set()
@@ -915,12 +923,13 @@ class HubDependencyDetector(CodeSmellDetector):
 
             num_nodes = len(node_names)
 
-            # Run Rust detector
-            hubs = detect_hub_dependencies(
-                edges, num_nodes,
-                self.betweenness_weight,
-                self.pagerank_weight
-            )
+            # Run Rust detector (with lock for thread safety)
+            with _rust_lock:
+                hubs = detect_hub_dependencies(
+                    edges, num_nodes,
+                    self.betweenness_weight,
+                    self.pagerank_weight
+                )
 
             for node_id, hub_score, betweenness, pagerank, in_degree, out_degree, percentile in hubs:
                 if percentile <= self.percentile_threshold:
@@ -1095,11 +1104,12 @@ class ChangeCouplingDetector(CodeSmellDetector):
                 logger.debug("No commit history found for coupling analysis")
                 return findings
 
-            # Run Rust detector
-            couplings = detect_change_coupling(
-                commit_files, explicit_deps,
-                self.min_support, self.min_confidence
-            )
+            # Run Rust detector (with lock for thread safety)
+            with _rust_lock:
+                couplings = detect_change_coupling(
+                    commit_files, explicit_deps,
+                    self.min_support, self.min_confidence
+                )
 
             for file_a, file_b, co_changes, support, conf_a_b, conf_b_a in couplings:
                 finding = self._create_finding(
