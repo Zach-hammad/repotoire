@@ -277,6 +277,7 @@ class IngestionConfig:
         "**/*.js", "**/*.jsx",
         "**/*.java",
         "**/*.go",
+        "**/*.rs",
     ])
     exclude_patterns: list[str] = field(default_factory=lambda: [
         "**/test_*.py",
