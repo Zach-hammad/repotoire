@@ -24,7 +24,6 @@ import {
   Loader2,
   Wand2,
   Sparkles,
-  Box,
 } from 'lucide-react';
 import { StaggerReveal, StaggerItem, FadeIn } from '@/components/transitions/stagger-reveal';
 import { HealthGauge } from '@/components/dashboard/health-gauge';
@@ -33,15 +32,9 @@ import { useAnalyticsSummary, useTrends, useFileHotspots, useHealthScore, useAna
 import { OnboardingWizard } from '@/components/onboarding/onboarding-wizard';
 import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
-import { useBackground } from '@/components/backgrounds';
 import { AINarratorPanel } from '@/components/dashboard/ai-narrator-panel';
 import { WeeklyNarrative, useWeeklyNarrativeNav } from '@/components/dashboard/weekly-narrative';
 import { AIInsightTooltip, useContextualInsight } from '@/components/dashboard/ai-insight-tooltip';
-// Dynamic import for Three.js component - must disable SSR for WebGL
-const OrbitalHealthScore = dynamic(
-  () => import('@/components/3d').then(mod => mod.OrbitalHealthScore),
-  { ssr: false, loading: () => <div className="w-[220px] h-[220px] animate-pulse bg-muted/20 rounded-full" /> }
-);
 import { HolographicCard } from '@/components/ui/holographic-card';
 import { GlowWrapper } from '@/components/ui/glow-wrapper';
 import {
@@ -122,18 +115,10 @@ const categoryDetectorMapping: Record<string, string[]> = {
   architecture: ['feature_envy', 'inappropriate_intimacy', 'shotgun_surgery', 'middle_man', 'module_cohesion'],
 };
 
-function HealthScoreGauge({ loading, use3D = false }: { loading?: boolean; use3D?: boolean }) {
+function HealthScoreGauge({ loading }: { loading?: boolean }) {
   const { data: healthScore } = useHealthScore();
   const router = useRouter();
-  const { setFromHealthScore } = useBackground();
   const { insight, isLoading: insightLoading, fetchInsight } = useContextualInsight();
-
-  // Update background based on health score
-  useEffect(() => {
-    if (healthScore?.score != null) {
-      setFromHealthScore(healthScore.score);
-    }
-  }, [healthScore?.score, setFromHealthScore]);
 
   if (loading || !healthScore) {
     return (
@@ -199,23 +184,9 @@ function HealthScoreGauge({ loading, use3D = false }: { loading?: boolean; use3D
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* 3D Orbital or 2D Gauge */}
+        {/* Health Gauge */}
         <div className="flex justify-center py-2">
-          {use3D ? (
-            <OrbitalHealthScore
-              score={scoreValue}
-              grade={grade ?? undefined}
-              categories={categories ? {
-                structure: categories.structure ?? 0,
-                quality: categories.quality ?? 0,
-                architecture: categories.architecture ?? 0,
-              } : undefined}
-              size="md"
-              interactive
-            />
-          ) : (
-            <HealthGauge score={scoreValue} size="md" showPulse={scoreValue < 70} />
-          )}
+          <HealthGauge score={scoreValue} size="md" showPulse={scoreValue < 70} />
         </div>
 
         {/* Category Breakdown - Clickable Bars with AI Insights */}
@@ -255,7 +226,7 @@ function HealthScoreGauge({ loading, use3D = false }: { loading?: boolean; use3D
 
         {/* Actionable hint */}
         <p className="text-[10px] text-muted-foreground/60 text-center font-mono uppercase tracking-wide">
-          {use3D ? 'Drag to rotate • ' : ''}Click category to drill down
+          Click category to drill down
         </p>
       </CardContent>
     </Card>
@@ -1284,7 +1255,6 @@ export default function DashboardPage() {
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | null>(null);
   const [severityFilter, setSeverityFilter] = useState<Severity[]>([]);
   const [isExporting, setIsExporting] = useState(false);
-  const [use3DVisuals, setUse3DVisuals] = useState(false);
   const { weekOffset, setWeekOffset } = useWeeklyNarrativeNav();
 
   // Calculate week-over-week trends
@@ -1441,16 +1411,6 @@ export default function DashboardPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <QuickAnalysisButton />
-          <Button
-            variant={use3DVisuals ? "default" : "outline"}
-            size="sm"
-            className="h-8"
-            onClick={() => setUse3DVisuals(!use3DVisuals)}
-            title={use3DVisuals ? "Switch to 2D view" : "Switch to 3D view"}
-          >
-            <Box className="h-4 w-4 mr-2" />
-            {use3DVisuals ? '3D On' : '3D Off'}
-          </Button>
           <DateRangeSelector
             dateRange={dateRange}
             onDateRangeChange={setDateRange}
@@ -1651,7 +1611,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <HealthScoreGauge loading={isLoading} use3D={use3DVisuals} />
+        <HealthScoreGauge loading={isLoading} />
 
         {/* Pending AI Fixes - Replaces duplicate severity chart */}
         <Card className="card-elevated">

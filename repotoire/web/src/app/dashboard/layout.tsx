@@ -14,7 +14,6 @@ import {
   CreditCard,
   AlertCircle,
   FolderGit2,
-  Package,
   ShieldAlert,
   Boxes,
   GitBranch,
@@ -33,7 +32,6 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { LazyNotificationCenter, LazyKeyboardShortcuts, LazyCommandPalette } from '@/components/lazy-components';
 import { RepositoryProvider } from '@/contexts/repository-context';
 import { RepositorySelector } from '@/components/dashboard/repository-selector';
-import { BackgroundProvider, WireframeBackground } from '@/components/backgrounds';
 
 // Grouped navigation for better information architecture
 const sidebarSections = [
@@ -64,12 +62,6 @@ const sidebarSections = [
     items: [
       { name: 'Packages', href: '/dashboard/monorepo', icon: Boxes },
       { name: 'Dependencies', href: '/dashboard/monorepo/dependencies', icon: GitBranch },
-    ],
-  },
-  {
-    name: 'Extend',
-    items: [
-      { name: 'Marketplace', href: '/dashboard/marketplace', icon: Package },
     ],
   },
   {
@@ -201,11 +193,7 @@ export default function DashboardLayout({
         }}
       >
         <RepositoryProvider>
-          <BackgroundProvider>
             <div className="flex min-h-screen relative">
-              {/* Animated 3D Background */}
-              <WireframeBackground className="fixed inset-0 -z-10" />
-
               {/* Desktop Sidebar */}
               <aside className="hidden w-64 shrink-0 border-r border-border/50 bg-card/80 backdrop-blur-md md:block relative z-10">
                 <Sidebar />
@@ -246,7 +234,6 @@ export default function DashboardLayout({
               {/* Command palette (Cmd+K) */}
               <LazyCommandPalette />
             </div>
-          </BackgroundProvider>
         </RepositoryProvider>
       </SWRConfig>
     </ApiAuthProvider>
