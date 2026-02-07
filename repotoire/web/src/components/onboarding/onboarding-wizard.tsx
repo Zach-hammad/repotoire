@@ -383,7 +383,7 @@ export function OnboardingWizard({
               <span>Documentation</span>
             </Link>
             <a
-              href="https://github.com/repotoire/repotoire"
+              href="https://github.com/Zach-hammad/repotoire"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 rounded-md p-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"

@@ -50,7 +50,7 @@ export function CLIHero() {
             <span className="text-emerald-500">locally.</span>
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            42 detectors. Graph-powered analysis. AI fixes with your own keys.
+            47 detectors. Graph-powered analysis. AI fixes with your own keys.
             <br />
             <span className="text-foreground font-medium">Your code never leaves your machine.</span>
           </p>

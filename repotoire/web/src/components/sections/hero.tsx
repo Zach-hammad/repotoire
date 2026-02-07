@@ -103,7 +103,7 @@ function CLICard() {
             transition={{ delay: 2 }}
             className="text-muted-foreground/70 text-xs"
           >
-            Successfully installed repotoire-0.1.32
+            Successfully installed repotoire-0.1.38
           </motion.div>
           <motion.div
             initial={{ opacity: 0 }}
@@ -355,7 +355,7 @@ export function Hero() {
             {/* Feature pills */}
             <div className="flex flex-wrap gap-2">
               <FeaturePill icon={Shield} text="Code stays local" delay={1.5} />
-              <FeaturePill icon={Zap} text="42 detectors" delay={1.6} />
+              <FeaturePill icon={Zap} text="47 detectors" delay={1.6} />
               <FeaturePill icon={Sparkles} text="AI fixes (BYOK)" delay={1.7} />
             </div>
 
@@ -442,7 +442,7 @@ export function Hero() {
         >
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-10 text-sm text-muted-foreground">
             <a
-              href="https://github.com/repotoire/repotoire"
+              href="https://github.com/Zach-hammad/repotoire"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 hover:text-foreground transition-colors group"
@@ -453,7 +453,7 @@ export function Hero() {
               <span className="font-display font-medium">Open Source</span>
             </a>
             <span className="hidden sm:block w-px h-4 bg-border" />
-            <span>Apache 2.0 License</span>
+            <span>MIT License</span>
             <span className="hidden sm:block w-px h-4 bg-border" />
             <span>Python & Rust</span>
           </div>

@@ -21,7 +21,7 @@ const plans = [
       "AI-powered fixes (BYOK)",
       "Graph-based insights",
       "Python, JS, TS, Rust, Go",
-      "Apache 2.0 license",
+      "MIT license",
     ],
     cta: "Download Free",
     href: "/cli",

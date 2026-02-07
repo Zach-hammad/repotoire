@@ -143,7 +143,7 @@ repotoire ask "Where is authentication handled?"`}</code>
         <ul className="space-y-2 text-muted-foreground">
           <li>
             <a
-              href="https://github.com/repotoire/repotoire/issues"
+              href="https://github.com/Zach-hammad/repotoire/issues"
               target="_blank"
               rel="noopener noreferrer"
               className="text-primary hover:underline inline-flex items-center gap-1"

@@ -10,14 +10,14 @@ const steps = [
   {
     title: "Install",
     command: "pip install repotoire",
-    output: "Successfully installed repotoire-0.1.32",
+    output: "Successfully installed repotoire-0.1.38",
   },
   {
     title: "Analyze",
     command: "repotoire analyze .",
     output: `Scanning repository...
 ✓ Built code graph (847 nodes, 2,341 edges)
-✓ Running 42 detectors...
+✓ Running 47 detectors...
 
 ╭───────────────────────────────────────╮
 │  Health Score: 87/100                 │

@@ -8,10 +8,10 @@ import { Navbar } from "@/components/navbar"
 
 export const metadata: Metadata = {
   title: "CLI - Repotoire",
-  description: "Free, local code analysis. 42 detectors, AI-powered fixes, your code never leaves your machine.",
+  description: "Free, local code analysis. 47 detectors, AI-powered fixes, your code never leaves your machine.",
   openGraph: {
     title: "Repotoire CLI - Free Local Code Analysis",
-    description: "pip install repotoire. Analyze your code locally with 42 detectors and AI-powered fixes.",
+    description: "pip install repotoire. Analyze your code locally with 47 detectors and AI-powered fixes.",
     type: "website",
   },
 }

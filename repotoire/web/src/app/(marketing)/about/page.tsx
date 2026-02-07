@@ -31,7 +31,7 @@ const values: Array<{
     title: "Open Source",
     description:
       "Our core analysis engine is open source. We believe in transparency and community-driven development.",
-    link: "https://github.com/repotoire/repotoire",
+    link: "https://github.com/Zach-hammad/repotoire",
   },
   {
     icon: Sparkles,
@@ -159,7 +159,7 @@ export default function AboutPage() {
               </Button>
             </Link>
             <a
-              href="https://github.com/repotoire/repotoire"
+              href="https://github.com/Zach-hammad/repotoire"
               target="_blank"
               rel="noopener noreferrer"
             >

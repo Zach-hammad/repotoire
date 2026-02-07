@@ -34,7 +34,7 @@ const faqs = [
   },
   {
     question: "Is it really free?",
-    answer: "The CLI is free forever under Apache 2.0. No usage limits. No time limits. Team features require a paid plan, but solo developers can use the CLI indefinitely.",
+    answer: "The CLI is free forever under MIT. No usage limits. No time limits. Team features require a paid plan, but solo developers can use the CLI indefinitely.",
   },
 ]
 
