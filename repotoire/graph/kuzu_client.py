@@ -718,16 +718,26 @@ class KuzuClient(DatabaseClient):
     def get_stats(self) -> Dict[str, int]:
         """Get graph statistics."""
         stats = {}
-        tables = ["Function", "Class", "File", "Module", "Variable"]
+        # Map table names to expected keys
+        table_key_map = {
+            "Function": "total_functions",
+            "Class": "total_classes",
+            "File": "total_files",
+            "Module": "total_modules",
+            "Variable": "total_variables",
+        }
 
-        for table in tables:
+        for table, key in table_key_map.items():
             try:
                 with self._query_lock:
                     result = self._conn.execute(f"MATCH (n:{table}) RETURN count(*) AS cnt")
                     if result.has_next():
-                        stats[table.lower() + "_count"] = result.get_next()[0]
+                        stats[key] = result.get_next()[0]
+                        # Also add legacy key for backward compatibility
+                        stats[table.lower() + "_count"] = stats[key]
             except Exception as e:
                 logger.debug(f"Failed to get count for table {table}: {e}")
+                stats[key] = 0
                 stats[table.lower() + "_count"] = 0
 
         return stats
