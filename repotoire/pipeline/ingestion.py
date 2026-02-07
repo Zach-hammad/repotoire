@@ -761,7 +761,7 @@ class IngestionPipeline:
 
         # Default ignored directories
         if exclude_dirs is None:
-            exclude_dirs = [".git", "__pycache__", "node_modules", ".venv", "venv", "build", "dist"]
+            exclude_dirs = [".git", "__pycache__", "node_modules", ".venv", "venv", "build", "dist", ".next", "out"]
 
         # Default exclude patterns (empty - rely on config)
         if exclude_patterns is None:
@@ -999,22 +999,38 @@ class IngestionPipeline:
             # Process in paginated batches to avoid loading all entities into memory
             offset = 0
             while offset < total_count:
-                # Paginated query - only fetch one batch at a time
-                query = f"""
-                MATCH (e:{entity_type})
-                WHERE e.embedding IS NULL
-                RETURN
-                    {id_func}(e) as id,
-                    e.name as name,
-                    e.qualifiedName as qualified_name,
-                    e.docstring as docstring,
-                    e.filePath as file_path,
-                    e.lineStart as line_start,
-                    e.lineEnd as line_end,
-                    e.semantic_context as semantic_context
-                SKIP {offset}
-                LIMIT {embedding_batch_size}
-                """
+                # Paginated query - entity-type specific (File has different schema)
+                if entity_type == "File":
+                    # File: filePath is PK, no lineStart/lineEnd/name/qualifiedName
+                    query = f"""
+                    MATCH (e:{entity_type})
+                    WHERE e.embedding IS NULL
+                    RETURN
+                        {id_func}(e) as id,
+                        e.filePath as file_path,
+                        e.language as language,
+                        e.docstring as docstring,
+                        e.semantic_context as semantic_context
+                    SKIP {offset}
+                    LIMIT {embedding_batch_size}
+                    """
+                else:
+                    # Function/Class: qualifiedName is PK, has lineStart/lineEnd
+                    query = f"""
+                    MATCH (e:{entity_type})
+                    WHERE e.embedding IS NULL
+                    RETURN
+                        {id_func}(e) as id,
+                        e.name as name,
+                        e.qualifiedName as qualified_name,
+                        e.docstring as docstring,
+                        e.filePath as file_path,
+                        e.lineStart as line_start,
+                        e.lineEnd as line_end,
+                        e.semantic_context as semantic_context
+                    SKIP {offset}
+                    LIMIT {embedding_batch_size}
+                    """
 
                 batch = self.db.execute_query(query)
 
@@ -1048,13 +1064,14 @@ class IngestionPipeline:
                             docstring=e.get("docstring")
                         )
                     else:  # File
+                        # File entities have different schema - use filePath as name/qualified_name
                         entity_obj = FileEntity(
-                            name=e["name"],
-                            qualified_name=e["qualified_name"],
+                            name=Path(e["file_path"]).name if e.get("file_path") else "unknown",
+                            qualified_name=e["file_path"] or "unknown",
                             file_path=e["file_path"],
-                            line_start=e["line_start"],
-                            line_end=e["line_end"],
-                            language="python"  # Default, actual value not needed for embedding
+                            line_start=1,
+                            line_end=0,  # Unknown, not needed for embedding
+                            language=e.get("language") or "python"
                         )
 
                     entity_objects.append(entity_obj)

@@ -99,6 +99,11 @@ class MessageChainDetector(CodeSmellDetector):
         Returns:
             List of findings for detected message chain violations
         """
+        # Fast path: use QueryCache if available
+        if self.query_cache is not None:
+            logger.debug("Using QueryCache for message chain detection")
+            return self._detect_cached()
+
         logger.info("Running MessageChainDetector")
         findings: List[Finding] = []
 
@@ -112,6 +117,59 @@ class MessageChainDetector(CodeSmellDetector):
             findings.extend(source_findings)
 
         logger.info(f"Found {len(findings)} message chain violation(s)")
+        return findings
+
+    def _detect_cached(self) -> List[Finding]:
+        """Detect message chains using QueryCache.
+
+        O(1) lookup from prefetched function data instead of database query.
+
+        Returns:
+            List of findings for detected message chain violations
+        """
+        findings: List[Finding] = []
+        
+        # Iterate through all functions in the cache
+        for func_name, func_data in self.query_cache.functions.items():
+            # Check if function has chain depth data
+            chain_depth = getattr(func_data, 'max_chain_depth', None)
+            if chain_depth is None:
+                continue
+            
+            if chain_depth < self.min_chain_depth:
+                continue
+            
+            # Skip low severity if not configured to report them
+            if chain_depth < self.min_chain_depth and not self.report_low_severity:
+                continue
+            
+            # Get chain example if available
+            chain_example = getattr(func_data, 'chain_example', None)
+            
+            # Get simple function name
+            func_simple_name = func_name.split(".")[-1]
+            if "::" in func_simple_name:
+                func_simple_name = func_simple_name.split("::")[-1]
+            if ":" in func_simple_name:
+                func_simple_name = func_simple_name.split(":")[0]
+            
+            finding = self._create_finding(
+                func_name=func_name,
+                func_simple_name=func_simple_name,
+                file_path=func_data.file_path or "",
+                line_number=func_data.line_start,
+                chain_depth=chain_depth,
+                chain_example=chain_example,
+            )
+            findings.append(finding)
+        
+        # Sort by chain depth descending
+        findings.sort(key=lambda f: f.graph_context.get("chain_depth", 0), reverse=True)
+        
+        # Limit to 100
+        findings = findings[:100]
+        
+        logger.info(f"MessageChainDetector (cached) found {len(findings)} message chain violation(s)")
         return findings
 
     def severity(self, finding: Finding) -> Severity:

@@ -1862,6 +1862,23 @@ def ingest(
     default=None,
     help="Only analyze files changed since ref (e.g., --changed main, --changed HEAD~3, --changed abc123)",
 )
+@click.option(
+    "--thorough",
+    is_flag=True,
+    default=False,
+    help="Run slow external tools (pylint, vulture, semgrep). These spawn CPU-intensive workers and add 5-10 minutes. Skipped by default for faster analysis.",
+)
+@click.option(
+    "--incremental/--no-incremental",
+    default=True,
+    help="Use incremental analysis (skip unchanged files). Default: enabled.",
+)
+@click.option(
+    "--clear-cache",
+    is_flag=True,
+    default=False,
+    help="Clear analysis cache before running (forces full re-analysis).",
+)
 @click.pass_context
 @handle_errors()
 def analyze(
@@ -1883,6 +1900,9 @@ def analyze(
     top: int | None,
     severity: str | None,
     changed: str | None,
+    thorough: bool,
+    incremental: bool,
+    clear_cache: bool,
 ) -> None:
     """Analyze codebase health and generate a comprehensive report.
 
@@ -1950,6 +1970,12 @@ def analyze(
       Use --no-parallel to disable, --workers to adjust threads.
 
     \b
+    INCREMENTAL MODE (default: enabled):
+      Skips analysis of unchanged files using cached results.
+      Use --no-incremental for full re-analysis.
+      Use --clear-cache to delete cache and force fresh analysis.
+
+    \b
     EXIT CODES:
       0   Success (no critical findings)
       1   Analysis error
@@ -1999,6 +2025,15 @@ def analyze(
         raise click.Abort()
 
     console.print("\n[bold cyan]🎼 Repotoire Analysis[/bold cyan]\n")
+
+    # Handle --clear-cache: delete .repotoire/cache/ before analysis
+    if clear_cache:
+        import shutil
+        cache_dir = Path(validated_repo_path) / ".repotoire" / "cache"
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir)
+            if not quiet:
+                console.print("[dim]Cleared analysis cache[/dim]")
 
     try:
         with LogContext(operation="analyze", repo_path=repo_path):
@@ -2062,6 +2097,8 @@ def analyze(
                     max_workers=workers,
                     enable_insights=insights,
                     changed_files=changed_files,
+                    thorough=thorough,
+                    incremental=incremental,
                 )
 
                 # Run analysis with progress indication

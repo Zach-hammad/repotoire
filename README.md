@@ -1,649 +1,234 @@
-# Repotoire 🐉
+# Repotoire 🎼
 
-**Graph-Powered Code Health Platform**
+**Graph-Powered Code Health Analysis — Local-First, No Docker Required**
 
-Repotoire automatically analyzes your codebase using knowledge graphs to detect code smells, architectural issues, and technical debt that traditional linters miss.
+Repotoire builds a knowledge graph of your codebase to detect architectural issues, code smells, and security vulnerabilities that traditional linters miss.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI](https://img.shields.io/pypi/v/repotoire.svg)](https://pypi.org/project/repotoire/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Formally Verified](https://img.shields.io/badge/Formally%20Verified-Lean%204-blue)](docs/VERIFICATION.md)
-[![Code Health](https://img.shields.io/badge/code%20health-A-brightgreen)](https://repotoire.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## What Makes Repotoire Different?
+## Why Repotoire?
 
-Most code analysis tools examine files in isolation. Repotoire builds a **knowledge graph** of your entire codebase, combining:
-- **Structural analysis** (AST parsing)
-- **Semantic understanding** (NLP + AI)
-- **Relational patterns** (graph algorithms)
+Most linters analyze files in isolation. Repotoire sees the **whole picture**:
 
-This enables detection of complex issues like circular dependencies, architectural bottlenecks, and modularity problems that traditional tools miss.
-
-## Features
-
-### 🔍 30+ Graph-Powered Detectors
-
-**Architectural Issues**
-- **Circular Dependencies** - Import cycles via Tarjan's SCC algorithm
-- **Hub Dependencies** - Fragile central nodes everything depends on
-- **Layered Architecture Violations** - Cross-layer dependency detection
-- **Change Coupling** - Files that always change together (temporal coupling)
-- **Architectural Bottlenecks** - Single points of failure in call graphs
-
-**Code Smells (Cross-File)**
-- **Dead Code** - Functions/classes nothing in the codebase calls
-- **God Classes** - Classes with too many responsibilities
-- **Feature Envy** - Methods using other classes more than their own
-- **Shotgun Surgery** - Changes requiring edits across many files
-- **Inappropriate Intimacy** - Classes too tightly coupled
-- **Middle Man** - Classes that just delegate everything
-
-**Quality Metrics**
-- **Module Cohesion** - How well modules stick together
-- **Degree Centrality** - Most connected code (complexity hotspots)
-- **Technical Debt Hotspots** - Areas with compounding issues
-- **Package Stability** - Dependency direction analysis
-
-**Plus:** Data clumps, long parameter lists, message chains, lazy classes, refused bequest, async antipatterns, generator misuse, test smells, type hint coverage, and more.
-
-### 🤖 AI-Powered Insights
-- Semantic concept extraction from code
-- Context-aware fix suggestions
-- Natural language explanations of issues
-- Similarity-based code search
-
-### 📊 Health Scoring
-- Letter grade (A-F) with detailed breakdown
-- Category scores: Structure (40%), Quality (30%), Architecture (30%)
-- Actionable metrics and priority recommendations
-
-### 📈 Professional Reports
-- Rich terminal output with color coding
-- HTML reports with code snippets
-- JSON export for CI/CD integration
+```
+Traditional Linters          Repotoire
+─────────────────────        ─────────────────────
+file1.py ✓                   file1.py ──┐
+file2.py ✓                   file2.py ──┼── Knowledge Graph
+file3.py ✓                   file3.py ──┘
+                                  │
+                             Circular deps?
+                             God classes?
+                             Dead code?
+                             Coupling hotspots?
+```
 
 ## Quick Start
 
-### Local Mode (No Account Required)
-
-Run completely offline with the embedded Kuzu graph database:
-
 ```bash
-# 1. Install
 pip install repotoire
-
-# 2. Ingest and analyze (no API key needed!)
-repotoire ingest .
-```
-
-That's it! Your codebase is analyzed locally with 40+ detectors. Data stays on your machine.
-
-### Cloud Mode (Team Features)
-
-For team dashboards, PR blocking, and cross-repo analysis:
-
-```bash
-# 1. Install
-pip install repotoire
-
-# 2. Set your API key (get one at repotoire.com/settings/api-keys)
-export REPOTOIRE_API_KEY=ak_your_key_here
-
-# 3. Analyze your code
 repotoire analyze .
 ```
 
-View your results at [repotoire.com/dashboard](https://repotoire.com/dashboard).
+That's it. No API keys, no Docker, no cloud account required.
 
-## Installation
+**First run builds the graph (~1 min). Subsequent runs use incremental caching (~30s).**
 
-### Requirements
-- Python 3.10 or higher
-- 4GB+ RAM recommended
+## What It Finds
 
-### Install from PyPI
+**47 detectors** across 4 categories:
+
+### 🏗️ Architecture
+- Circular dependencies (Tarjan's SCC)
+- Architectural bottlenecks (betweenness centrality)
+- Hub dependencies (fragile central nodes)
+- Module cohesion problems
+
+### 🔍 Code Smells
+- God classes (too many responsibilities)
+- Dead code (unreachable functions)
+- Feature envy (methods using wrong class)
+- Shotgun surgery (changes ripple everywhere)
+- Middle man, lazy class, data clumps...
+
+### 🔒 Security
+- SQL injection patterns
+- Hardcoded secrets (API keys, passwords)
+- Unsafe deserialization (pickle, yaml.load)
+- Eval/exec with user input
+- GitHub Actions injection
+
+### 📊 Quality
+- Complexity hotspots
+- Type hint coverage gaps
+- Duplicate code blocks
+- Test smells
+
+## Sample Output
+
+```
+╔═══════════════════════ 🎼 Repotoire Health Report ═══════════════════════╗
+║  Grade: B                                                                 ║
+║  Score: 82.5/100                                                          ║
+║  Good - Minor improvements recommended                                    ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────┬────────┬───────────┐
+│ Category            │ Weight │ Score     │
+├─────────────────────┼────────┼───────────┤
+│ Graph Structure     │  40%   │ 85.0/100  │
+│ Code Quality        │  30%   │ 78.3/100  │
+│ Architecture Health │  30%   │ 84.2/100  │
+└─────────────────────┴────────┴───────────┘
+
+🔍 Findings Summary (23 total)
+┌─────────────┬───────┐
+│ 🔴 Critical │     2 │
+│ 🟠 High     │     5 │
+│ 🟡 Medium   │    12 │
+│ 🔵 Low      │     4 │
+└─────────────┴───────┘
+```
+
+## Performance
+
+| Metric | Time |
+|--------|------|
+| First run (build graph) | ~60s |
+| Incremental (unchanged) | ~30s |
+| Incremental (few changes) | ~45s |
+
+Tested on a 50k LOC Python codebase. YMMV.
+
+## CLI Reference
 
 ```bash
-pip install repotoire
-```
+repotoire analyze .                    # Analyze current directory
+repotoire analyze . --offline          # Skip cloud sync
+repotoire analyze . --thorough         # Include slow external tools
+repotoire analyze . --output report.json
+repotoire analyze . --output report.html --format html
 
-### Install from Source (for development)
-
-```bash
-git clone https://github.com/repotoire/repotoire.git
-cd repotoire
-pip install -e ".[dev,config]"
-```
-
-### Configuration
-
-Set your API key:
-
-```bash
-export REPOTOIRE_API_KEY=ak_your_key_here
-```
-
-See [CONFIG.md](CONFIG.md) for complete configuration options.
-
-## Usage
-
-### Command Overview
-
-```bash
-repotoire --help                    # Show all commands
-repotoire validate                  # Validate configuration
-repotoire ingest <path>             # Ingest codebase
-repotoire analyze <path>            # Analyze and report
-repotoire config --generate yaml    # Generate config template
-```
-
-### 1. Validate Configuration
-
-Before running analysis, validate your setup:
-
-```bash
-repotoire validate
-```
-
-This checks:
-- Configuration file syntax
-- Neo4j URI format
-- Neo4j credentials
-- Neo4j connectivity
-- All settings are valid
-
-**Example output:**
-```
-🐉 Repotoire Configuration Validation
-
-✓ Configuration file valid
-✓ Neo4j URI valid: bolt://localhost:7687
-✓ Neo4j connection successful
-✓ Ingestion settings valid
-✓ Retry configuration valid
-
-✓ All validations passed!
-```
-
-### 2. Ingest a Codebase
-
-Load your code into the knowledge graph:
-
-```bash
-# Basic ingestion
-repotoire ingest /path/to/repo
-
-# With custom patterns
-repotoire ingest /path/to/repo -p "**/*.py" -p "**/*.js"
-
-# With progress bars
-repotoire ingest /path/to/repo  # Progress shown by default
-
-# Quiet mode (no progress bars)
-repotoire ingest /path/to/repo --quiet
-
-# With custom Neo4j connection
-repotoire ingest /path/to/repo \
-  --neo4j-uri bolt://production:7687 \
-  --neo4j-user myuser \
-  --neo4j-password mypass
-```
-
-**Example output:**
-```
-🐉 Repotoire Ingestion
-
-Repository: /home/user/myproject
-Patterns: **/*.py
-Follow symlinks: False
-Max file size: 10.0MB
-
-Processing: src/models.py ━━━━━━━━━━━━━━━━━━━━━━━━ 45/100 45% 0:00:12
-
-┏━━━━━━━━━━━━━━━━━━━┳━━━━━━━┓
-┃ Metric            ┃ Count ┃
-┡━━━━━━━━━━━━━━━━━━━╇━━━━━━━┩
-│ Total Nodes       │ 1,234 │
-│ Total Files       │ 45    │
-│ Total Classes     │ 123   │
-│ Total Functions   │ 456   │
-│ Total Relationships│ 789  │
-└───────────────────┴───────┘
-```
-
-### 3. Analyze Codebase Health
-
-Generate health report with findings:
-
-```bash
-# Terminal output
-repotoire analyze /path/to/repo
-
-# Save JSON report
-repotoire analyze /path/to/repo -o report.json
-
-# Save HTML report with code snippets
-repotoire analyze /path/to/repo -o report.html --format html
-
-# Quiet mode (minimal output)
-repotoire analyze /path/to/repo --quiet
-```
-
-**Example output:**
-```
-╔══════════════════════════════════════╗
-║  🐉 Repotoire Health Report             ║
-║                                      ║
-║  Grade: B                            ║
-║  Score: 82.5/100                     ║
-║                                      ║
-║  Good - Minor improvements recommended
-╚══════════════════════════════════════╝
-
-┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┓
-┃ Category            ┃ Weight ┃ Score     ┃ Progress             ┃ Status ┃
-┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━┩
-│ Graph Structure     │ 40%    │ 85.0/100  │ ████████████████░░░░ │ ✅     │
-│ Code Quality        │ 30%    │ 78.3/100  │ ███████████████░░░░░ │ ⚠️      │
-│ Architecture Health │ 30%    │ 84.2/100  │ ████████████████░░░░ │ ✅     │
-└─────────────────────┴────────┴───────────┴──────────────────────┴────────┘
-
-📈 Key Metrics
-┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━┓
-┃ Metric           ┃ Value   ┃ Assessment   ┃
-┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━┩
-│ 📁 Total Files   │ 45      │              │
-│ 🏛️  Classes      │ 123     │              │
-│ ⚙️  Functions    │ 456     │              │
-│ 🔗 Modularity    │ 0.75    │ Excellent    │
-│ 🔁 Circular Deps │ 2       │ ⚠️  2        │
-│ 👹 God Classes   │ 0       │ ✓ None       │
-└──────────────────┴─────────┴──────────────┘
-
-🔍 Findings Summary (5 total)
-┏━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓
-┃ Severity        ┃ Count ┃ Impact              ┃
-┡━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━┩
-│ 🟠 High         │ 2     │ Should fix soon     │
-│ 🟡 Medium       │ 3     │ Plan to address     │
-└─────────────────┴───────┴─────────────────────┘
-```
-
-### 4. Generate Configuration Template
-
-Create a config file template:
-
-```bash
-# YAML format (default)
-repotoire config --generate yaml > .repotoirerc
-
-# TOML format
-repotoire config --generate toml > repotoire.toml
-
-# JSON format
-repotoire config --generate json > .repotoirerc
+repotoire ingest .                     # Just build graph (no analysis)
+repotoire ask "what calls UserService" # Natural language queries
 ```
 
 ## Configuration
 
-Repotoire uses a priority chain for configuration (highest to lowest):
+Create `.repotoirerc` or `repotoire.toml`:
 
-1. **Command-line arguments** (`--neo4j-uri`, `--pattern`, etc.)
-2. **Environment variables** (`REPOTOIRE_NEO4J_URI`, etc.)
-3. **Config file** (`.repotoirerc`, `repotoire.toml`)
-4. **Built-in defaults**
+```toml
+[analysis]
+patterns = ["**/*.py", "**/*.ts"]
+exclude = ["**/node_modules/**", "**/venv/**"]
 
-### Environment Variables
+[detectors.god_class]
+threshold_methods = 20
+threshold_lines = 500
+```
+
+Or use environment variables:
 
 ```bash
-# Neo4j connection
-export REPOTOIRE_NEO4J_URI="bolt://localhost:7687"
-export REPOTOIRE_NEO4J_USER="neo4j"
-export REPOTOIRE_NEO4J_PASSWORD="your-password"
-
-# Ingestion settings
-export REPOTOIRE_INGESTION_PATTERNS="**/*.py,**/*.js"
-export REPOTOIRE_INGESTION_MAX_FILE_SIZE_MB=10
-export REPOTOIRE_INGESTION_BATCH_SIZE=100
-
-# Logging
-export LOG_LEVEL=INFO
-export LOG_FORMAT=human
+export REPOTOIRE_API_KEY=ak_...        # For cloud features
+export DEEPINFRA_API_KEY=...           # For AI-powered fixes (optional)
 ```
 
-See [CONFIG.md](CONFIG.md) for complete configuration reference.
+## How It Works
 
-## Output Formats
+1. **Parse** — Tree-sitter extracts AST from Python/TypeScript
+2. **Build Graph** — Kuzu (embedded graph DB) stores entities + relationships
+3. **Analyze** — 47 detectors run graph algorithms (SCC, betweenness, community detection)
+4. **Report** — Findings ranked by severity with fix suggestions
 
-### Terminal Output (Default)
-
-Rich, color-coded output with:
-- Grade badge with explanation
-- Category scores with progress bars
-- Key metrics with assessments
-- Findings tree view
-- Emoji indicators for quick scanning
-
-### JSON Export
-
-Machine-readable format for CI/CD:
-
-```bash
-repotoire analyze /path/to/repo -o report.json
+```
+┌──────────┐    ┌───────────┐    ┌──────────────┐    ┌──────────┐
+│  Source  │───▶│  Parser   │───▶│  Kuzu Graph  │───▶│ Detectors│
+│  Files   │    │(tree-sitter)   │  (embedded)  │    │ (47)     │
+└──────────┘    └───────────┘    └──────────────┘    └──────────┘
+                                        │
+                                        ▼
+                                 ┌──────────────┐
+                                 │   Reports    │
+                                 │ CLI/HTML/JSON│
+                                 └──────────────┘
 ```
 
-```json
-{
-  "grade": "B",
-  "overall_score": 82.5,
-  "structure_score": 85.0,
-  "quality_score": 78.3,
-  "architecture_score": 84.2,
-  "findings_summary": {
-    "critical": 0,
-    "high": 2,
-    "medium": 3,
-    "low": 0,
-    "total": 5
-  },
-  "findings": [...]
-}
-```
+## CI/CD Integration
 
-### HTML Report
-
-Professional report with code snippets:
-
-```bash
-repotoire analyze /path/to/repo -o report.html --format html
-```
-
-Features:
-- Responsive design (mobile-friendly)
-- Syntax-highlighted code snippets
-- Highlighted problem lines
-- Print-friendly CSS
-- Severity color coding
-- Direct links to affected files
-
-## Integration
-
-### CI/CD Pipeline
-
-**GitHub Actions:**
+### GitHub Actions
 
 ```yaml
-name: Code Health Check
-on: [push, pull_request]
-
-jobs:
-  repotoire-analysis:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - name: Install Repotoire
-        run: pip install repotoire
-
-      - name: Analyze codebase
-        run: repotoire analyze . -o report.json
-        env:
-          REPOTOIRE_API_KEY: ${{ secrets.REPOTOIRE_API_KEY }}
-
-      - name: Upload report
-        uses: actions/upload-artifact@v3
-        with:
-          name: repotoire-report
-          path: report.json
-
-      - name: Check health score
-        run: |
-          SCORE=$(python -c "import json; print(json.load(open('report.json'))['overall_score'])")
-          if (( $(echo "$SCORE < 70" | bc -l) )); then
-            echo "Health score $SCORE is below threshold (70)"
-            exit 1
-          fi
-```
-
-**GitLab CI:**
-
-```yaml
-repotoire_analysis:
-  image: python:3.10
-  script:
-    - pip install repotoire
-    - repotoire analyze . -o report.json
-  variables:
-    REPOTOIRE_API_KEY: $REPOTOIRE_API_KEY
-  artifacts:
-    paths:
-      - report.json
+- name: Code Health Check
+  run: |
+    pip install repotoire
+    repotoire analyze . --output report.json
+    
+- name: Fail if critical issues
+  run: |
+    CRITICAL=$(jq '.findings | map(select(.severity == "critical")) | length' report.json)
+    if [ "$CRITICAL" -gt 0 ]; then exit 1; fi
 ```
 
 ### Pre-commit Hook
 
-Add to `.git/hooks/pre-commit`:
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: local
+    hooks:
+      - id: repotoire
+        name: repotoire
+        entry: repotoire analyze . --offline
+        language: system
+        pass_filenames: false
+```
+
+## Cloud Features (Optional)
+
+For team dashboards and PR checks, create a free account at [repotoire.com](https://repotoire.com):
 
 ```bash
-#!/bin/bash
-# Run Repotoire analysis before committing
-
-echo "Running Repotoire analysis..."
-repotoire analyze . -o /tmp/repotoire-report.json --quiet
-
-SCORE=$(python -c "import json; print(json.load(open('/tmp/repotoire-report.json'))['overall_score'])")
-
-if (( $(echo "$SCORE < 70" | bc -l) )); then
-    echo "❌ Code health score ($SCORE) is below threshold (70)"
-    echo "Run 'repotoire analyze .' for details"
-    exit 1
-fi
-
-echo "✅ Code health check passed (score: $SCORE)"
+repotoire login                        # OAuth via browser
+repotoire analyze .                    # Results sync to dashboard
+repotoire sync                         # Manual sync
 ```
 
-### README Badges
+## Comparison
 
-Display your repository's code health grade with a dynamic badge:
+| Feature | Repotoire | SonarQube | CodeClimate |
+|---------|-----------|-----------|-------------|
+| Local-first | ✅ | ❌ | ❌ |
+| No Docker | ✅ | ❌ | ✅ |
+| Graph analysis | ✅ | Partial | ❌ |
+| Circular deps | ✅ | ✅ | ❌ |
+| Dead code | ✅ | ✅ | ✅ |
+| Architectural metrics | ✅ | Partial | ❌ |
+| Free tier | ✅ | Limited | Limited |
 
-**Dynamic Badge (recommended):**
+## Supported Languages
 
-Use our API endpoint with shields.io for real-time badge data:
-
-```markdown
-<!-- By repository ID -->
-![Code Health](https://img.shields.io/endpoint?url=https://api.repotoire.com/api/v1/badge/{repo_id})
-
-<!-- By repository name -->
-![Code Health](https://img.shields.io/endpoint?url=https://api.repotoire.com/api/v1/badge/name/{owner}/{repo})
-```
-
-The badge automatically updates when analysis completes (cached for 5 minutes).
-
-**Badge Colors:**
-| Grade | Score | Color |
-|-------|-------|-------|
-| A | 90-100 | ![A](https://img.shields.io/badge/code%20health-A-brightgreen) |
-| B | 80-89 | ![B](https://img.shields.io/badge/code%20health-B-green) |
-| C | 70-79 | ![C](https://img.shields.io/badge/code%20health-C-yellow) |
-| D | 60-69 | ![D](https://img.shields.io/badge/code%20health-D-orange) |
-| F | 0-59 | ![F](https://img.shields.io/badge/code%20health-F-red) |
-
-**Static Badge (for quick setup):**
-
-If you prefer a static badge, use shields.io directly:
-
-```markdown
-[![Code Health](https://img.shields.io/badge/code%20health-A-brightgreen)](https://repotoire.com)
-```
-
-## Troubleshooting
-
-### API Key Issues
-
-**Problem**: `Invalid API key`
-
-**Solutions**:
-1. Verify your API key: `echo $REPOTOIRE_API_KEY`
-2. Check the key starts with `ak_`
-3. Get a new key at [repotoire.com/settings/api-keys](https://repotoire.com/settings/api-keys)
-
-### Analysis Issues
-
-**Problem**: `No files found to process`
-
-**Solutions**:
-1. Check your patterns: `repotoire analyze . -p "**/*.py"`
-2. Verify the path exists: `ls /path/to/repo`
-3. Check file permissions
-
-**Problem**: `Files are being skipped`
-
-**Solutions**:
-1. Check file size: Default limit is 10MB
-2. Symlinks: Disabled by default, use `--follow-symlinks`
-3. Adjust limits: `--max-file-size 50`
-
-### Configuration Issues
-
-**Problem**: Environment variables not working
-
-**Solutions**:
-1. Verify `REPOTOIRE_` prefix: `echo $REPOTOIRE_API_KEY`
-2. Export variables: `export REPOTOIRE_API_KEY=...`
-3. Restart shell after setting
-
-## FAQ
-
-### General
-
-**Q: What languages does Repotoire support?**
-A: Currently Python with AST parsing. Multi-language support (TypeScript, Java, Go) is planned.
-
-**Q: Is there a free tier?**
-A: Yes! Get started free at [repotoire.com](https://repotoire.com).
-
-### Analysis
-
-**Q: How accurate is the health score?**
-A: Based on industry-standard metrics (modularity, coupling, complexity). Scores are relative to your codebase size.
-
-**Q: Can I customize detector thresholds?**
-A: Yes, set thresholds in config under `detectors:` section. See [CONFIG.md](CONFIG.md).
-
-**Q: Why is my grade lower than expected?**
-A: Check findings for details. Common issues: circular dependencies, god classes, low modularity.
-
-**Q: Can I exclude files from analysis?**
-A: Yes, use negative patterns: `patterns: ["**/*.py", "!**/tests/**"]`
-
-### Reports
-
-**Q: How do I share reports with my team?**
-A: View reports in your [dashboard](https://repotoire.com/dashboard) or generate HTML/JSON exports.
-
-**Q: Can I get alerts for health score drops?**
-A: Yes, configure alerts in your dashboard settings.
-
-### Performance
-
-**Q: How long does analysis take?**
-A: Typically under 60 seconds for most projects.
-
-**Q: Will Repotoire slow down my CI/CD?**
-A: Typical run: 30-60 seconds for medium projects (5k-10k LOC).
-
-## Architecture
-
-### System Overview
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                   REPOTOIRE ARCHITECTURE                    │
-└─────────────────────────────────────────────────────────┘
-
-┌─────────────────┐       ┌──────────────────┐       ┌──────────────┐
-│   Code Parser   │──────▶│  Graph Builder   │──────▶│    Neo4j     │
-│   (AST, Tree)   │       │  (Entities+Rels) │       │ (Knowledge   │
-│                 │       │                  │       │  Graph)      │
-└─────────────────┘       └──────────────────┘       └──────────────┘
-                                                              │
-                                                              ▼
-┌─────────────────┐       ┌──────────────────┐       ┌──────────────┐
-│   AI Layer      │       │   Analysis       │◀──────│   Detectors  │
-│  (NLP, GPT-4)   │──────▶│   Engine         │       │  (Graph      │
-│                 │       │  (Scoring)       │       │   Queries)   │
-└─────────────────┘       └──────────────────┘       └──────────────┘
-                                   │
-                                   ▼
-                          ┌──────────────────┐
-                          │    Reporters     │
-                          │ (CLI, JSON, HTML)│
-                          └──────────────────┘
-```
-
-See [CLAUDE.md](CLAUDE.md) for detailed architecture documentation.
+- **Python** — Full support (AST + type hints)
+- **TypeScript/JavaScript** — Full support
+- **More coming** — Rust, Go, Java planned
 
 ## Contributing
 
-Repotoire is in early development. Contributions are welcome!
-
-### Development Setup
-
 ```bash
-# Clone and install
-git clone https://github.com/repotoire/repotoire.git
+git clone https://github.com/repotoire/repotoire
 cd repotoire
 pip install -e ".[dev]"
-
-# Run tests
 pytest
-
-# Run with coverage
-pytest --cov=repotoire --cov-report=html
-
-# Format code
-black repotoire tests
-
-# Lint
-ruff check repotoire tests
-
-# Type check
-mypy repotoire
 ```
 
-### Adding a New Detector
-
-1. Create class in `repotoire/detectors/`
-2. Inherit from `CodeSmellDetector`
-3. Implement `detect()` method with Cypher query
-4. Register in `AnalysisEngine`
-5. Add tests in `tests/unit/detectors/`
-
-See existing detectors for examples.
-
-## Resources
-
-- **Documentation**: [CONFIG.md](CONFIG.md), [CLAUDE.md](CLAUDE.md)
-- **Examples**: [examples/notebooks/](examples/notebooks/)
-- **Issue Tracker**: [GitHub Issues](https://github.com/repotoire/repotoire/issues)
-- **Neo4j Docs**: [neo4j.com/docs](https://neo4j.com/docs/)
-- **Discussions**: [GitHub Discussions](https://github.com/repotoire/repotoire/discussions)
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- Named after the luck dragon from *The NeverEnding Story* 🐉
-- Built with [Neo4j](https://neo4j.com/), [Rich](https://github.com/Textualize/rich), and [spaCy](https://spacy.io/)
-- Inspired by industry best practices in code analysis and graph-based program analysis
+MIT — see [LICENSE](LICENSE)
 
 ---
 
-**Star ⭐ this repo if you find it useful!**
+**[Try it now →](https://pypi.org/project/repotoire/)** `pip install repotoire && repotoire analyze .`

@@ -12,7 +12,7 @@ Key differences from FalkorDB:
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from repotoire.graph.base import DatabaseClient
 from repotoire.models import Entity, NodeType, Relationship, RelationshipType
@@ -143,6 +143,9 @@ class KuzuClient(DatabaseClient):
                     codeHealth DOUBLE,
                     lineCount INT64,
                     is_test BOOLEAN,
+                    docstring STRING,
+                    semantic_context STRING,
+                    embedding DOUBLE[],
                     PRIMARY KEY(qualifiedName)
                 )
             """,
@@ -161,6 +164,9 @@ class KuzuClient(DatabaseClient):
                     churn INT64,
                     num_authors INT64,
                     repoId STRING,
+                    docstring STRING,
+                    semantic_context STRING,
+                    embedding DOUBLE[],
                     PRIMARY KEY(qualifiedName)
                 )
             """,
@@ -188,6 +194,9 @@ class KuzuClient(DatabaseClient):
                     churn INT64,
                     num_authors INT64,
                     repoId STRING,
+                    docstring STRING,
+                    semantic_context STRING,
+                    embedding DOUBLE[],
                     PRIMARY KEY(qualifiedName)
                 )
             """,
@@ -510,11 +519,18 @@ class KuzuClient(DatabaseClient):
         """
         rel_type = REL_TYPE_TO_TABLE.get(rel.rel_type, "CALLS")
 
-        # If types not provided, try to look them up
+        # If types not provided, look them up (and resolve actual qualified names)
+        src_qname = rel.source_id
+        dst_qname = rel.target_id
+        
         if not src_type:
-            src_type = self._find_node_type(rel.source_id)
+            src_type, resolved_src = self._find_node_type_and_qname(rel.source_id)
+            if resolved_src:
+                src_qname = resolved_src
         if not dst_type:
-            dst_type = self._find_node_type(rel.target_id)
+            dst_type, resolved_dst = self._find_node_type_and_qname(rel.target_id)
+            if resolved_dst:
+                dst_qname = resolved_dst
 
         if not src_type or not dst_type:
             logger.debug(f"Could not find node types for relationship {rel.source_id} -> {rel.target_id}")
@@ -526,7 +542,7 @@ class KuzuClient(DatabaseClient):
 
         # Build relationship properties for CALLS
         rel_props = {}
-        params = {"src": rel.source_id, "dst": rel.target_id}
+        params = {"src": src_qname, "dst": dst_qname}
 
         if rel_type == "CALLS" and hasattr(rel, 'properties') and rel.properties:
             # Add CALLS-specific properties
@@ -555,10 +571,16 @@ class KuzuClient(DatabaseClient):
 
         self._conn.execute(query, params)
 
-    def _find_node_type(self, qualified_name: str) -> Optional[str]:
-        """Find which table a node belongs to."""
+    def _find_node_type_and_qname(self, qualified_name: str) -> Tuple[Optional[str], Optional[str]]:
+        """Find which table a node belongs to and its actual qualified name.
+        
+        Returns:
+            Tuple of (table_name, actual_qualified_name) or (None, None) if not found
+        """
         tables = ["File", "Function", "Class", "Module", "Variable",
                   "ExternalClass", "ExternalFunction", "BuiltinFunction"]
+        
+        # First try exact match by qualifiedName
         for table in tables:
             try:
                 result = self._conn.execute(
@@ -566,11 +588,33 @@ class KuzuClient(DatabaseClient):
                     {"qn": qualified_name}
                 )
                 if result.has_next():
-                    return table
+                    return table, qualified_name
             except Exception as e:
                 logger.debug(f"Node type lookup failed for table {table}: {e}")
                 continue
-        return None
+        
+        # If no exact match, try matching by name (for unqualified references like base classes)
+        # Only search Class and ExternalClass for inheritance targets
+        if '::' not in qualified_name and '/' not in qualified_name:
+            for table in ["Class", "ExternalClass"]:
+                try:
+                    result = self._conn.execute(
+                        f"MATCH (n:{table}) WHERE n.name = $name RETURN n.qualifiedName LIMIT 1",
+                        {"name": qualified_name}
+                    )
+                    if result.has_next():
+                        actual_qname = result.get_next()[0]
+                        return table, actual_qname
+                except Exception as e:
+                    logger.debug(f"Name lookup failed for table {table}: {e}")
+                    continue
+        
+        return None, None
+    
+    def _find_node_type(self, qualified_name: str) -> Optional[str]:
+        """Find which table a node belongs to."""
+        node_type, _ = self._find_node_type_and_qname(qualified_name)
+        return node_type
 
     def _get_specific_rel_table(self, base_rel: str, src_type: str, dst_type: str) -> Optional[str]:
         """Get specific relationship table for given node types."""

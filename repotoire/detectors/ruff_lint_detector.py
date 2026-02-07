@@ -114,6 +114,11 @@ class RuffLintDetector(CodeSmellDetector):
         Returns:
             List of code quality findings
         """
+        # Fast path: if incremental mode with no changed files, skip entirely
+        if self.changed_files is not None and len(self.changed_files) == 0:
+            logger.debug("No changed files provided, skipping ruff lint (incremental cache hit)")
+            return []
+
         logger.info(f"Running ruff on {self.repository_path}")
 
         # Run ruff and get results

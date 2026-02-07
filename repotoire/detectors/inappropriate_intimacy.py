@@ -49,6 +49,11 @@ class InappropriateIntimacyDetector(CodeSmellDetector):
         Returns:
             List of Finding objects for mutually coupled class pairs.
         """
+        # Fast path: use QueryCache if available
+        if self.query_cache is not None:
+            self.logger.debug("Using QueryCache for inappropriate intimacy detection")
+            return self._detect_cached()
+
         # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
         repo_filter = self._get_isolation_filter("c1")
         query = f"""
@@ -189,6 +194,105 @@ class InappropriateIntimacyDetector(CodeSmellDetector):
         self.logger.info(
             f"InappropriateIntimacyDetector found {len(findings)} tightly coupled class pairs"
         )
+        return findings
+
+    def _detect_cached(self) -> List[Finding]:
+        """Detect inappropriate intimacy using QueryCache.
+        
+        O(1) lookups from prefetched data.
+        
+        Returns:
+            List of findings for tightly coupled class pairs
+        """
+        findings = []
+        
+        # Build coupling matrix between classes
+        coupling: Dict[tuple, Dict[str, int]] = {}
+        
+        for class_name in self.query_cache.classes:
+            methods = self.query_cache.get_methods(class_name)
+            
+            for method_name in methods:
+                callees = self.query_cache.get_callees(method_name)
+                
+                for callee in callees:
+                    callee_class = self.query_cache.get_parent_class(callee)
+                    if callee_class and callee_class != class_name:
+                        # Sort to create canonical key
+                        key = tuple(sorted([class_name, callee_class]))
+                        if key not in coupling:
+                            coupling[key] = {"c1_to_c2": 0, "c2_to_c1": 0}
+                        
+                        if class_name < callee_class:
+                            coupling[key]["c1_to_c2"] += 1
+                        else:
+                            coupling[key]["c2_to_c1"] += 1
+        
+        # Filter for mutual high coupling
+        for (class1, class2), counts in coupling.items():
+            c1_to_c2 = counts["c1_to_c2"]
+            c2_to_c1 = counts["c2_to_c1"]
+            
+            if c1_to_c2 < self.min_mutual_access or c2_to_c1 < self.min_mutual_access:
+                continue
+            
+            total_coupling = c1_to_c2 + c2_to_c1
+            
+            if total_coupling >= self.threshold_high:
+                severity = Severity.HIGH
+            elif total_coupling >= self.threshold_medium:
+                severity = Severity.MEDIUM
+            else:
+                severity = Severity.LOW
+            
+            class1_data = self.query_cache.get_class(class1)
+            class2_data = self.query_cache.get_class(class2)
+            class1_name = class1.split(".")[-1]
+            class2_name = class2.split(".")[-1]
+            
+            same_file = (class1_data.file_path == class2_data.file_path) if class1_data and class2_data else False
+            
+            finding = Finding(
+                id=f"inappropriate_intimacy_{class1}_{class2}",
+                detector=self.__class__.__name__,
+                severity=severity,
+                title=f"Inappropriate Intimacy: {class1_name} ↔ {class2_name}",
+                description=(
+                    f"Classes '{class1_name}' and '{class2_name}' are too tightly coupled:\n"
+                    f"  • {class1_name} → {class2_name}: {c1_to_c2} accesses\n"
+                    f"  • {class2_name} → {class1_name}: {c2_to_c1} accesses\n"
+                    f"  • Total coupling: {total_coupling}"
+                ),
+                affected_nodes=[class1, class2],
+                affected_files=[class1_data.file_path if class1_data else "", class2_data.file_path if class2_data else ""],
+                suggested_fix="Consider merging classes or extracting common data.",
+                estimated_effort="Medium (2-4 hours)",
+                graph_context={
+                    "class1": class1,
+                    "class2": class2,
+                    "class1_to_class2": c1_to_c2,
+                    "class2_to_class1": c2_to_c1,
+                    "total_coupling": total_coupling,
+                    "same_file": same_file,
+                },
+            )
+            
+            finding.add_collaboration_metadata(CollaborationMetadata(
+                detector="InappropriateIntimacyDetector",
+                confidence=0.85,
+                evidence=['tight_coupling'],
+                tags=['inappropriate_intimacy', 'coupling']
+            ))
+            
+            findings.append(finding)
+            
+            if len(findings) >= 50:
+                break
+        
+        # Sort by total coupling
+        findings.sort(key=lambda f: f.graph_context.get("total_coupling", 0), reverse=True)
+        
+        self.logger.info(f"InappropriateIntimacyDetector (cached) found {len(findings)} pairs")
         return findings
 
     def severity(self, finding: Finding) -> Severity:

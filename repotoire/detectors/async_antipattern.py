@@ -146,6 +146,11 @@ class AsyncAntipatternDetector(CodeSmellDetector):
         Returns:
             List of findings for blocking calls in async context
         """
+        # Fast path: use QueryCache if available
+        if self.query_cache is not None:
+            logger.debug("Using QueryCache for async anti-pattern detection")
+            return self._find_blocking_calls_in_async_cached()
+
         findings: List[Finding] = []
 
         # Build list of blocking call names for query
@@ -202,6 +207,62 @@ class AsyncAntipatternDetector(CodeSmellDetector):
             finding = self._create_blocking_call_finding(func_name, data)
             findings.append(finding)
 
+        return findings
+
+    def _find_blocking_calls_in_async_cached(self) -> List[Finding]:
+        """Find blocking calls in async functions using QueryCache.
+        
+        O(1) lookups from prefetched data instead of database queries.
+        
+        Returns:
+            List of findings for blocking calls in async context
+        """
+        findings: List[Finding] = []
+        
+        # Group findings by function
+        func_blocking_calls: Dict[str, Dict] = {}
+        
+        # Iterate through async functions
+        for func_name, func_data in self.query_cache.functions.items():
+            if not func_data.is_async:
+                continue
+            
+            # Get all functions this async function calls
+            callees = self.query_cache.get_callees(func_name)
+            
+            for callee_name in callees:
+                # Extract simple name for blocking check
+                callee_simple = callee_name.split("::")[-1] if "::" in callee_name else callee_name.split(".")[-1]
+                
+                # Check if this is a blocking call
+                blocking_alt = self._get_blocking_alternative(callee_simple)
+                if not blocking_alt:
+                    # Also try the full name
+                    blocking_alt = self._get_blocking_alternative(callee_name)
+                if not blocking_alt:
+                    continue
+                
+                func_simple_name = func_name.split("::")[-1] if "::" in func_name else func_name.split(".")[-1]
+                
+                if func_name not in func_blocking_calls:
+                    func_blocking_calls[func_name] = {
+                        "func_simple_name": func_simple_name,
+                        "func_file": func_data.file_path,
+                        "func_line": func_data.line_start,
+                        "blocking_calls": [],
+                    }
+                
+                func_blocking_calls[func_name]["blocking_calls"].append({
+                    "call_name": callee_simple,
+                    "alternative": blocking_alt,
+                    "call_line": func_data.line_start,
+                })
+        
+        # Create findings for each function with blocking calls
+        for func_name, data in func_blocking_calls.items():
+            finding = self._create_blocking_call_finding(func_name, data)
+            findings.append(finding)
+        
         return findings
 
     def _get_blocking_alternative(self, call_name: str) -> Optional[str]:
@@ -328,6 +389,11 @@ class AsyncAntipatternDetector(CodeSmellDetector):
         Returns:
             List of findings for wasteful async functions
         """
+        # Fast path: use QueryCache if available
+        if self.query_cache is not None:
+            logger.debug("Using QueryCache for wasteful async detection")
+            return self._find_wasteful_async_cached()
+
         findings: List[Finding] = []
 
         # Query for async functions with no CALLS to other async functions
@@ -367,6 +433,61 @@ class AsyncAntipatternDetector(CodeSmellDetector):
             finding = self._create_wasteful_async_finding(record)
             findings.append(finding)
 
+        return findings
+
+    def _find_wasteful_async_cached(self) -> List[Finding]:
+        """Find wasteful async functions using QueryCache.
+        
+        O(1) lookups from prefetched data instead of database queries.
+        
+        Returns:
+            List of findings for wasteful async functions
+        """
+        findings: List[Finding] = []
+        count = 0
+        
+        for func_name, func_data in self.query_cache.functions.items():
+            # Skip non-async functions
+            if not func_data.is_async:
+                continue
+            
+            # Check if this function calls any other async functions
+            callees = self.query_cache.get_callees(func_name)
+            has_async_call = False
+            
+            for callee_name in callees:
+                callee_data = self.query_cache.get_function(callee_name)
+                if callee_data and callee_data.is_async:
+                    has_async_call = True
+                    break
+            
+            # If no async calls, it might be wasteful
+            if has_async_call:
+                continue
+            
+            func_simple_name = func_name.split("::")[-1] if "::" in func_name else func_name.split(".")[-1]
+            
+            # Skip legitimate patterns
+            if self._is_legitimate_async_without_await(func_simple_name):
+                continue
+            
+            # Build record for _create_wasteful_async_finding
+            record = {
+                "func_name": func_name,
+                "func_simple_name": func_simple_name,
+                "func_file": func_data.file_path,
+                "func_line": func_data.line_start,
+                "complexity": func_data.complexity,
+                "containing_file": func_data.file_path,
+            }
+            
+            finding = self._create_wasteful_async_finding(record)
+            findings.append(finding)
+            
+            count += 1
+            if count >= 50:  # Match query LIMIT
+                break
+        
         return findings
 
     def _is_legitimate_async_without_await(self, func_name: str) -> bool:

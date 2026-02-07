@@ -1465,25 +1465,28 @@ class PythonParser(CodeParser):
             key = (callee, file_path, is_self_call, caller_class or "")
             call_metadata[key] = (caller, line)
 
-        # Call Rust resolver
-        results = resolve_calls_indexed(entities_list, rust_calls)
+        # Call Rust resolver - returns list of resolved qualified names (or None)
+        resolved_targets = resolve_calls_indexed(entities_list, rust_calls)
 
         # Track which calls were resolved
         resolved_callers = set()
 
         # Create relationships from results
-        for caller_qname, target_qname, confidence in results:
+        # Rust returns one result per call, in same order as rust_calls
+        for i, target_qname in enumerate(resolved_targets):
+            if target_qname is None:
+                continue
+            
+            # Get the original call info
+            callee, caller_file, is_self_call, caller_class = rust_calls[i]
+            key = (callee, caller_file, is_self_call, caller_class or "")
+            
+            if key not in call_metadata:
+                continue
+            
+            caller_qname, line = call_metadata[key]
+            confidence = 0.95  # High confidence for Rust-resolved calls
             resolved_callers.add(caller_qname)
-            # Find the line number from metadata
-            line = 0
-            callee_name = ""
-            is_self_call = False
-            for (callee, cfile, is_self, cclass), (stored_caller, stored_line) in call_metadata.items():
-                if stored_caller == caller_qname:
-                    line = stored_line
-                    callee_name = callee
-                    is_self_call = is_self
-                    break
 
             relationships.append(
                 Relationship(
@@ -1492,8 +1495,8 @@ class PythonParser(CodeParser):
                     rel_type=RelationshipType.CALLS,
                     properties={
                         "line": line,
-                        "call_name": callee_name,
-                        "is_self_call": is_self_call,
+                        "call_name": callee,  # The callee name from rust_calls
+                        "is_self_call": is_self_call,  # From rust_calls
                         "confidence": confidence,
                         "resolved_by": "rust_indexed",
                     },

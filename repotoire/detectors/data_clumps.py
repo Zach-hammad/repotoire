@@ -139,6 +139,11 @@ class DataClumpsDetector(CodeSmellDetector):
         Returns:
             List of tuples: (function_name, parameter_set, file_path)
         """
+        # Fast path: use QueryCache if available
+        if self.query_cache is not None:
+            logger.debug("Using QueryCache for data clumps detection")
+            return self._get_function_parameters_cached()
+
         # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
         repo_filter = self._get_isolation_filter("f")
         query = f"""
@@ -176,6 +181,41 @@ class DataClumpsDetector(CodeSmellDetector):
                         row.get("filePath")
                     ))
 
+        return functions
+
+    def _get_function_parameters_cached(self) -> List[Tuple[str, Set[str], Optional[str]]]:
+        """Get all functions with parameters using QueryCache.
+        
+        O(1) lookup from prefetched data instead of database query.
+        
+        Returns:
+            List of tuples: (function_name, parameter_set, file_path)
+        """
+        functions = []
+        
+        for func_name, func_data in self.query_cache.functions.items():
+            params = func_data.parameters
+            if not params or len(params) < self.min_params:
+                continue
+            
+            # Extract parameter names from stored format
+            param_names = set()
+            for p in params:
+                if isinstance(p, dict):
+                    name = p.get("name", "")
+                    if name and name not in ("self", "cls") and not name.startswith("*"):
+                        param_names.add(name)
+                elif isinstance(p, str):
+                    if p not in ("self", "cls") and not p.startswith("*"):
+                        param_names.add(p)
+            
+            if len(param_names) >= self.min_params:
+                functions.append((
+                    func_name,
+                    param_names,
+                    func_data.file_path
+                ))
+        
         return functions
 
     def _find_clumps(

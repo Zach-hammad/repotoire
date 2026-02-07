@@ -50,7 +50,12 @@ class CodeSmellDetector(ABC):
         self.min_severity = self._parse_min_severity(self.config.get("min_severity"))
         self.weight = self.config.get("weight", 1.0)
 
+        # QueryCache: Shared cache for parallel detector execution
+        # Provides O(1) lookups for functions, classes, relationships
+        self.query_cache = self.config.get("query_cache")
+
         # REPO-522: Node data cache for O(1) property lookups in cloud mode
+        # (Legacy - prefer query_cache when available)
         self._node_data_cache = self.config.get("node_data_cache", {})
 
     @property

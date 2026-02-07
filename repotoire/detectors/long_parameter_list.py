@@ -119,6 +119,12 @@ class LongParameterListDetector(CodeSmellDetector):
         """
         findings: List[Finding] = []
 
+        # Fast path: use QueryCache if available
+        if self.query_cache is not None:
+            logger.debug("Using QueryCache for long parameter list detection")
+            return self._find_long_parameter_lists_cached()
+
+        # Fallback: query database directly
         # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
         repo_filter = self._get_isolation_filter("f")
         # Query for functions with many parameters
@@ -161,6 +167,54 @@ class LongParameterListDetector(CodeSmellDetector):
             finding = self._create_finding(record, meaningful_params, param_count)
             findings.append(finding)
 
+        return findings
+
+    def _find_long_parameter_lists_cached(self) -> List[Finding]:
+        """Find functions with long parameter lists using QueryCache.
+        
+        O(1) lookup from prefetched data instead of database query.
+        
+        Returns:
+            List of findings for functions with long parameter lists
+        """
+        findings: List[Finding] = []
+        
+        # Get all functions with long parameter lists from cache
+        long_param_funcs = self.query_cache.get_long_parameter_functions(self.max_params)
+        
+        # Sort by parameter count descending, limit to 100
+        long_param_funcs.sort(key=lambda f: len(f.parameters), reverse=True)
+        long_param_funcs = long_param_funcs[:100]
+        
+        for func in long_param_funcs:
+            # Get meaningful parameters (excluding self, cls)
+            meaningful_params = self._get_meaningful_params(func.parameters)
+            param_count = len(meaningful_params)
+            
+            # Skip if under threshold after filtering
+            if param_count <= self.max_params:
+                continue
+            
+            # Get class name from qualified name if it's a method
+            class_name = self.query_cache.get_parent_class(func.qualified_name)
+            func_simple_name = func.qualified_name.split("::")[-1] if "::" in func.qualified_name else func.qualified_name.split(".")[-1]
+            
+            # Build record-like dict for _create_finding
+            record = {
+                "func_name": func.qualified_name,
+                "func_simple_name": func_simple_name,
+                "func_file": func.file_path,
+                "func_line": func.line_start,
+                "complexity": func.complexity,
+                "is_method": class_name is not None,
+                "params": func.parameters,
+                "containing_file": func.file_path,
+                "class_name": class_name.split(".")[-1] if class_name else None,
+            }
+            
+            finding = self._create_finding(record, meaningful_params, param_count)
+            findings.append(finding)
+        
         return findings
 
     def _get_meaningful_params(self, params: List) -> List[str]:

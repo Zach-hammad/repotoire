@@ -9,7 +9,7 @@ REPO-416: Added path cache support for O(1) cycle detection in fallback path.
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional, Set
+from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.detectors.graph_algorithms import GraphAlgorithms
@@ -69,6 +69,11 @@ class CircularDependencyDetector(CodeSmellDetector):
         Returns:
             List of findings, one per circular dependency cycle
         """
+        # Fast path: use QueryCache if available
+        if self.query_cache is not None:
+            logger.debug("Using QueryCache for circular dependency detection")
+            return self._detect_cached()
+
         # Pass repo_id for multi-tenant filtering
         graph_algo = GraphAlgorithms(self.db, repo_id=self.repo_id)
 
@@ -81,6 +86,101 @@ class CircularDependencyDetector(CodeSmellDetector):
         # Fall back to traditional path-based detection only if Rust fails
         logger.warning("Rust SCC detection failed, falling back to path queries")
         return self._detect_with_path_queries()
+
+    def _detect_cached(self) -> List[Finding]:
+        """Detect circular dependencies using QueryCache.
+
+        Uses import relationships from QueryCache to detect cycles.
+        Falls back to graph queries if import data not available.
+
+        Returns:
+            List of findings for circular dependency cycles
+        """
+        findings: List[Finding] = []
+        
+        # Check if QueryCache has import data
+        if not hasattr(self.query_cache, 'get_imports') and not hasattr(self.query_cache, 'imports'):
+            logger.debug("QueryCache does not have import data, falling back to graph detection")
+            # Fall back to standard detection without the fast path check
+            graph_algo = GraphAlgorithms(self.db, repo_id=self.repo_id)
+            result = self._detect_with_scc(graph_algo)
+            if result is not None:
+                return result
+            return self._detect_with_path_queries()
+        
+        # Build import graph from cache
+        # imports: dict of file_path -> list of imported file paths
+        imports_map: Dict[str, List[str]] = {}
+        
+        if hasattr(self.query_cache, 'imports'):
+            imports_map = self.query_cache.imports
+        elif hasattr(self.query_cache, 'get_imports'):
+            # Build from files in cache
+            for file_path in getattr(self.query_cache, 'files', {}):
+                imported = self.query_cache.get_imports(file_path)
+                if imported:
+                    imports_map[file_path] = imported
+        
+        if not imports_map:
+            logger.debug("No import data in cache, falling back to graph detection")
+            graph_algo = GraphAlgorithms(self.db, repo_id=self.repo_id)
+            result = self._detect_with_scc(graph_algo)
+            if result is not None:
+                return result
+            return self._detect_with_path_queries()
+        
+        # Find cycles using DFS with Tarjan's algorithm (simplified)
+        # Track visited and recursion stack for cycle detection
+        all_files = set(imports_map.keys())
+        for imported_list in imports_map.values():
+            all_files.update(imported_list)
+        
+        visited: Set[str] = set()
+        rec_stack: Set[str] = set()
+        seen_cycles: Set[tuple] = set()
+        
+        def find_cycles(node: str, path: List[str]) -> None:
+            """DFS to find cycles starting from node."""
+            if node in rec_stack:
+                # Found a cycle - extract it
+                cycle_start = path.index(node)
+                cycle = path[cycle_start:]
+                
+                # Normalize and deduplicate
+                normalized = self._normalize_cycle(cycle)
+                if normalized not in seen_cycles and len(normalized) >= 2:
+                    seen_cycles.add(normalized)
+                return
+            
+            if node in visited:
+                return
+            
+            visited.add(node)
+            rec_stack.add(node)
+            path.append(node)
+            
+            for imported in imports_map.get(node, []):
+                find_cycles(imported, path.copy())
+            
+            rec_stack.remove(node)
+        
+        # Run DFS from each file
+        for file_path in all_files:
+            if file_path not in visited:
+                find_cycles(file_path, [])
+        
+        # Create findings for detected cycles
+        for cycle in seen_cycles:
+            cycle_list = list(cycle)
+            finding = self._create_finding(
+                cycle_files=cycle_list,
+                cycle_length=len(cycle_list),
+                detection_method="query_cache"
+            )
+            findings.append(finding)
+        
+        logger.info(f"CircularDependencyDetector (cached) found {len(findings)} circular dependencies")
+        return findings
 
     def _detect_with_scc(self, graph_algo: GraphAlgorithms) -> Optional[List[Finding]]:
         """Detect circular dependencies using Rust SCC algorithm.

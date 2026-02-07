@@ -1,0 +1,5 @@
+# Generated/minified files
+*.min.js
+*.bundle.js
+*.chunk.js
+*.map

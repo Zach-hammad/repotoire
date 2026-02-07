@@ -12,15 +12,17 @@ if TYPE_CHECKING:
 
 # Registry of detector names to module paths for lazy loading
 _DETECTOR_REGISTRY = {
-    # Core detectors
+    # Core infrastructure
     "AnalysisEngine": ("repotoire.detectors.engine", "AnalysisEngine"),
     "CodeSmellDetector": ("repotoire.detectors.base", "CodeSmellDetector"),
+    "IncrementalCache": ("repotoire.detectors.incremental_cache", "IncrementalCache"),
     # AI-generated code detectors
     "AIDuplicateBlockDetector": ("repotoire.detectors.ai_duplicate_block", "AIDuplicateBlockDetector"),
     "AIMissingTestsDetector": ("repotoire.detectors.ai_missing_tests", "AIMissingTestsDetector"),
     # Graph detectors
     "AIBoilerplateDetector": ("repotoire.detectors.ai_boilerplate", "AIBoilerplateDetector"),
     "ArchitecturalBottleneckDetector": ("repotoire.detectors.architectural_bottleneck", "ArchitecturalBottleneckDetector"),
+    "ArgumentMismatchDetector": ("repotoire.detectors.argument_mismatch_detector", "ArgumentMismatchDetector"),
     "CircularDependencyDetector": ("repotoire.detectors.circular_dependency", "CircularDependencyDetector"),
     "CoreUtilityDetector": ("repotoire.detectors.core_utility", "CoreUtilityDetector"),
     "DeadCodeDetector": ("repotoire.detectors.dead_code", "DeadCodeDetector"),
@@ -35,6 +37,7 @@ _DETECTOR_REGISTRY = {
     "RefusedBequestDetector": ("repotoire.detectors.refused_bequest", "RefusedBequestDetector"),
     "ShotgunSurgeryDetector": ("repotoire.detectors.shotgun_surgery", "ShotgunSurgeryDetector"),
     "TrulyUnusedImportsDetector": ("repotoire.detectors.truly_unused_imports", "TrulyUnusedImportsDetector"),
+    "UnusedImportsDetector": ("repotoire.detectors.unused_imports_detector", "UnusedImportsDetector"),
     # Hybrid detectors (external tool + graph)
     "BanditDetector": ("repotoire.detectors.bandit_detector", "BanditDetector"),
     "ESLintDetector": ("repotoire.detectors.eslint_detector", "ESLintDetector"),
@@ -62,6 +65,10 @@ _DETECTOR_REGISTRY = {
     # AI code quality detectors
     "AIChurnDetector": ("repotoire.detectors.ai_churn_detector", "AIChurnDetector"),
     "AINamingPatternDetector": ("repotoire.detectors.ai_naming_pattern", "AINamingPatternDetector"),
+    # Security detectors
+    "SQLInjectionDetector": ("repotoire.detectors.sql_injection_detector", "SQLInjectionDetector"),
+    "PickleDeserializationDetector": ("repotoire.detectors.pickle_detector", "PickleDeserializationDetector"),
+    "TaintDetector": ("repotoire.detectors.taint_detector", "TaintDetector"),
 }
 
 
@@ -91,7 +98,8 @@ def get_all_detector_classes():
 __all__ = [
     "AnalysisEngine",
     "CodeSmellDetector",
+    "IncrementalCache",
     "get_all_detector_classes",
     # All detector names from registry
-    *[k for k in _DETECTOR_REGISTRY.keys() if k not in ("AnalysisEngine", "CodeSmellDetector")],
+    *[k for k in _DETECTOR_REGISTRY.keys() if k not in ("AnalysisEngine", "CodeSmellDetector", "IncrementalCache")],
 ]

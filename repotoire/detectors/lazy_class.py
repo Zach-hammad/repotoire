@@ -75,6 +75,11 @@ class LazyClassDetector(CodeSmellDetector):
         Returns:
             List of findings for lazy classes
         """
+        # Fast path: use QueryCache if available
+        if self.query_cache is not None:
+            self.logger.debug("Using QueryCache for lazy class detection")
+            return self._detect_cached()
+
         # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
         repo_filter = self._get_isolation_filter("c")
         query = f"""
@@ -157,6 +162,89 @@ class LazyClassDetector(CodeSmellDetector):
                     pass  # Don't fail detection if enrichment fails
 
         self.logger.info(f"LazyClassDetector found {len(findings)} lazy classes")
+        return findings
+
+    def _detect_cached(self) -> List[Finding]:
+        """Detect lazy classes using QueryCache.
+        
+        O(1) lookup from prefetched data instead of database query.
+        
+        Returns:
+            List of findings for lazy classes
+        """
+        findings = []
+        
+        for class_name, class_data in self.query_cache.classes.items():
+            # Skip excluded patterns
+            simple_name = class_name.split(".")[-1]
+            if self._should_exclude(simple_name):
+                continue
+            
+            # Get methods for this class
+            methods = self.query_cache.get_methods(class_name)
+            method_count = len(methods)
+            
+            # Skip if no methods or too many methods
+            if method_count == 0 or method_count > self.max_methods:
+                continue
+            
+            # Calculate total LOC from methods
+            total_loc = 0
+            for method_name in methods:
+                func_data = self.query_cache.get_function(method_name)
+                if func_data:
+                    total_loc += func_data.loc
+            
+            # Skip if too small (trivially empty)
+            if total_loc < self.min_total_loc:
+                continue
+            
+            # Calculate average LOC per method
+            avg_method_loc = total_loc / method_count if method_count > 0 else 0
+            
+            # Skip if methods are too long on average (not lazy)
+            if avg_method_loc > self.max_avg_loc:
+                continue
+            
+            # Build row dict for _create_finding
+            row = {
+                "qualified_name": class_name,
+                "class_name": simple_name,
+                "line_start": class_data.line_start,
+                "line_end": class_data.line_end,
+                "method_count": method_count,
+                "total_loc": total_loc,
+                "avg_method_loc": avg_method_loc,
+                "file_path": class_data.file_path,
+            }
+            
+            finding = self._create_finding(row)
+            findings.append(finding)
+            
+            # Flag entity in graph for cross-detector collaboration
+            if self.enricher:
+                try:
+                    self.enricher.flag_entity(
+                        entity_qualified_name=class_name,
+                        detector="LazyClassDetector",
+                        severity=finding.severity.value,
+                        issues=["minimal_functionality"],
+                        confidence=0.75,
+                        metadata={
+                            "method_count": method_count,
+                            "total_loc": total_loc,
+                        },
+                    )
+                except Exception:
+                    pass
+        
+        # Sort by method count, then total_loc
+        findings.sort(key=lambda f: (f.graph_context.get("method_count", 0), f.graph_context.get("total_loc", 0)))
+        
+        # Limit to 50
+        findings = findings[:50]
+        
+        self.logger.info(f"LazyClassDetector (cached) found {len(findings)} lazy classes")
         return findings
 
     def _should_exclude(self, class_name: str) -> bool:

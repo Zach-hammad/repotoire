@@ -72,6 +72,12 @@ class FeatureEnvyDetector(CodeSmellDetector):
                     # Extract class name from affected nodes
                     for node in prev_finding.affected_nodes:
                         god_classes.add(node)
+
+        # Fast path: use QueryCache if available
+        if self.query_cache is not None:
+            self.logger.debug("Using QueryCache for feature envy detection")
+            return self._detect_cached(god_classes)
+
         # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
         repo_filter = self._get_isolation_filter("c")
         query = f"""
@@ -255,6 +261,116 @@ class FeatureEnvyDetector(CodeSmellDetector):
         self.logger.info(
             f"FeatureEnvyDetector found {len(findings)} methods with feature envy"
         )
+        return findings
+
+    def _detect_cached(self, god_classes: set) -> List[Finding]:
+        """Detect feature envy using QueryCache.
+        
+        O(1) lookups from prefetched data.
+        
+        Args:
+            god_classes: Set of god class names from previous findings
+            
+        Returns:
+            List of findings for methods with feature envy
+        """
+        findings = []
+        
+        # For each method, count internal vs external calls
+        for class_name, class_data in self.query_cache.classes.items():
+            methods = self.query_cache.get_methods(class_name)
+            
+            for method_name in methods:
+                callees = self.query_cache.get_callees(method_name)
+                if not callees:
+                    continue
+                
+                internal_uses = 0
+                external_uses = 0
+                
+                for callee in callees:
+                    callee_class = self.query_cache.get_parent_class(callee)
+                    if callee_class == class_name:
+                        internal_uses += 1
+                    else:
+                        external_uses += 1
+                
+                # Check thresholds
+                if external_uses < self.min_external_uses:
+                    continue
+                
+                if internal_uses > 0 and external_uses <= internal_uses * self.threshold_ratio:
+                    continue
+                
+                ratio = external_uses / internal_uses if internal_uses > 0 else float("inf")
+                
+                # Determine severity
+                if ratio >= self.critical_ratio and external_uses >= self.critical_min_uses:
+                    severity = Severity.CRITICAL
+                elif ratio >= self.high_ratio and external_uses >= self.high_min_uses:
+                    severity = Severity.HIGH
+                elif ratio >= self.medium_ratio and external_uses >= self.medium_min_uses:
+                    severity = Severity.MEDIUM
+                else:
+                    severity = Severity.LOW
+                
+                # Check god class symptom
+                is_god_class_symptom = class_name in god_classes
+                if is_god_class_symptom:
+                    if severity == Severity.CRITICAL:
+                        severity = Severity.HIGH
+                    elif severity == Severity.HIGH:
+                        severity = Severity.MEDIUM
+                    elif severity == Severity.MEDIUM:
+                        severity = Severity.LOW
+                
+                method_data = self.query_cache.get_function(method_name)
+                method_simple = method_name.split("::")[-1] if "::" in method_name else method_name.split(".")[-1]
+                
+                suggestion = (
+                    f"Method '{method_simple}' uses external classes "
+                    f"{external_uses} times vs its own class {internal_uses} times. "
+                    f"Consider moving to the most-used external class."
+                )
+                
+                finding = Finding(
+                    id=f"feature_envy_{method_name}",
+                    detector=self.__class__.__name__,
+                    severity=severity,
+                    title=f"Feature Envy: {method_simple}",
+                    description=(
+                        f"Method '{method_simple}' in class '{class_name.split('.')[-1]}' "
+                        f"shows feature envy ({external_uses} external vs {internal_uses} internal uses)."
+                    ),
+                    affected_nodes=[method_name, class_name],
+                    affected_files=[method_data.file_path] if method_data else [],
+                    line_start=method_data.line_start if method_data else None,
+                    suggested_fix=suggestion,
+                    estimated_effort="Medium (1-2 hours)",
+                    graph_context={
+                        "internal_uses": internal_uses,
+                        "external_uses": external_uses,
+                        "ratio": ratio if ratio != float("inf") else None,
+                        "owner_class": class_name,
+                    },
+                )
+                
+                finding.add_collaboration_metadata(CollaborationMetadata(
+                    detector="FeatureEnvyDetector",
+                    confidence=min(0.7 + (ratio / 10), 0.95) if ratio != float("inf") else 0.9,
+                    evidence=["high_external_usage"],
+                    tags=["feature_envy"]
+                ))
+                
+                findings.append(finding)
+                
+                if len(findings) >= 100:
+                    break
+            
+            if len(findings) >= 100:
+                break
+        
+        self.logger.info(f"FeatureEnvyDetector (cached) found {len(findings)} methods")
         return findings
 
     def severity(self, finding: Finding) -> Severity:

@@ -61,6 +61,11 @@ class DegreeCentralityDetector(CodeSmellDetector):
         Returns:
             List of findings
         """
+        # Fast path: use QueryCache if available
+        if self.query_cache is not None:
+            logger.debug("Using QueryCache for degree centrality detection")
+            return self._detect_cached()
+
         findings = []
 
         # Pass repo_id for multi-tenant filtering
@@ -116,6 +121,95 @@ class DegreeCentralityDetector(CodeSmellDetector):
         except Exception as e:
             logger.error(f"Error in degree centrality detection: {e}", exc_info=True)
             return findings
+
+    def _detect_cached(self) -> List[Finding]:
+        """Detect coupling issues using QueryCache.
+
+        Computes in/out degree from cached caller/callee relationships.
+        O(n) iteration over functions instead of database queries.
+
+        Returns:
+            List of findings
+        """
+        findings = []
+
+        # Compute degree centrality for all functions
+        degree_data = []
+        for func_name, func_data in self.query_cache.functions.items():
+            in_degree = len(self.query_cache.get_callers(func_name))
+            out_degree = len(self.query_cache.get_callees(func_name))
+
+            degree_data.append({
+                "qualified_name": func_name,
+                "file_path": func_data.file_path,
+                "in_degree": in_degree,
+                "out_degree": out_degree,
+                "complexity": func_data.complexity,
+                "line_count": func_data.loc,
+            })
+
+        if not degree_data:
+            return findings
+
+        # Calculate statistics for context
+        in_degrees = [d["in_degree"] for d in degree_data]
+        out_degrees = [d["out_degree"] for d in degree_data]
+
+        stats = {
+            "avg_in_degree": sum(in_degrees) / len(in_degrees) if in_degrees else 0,
+            "max_in_degree": max(in_degrees) if in_degrees else 0,
+            "avg_out_degree": sum(out_degrees) / len(out_degrees) if out_degrees else 0,
+            "max_out_degree": max(out_degrees) if out_degrees else 0,
+        }
+
+        logger.info(
+            f"Degree stats (cached): avg_in={stats['avg_in_degree']:.1f}, "
+            f"max_in={stats['max_in_degree']}, "
+            f"avg_out={stats['avg_out_degree']:.1f}, "
+            f"max_out={stats['max_out_degree']}"
+        )
+
+        # Calculate percentile thresholds
+        sorted_in = sorted(in_degrees)
+        sorted_out = sorted(out_degrees)
+
+        in_threshold_idx = int(len(sorted_in) * self.HIGH_PERCENTILE / 100)
+        out_threshold_idx = int(len(sorted_out) * self.HIGH_PERCENTILE / 100)
+
+        in_threshold = sorted_in[min(in_threshold_idx, len(sorted_in) - 1)] if sorted_in else 0
+        out_threshold = sorted_out[min(out_threshold_idx, len(sorted_out) - 1)] if sorted_out else 0
+
+        # Find high in-degree nodes (God Classes)
+        high_indegree = []
+        for node in degree_data:
+            if node["in_degree"] >= max(in_threshold, self.MIN_INDEGREE):
+                node["threshold"] = in_threshold
+                high_indegree.append(node)
+                # Check for God Class (high in-degree + complexity)
+                if node["complexity"] >= self.HIGH_COMPLEXITY_THRESHOLD:
+                    finding = self._create_god_class_finding(node, stats)
+                    if finding:
+                        findings.append(finding)
+
+        # Find high out-degree nodes (Feature Envy)
+        high_outdegree = []
+        for node in degree_data:
+            if node["out_degree"] >= max(out_threshold, self.MIN_OUTDEGREE):
+                node["threshold"] = out_threshold
+                high_outdegree.append(node)
+                finding = self._create_feature_envy_finding(node, stats)
+                if finding:
+                    findings.append(finding)
+
+        # Detect Coupling Hotspots (both high)
+        hotspots = self._find_coupling_hotspots(high_indegree, high_outdegree)
+        for node in hotspots:
+            finding = self._create_coupling_hotspot_finding(node, stats)
+            if finding:
+                findings.append(finding)
+
+        logger.info(f"DegreeCentralityDetector (cached) found {len(findings)} findings")
+        return findings
 
     def _find_coupling_hotspots(
         self,

@@ -6,9 +6,12 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from repotoire.graph import DatabaseClient
+
+# Incremental caching for skipping unchanged files (REPO-430)
+from repotoire.detectors.incremental_cache import IncrementalCache
 
 # Try to import Rust path cache for O(1) reachability queries (REPO-416)
 try:
@@ -35,6 +38,7 @@ except ImportError:
     InsightsEngine = None  # type: ignore
     InsightsConfig = None  # type: ignore
 from repotoire.detectors.architectural_bottleneck import ArchitecturalBottleneckDetector
+from repotoire.detectors.query_cache import QueryCache
 
 # New graph-based detectors (REPO-228, REPO-229, REPO-231)
 from repotoire.detectors.async_antipattern import AsyncAntipatternDetector
@@ -57,9 +61,10 @@ from repotoire.detectors.inappropriate_intimacy import InappropriateIntimacyDete
 
 # GDS-based detectors (REPO-169, REPO-170, REPO-171)
 from repotoire.detectors.influential_code import InfluentialCodeDetector
-from repotoire.detectors.jscpd_detector import JscpdDetector
+from repotoire.detectors.duplicate_rust import DuplicateRustDetector
 
 # Design smell detectors (REPO-222, REPO-230)
+from repotoire.detectors.argument_mismatch_detector import ArgumentMismatchDetector
 from repotoire.detectors.lazy_class import LazyClassDetector
 from repotoire.detectors.long_parameter_list import LongParameterListDetector
 
@@ -68,7 +73,14 @@ from repotoire.detectors.message_chain import MessageChainDetector
 from repotoire.detectors.middle_man import MiddleManDetector
 
 # GDS-based graph detectors (REPO-172, REPO-173)
+from repotoire.detectors.gh_actions_detector import GHActionsInjectionDetector
+from repotoire.detectors.hardcoded_secrets_detector import HardcodedSecretsDetector
 from repotoire.detectors.module_cohesion import ModuleCohesionDetector
+from repotoire.detectors.sql_injection_detector import SQLInjectionDetector
+from repotoire.detectors.pickle_detector import PickleDeserializationDetector
+from repotoire.detectors.eval_detector import EvalDetector
+from repotoire.detectors.unsafe_template_detector import UnsafeTemplateDetector
+from repotoire.detectors.unused_imports_detector import UnusedImportsDetector
 from repotoire.detectors.mypy_detector import MypyDetector
 from repotoire.detectors.npm_audit_detector import NpmAuditDetector
 from repotoire.detectors.pylint_detector import PylintDetector
@@ -125,6 +137,46 @@ except ImportError:
 MAX_FINDINGS_LIMIT = int(os.environ.get("REPOTOIRE_MAX_FINDINGS", "10000"))
 
 
+# Graph detectors: analyze code structure from the graph database
+# These can be cached based on graph hash since their output depends only on graph state
+# File-based/hybrid detectors (not in this set) scan files directly and need file-level caching
+GRAPH_DETECTOR_NAMES = frozenset({
+    "CircularDependencyDetector",
+    "DeadCodeDetector",
+    "GodClassDetector",
+    "ArchitecturalBottleneckDetector",
+    "ModuleCohesionDetector",
+    "CoreUtilityDetector",
+    "InfluentialCodeDetector",
+    "DegreeCentralityDetector",
+    "FeatureEnvyDetector",
+    "ShotgunSurgeryDetector",
+    "MiddleManDetector",
+    "InappropriateIntimacyDetector",
+    "DataClumpsDetector",
+    "AsyncAntipatternDetector",
+    "TypeHintCoverageDetector",
+    "LongParameterListDetector",
+    "MessageChainDetector",
+    "TestSmellDetector",
+    "GeneratorMisuseDetector",
+    "LazyClassDetector",
+    "RefusedBequestDetector",
+    "ArgumentMismatchDetector",
+    "PackageStabilityDetector",
+    "TechnicalDebtHotspotDetector",
+    "LayeredArchitectureDetector",
+    "CallChainDepthDetector",
+    "HubDependencyDetector",
+    "ChangeCouplingDetector",
+    "HardcodedSecretsDetector",
+    "SQLInjectionDetector",
+    "PickleDeserializationDetector",
+    "EvalDetector",
+    "UnusedImportsDetector",
+})
+
+
 class AnalysisEngine:
     """Orchestrates code smell detection and health scoring."""
 
@@ -152,11 +204,14 @@ class AnalysisEngine:
         voting_strategy: str = "weighted",
         confidence_threshold: float = 0.6,
         parallel: bool = True,
-        max_workers: int = 4,
+        max_workers: int = 0,  # 0 = auto (CPU count)
         changed_files: Optional[List[str]] = None,
         path_cache: Optional["PyPathCache"] = None,
         enable_insights: bool = True,
         insights_config: Optional[Dict] = None,
+        thorough: bool = False,
+        incremental: bool = False,
+        no_cache: bool = False,
     ):
         """Initialize analysis engine.
 
@@ -175,16 +230,36 @@ class AnalysisEngine:
             path_cache: Optional prebuilt path expression cache for O(1) reachability queries (REPO-416)
             enable_insights: Enable insights engine for ML enrichment and graph metrics (REPO-501)
             insights_config: Optional insights engine configuration dict
+            thorough: If True, run slow external tools (pylint, vulture, semgrep). Skipped by default for faster analysis.
+            incremental: Enable incremental analysis - skip unchanged files using content hashing (REPO-430)
+            no_cache: Force full re-analysis, ignoring any cached findings (use with --incremental)
         """
         self.db = graph_client
+        self.thorough = thorough
+        self.incremental = incremental
+        self.no_cache = no_cache
         self.repository_path = repository_path
+        
+        # Initialize incremental cache for skipping unchanged files (REPO-430)
+        self.incremental_cache: Optional[IncrementalCache] = None
+        if self.incremental:
+            cache_dir = Path(repository_path) / ".repotoire" / "cache"
+            self.incremental_cache = IncrementalCache(cache_dir)
+            stats = self.incremental_cache.get_stats()
+            logger.info(
+                f"Incremental mode enabled: {stats['cached_files']} files cached, "
+                f"{stats['total_findings']} findings"
+            )
+            if self.no_cache:
+                logger.info("--no-cache specified, will invalidate cache before analysis")
+                self.incremental_cache.invalidate_all()
         self.repo_id = repo_id
         self.keep_metadata = keep_metadata
         self.enable_voting = enable_voting
         self.enable_insights = enable_insights and _HAS_INSIGHTS
         self.insights_config = insights_config or {}
         self.parallel = parallel
-        self.max_workers = max_workers
+        self.max_workers = max_workers if max_workers > 0 else min(os.cpu_count() or 4, 16)
         # Check if using FalkorDB (no GDS support)
         self.is_falkordb = getattr(graph_client, "is_falkordb", False) or type(graph_client).__name__ == "FalkorDBClient"
         # Check if using Kuzu (limited Cypher support - external tools only)
@@ -203,9 +278,22 @@ class AnalysisEngine:
         else:
             logger.warning("Path cache NOT enabled - detectors will use slower Cypher queries")
 
+        # QueryCache: Prefetch common graph data for parallel detectors
+        # This reduces redundant queries across 42+ detectors (9min → <2min target)
+        self.query_cache = QueryCache(graph_client, repo_id=repo_id)
+        try:
+            self.query_cache.prefetch()
+            logger.info(f"QueryCache ready: {self.query_cache.total_functions} functions, "
+                       f"{self.query_cache.total_classes} classes in {self.query_cache.prefetch_time:.2f}s")
+        except Exception as e:
+            logger.warning(f"QueryCache prefetch failed, detectors will query individually: {e}")
+            self.query_cache = None
+
         # REPO-522: Prefetch node data to reduce HTTP round-trips in cloud mode
+        # (Kept for backward compatibility, but QueryCache is preferred)
         self.node_data_cache: Dict[str, Dict[str, Any]] = {}
-        self._prefetch_node_data()
+        if self.query_cache is None:
+            self._prefetch_node_data()
 
         # Initialize GraphEnricher for cross-detector collaboration (REPO-151 Phase 2)
         self.enricher = GraphEnricher(graph_client)
@@ -231,8 +319,11 @@ class AnalysisEngine:
 
         # Helper to merge detector-specific config with repo_id for multi-tenant filtering
         def with_repo_id(specific_config: Optional[Dict] = None) -> Dict:
-            """Merge detector-specific config with repo_id and path_cache for graph query filtering."""
+            """Merge detector-specific config with repo_id, path_cache, and query_cache."""
             base = {"repo_id": repo_id} if repo_id else {}
+            # Include query cache for O(1) data lookups (primary cache)
+            if self.query_cache is not None:
+                base["query_cache"] = self.query_cache
             # Include path cache for O(1) reachability queries (REPO-416)
             if self.path_cache is not None:
                 base["path_cache"] = self.path_cache
@@ -283,6 +374,8 @@ class AnalysisEngine:
             # Design smell detectors (REPO-222, REPO-230)
             LazyClassDetector(graph_client, detector_config=with_repo_id(config.get("lazy_class")), enricher=self.enricher),
             RefusedBequestDetector(graph_client, detector_config=with_repo_id(config.get("refused_bequest")), enricher=self.enricher),
+            # Argument mismatch detector (replaces part of pylint argument checks)
+            ArgumentMismatchDetector(graph_client, detector_config=with_repo_id(config.get("argument_mismatch")), enricher=self.enricher),
             # Rust-based graph detectors (REPO-433) - high-performance Rust implementations
             PackageStabilityDetector(graph_client, detector_config=with_repo_id(config.get("package_stability")), enricher=self.enricher),
             TechnicalDebtHotspotDetector(graph_client, detector_config=with_repo_id(config.get("technical_debt_hotspot")), enricher=self.enricher),
@@ -309,61 +402,61 @@ class AnalysisEngine:
                 detector_config=hybrid_config(),
                 enricher=self.enricher  # Enable graph enrichment
             ),
-            # PylintDetector in selective mode: only checks that Ruff doesn't cover (the 10%)
-            # Uses parallel processing for optimal performance on multi-core systems
-            # Note: R0801 (duplicate-code) removed - too slow (O(n²)), use RadonDetector instead
-            PylintDetector(
+            # NOTE: PylintDetector moved to --thorough mode (slow, spawns CPU-intensive workers)
+            # NOTE: BanditDetector moved to --thorough mode (replaced by fast graph-native detectors:
+            #       EvalDetector, PickleDeserializationDetector, HardcodedSecretsDetector, SQLInjectionDetector)
+            # Hardcoded secrets detector (fast graph-native replacement for semgrep secrets)
+            HardcodedSecretsDetector(
                 graph_client,
-                detector_config=hybrid_config({
-                    "enable_only": [
-                        # Design checks (class/module structure)
-                        "R0901",  # too-many-ancestors
-                        "R0902",  # too-many-instance-attributes
-                        "R0903",  # too-few-public-methods
-                        "R0904",  # too-many-public-methods
-                        "R0916",  # too-many-boolean-expressions
-                        # Advanced refactoring
-                        "R1710",  # inconsistent-return-statements
-                        "R1711",  # useless-return
-                        "R1703",  # simplifiable-if-statement
-                        "C0206",  # consider-using-dict-items
-                        # Import analysis
-                        "R0401",  # import-self
-                        "R0402",  # cyclic-import
-                    ],
-                    "max_findings": 50,  # Limit to keep it fast
-                    "jobs": min(4, os.cpu_count() or 1)  # Use max 4 cores to avoid freezing
-                }),
-                enricher=self.enricher  # Enable graph enrichment
+                detector_config=with_repo_id(config.get("hardcoded_secrets")),
             ),
-            BanditDetector(
+            # SQL injection detector (fast graph-native replacement for semgrep SQL rules)
+            SQLInjectionDetector(
+                graph_client,
+                detector_config=with_repo_id(config.get("sql_injection")),
+            ),
+            # Pickle deserialization detector (fast replacement for semgrep pickle rules)
+            PickleDeserializationDetector(
+                graph_client,
+                detector_config=with_repo_id(config.get("pickle_deserialization")),
+                enricher=self.enricher,
+            ),
+            # Eval/exec detector (fast replacement for semgrep code execution rules)
+            EvalDetector(
+                graph_client,
+                detector_config=with_repo_id(config.get("eval_detector")),
+                enricher=self.enricher,
+            ),
+            # Unsafe template detector (fast replacement for semgrep XSS/Jinja2 rules)
+            UnsafeTemplateDetector(
+                graph_client,
+                detector_config=hybrid_config(config.get("unsafe_template")),
+                enricher=self.enricher,
+            ),
+            # GitHub Actions injection detector (fast replacement for semgrep GHA rules)
+            GHActionsInjectionDetector(
                 graph_client,
                 detector_config=hybrid_config(),
-                enricher=self.enricher  # Enable graph enrichment
+                enricher=self.enricher,
+            ),
+            # Unused imports detector (fast graph-based alternative to pylint unused-import)
+            UnusedImportsDetector(
+                graph_client,
+                detector_config=with_repo_id(config.get("unused_imports")),
             ),
             RadonDetector(
                 graph_client,
                 detector_config=hybrid_config(),
                 enricher=self.enricher  # Enable graph enrichment
             ),
-            # Duplicate code detection (fast, replaces slow Pylint R0801)
-            JscpdDetector(
+            # Duplicate code detection (Rust-accelerated, replaces slow Pylint R0801 and jscpd)
+            DuplicateRustDetector(
                 graph_client,
                 detector_config=hybrid_config(),
                 enricher=self.enricher  # Enable graph enrichment
             ),
-            # Advanced unused code detection (more accurate than graph-based DeadCodeDetector)
-            VultureDetector(
-                graph_client,
-                detector_config=hybrid_config(),
-                enricher=self.enricher  # Enable graph enrichment
-            ),
-            # Advanced security patterns (more powerful than Bandit)
-            SemgrepDetector(
-                graph_client,
-                detector_config=hybrid_config(),
-                enricher=self.enricher  # Enable graph enrichment
-            ),
+            # NOTE: VultureDetector moved to --thorough mode (slow, spawns CPU-intensive workers)
+            # NOTE: SemgrepDetector moved to --thorough mode (slow, spawns CPU-intensive workers)
             # SATD (Self-Admitted Technical Debt) detector (REPO-410)
             # Scans TODO, FIXME, HACK, XXX, KLUDGE, REFACTOR, TEMP, BUG comments
             SATDDetector(
@@ -399,6 +492,62 @@ class AnalysisEngine:
                 enricher=self.enricher
             ),
         ]
+
+        # Thorough mode: add slow external tool detectors that spawn CPU-intensive workers
+        # These are skipped by default for faster analysis (~5-10 minutes savings)
+        if thorough:
+            logger.info("Thorough mode: enabling bandit, pylint, vulture, and semgrep detectors")
+            self.detectors.extend([
+                # BanditDetector: general Python security linting
+                # Mostly replaced by fast graph-native detectors (EvalDetector, PickleDeserializationDetector)
+                # but provides additional checks for completeness
+                BanditDetector(
+                    graph_client,
+                    detector_config=hybrid_config(),
+                    enricher=self.enricher
+                ),
+                # PylintDetector in selective mode: only checks that Ruff doesn't cover (the 10%)
+                # Uses parallel processing for optimal performance on multi-core systems
+                # Note: R0801 (duplicate-code) removed - too slow (O(n²)), use RadonDetector instead
+                PylintDetector(
+                    graph_client,
+                    detector_config=hybrid_config({
+                        "enable_only": [
+                            # Design checks (class/module structure)
+                            "R0901",  # too-many-ancestors
+                            "R0902",  # too-many-instance-attributes
+                            "R0903",  # too-few-public-methods
+                            "R0904",  # too-many-public-methods
+                            "R0916",  # too-many-boolean-expressions
+                            # Advanced refactoring
+                            "R1710",  # inconsistent-return-statements
+                            "R1711",  # useless-return
+                            "R1703",  # simplifiable-if-statement
+                            "C0206",  # consider-using-dict-items
+                            # Import analysis
+                            "R0401",  # import-self
+                            "R0402",  # cyclic-import
+                        ],
+                        "max_findings": 50,  # Limit to keep it fast
+                        "jobs": min(4, os.cpu_count() or 1)  # Use max 4 cores to avoid freezing
+                    }),
+                    enricher=self.enricher  # Enable graph enrichment
+                ),
+                # Advanced unused code detection (more accurate than graph-based DeadCodeDetector)
+                VultureDetector(
+                    graph_client,
+                    detector_config=hybrid_config(),
+                    enricher=self.enricher  # Enable graph enrichment
+                ),
+                # Advanced security patterns (more powerful than Bandit)
+                SemgrepDetector(
+                    graph_client,
+                    detector_config=hybrid_config(),
+                    enricher=self.enricher  # Enable graph enrichment
+                ),
+            ])
+        else:
+            logger.info("Fast mode: skipping bandit, pylint, vulture, semgrep (use --thorough to enable)")
 
         # Lazy import to avoid circular dependency (security -> detectors.base -> detectors -> engine)
         from repotoire.security.dependency_scanner import DependencyScanner
@@ -886,6 +1035,76 @@ class AnalysisEngine:
             logger.warning(f"Node data prefetch failed: {e}. Detectors will query individually.")
             self.node_data_cache = {}
 
+    def _get_source_files(self) -> List[Path]:
+        """Get all source files in the repository for incremental analysis (REPO-430).
+        
+        Discovers Python and TypeScript/JavaScript files, excluding common
+        non-source directories like node_modules, __pycache__, .git, etc.
+        
+        Returns:
+            List of Path objects for source files
+        """
+        repo_path = Path(self.repository_path)
+        source_files: List[Path] = []
+        
+        # File extensions to include
+        source_extensions = {
+            ".py",      # Python
+            ".ts",      # TypeScript
+            ".tsx",     # TypeScript JSX
+            ".js",      # JavaScript
+            ".jsx",     # JavaScript JSX
+            ".mjs",     # ES modules
+            ".cjs",     # CommonJS
+        }
+        
+        # Directories to skip
+        skip_dirs = {
+            "node_modules",
+            "__pycache__",
+            ".git",
+            ".svn",
+            ".hg",
+            ".tox",
+            ".nox",
+            ".eggs",
+            "*.egg-info",
+            ".mypy_cache",
+            ".pytest_cache",
+            ".ruff_cache",
+            "build",
+            "dist",
+            ".venv",
+            "venv",
+            "env",
+            ".env",
+        }
+        
+        def should_skip_dir(name: str) -> bool:
+            """Check if directory should be skipped."""
+            if name in skip_dirs:
+                return True
+            if name.endswith(".egg-info"):
+                return True
+            return False
+        
+        try:
+            for root, dirs, files in os.walk(repo_path):
+                # Filter out directories to skip (modifies dirs in-place)
+                dirs[:] = [d for d in dirs if not should_skip_dir(d)]
+                
+                for filename in files:
+                    ext = Path(filename).suffix.lower()
+                    if ext in source_extensions:
+                        source_files.append(Path(root) / filename)
+            
+            logger.debug(f"Found {len(source_files)} source files for incremental analysis")
+            
+        except Exception as e:
+            logger.warning(f"Failed to enumerate source files: {e}")
+        
+        return source_files
+
     def analyze(self, progress_callback=None) -> CodebaseHealth:
         """Run complete analysis and generate health report.
 
@@ -1064,11 +1283,24 @@ class AnalysisEngine:
         """Run all registered detectors with two-phase parallel execution.
 
         REPO-217: Implements parallel execution for improved performance.
+        REPO-430: Implements incremental analysis via content hashing.
+        REPO-431: Implements graph-level caching for graph detectors.
 
         Phase 1: Run all independent detectors (needs_previous_findings=False)
                  in parallel using ThreadPoolExecutor.
         Phase 2: Run dependent detectors (needs_previous_findings=True)
                  sequentially, passing accumulated findings.
+
+        When incremental mode is enabled:
+        - Get all source files and filter to only changed files
+        - Load cached findings for unchanged files
+        - Run detectors only on changed files
+        - Update cache with new findings
+        
+        Graph-level caching (REPO-431):
+        - Check if graph structure has changed since last run
+        - If unchanged, load cached graph detector findings (skip running them)
+        - If changed, run graph detectors and cache their findings
 
         Args:
             progress_callback: Optional callback(detector_name, current, total, status)
@@ -1076,15 +1308,91 @@ class AnalysisEngine:
         Returns:
             Combined list of all findings
         """
+        # REPO-430: Incremental analysis - get source files and filter to changed
+        cached_findings: List[Finding] = []
+        changed_file_set: Optional[Set[str]] = None
+        all_source_files: List[Path] = []
+        
+        if self.incremental and self.incremental_cache is not None:
+            all_source_files = self._get_source_files()
+            changed_files = self.incremental_cache.get_changed_files(all_source_files)
+            
+            # Build set of changed file paths for fast lookup
+            changed_file_set = {str(f.resolve()) for f in changed_files}
+            
+            # Load cached findings for unchanged files
+            unchanged_files = [f for f in all_source_files if str(f.resolve()) not in changed_file_set]
+            for uf in unchanged_files:
+                cached_findings.extend(self.incremental_cache.get_cached_findings(uf))
+            
+            # Log incremental analysis stats
+            total_files = len(all_source_files)
+            changed_count = len(changed_files)
+            cached_count = total_files - changed_count
+            logger.info(
+                f"Incremental mode: {changed_count} of {total_files} files changed, "
+                f"skipping {cached_count} cached ({len(cached_findings)} cached findings)"
+            )
+            
+            # Update changed_files for hybrid detectors (convert to relative paths)
+            # This enables hybrid detectors (Ruff, Mypy, etc.) to also skip unchanged files
+            if changed_files:
+                repo_path = Path(self.repository_path).resolve()
+                relative_changed = []
+                for f in changed_files:
+                    try:
+                        relative_changed.append(str(f.relative_to(repo_path)))
+                    except ValueError:
+                        relative_changed.append(str(f))
+                self._incremental_changed_files = relative_changed
+            else:
+                self._incremental_changed_files = []
+        else:
+            self._incremental_changed_files = None
+        
+        # REPO-431: Graph-level caching - check if graph has changed
+        graph_changed = True
+        cached_graph_findings: List[Finding] = []
+        graph_detectors_to_skip: Set[str] = set()
+        
+        if self.incremental and self.incremental_cache is not None:
+            graph_changed = self.incremental_cache.is_graph_changed(self.db)
+            
+            if not graph_changed:
+                # Graph unchanged - load cached graph detector findings
+                cached_graph_findings = self.incremental_cache.get_all_cached_graph_findings()
+                
+                # Identify which graph detectors we can skip
+                graph_detectors_to_skip = {
+                    d.__class__.__name__ for d in self.detectors
+                    if d.__class__.__name__ in GRAPH_DETECTOR_NAMES
+                }
+                
+                logger.info(
+                    f"Graph unchanged, using cached findings for {len(graph_detectors_to_skip)} "
+                    f"graph detectors ({len(cached_graph_findings)} cached findings)"
+                )
+        
+        # Partition detectors: skip graph detectors if graph unchanged
+        if graph_detectors_to_skip:
+            active_detectors = [
+                d for d in self.detectors
+                if d.__class__.__name__ not in graph_detectors_to_skip
+            ]
+        else:
+            active_detectors = self.detectors
+        
         # Classify detectors based on whether they need previous findings
-        independent_detectors = [d for d in self.detectors if not d.needs_previous_findings]
-        dependent_detectors = [d for d in self.detectors if d.needs_previous_findings]
+        independent_detectors = [d for d in active_detectors if not d.needs_previous_findings]
+        dependent_detectors = [d for d in active_detectors if d.needs_previous_findings]
 
-        total_detectors = len(self.detectors)
+        total_detectors = len(active_detectors)
+        skipped_count = len(self.detectors) - len(active_detectors)
 
         logger.info(
             f"Detector classification: {len(independent_detectors)} independent, "
             f"{len(dependent_detectors)} dependent (need previous findings)"
+            + (f", {skipped_count} skipped (graph cached)" if skipped_count > 0 else "")
         )
 
         all_findings: List[Finding] = []
@@ -1147,6 +1455,98 @@ class AnalysisEngine:
             "detectors_run": len(self.detectors),
             "parallel_mode": self.parallel
         })
+
+        # REPO-430/REPO-431: Incremental caching - merge cached findings and update cache
+        if self.incremental and self.incremental_cache is not None:
+            # REPO-431: Cache graph detector findings if graph changed
+            if graph_changed:
+                # Group findings by detector for graph caching
+                findings_by_detector: Dict[str, List[Finding]] = {}
+                for finding in all_findings:
+                    detector_name = finding.detector
+                    if detector_name in GRAPH_DETECTOR_NAMES:
+                        if detector_name not in findings_by_detector:
+                            findings_by_detector[detector_name] = []
+                        findings_by_detector[detector_name].append(finding)
+                
+                # Cache each graph detector's findings
+                for detector_name, detector_findings in findings_by_detector.items():
+                    try:
+                        self.incremental_cache.cache_graph_findings(detector_name, detector_findings)
+                    except Exception as e:
+                        logger.debug(f"Failed to cache graph findings for {detector_name}: {e}")
+                
+                # Update graph hash to mark current state as processed
+                try:
+                    self.incremental_cache.update_graph_hash(self.db)
+                    logger.info(
+                        f"Cached graph findings from {len(findings_by_detector)} graph detectors"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to update graph hash: {e}")
+            
+            # Merge cached graph findings with new findings (from both file and graph detectors)
+            if cached_graph_findings:
+                all_findings = cached_graph_findings + all_findings
+                logger.debug(
+                    f"Merged {len(cached_graph_findings)} cached graph findings "
+                    f"with {len(all_findings) - len(cached_graph_findings)} new findings"
+                )
+            
+            # Merge cached file findings (from unchanged files) with new findings
+            if cached_findings:
+                all_findings = cached_findings + all_findings
+                logger.debug(
+                    f"Merged {len(cached_findings)} cached file findings "
+                    f"with {len(all_findings) - len(cached_findings)} findings"
+                )
+            
+            # Update file cache with new findings, grouped by file
+            # Only cache non-graph findings (graph findings are cached separately)
+            findings_by_file: Dict[str, List[Finding]] = {}
+            for finding in all_findings:
+                # Skip graph detector findings - they're cached separately
+                if finding.detector in GRAPH_DETECTOR_NAMES:
+                    continue
+                    
+                # Use first affected file from finding
+                file_path = finding.affected_files[0] if finding.affected_files else None
+                if file_path:
+                    # Resolve to absolute path for consistent cache keys
+                    try:
+                        abs_path = str(Path(self.repository_path, file_path).resolve())
+                    except (OSError, ValueError):
+                        abs_path = file_path
+                    if abs_path not in findings_by_file:
+                        findings_by_file[abs_path] = []
+                    findings_by_file[abs_path].append(finding)
+            
+            # Cache findings for each file (including files with findings)
+            for file_path, file_findings in findings_by_file.items():
+                try:
+                    self.incremental_cache.cache_findings(Path(file_path), file_findings)
+                except Exception as e:
+                    logger.debug(f"Failed to cache findings for {file_path}: {e}")
+            
+            # Also cache files that were scanned but had no findings (for true incremental)
+            if all_source_files:
+                for source_file in all_source_files:
+                    abs_path = str(source_file.resolve())
+                    if abs_path not in findings_by_file:
+                        try:
+                            self.incremental_cache.cache_findings(source_file, [])
+                        except Exception as e:
+                            logger.debug(f"Failed to cache empty findings for {source_file}: {e}")
+            
+            # Save cache to disk
+            self.incremental_cache.save_cache()
+            stats = self.incremental_cache.get_stats()
+            logger.info(
+                f"Incremental cache updated: {stats['cached_files']} files, "
+                f"{stats['total_findings']} file findings, "
+                f"{stats['graph_detectors']} graph detectors, "
+                f"{stats['graph_findings']} graph findings cached"
+            )
 
         return all_findings
 

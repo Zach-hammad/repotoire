@@ -138,6 +138,11 @@ class TypeHintCoverageDetector(CodeSmellDetector):
         Returns:
             List of findings for functions with missing type hints
         """
+        # Fast path: use QueryCache if available
+        if self.query_cache is not None:
+            logger.debug("Using QueryCache for type hint coverage detection")
+            return self._find_functions_missing_hints_cached()
+
         findings: List[Finding] = []
 
         # Query for functions with parameters but missing type info
@@ -222,6 +227,71 @@ class TypeHintCoverageDetector(CodeSmellDetector):
             )
             findings.append(finding)
 
+        return findings
+
+    def _find_functions_missing_hints_cached(self) -> List[Finding]:
+        """Find functions with missing type hints using QueryCache.
+        
+        O(1) lookup from prefetched data instead of database query.
+        
+        Returns:
+            List of findings for functions with missing type hints
+        """
+        findings: List[Finding] = []
+        
+        # Iterate through all functions in cache
+        funcs_checked = 0
+        for func_name, func_data in self.query_cache.functions.items():
+            # Skip if no parameters
+            if not func_data.parameters:
+                continue
+            
+            funcs_checked += 1
+            if funcs_checked > 200:  # Match query LIMIT
+                break
+            
+            func_simple_name = func_name.split("::")[-1] if "::" in func_name else func_name.split(".")[-1]
+            
+            # Skip test functions
+            if func_simple_name.startswith("test_"):
+                continue
+            
+            # Get meaningful parameters
+            meaningful_params = self._get_meaningful_params(func_data.parameters)
+            
+            # For cached data, we don't have param_types - assume untyped
+            # This is a simplification; full type info would need schema extension
+            typed_params = 0
+            
+            # Check return type
+            missing_return = (
+                func_data.return_type is None
+                and func_simple_name not in self.NO_RETURN_NEEDED
+            )
+            
+            # Skip if no meaningful parameters and no missing return
+            if len(meaningful_params) == 0 and not missing_return:
+                continue
+            
+            # Build record-like dict for _create_function_finding
+            record = {
+                "func_name": func_name,
+                "func_simple_name": func_simple_name,
+                "func_file": func_data.file_path,
+                "func_line": func_data.line_start,
+                "complexity": func_data.complexity,
+                "is_method": self.query_cache.get_parent_class(func_name) is not None,
+                "containing_file": func_data.file_path,
+            }
+            
+            finding = self._create_function_finding(
+                record,
+                meaningful_params,
+                typed_params,
+                missing_return
+            )
+            findings.append(finding)
+        
         return findings
 
     def _get_meaningful_params(self, params: List) -> List[str]:

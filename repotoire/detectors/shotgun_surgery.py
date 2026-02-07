@@ -10,7 +10,7 @@ Addresses: FAL-111
 """
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from repotoire.detectors.base import CodeSmellDetector
 from repotoire.graph import FalkorDBClient
@@ -39,6 +39,11 @@ class ShotgunSurgeryDetector(CodeSmellDetector):
         Returns:
             List of Finding objects for classes used by many others.
         """
+        # Fast path: use QueryCache if available
+        if self.query_cache is not None:
+            self.logger.debug("Using QueryCache for shotgun surgery detection")
+            return self._detect_cached()
+
         # REPO-600: Filter by tenant_id AND repo_id for defense-in-depth isolation
         repo_filter = self._get_isolation_filter("c")
         query = f"""
@@ -169,6 +174,130 @@ class ShotgunSurgeryDetector(CodeSmellDetector):
         self.logger.info(
             f"ShotgunSurgeryDetector found {len(findings)} classes with high fan-in"
         )
+        return findings
+
+    def _detect_cached(self) -> List[Finding]:
+        """Detect shotgun surgery using QueryCache.
+        
+        O(1) lookups from prefetched data.
+        
+        Returns:
+            List of findings for classes with high fan-in
+        """
+        findings = []
+        
+        # Count callers for each class by looking at who calls its methods
+        class_callers: Dict[str, set] = {}
+        class_caller_files: Dict[str, set] = {}
+        
+        for class_name in self.query_cache.classes:
+            methods = self.query_cache.get_methods(class_name)
+            callers = set()
+            caller_files = set()
+            
+            for method_name in methods:
+                method_callers = self.query_cache.get_callers(method_name)
+                for caller in method_callers:
+                    callers.add(caller)
+                    caller_data = self.query_cache.get_function(caller)
+                    if caller_data:
+                        caller_files.add(caller_data.file_path)
+            
+            if len(callers) >= self.threshold_medium:
+                class_callers[class_name] = callers
+                class_caller_files[class_name] = caller_files
+        
+        # Sort by caller count descending
+        sorted_classes = sorted(
+            class_callers.items(),
+            key=lambda x: len(x[1]),
+            reverse=True
+        )[:50]
+        
+        for class_name, callers in sorted_classes:
+            caller_count = len(callers)
+            files_affected = len(class_caller_files[class_name])
+            class_data = self.query_cache.get_class(class_name)
+            short_name = class_name.split(".")[-1]
+            
+            # Determine severity
+            if caller_count >= self.threshold_critical:
+                severity = Severity.CRITICAL
+            elif caller_count >= self.threshold_high:
+                severity = Severity.HIGH
+            else:
+                severity = Severity.MEDIUM
+            
+            sample_files = list(class_caller_files[class_name])[:5]
+            sample_files_str = "\n  - ".join(sample_files)
+            if files_affected > 5:
+                sample_files_str += f"\n  ... and {files_affected - 5} more files"
+            
+            if severity == Severity.CRITICAL:
+                suggestion = (
+                    f"URGENT: Class '{short_name}' is used by {caller_count} "
+                    f"functions across {files_affected} files. Consider:\n"
+                    f"  1. Create a facade or wrapper to isolate changes\n"
+                    f"  2. Split responsibilities into multiple focused classes"
+                )
+            else:
+                suggestion = (
+                    f"Class '{short_name}' is used by {caller_count} functions. "
+                    f"Consider creating a facade to limit surface area."
+                )
+            
+            estimated_effort = "Large (1-2 days)" if severity == Severity.CRITICAL else "Medium (2-4 hours)"
+            
+            finding = Finding(
+                id=f"shotgun_surgery_{class_name}",
+                detector=self.__class__.__name__,
+                severity=severity,
+                title=f"Shotgun Surgery Risk: {short_name}",
+                description=(
+                    f"Class '{short_name}' is used by {caller_count} different functions "
+                    f"across {files_affected} files.\n\n"
+                    f"Affected files (sample):\n  - {sample_files_str}"
+                ),
+                affected_nodes=[class_name],
+                affected_files=[class_data.file_path] if class_data else [],
+                line_start=class_data.line_start if class_data else None,
+                line_end=class_data.line_end if class_data else None,
+                suggested_fix=suggestion,
+                estimated_effort=estimated_effort,
+                graph_context={
+                    "caller_count": caller_count,
+                    "files_affected": files_affected,
+                    "sample_files": sample_files,
+                },
+            )
+            
+            finding.add_collaboration_metadata(CollaborationMetadata(
+                detector="ShotgunSurgeryDetector",
+                confidence=0.85,
+                evidence=['high_fan_in'],
+                tags=['shotgun_surgery', 'coupling', 'maintenance']
+            ))
+            
+            # Flag entity in graph for cross-detector collaboration (REPO-151 Phase 2)
+            if self.enricher:
+                try:
+                    self.enricher.flag_entity(
+                        entity_qualified_name=class_name,
+                        detector="ShotgunSurgeryDetector",
+                        severity=finding.severity.value,
+                        issues=['high_fan_in'],
+                        confidence=0.85,
+                        metadata={
+                            "caller_count": caller_count,
+                            "files_affected": files_affected,
+                        }
+                    )
+                except Exception:
+                    pass  # Don't fail detection if enrichment fails
+            
+            findings.append(finding)
+        
+        self.logger.info(f"ShotgunSurgeryDetector (cached) found {len(findings)} classes")
         return findings
 
     def severity(self, finding: Finding) -> Severity:

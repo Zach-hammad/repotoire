@@ -136,6 +136,11 @@ class TscDetector(CodeSmellDetector):
         Returns:
             List of type checking findings
         """
+        # Fast path: if incremental mode with no changed files, skip entirely
+        if self.changed_files is not None and len(self.changed_files) == 0:
+            logger.debug("No changed files provided, skipping tsc (incremental cache hit)")
+            return []
+
         logger.info(f"Running tsc type check on {self.repository_path}")
 
         # Check if TypeScript files exist (include all TS variants)
@@ -188,7 +193,7 @@ class TscDetector(CodeSmellDetector):
         # Build tsc arguments
         args = ["--noEmit", "--pretty", "false"]
 
-        # Use tsconfig if available
+        # Use tsconfig if available (provides compiler options and module resolution)
         if self.tsconfig_path:
             args.extend(["--project", str(self.tsconfig_path)])
         elif (self.repository_path / "tsconfig.json").exists():
@@ -199,9 +204,19 @@ class TscDetector(CodeSmellDetector):
                 args.append("--strict")
             args.extend(["--allowJs", "--checkJs", "false"])
 
-        # If incremental analysis, we still run on whole project
-        # (tsc needs full project context for type checking)
-        # but we'll filter results to changed files
+        # Incremental analysis: pass specific files to tsc for faster checking
+        # tsc still uses tsconfig for compiler options but only checks specified files
+        ts_extensions = ('.ts', '.tsx', '.mts', '.cts')
+        if self.changed_files:
+            ts_files = [
+                f for f in self.changed_files
+                if f.endswith(ts_extensions) and (self.repository_path / f).exists()
+            ]
+            if not ts_files:
+                logger.debug("No TypeScript files in changed_files, skipping tsc")
+                return []
+            logger.info(f"Running tsc on {len(ts_files)} changed files (incremental)")
+            args.extend(ts_files)
 
         # Run tsc (uses bun if available, falls back to npx)
         result = run_js_tool(
@@ -244,13 +259,6 @@ class TscDetector(CodeSmellDetector):
 
                 # Normalize to forward slashes for graph queries
                 rel_path = rel_path.replace("\\", "/")
-
-                # Filter for changed files if incremental
-                # Also normalize changed_files for comparison
-                if self.changed_files:
-                    normalized_changed = [f.replace("\\", "/") for f in self.changed_files]
-                    if rel_path not in normalized_changed:
-                        continue
 
                 errors.append({
                     "file": rel_path,

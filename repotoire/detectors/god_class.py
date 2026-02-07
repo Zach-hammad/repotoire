@@ -112,6 +112,11 @@ class GodClassDetector(CodeSmellDetector):
         Returns:
             List of findings for god classes
         """
+        # Fast path: use QueryCache if available
+        if self.query_cache is not None:
+            logger.debug("Using QueryCache for god class detection")
+            return self._detect_cached()
+
         findings: List[Finding] = []
 
         # Use parameterized query to prevent injection
@@ -319,6 +324,151 @@ class GodClassDetector(CodeSmellDetector):
 
             findings.append(finding)
 
+        return findings
+
+    def _detect_cached(self) -> List[Finding]:
+        """Detect god classes using QueryCache.
+
+        O(1) lookup from prefetched data instead of database query.
+        Note: LCOM and community span require graph queries, so we use
+        simplified detection based on method count, LOC, and complexity.
+
+        Returns:
+            List of findings for god classes
+        """
+        findings: List[Finding] = []
+
+        # Use QueryCache's get_god_classes helper
+        god_classes = self.query_cache.get_god_classes(
+            method_threshold=self.medium_method_count,
+            loc_threshold=self.medium_loc
+        )
+
+        for class_data in god_classes:
+            name = class_data.qualified_name.split(".")[-1]
+            qualified_name = class_data.qualified_name
+
+            # Skip test classes
+            if name.startswith("Test") or name.endswith("Test") or "Test" in name:
+                continue
+
+            # Skip excluded patterns
+            if self.use_pattern_exclusions and self._is_excluded_pattern(name):
+                continue
+
+            # Skip abstract base classes (they're often large by design)
+            if class_data.is_abstract and class_data.method_count < 25:
+                continue
+
+            method_count = class_data.method_count
+            total_complexity = class_data.complexity
+            loc = class_data.loc
+
+            # Calculate coupling by counting callees from all methods
+            coupling_count = 0
+            for method_name in self.query_cache.get_methods(qualified_name):
+                coupling_count += len(self.query_cache.get_callees(method_name))
+
+            # For cached mode, use neutral values for metrics requiring graph queries
+            # LCOM and community span require complex graph traversal
+            lcom = 0.5  # Neutral - between cohesive and scattered
+            community_span = 2  # Neutral - between cohesive and scattered
+            importance = 0.5  # Neutral
+
+            # Check if this is a god class
+            is_god_class, reason = self._is_god_class(
+                method_count, total_complexity, coupling_count, loc, lcom, community_span
+            )
+
+            if not is_god_class:
+                continue
+
+            severity = self._calculate_severity(
+                method_count, total_complexity, coupling_count, loc, lcom,
+                community_span, importance
+            )
+
+            finding_id = str(uuid.uuid4())
+
+            finding = Finding(
+                id=finding_id,
+                detector="GodClassDetector",
+                severity=severity,
+                title=f"God class detected: {name}",
+                description=(
+                    f"Class '{name}' shows signs of being a god class: {reason}.\n\n"
+                    f"Metrics:\n"
+                    f"  - Methods: {method_count}\n"
+                    f"  - Total complexity: {total_complexity}\n"
+                    f"  - Coupling: {coupling_count}\n"
+                    f"  - Lines of code: {loc}\n"
+                    f"  - (LCOM/community analysis not available in cached mode)"
+                ),
+                affected_nodes=[qualified_name],
+                affected_files=[class_data.file_path],
+                graph_context={
+                    "type": "god_class",
+                    "name": name,
+                    "method_count": method_count,
+                    "total_complexity": total_complexity,
+                    "coupling_count": coupling_count,
+                    "loc": loc,
+                    "lcom": lcom,
+                    "community_span": community_span,
+                    "importance": importance,
+                    "line_start": class_data.line_start,
+                    "line_end": class_data.line_end,
+                },
+                suggested_fix=self._suggest_refactoring(
+                    name, method_count, total_complexity, coupling_count, loc, lcom
+                ),
+                estimated_effort=self._estimate_effort(method_count, total_complexity, loc),
+                created_at=datetime.now(),
+            )
+
+            # Build evidence list
+            evidence = []
+            if method_count >= self.high_method_count:
+                evidence.append("many_methods")
+            if total_complexity >= self.high_complexity:
+                evidence.append("high_complexity")
+            if coupling_count >= 50:
+                evidence.append("high_coupling")
+            if loc >= self.high_loc:
+                evidence.append("large_size")
+
+            confidence = min(0.6 + (len(evidence) * 0.08), 1.0)
+
+            finding.add_collaboration_metadata(CollaborationMetadata(
+                detector="GodClassDetector",
+                confidence=confidence,
+                evidence=evidence,
+                tags=["god_class", "complexity", "root_cause"]
+            ))
+
+            # Flag entity in graph for cross-detector collaboration
+            if self.enricher:
+                try:
+                    self.enricher.flag_entity(
+                        entity_qualified_name=qualified_name,
+                        detector="GodClassDetector",
+                        severity=severity.value,
+                        issues=evidence,
+                        confidence=confidence,
+                        metadata={
+                            "method_count": method_count,
+                            "total_complexity": total_complexity,
+                            "coupling_count": coupling_count,
+                            "loc": loc,
+                            "lcom": lcom,
+                        }
+                    )
+                except Exception:
+                    pass
+
+            findings.append(finding)
+
+        logger.info(f"GodClassDetector (cached) found {len(findings)} god classes")
         return findings
 
     def _is_excluded_pattern(self, class_name: str) -> bool:

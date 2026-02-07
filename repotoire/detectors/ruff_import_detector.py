@@ -43,6 +43,11 @@ class RuffImportDetector(CodeSmellDetector):
         Returns:
             List of Finding objects for unused imports.
         """
+        # Fast path: if incremental mode with no changed files, skip entirely
+        if self.changed_files is not None and len(self.changed_files) == 0:
+            self.logger.debug("No changed files provided, skipping ruff import check (incremental cache hit)")
+            return []
+
         # Run ruff to detect unused imports (F401)
         ruff_findings = self._run_ruff()
 
