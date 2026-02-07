@@ -4460,7 +4460,7 @@ wheels = [
 
 [[package]]
 name = "repotoire"
-version = "0.1.36"
+version = "0.1.40"
 source = { editable = "." }
 dependencies = [
     { name = "aioboto3" },

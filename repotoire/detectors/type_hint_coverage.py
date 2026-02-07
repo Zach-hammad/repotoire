@@ -114,6 +114,8 @@ class TypeHintCoverageDetector(CodeSmellDetector):
         Returns:
             Severity level
         """
+        if not finding.graph_context:
+            return Severity.LOW
         coverage_type = finding.graph_context.get("coverage_type", "")
         complexity = finding.graph_context.get("complexity", 0)
 
@@ -242,8 +244,8 @@ class TypeHintCoverageDetector(CodeSmellDetector):
         # Iterate through all functions in cache
         funcs_checked = 0
         for func_name, func_data in self.query_cache.functions.items():
-            # Skip if no parameters
-            if not func_data.parameters:
+            # Skip if func_data is None or has no parameters
+            if func_data is None or not func_data.parameters:
                 continue
             
             funcs_checked += 1
@@ -256,8 +258,15 @@ class TypeHintCoverageDetector(CodeSmellDetector):
             if func_simple_name.startswith("test_"):
                 continue
             
-            # Get meaningful parameters
-            meaningful_params = self._get_meaningful_params(func_data.parameters)
+            # Get meaningful parameters - handle both list and JSON string
+            params = func_data.parameters
+            if isinstance(params, str):
+                import json
+                try:
+                    params = json.loads(params) if params else []
+                except json.JSONDecodeError:
+                    params = []
+            meaningful_params = self._get_meaningful_params(params or [])
             
             # For cached data, we don't have param_types - assume untyped
             # This is a simplification; full type info would need schema extension
@@ -277,11 +286,11 @@ class TypeHintCoverageDetector(CodeSmellDetector):
             record = {
                 "func_name": func_name,
                 "func_simple_name": func_simple_name,
-                "func_file": func_data.file_path,
-                "func_line": func_data.line_start,
-                "complexity": func_data.complexity,
+                "func_file": getattr(func_data, 'file_path', None),
+                "func_line": getattr(func_data, 'line_start', None),
+                "complexity": getattr(func_data, 'complexity', 0) or 0,
                 "is_method": self.query_cache.get_parent_class(func_name) is not None,
-                "containing_file": func_data.file_path,
+                "containing_file": getattr(func_data, 'file_path', None),
             }
             
             finding = self._create_function_finding(
@@ -303,15 +312,20 @@ class TypeHintCoverageDetector(CodeSmellDetector):
         Returns:
             List of parameter names that need type hints
         """
+        if not params:
+            return []
+        
         meaningful = []
         for p in params:
+            if p is None:
+                continue
             if isinstance(p, dict):
                 name = p.get("name", "")
             else:
                 name = str(p)
 
             # Skip self, cls, *args, **kwargs
-            if name not in self.SKIP_PARAMS and not name.startswith("*"):
+            if name and name not in self.SKIP_PARAMS and not name.startswith("*"):
                 meaningful.append(name)
 
         return meaningful
@@ -399,7 +413,7 @@ class TypeHintCoverageDetector(CodeSmellDetector):
         suggestion = self._generate_type_hint_suggestion(
             func_simple_name,
             meaningful_params,
-            record.get("param_types", {}),
+            record.get("param_types") or {},
             missing_return
         )
 
