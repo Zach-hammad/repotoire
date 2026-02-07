@@ -303,6 +303,9 @@ def _run_auto_ingest(
         embedding_backend = config.embeddings.backend or "auto"
         embedding_model = config.embeddings.model
 
+        # Check env var to skip embeddings (for testing or when API quota exceeded)
+        skip_embeddings = os.environ.get("REPOTOIRE_SKIP_EMBEDDINGS", "").lower() in ("1", "true", "yes")
+        
         pipeline = get_ingestion_pipeline()(
             str(repo_path),
             db,
@@ -311,7 +314,7 @@ def _run_auto_ingest(
             batch_size=batch_size,
             secrets_policy=SecretsPolicy(config.secrets.policy),
             generate_clues=False,
-            generate_embeddings=True,  # Enable embeddings for RAG (uses DeepInfra by default)
+            generate_embeddings=not skip_embeddings,  # Enable embeddings for RAG unless skipped
             embedding_backend=embedding_backend,
             embedding_model=embedding_model,
             generate_contexts=False,
