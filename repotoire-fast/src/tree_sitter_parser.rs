@@ -659,14 +659,14 @@ fn extract_js_ts_entities(
     let mut functions = Vec::new();
     let mut classes = Vec::new();
     let mut imports = Vec::new();
-    let calls = Vec::new(); // TODO: Implement JS/TS call extraction
+    let mut calls = Vec::new();
 
     let module_name = std::path::Path::new(file_path)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
 
-    extract_js_ts_node(root, source, module_name, None, &mut functions, &mut classes, &mut imports);
+    extract_js_ts_node(root, source, module_name, None, &mut functions, &mut classes, &mut imports, &mut calls);
 
     (functions, classes, imports, calls)
 }
@@ -679,6 +679,7 @@ fn extract_js_ts_node(
     functions: &mut Vec<ExtractedFunction>,
     classes: &mut Vec<ExtractedClass>,
     imports: &mut Vec<ExtractedImport>,
+    calls: &mut Vec<ExtractedCall>,
 ) {
     let mut cursor = node.walk();
 
@@ -686,11 +687,16 @@ fn extract_js_ts_node(
         match child.kind() {
             "function_declaration" | "arrow_function" | "method_definition" => {
                 if let Some(func) = extract_js_function(&child, source, module_name, parent_class) {
+                    let func_qn = func.qualified_name.clone();
                     functions.push(func);
+                    // Extract calls within this function
+                    if let Some(body) = child.child_by_field_name("body") {
+                        extract_js_calls(&body, source, &func_qn, calls);
+                    }
                 }
             }
             "class_declaration" => {
-                if let Some(class) = extract_js_class(&child, source, module_name, functions) {
+                if let Some(class) = extract_js_class(&child, source, module_name, functions, calls) {
                     classes.push(class);
                 }
             }
@@ -700,8 +706,82 @@ fn extract_js_ts_node(
                 }
             }
             _ => {
-                extract_js_ts_node(&child, source, module_name, parent_class, functions, classes, imports);
+                extract_js_ts_node(&child, source, module_name, parent_class, functions, classes, imports, calls);
             }
+        }
+    }
+}
+
+/// Extract function calls from JavaScript/TypeScript code
+fn extract_js_calls(
+    node: &Node,
+    source: &str,
+    caller_qualified_name: &str,
+    calls: &mut Vec<ExtractedCall>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "call_expression" {
+            // Get the function being called
+            if let Some(func_node) = child.child_by_field_name("function") {
+                let (callee, is_method_call, receiver) = extract_js_callee(&func_node, source);
+                if !callee.is_empty() {
+                    calls.push(ExtractedCall {
+                        callee,
+                        caller_qualified_name: caller_qualified_name.to_string(),
+                        line: child.start_position().row + 1,
+                        is_method_call,
+                        receiver,
+                    });
+                }
+            }
+        } else if child.kind() == "new_expression" {
+            // new ClassName() is a constructor call
+            if let Some(constructor) = child.child_by_field_name("constructor") {
+                if let Ok(name) = constructor.utf8_text(source.as_bytes()) {
+                    calls.push(ExtractedCall {
+                        callee: name.to_string(),
+                        caller_qualified_name: caller_qualified_name.to_string(),
+                        line: child.start_position().row + 1,
+                        is_method_call: false,
+                        receiver: None,
+                    });
+                }
+            }
+        }
+        // Don't recurse into nested function declarations or arrow functions
+        if child.kind() != "function_declaration" && child.kind() != "arrow_function" && child.kind() != "function" {
+            extract_js_calls(&child, source, caller_qualified_name, calls);
+        }
+    }
+}
+
+/// Extract callee info from JS/TS call expression
+fn extract_js_callee(node: &Node, source: &str) -> (String, bool, Option<String>) {
+    match node.kind() {
+        "identifier" => {
+            let callee = node.utf8_text(source.as_bytes())
+                .ok()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            (callee, false, None)
+        }
+        "member_expression" => {
+            let full_text = node.utf8_text(source.as_bytes())
+                .ok()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            let receiver = node.child_by_field_name("object")
+                .and_then(|n| n.utf8_text(source.as_bytes()).ok())
+                .map(|s| s.to_string());
+            (full_text, true, receiver)
+        }
+        _ => {
+            let callee = node.utf8_text(source.as_bytes())
+                .ok()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            (callee, false, None)
         }
     }
 }
@@ -768,6 +848,7 @@ fn extract_js_class(
     source: &str,
     module_name: &str,
     functions: &mut Vec<ExtractedFunction>,
+    calls: &mut Vec<ExtractedCall>,
 ) -> Option<ExtractedClass> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source.as_bytes()).ok()?.to_string();
@@ -789,8 +870,13 @@ fn extract_js_class(
         for child in body.children(&mut cursor) {
             if child.kind() == "method_definition" {
                 if let Some(func) = extract_js_function(&child, source, module_name, Some(&name)) {
+                    let func_qn = func.qualified_name.clone();
                     methods.push(func.name.clone());
                     functions.push(func);
+                    // Extract calls from method body
+                    if let Some(method_body) = child.child_by_field_name("body") {
+                        extract_js_calls(&method_body, source, &func_qn, calls);
+                    }
                 }
             }
         }
@@ -852,14 +938,14 @@ fn extract_java_entities(
     let mut functions = Vec::new();
     let mut classes = Vec::new();
     let mut imports = Vec::new();
-    let calls = Vec::new(); // TODO: Implement Java call extraction
+    let mut calls = Vec::new();
 
     let module_name = std::path::Path::new(file_path)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
 
-    extract_java_node(root, source, module_name, None, &mut functions, &mut classes, &mut imports);
+    extract_java_node(root, source, module_name, None, &mut functions, &mut classes, &mut imports, &mut calls);
 
     (functions, classes, imports, calls)
 }
@@ -872,6 +958,7 @@ fn extract_java_node(
     functions: &mut Vec<ExtractedFunction>,
     classes: &mut Vec<ExtractedClass>,
     imports: &mut Vec<ExtractedImport>,
+    calls: &mut Vec<ExtractedCall>,
 ) {
     let mut cursor = node.walk();
 
@@ -888,7 +975,7 @@ fn extract_java_node(
 
                         functions.push(ExtractedFunction {
                             name: name.to_string(),
-                            qualified_name,
+                            qualified_name: qualified_name.clone(),
                             start_line: child.start_position().row + 1,
                             end_line: child.end_position().row + 1,
                             start_byte: child.start_byte(),
@@ -901,6 +988,11 @@ fn extract_java_node(
                             parent_class: parent_class.map(|s| s.to_string()),
                             decorators: vec![],
                         });
+
+                        // Extract calls within this method
+                        if let Some(body) = child.child_by_field_name("body") {
+                            extract_java_calls(&body, source, &qualified_name, calls);
+                        }
                     }
                 }
             }
@@ -912,7 +1004,7 @@ fn extract_java_node(
 
                         // Recurse into class body
                         if let Some(body) = child.child_by_field_name("body") {
-                            extract_java_node(&body, source, module_name, Some(&class_name), functions, classes, imports);
+                            extract_java_node(&body, source, module_name, Some(&class_name), functions, classes, imports, calls);
                         }
 
                         classes.push(ExtractedClass {
@@ -948,8 +1040,62 @@ fn extract_java_node(
                 }
             }
             _ => {
-                extract_java_node(&child, source, module_name, parent_class, functions, classes, imports);
+                extract_java_node(&child, source, module_name, parent_class, functions, classes, imports, calls);
             }
+        }
+    }
+}
+
+/// Extract method calls from Java code
+fn extract_java_calls(
+    node: &Node,
+    source: &str,
+    caller_qualified_name: &str,
+    calls: &mut Vec<ExtractedCall>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "method_invocation" {
+            // Get the method name
+            if let Some(name_node) = child.child_by_field_name("name") {
+                if let Ok(name) = name_node.utf8_text(source.as_bytes()) {
+                    // Check if it's a method call on an object
+                    let (callee, is_method_call, receiver) = if let Some(obj_node) = child.child_by_field_name("object") {
+                        let recv = obj_node.utf8_text(source.as_bytes())
+                            .ok()
+                            .map(|s| s.to_string());
+                        let full_callee = format!("{}.{}", recv.as_deref().unwrap_or(""), name);
+                        (full_callee, true, recv)
+                    } else {
+                        (name.to_string(), false, None)
+                    };
+
+                    calls.push(ExtractedCall {
+                        callee,
+                        caller_qualified_name: caller_qualified_name.to_string(),
+                        line: child.start_position().row + 1,
+                        is_method_call,
+                        receiver,
+                    });
+                }
+            }
+        } else if child.kind() == "object_creation_expression" {
+            // new ClassName() is also a call
+            if let Some(type_node) = child.child_by_field_name("type") {
+                if let Ok(type_name) = type_node.utf8_text(source.as_bytes()) {
+                    calls.push(ExtractedCall {
+                        callee: type_name.to_string(),
+                        caller_qualified_name: caller_qualified_name.to_string(),
+                        line: child.start_position().row + 1,
+                        is_method_call: false,
+                        receiver: None,
+                    });
+                }
+            }
+        }
+        // Don't recurse into lambda expressions or anonymous classes
+        if child.kind() != "lambda_expression" && child.kind() != "class_body" {
+            extract_java_calls(&child, source, caller_qualified_name, calls);
         }
     }
 }
@@ -966,14 +1112,14 @@ fn extract_go_entities(
     let mut functions = Vec::new();
     let mut classes = Vec::new();
     let mut imports = Vec::new();
-    let calls = Vec::new(); // TODO: Implement Go call extraction
+    let mut calls = Vec::new();
 
     let module_name = std::path::Path::new(file_path)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
 
-    extract_go_node(root, source, module_name, &mut functions, &mut classes, &mut imports);
+    extract_go_node(root, source, module_name, None, &mut functions, &mut classes, &mut imports, &mut calls);
 
     (functions, classes, imports, calls)
 }
@@ -982,9 +1128,11 @@ fn extract_go_node(
     node: &Node,
     source: &str,
     module_name: &str,
+    current_func: Option<&str>,
     functions: &mut Vec<ExtractedFunction>,
     classes: &mut Vec<ExtractedClass>,
     imports: &mut Vec<ExtractedImport>,
+    calls: &mut Vec<ExtractedCall>,
 ) {
     let mut cursor = node.walk();
 
@@ -993,9 +1141,10 @@ fn extract_go_node(
             "function_declaration" | "method_declaration" => {
                 if let Some(name_node) = child.child_by_field_name("name") {
                     if let Ok(name) = name_node.utf8_text(source.as_bytes()) {
+                        let func_qn = format!("{}.{}", module_name, name);
                         functions.push(ExtractedFunction {
                             name: name.to_string(),
-                            qualified_name: format!("{}.{}", module_name, name),
+                            qualified_name: func_qn.clone(),
                             start_line: child.start_position().row + 1,
                             end_line: child.end_position().row + 1,
                             start_byte: child.start_byte(),
@@ -1008,6 +1157,10 @@ fn extract_go_node(
                             parent_class: None,
                             decorators: vec![],
                         });
+                        // Extract calls within this function
+                        if let Some(body) = child.child_by_field_name("body") {
+                            extract_go_calls(&body, source, &func_qn, calls);
+                        }
                     }
                 }
             }
@@ -1054,8 +1207,71 @@ fn extract_go_node(
                 }
             }
             _ => {
-                extract_go_node(&child, source, module_name, functions, classes, imports);
+                extract_go_node(&child, source, module_name, current_func, functions, classes, imports, calls);
             }
+        }
+    }
+}
+
+/// Extract function calls from Go code
+fn extract_go_calls(
+    node: &Node,
+    source: &str,
+    caller_qualified_name: &str,
+    calls: &mut Vec<ExtractedCall>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "call_expression" {
+            // Extract the function being called
+            if let Some(func_node) = child.child_by_field_name("function") {
+                let (callee, is_method_call, receiver) = extract_go_callee(&func_node, source);
+                if !callee.is_empty() {
+                    calls.push(ExtractedCall {
+                        callee,
+                        caller_qualified_name: caller_qualified_name.to_string(),
+                        line: child.start_position().row + 1,
+                        is_method_call,
+                        receiver,
+                    });
+                }
+            }
+        }
+        // Don't recurse into nested function literals
+        if child.kind() != "func_literal" {
+            extract_go_calls(&child, source, caller_qualified_name, calls);
+        }
+    }
+}
+
+/// Extract callee info from Go call expression
+fn extract_go_callee(node: &Node, source: &str) -> (String, bool, Option<String>) {
+    match node.kind() {
+        "identifier" => {
+            // Simple call: foo()
+            let callee = node.utf8_text(source.as_bytes())
+                .ok()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            (callee, false, None)
+        }
+        "selector_expression" => {
+            // Method call: obj.Method() or pkg.Func()
+            let full_text = node.utf8_text(source.as_bytes())
+                .ok()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            let receiver = node.child_by_field_name("operand")
+                .and_then(|n| n.utf8_text(source.as_bytes()).ok())
+                .map(|s| s.to_string());
+            (full_text, true, receiver)
+        }
+        _ => {
+            let callee = node.utf8_text(source.as_bytes())
+                .ok()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            (callee, false, None)
         }
     }
 }
@@ -1072,14 +1288,14 @@ fn extract_rust_entities(
     let mut functions = Vec::new();
     let mut classes = Vec::new();
     let mut imports = Vec::new();
-    let calls = Vec::new(); // TODO: Implement Rust call extraction
+    let mut calls = Vec::new();
 
     let module_name = std::path::Path::new(file_path)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
 
-    extract_rust_node(root, source, module_name, None, &mut functions, &mut classes, &mut imports);
+    extract_rust_node(root, source, module_name, None, &mut functions, &mut classes, &mut imports, &mut calls);
 
     (functions, classes, imports, calls)
 }
@@ -1092,6 +1308,7 @@ fn extract_rust_node(
     functions: &mut Vec<ExtractedFunction>,
     classes: &mut Vec<ExtractedClass>,
     imports: &mut Vec<ExtractedImport>,
+    calls: &mut Vec<ExtractedCall>,
 ) {
     let mut cursor = node.walk();
 
@@ -1110,7 +1327,7 @@ fn extract_rust_node(
 
                         functions.push(ExtractedFunction {
                             name: name.to_string(),
-                            qualified_name,
+                            qualified_name: qualified_name.clone(),
                             start_line: child.start_position().row + 1,
                             end_line: child.end_position().row + 1,
                             start_byte: child.start_byte(),
@@ -1123,6 +1340,11 @@ fn extract_rust_node(
                             parent_class: parent_impl.map(|s| s.to_string()),
                             decorators: vec![],
                         });
+
+                        // Extract calls within this function
+                        if let Some(body) = child.child_by_field_name("body") {
+                            extract_rust_calls(&body, source, &qualified_name, calls);
+                        }
                     }
                 }
             }
@@ -1151,7 +1373,7 @@ fn extract_rust_node(
                     if let Ok(type_name) = type_node.utf8_text(source.as_bytes()) {
                         // Recurse into impl block with the type name as parent
                         if let Some(body) = child.child_by_field_name("body") {
-                            extract_rust_node(&body, source, module_name, Some(type_name), functions, classes, imports);
+                            extract_rust_node(&body, source, module_name, Some(type_name), functions, classes, imports, calls);
                         }
                     }
                 }
@@ -1173,8 +1395,78 @@ fn extract_rust_node(
                 }
             }
             _ => {
-                extract_rust_node(&child, source, module_name, parent_impl, functions, classes, imports);
+                extract_rust_node(&child, source, module_name, parent_impl, functions, classes, imports, calls);
             }
+        }
+    }
+}
+
+/// Extract function calls from Rust code
+fn extract_rust_calls(
+    node: &Node,
+    source: &str,
+    caller_qualified_name: &str,
+    calls: &mut Vec<ExtractedCall>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "call_expression" {
+            // Get the function being called
+            if let Some(func_node) = child.child_by_field_name("function") {
+                let (callee, is_method_call, receiver) = extract_rust_callee(&func_node, source);
+                if !callee.is_empty() {
+                    calls.push(ExtractedCall {
+                        callee,
+                        caller_qualified_name: caller_qualified_name.to_string(),
+                        line: child.start_position().row + 1,
+                        is_method_call,
+                        receiver,
+                    });
+                }
+            }
+        }
+        // Don't recurse into nested closures
+        if child.kind() != "closure_expression" {
+            extract_rust_calls(&child, source, caller_qualified_name, calls);
+        }
+    }
+}
+
+/// Extract callee info from Rust call expression
+fn extract_rust_callee(node: &Node, source: &str) -> (String, bool, Option<String>) {
+    match node.kind() {
+        "identifier" => {
+            let callee = node.utf8_text(source.as_bytes())
+                .ok()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            (callee, false, None)
+        }
+        "field_expression" => {
+            // Method call: obj.method()
+            let full_text = node.utf8_text(source.as_bytes())
+                .ok()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            let receiver = node.child_by_field_name("value")
+                .and_then(|n| n.utf8_text(source.as_bytes()).ok())
+                .map(|s| s.to_string());
+            (full_text, true, receiver)
+        }
+        "scoped_identifier" => {
+            // Path call: module::func() or Type::method()
+            let callee = node.utf8_text(source.as_bytes())
+                .ok()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            (callee, false, None)
+        }
+        _ => {
+            let callee = node.utf8_text(source.as_bytes())
+                .ok()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            (callee, false, None)
         }
     }
 }
