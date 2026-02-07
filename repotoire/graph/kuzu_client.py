@@ -501,6 +501,16 @@ class KuzuClient(DatabaseClient):
             props["loc"] = entity.loc
         if hasattr(entity, 'is_method') and entity.is_method is not None:
             props["is_method"] = entity.is_method
+        if hasattr(entity, 'parameters') and entity.parameters:
+            props["parameters"] = entity.parameters
+        if hasattr(entity, 'return_type') and entity.return_type:
+            props["return_type"] = entity.return_type
+        if hasattr(entity, 'decorators') and entity.decorators:
+            props["decorators"] = entity.decorators
+        if hasattr(entity, 'has_yield') and entity.has_yield is not None:
+            props["has_yield"] = entity.has_yield
+        if hasattr(entity, 'docstring') and entity.docstring:
+            props["docstring"] = entity.docstring
 
         # Filter out None values (Kuzu doesn't like explicit NULLs in CREATE)
         props = {k: v for k, v in props.items() if v is not None}
@@ -627,6 +637,7 @@ class KuzuClient(DatabaseClient):
         """Get specific relationship table for given node types."""
         # Map (base_rel, src, dst) -> specific table
         specific_tables = {
+            ("IMPORTS", "File", "File"): "IMPORTS_FILE",
             ("IMPORTS", "File", "ExternalClass"): "IMPORTS_EXT_CLASS",
             ("IMPORTS", "File", "ExternalFunction"): "IMPORTS_EXT_FUNC",
             ("CALLS", "Function", "Function"): "CALLS",

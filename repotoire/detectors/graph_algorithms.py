@@ -192,8 +192,14 @@ class GraphAlgorithms:
         RETURN n.qualifiedName AS name
         ORDER BY n.qualifiedName
         """
+        # Kuzu uses specific relationship tables (e.g., IMPORTS_FILE for File->File)
+        is_kuzu = type(self.client).__name__ == "KuzuClient"
+        if is_kuzu and rel_type == "IMPORTS" and node_label == "File":
+            actual_rel_type = "IMPORTS_FILE"
+        else:
+            actual_rel_type = rel_type
         edge_query = f"""
-        MATCH (a:{node_label})-[r:{rel_type}]->(b:{node_label})
+        MATCH (a:{node_label})-[r:{actual_rel_type}]->(b:{node_label})
         WHERE true {repo_filter_a}
         RETURN a.qualifiedName AS src, b.qualifiedName AS dst
         """

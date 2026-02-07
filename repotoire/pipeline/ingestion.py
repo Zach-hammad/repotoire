@@ -2239,6 +2239,26 @@ class IngestionPipeline:
                     import_edges = [{"src": src, "dst": dst} for src, dst in matched_edges]
                     logger.info(f"[TIMING] Rust matching: {len(import_edges)} edges in {time_module.time() - match_start:.3f}s")
                     logger.info(f"[TIMING] Total import_edges: {time_module.time() - query_start:.1f}s")
+
+                    # Persist File-to-File IMPORTS edges for circular dependency detection
+                    if import_edges:
+                        created_count = 0
+                        for edge in import_edges:
+                            src_path, dst_path = edge["src"], edge["dst"]
+                            if src_path != dst_path:  # Skip self-imports
+                                rel = Relationship(
+                                    source_id=src_path,
+                                    target_id=dst_path,
+                                    rel_type=RelationshipType.IMPORTS,
+                                    properties={},
+                                )
+                                try:
+                                    self.db.create_relationship(rel, src_type="File", dst_type="File")
+                                    created_count += 1
+                                except Exception as e:
+                                    logger.debug(f"Failed to create File->File import edge: {e}")
+                        if created_count:
+                            logger.info(f"Created {created_count} File->IMPORTS->File edges")
                 except Exception as e:
                     logger.warning(f"Import edges matching failed (non-critical): {e}")
                 edges = []
