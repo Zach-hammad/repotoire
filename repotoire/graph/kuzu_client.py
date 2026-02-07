@@ -11,6 +11,7 @@ Key differences from FalkorDB:
 """
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -113,6 +114,7 @@ class KuzuClient(DatabaseClient):
             max_num_threads=max_num_threads,
         )
         self._conn = kuzu.Connection(self._db)
+        self._query_lock = threading.RLock()  # Thread safety for concurrent queries
 
         # Initialize schema if not read-only
         if not read_only:
@@ -398,32 +400,33 @@ class KuzuClient(DatabaseClient):
         # Adapt query for Kuzu compatibility
         adapted_query = self._adapt_query(query)
 
-        try:
-            if parameters:
-                result = self._conn.execute(adapted_query, parameters)
-            else:
-                result = self._conn.execute(adapted_query)
+        with self._query_lock:
+            try:
+                if parameters:
+                    result = self._conn.execute(adapted_query, parameters)
+                else:
+                    result = self._conn.execute(adapted_query)
 
-            # Convert to list of dicts
-            records = []
-            column_names = result.get_column_names()
+                # Convert to list of dicts
+                records = []
+                column_names = result.get_column_names()
 
-            while result.has_next():
-                row = result.get_next()
-                record = dict(zip(column_names, row))
-                records.append(record)
+                while result.has_next():
+                    row = result.get_next()
+                    record = dict(zip(column_names, row))
+                    records.append(record)
 
-            return records
+                return records
 
-        except Exception as e:
-            # Binder exceptions are expected for missing properties (schema mismatches)
-            # Log at debug level to reduce noise - callers handle gracefully
-            error_str = str(e)
-            if "Binder exception" in error_str or "Cannot find property" in error_str:
-                logger.debug(f"Kuzu query schema mismatch: {e}")
-            else:
-                logger.error(f"Kuzu query failed: {e}\nQuery: {adapted_query}")
-            raise
+            except Exception as e:
+                # Binder exceptions are expected for missing properties (schema mismatches)
+                # Log at debug level to reduce noise - callers handle gracefully
+                error_str = str(e)
+                if "Binder exception" in error_str or "Cannot find property" in error_str:
+                    logger.debug(f"Kuzu query schema mismatch: {e}")
+                else:
+                    logger.error(f"Kuzu query failed: {e}\nQuery: {adapted_query}")
+                raise
 
     def _adapt_query(self, query: str) -> str:
         """Adapt FalkorDB/Neo4j Cypher to Kuzu Cypher.
@@ -506,7 +509,8 @@ class KuzuClient(DatabaseClient):
         prop_str = ", ".join(f"{k}: ${k}" for k in props.keys())
         query = f"CREATE (n:{table} {{{prop_str}}})"
 
-        self._conn.execute(query, props)
+        with self._query_lock:
+            self._conn.execute(query, props)
         return entity.qualified_name
 
     def create_relationship(self, rel: Relationship, src_type: Optional[str] = None, dst_type: Optional[str] = None) -> None:
@@ -569,7 +573,8 @@ class KuzuClient(DatabaseClient):
             CREATE (a)-[:{final_rel}]->(b)
             """
 
-        self._conn.execute(query, params)
+        with self._query_lock:
+            self._conn.execute(query, params)
 
     def _find_node_type_and_qname(self, qualified_name: str) -> Tuple[Optional[str], Optional[str]]:
         """Find which table a node belongs to and its actual qualified name.
@@ -583,12 +588,13 @@ class KuzuClient(DatabaseClient):
         # First try exact match by qualifiedName
         for table in tables:
             try:
-                result = self._conn.execute(
-                    f"MATCH (n:{table} {{qualifiedName: $qn}}) RETURN n.qualifiedName",
-                    {"qn": qualified_name}
-                )
-                if result.has_next():
-                    return table, qualified_name
+                with self._query_lock:
+                    result = self._conn.execute(
+                        f"MATCH (n:{table} {{qualifiedName: $qn}}) RETURN n.qualifiedName",
+                        {"qn": qualified_name}
+                    )
+                    if result.has_next():
+                        return table, qualified_name
             except Exception as e:
                 logger.debug(f"Node type lookup failed for table {table}: {e}")
                 continue
@@ -598,13 +604,14 @@ class KuzuClient(DatabaseClient):
         if '::' not in qualified_name and '/' not in qualified_name:
             for table in ["Class", "ExternalClass"]:
                 try:
-                    result = self._conn.execute(
-                        f"MATCH (n:{table}) WHERE n.name = $name RETURN n.qualifiedName LIMIT 1",
-                        {"name": qualified_name}
-                    )
-                    if result.has_next():
-                        actual_qname = result.get_next()[0]
-                        return table, actual_qname
+                    with self._query_lock:
+                        result = self._conn.execute(
+                            f"MATCH (n:{table}) WHERE n.name = $name RETURN n.qualifiedName LIMIT 1",
+                            {"name": qualified_name}
+                        )
+                        if result.has_next():
+                            actual_qname = result.get_next()[0]
+                            return table, actual_qname
                 except Exception as e:
                     logger.debug(f"Name lookup failed for table {table}: {e}")
                     continue
@@ -666,7 +673,8 @@ class KuzuClient(DatabaseClient):
         tables = ["Function", "Class", "File", "Module", "Variable", "DetectorMetadata"]
         for table in tables:
             try:
-                self._conn.execute(f"MATCH (n:{table}) DELETE n")
+                with self._query_lock:
+                    self._conn.execute(f"MATCH (n:{table}) DELETE n")
             except Exception as e:
                 logger.debug(f"Failed to clear table {table} (may not exist): {e}")
 
@@ -677,13 +685,14 @@ class KuzuClient(DatabaseClient):
 
         for table in tables:
             try:
-                result = self._conn.execute(
-                    f"MATCH (n:{table}) WHERE n.repoId = $repo_id DELETE n RETURN count(*) AS deleted",
-                    {"repo_id": repo_id}
-                )
-                if result.has_next():
-                    row = result.get_next()
-                    total_deleted += row[0] if row[0] else 0
+                with self._query_lock:
+                    result = self._conn.execute(
+                        f"MATCH (n:{table}) WHERE n.repoId = $repo_id DELETE n RETURN count(*) AS deleted",
+                        {"repo_id": repo_id}
+                    )
+                    if result.has_next():
+                        row = result.get_next()
+                        total_deleted += row[0] if row[0] else 0
             except Exception as e:
                 logger.debug(f"Failed to delete {table} nodes for repo {repo_id}: {e}")
 
@@ -702,9 +711,10 @@ class KuzuClient(DatabaseClient):
 
         for table in tables:
             try:
-                result = self._conn.execute(f"MATCH (n:{table}) RETURN count(*) AS cnt")
-                if result.has_next():
-                    stats[table.lower() + "_count"] = result.get_next()[0]
+                with self._query_lock:
+                    result = self._conn.execute(f"MATCH (n:{table}) RETURN count(*) AS cnt")
+                    if result.has_next():
+                        stats[table.lower() + "_count"] = result.get_next()[0]
             except Exception as e:
                 logger.debug(f"Failed to get count for table {table}: {e}")
                 stats[table.lower() + "_count"] = 0
@@ -714,15 +724,16 @@ class KuzuClient(DatabaseClient):
     def get_all_file_paths(self) -> List[str]:
         """Get all file paths currently in the graph."""
         try:
-            result = self._conn.execute(
-                "MATCH (f:File) RETURN f.filePath AS path"
-            )
-            paths = []
-            while result.has_next():
-                row = result.get_next()
-                if row[0]:
-                    paths.append(row[0])
-            return paths
+            with self._query_lock:
+                result = self._conn.execute(
+                    "MATCH (f:File) RETURN f.filePath AS path"
+                )
+                paths = []
+                while result.has_next():
+                    row = result.get_next()
+                    if row[0]:
+                        paths.append(row[0])
+                return paths
         except Exception as e:
             logger.warning(f"Failed to get file paths: {e}")
             return []
@@ -730,14 +741,15 @@ class KuzuClient(DatabaseClient):
     def get_file_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Get file metadata for incremental ingestion."""
         try:
-            result = self._conn.execute(
-                "MATCH (f:File {filePath: $path}) RETURN f.hash AS hash, f.loc AS loc",
-                {"path": file_path}
-            )
-            if result.has_next():
-                row = result.get_next()
-                return {"hash": row[0], "loc": row[1]}
-            return None
+            with self._query_lock:
+                result = self._conn.execute(
+                    "MATCH (f:File {filePath: $path}) RETURN f.hash AS hash, f.loc AS loc",
+                    {"path": file_path}
+                )
+                if result.has_next():
+                    row = result.get_next()
+                    return {"hash": row[0], "loc": row[1]}
+                return None
         except Exception as e:
             logger.debug(f"Failed to get file metadata for {file_path}: {e}")
             return None
@@ -757,20 +769,21 @@ class KuzuClient(DatabaseClient):
 
         # Kuzu supports UNWIND for batch operations
         try:
-            result = self._conn.execute(
-                "UNWIND $paths AS path MATCH (f:File {filePath: path}) RETURN f.filePath AS filePath, f.hash AS hash, f.loc AS loc",
-                {"paths": file_paths}
-            )
-            metadata = {}
-            while result.has_next():
-                row = result.get_next()
-                file_path = row[0]
-                if file_path:
-                    metadata[file_path] = {
-                        "hash": row[1],
-                        "loc": row[2]
-                    }
-            return metadata
+            with self._query_lock:
+                result = self._conn.execute(
+                    "UNWIND $paths AS path MATCH (f:File {filePath: path}) RETURN f.filePath AS filePath, f.hash AS hash, f.loc AS loc",
+                    {"paths": file_paths}
+                )
+                metadata = {}
+                while result.has_next():
+                    row = result.get_next()
+                    file_path = row[0]
+                    if file_path:
+                        metadata[file_path] = {
+                            "hash": row[1],
+                            "loc": row[2]
+                        }
+                return metadata
         except Exception as e:
             # Fall back to single-file queries
             logger.debug(f"Batch metadata query failed, falling back to single queries: {e}")
@@ -787,34 +800,37 @@ class KuzuClient(DatabaseClient):
 
         # Delete functions in file
         try:
-            result = self._conn.execute(
-                "MATCH (n:Function {filePath: $path}) DELETE n RETURN count(*) AS cnt",
-                {"path": file_path}
-            )
-            if result.has_next():
-                deleted += result.get_next()[0] or 0
+            with self._query_lock:
+                result = self._conn.execute(
+                    "MATCH (n:Function {filePath: $path}) DELETE n RETURN count(*) AS cnt",
+                    {"path": file_path}
+                )
+                if result.has_next():
+                    deleted += result.get_next()[0] or 0
         except Exception as e:
             logger.debug(f"Failed to delete functions in {file_path}: {e}")
 
         # Delete classes in file
         try:
-            result = self._conn.execute(
-                "MATCH (n:Class {filePath: $path}) DELETE n RETURN count(*) AS cnt",
-                {"path": file_path}
-            )
-            if result.has_next():
-                deleted += result.get_next()[0] or 0
+            with self._query_lock:
+                result = self._conn.execute(
+                    "MATCH (n:Class {filePath: $path}) DELETE n RETURN count(*) AS cnt",
+                    {"path": file_path}
+                )
+                if result.has_next():
+                    deleted += result.get_next()[0] or 0
         except Exception as e:
             logger.debug(f"Failed to delete classes in {file_path}: {e}")
 
         # Delete file itself
         try:
-            result = self._conn.execute(
-                "MATCH (f:File {filePath: $path}) DELETE f RETURN count(*) AS cnt",
-                {"path": file_path}
-            )
-            if result.has_next():
-                deleted += result.get_next()[0] or 0
+            with self._query_lock:
+                result = self._conn.execute(
+                    "MATCH (f:File {filePath: $path}) DELETE f RETURN count(*) AS cnt",
+                    {"path": file_path}
+                )
+                if result.has_next():
+                    deleted += result.get_next()[0] or 0
         except Exception as e:
             logger.debug(f"Failed to delete file node {file_path}: {e}")
 
