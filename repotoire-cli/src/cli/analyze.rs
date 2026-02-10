@@ -158,94 +158,84 @@ pub fn run(
     graph_bar.set_style(bar_style.clone());
     graph_bar.set_message("Building code graph...");
 
-    // Batch insert files first
-    for (file_path, _) in &parse_results {
+    // Collect all nodes first, then batch insert
+    let mut file_nodes = Vec::with_capacity(parse_results.len());
+    let mut func_nodes = Vec::with_capacity(total_functions);
+    let mut class_nodes = Vec::with_capacity(total_classes);
+    let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
+
+    for (file_path, result) in &parse_results {
         let relative_path = file_path.strip_prefix(&repo_path).unwrap_or(file_path);
         let relative_str = relative_path.display().to_string();
         let language = detect_language(file_path);
         let loc = count_lines(file_path).unwrap_or(0);
 
-        let node = CodeNode::new(NodeKind::File, &relative_str, &relative_str)
-            .with_qualified_name(&relative_str)
-            .with_language(&language)
-            .with_property("loc", loc as i64);
-        graph.add_node(node);
-        graph_bar.inc(1);
-    }
+        // File node
+        file_nodes.push(
+            CodeNode::new(NodeKind::File, &relative_str, &relative_str)
+                .with_qualified_name(&relative_str)
+                .with_language(&language)
+                .with_property("loc", loc as i64)
+        );
 
-    // Reset progress for functions/classes
-    graph_bar.set_position(0);
-    graph_bar.set_length(total_functions as u64 + total_classes as u64);
-    graph_bar.set_message("Indexing functions and classes...");
-
-    for (file_path, result) in &parse_results {
-        let relative_path = file_path.strip_prefix(&repo_path).unwrap_or(file_path);
-        let relative_str = relative_path.display().to_string();
-
-        // Insert functions and CONTAINS edges
+        // Function nodes
         for func in &result.functions {
-            // Calculate LOC and get complexity
             let loc = if func.line_end >= func.line_start {
                 func.line_end - func.line_start + 1
-            } else {
-                1
-            };
+            } else { 1 };
             let complexity = func.complexity.unwrap_or(1);
             
-            // Create function node
-            let node = CodeNode::new(NodeKind::Function, &func.name, &relative_str)
-                .with_qualified_name(&func.qualified_name)
-                .with_lines(func.line_start, func.line_end)
-                .with_property("is_async", func.is_async)
-                .with_property("complexity", complexity as i64)
-                .with_property("loc", loc as i64);
-            graph.add_node(node);
-            
-            // Create CONTAINS edge from File to Function
-            graph.add_edge_by_name(&relative_str, &func.qualified_name, CodeEdge::contains());
-            graph_bar.inc(1);
+            func_nodes.push(
+                CodeNode::new(NodeKind::Function, &func.name, &relative_str)
+                    .with_qualified_name(&func.qualified_name)
+                    .with_lines(func.line_start, func.line_end)
+                    .with_property("is_async", func.is_async)
+                    .with_property("complexity", complexity as i64)
+                    .with_property("loc", loc as i64)
+            );
+            edges.push((relative_str.clone(), func.qualified_name.clone(), CodeEdge::contains()));
         }
 
-        // Insert classes and CONTAINS edges
+        // Class nodes
         for class in &result.classes {
-            let method_count = class.methods.len();
-            // Create class node
-            let node = CodeNode::new(NodeKind::Class, &class.name, &relative_str)
-                .with_qualified_name(&class.qualified_name)
-                .with_lines(class.line_start, class.line_end)
-                .with_property("methodCount", method_count as i64);
-            graph.add_node(node);
-            
-            // Create CONTAINS edge from File to Class
-            graph.add_edge_by_name(&relative_str, &class.qualified_name, CodeEdge::contains());
-            graph_bar.inc(1);
+            class_nodes.push(
+                CodeNode::new(NodeKind::Class, &class.name, &relative_str)
+                    .with_qualified_name(&class.qualified_name)
+                    .with_lines(class.line_start, class.line_end)
+                    .with_property("methodCount", class.methods.len() as i64)
+            );
+            edges.push((relative_str.clone(), class.qualified_name.clone(), CodeEdge::contains()));
         }
 
-        // Insert call edges
-        // Note: callee is just a function name, we need to find it by name
+        // Call edges
         for (caller, callee) in &result.calls {
-            // For now, try to find callee by qualified name pattern
-            // This is a simplification - in practice we'd need better resolution
             let callee_qn = format!("{}::{}", relative_str, callee);
-            graph.add_edge_by_name(caller, &callee_qn, CodeEdge::calls());
+            edges.push((caller.clone(), callee_qn, CodeEdge::calls()));
         }
 
-        // Insert import edges
+        // Import edges
         for import in &result.imports {
-            // Try to match import to a file - simple heuristic
-            // Look for files that contain the import name
             for (other_file, _) in &parse_results {
                 let other_relative = other_file.strip_prefix(&repo_path).unwrap_or(other_file);
                 let other_str = other_relative.display().to_string();
                 if other_str.contains(import) && other_str != relative_str {
-                    graph.add_edge_by_name(&relative_str, &other_str, CodeEdge::imports());
+                    edges.push((relative_str.clone(), other_str, CodeEdge::imports()));
                     break;
                 }
             }
         }
-
         graph_bar.inc(1);
     }
+
+    // Batch insert all nodes (single lock acquisition per batch)
+    graph_bar.set_message("Inserting nodes...");
+    graph.add_nodes_batch(file_nodes);
+    graph.add_nodes_batch(func_nodes);
+    graph.add_nodes_batch(class_nodes);
+    
+    // Batch insert all edges
+    graph_bar.set_message("Inserting edges...");
+    graph.add_edges_batch(edges);
 
     graph_bar.finish_with_message(format!("{}Built code graph", style("✓ ").green(),));
 

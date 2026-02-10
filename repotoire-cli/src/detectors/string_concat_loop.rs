@@ -17,7 +17,8 @@ fn loop_pattern() -> &'static Regex {
 }
 
 fn string_concat() -> &'static Regex {
-    STRING_CONCAT.get_or_init(|| Regex::new(r#"(\w+)\s*\+=\s*["'`]|(\w+)\s*=\s*\1\s*\+\s*["'`]"#).unwrap())
+    // Simplified: just detect += with string or var = var + string pattern
+    STRING_CONCAT.get_or_init(|| Regex::new(r#"\w+\s*\+=\s*["'`]|\w+\s*=\s*\w+\s*\+\s*["'`]"#).unwrap())
 }
 
 pub struct StringConcatLoopDetector {

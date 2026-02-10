@@ -258,6 +258,30 @@ impl GraphStore {
         idx
     }
 
+    /// Add multiple nodes at once (batch operation, single lock acquisition)
+    pub fn add_nodes_batch(&self, nodes: Vec<CodeNode>) -> Vec<NodeIndex> {
+        let mut graph = self.graph.write().unwrap();
+        let mut index = self.node_index.write().unwrap();
+        let mut indices = Vec::with_capacity(nodes.len());
+
+        for node in nodes {
+            let qn = node.qualified_name.clone();
+            
+            if let Some(&idx) = index.get(&qn) {
+                if let Some(existing) = graph.node_weight_mut(idx) {
+                    *existing = node;
+                }
+                indices.push(idx);
+            } else {
+                let idx = graph.add_node(node);
+                index.insert(qn, idx);
+                indices.push(idx);
+            }
+        }
+        
+        indices
+    }
+
     /// Get node index by qualified name
     pub fn get_node_index(&self, qn: &str) -> Option<NodeIndex> {
         self.node_index.read().unwrap().get(qn).copied()
@@ -396,6 +420,22 @@ impl GraphStore {
         } else {
             false
         }
+    }
+
+    /// Add multiple edges at once (batch operation)
+    pub fn add_edges_batch(&self, edges: Vec<(String, String, CodeEdge)>) -> usize {
+        let index = self.node_index.read().unwrap();
+        let mut graph = self.graph.write().unwrap();
+        let mut added = 0;
+
+        for (from_qn, to_qn, edge) in edges {
+            if let (Some(&from), Some(&to)) = (index.get(&from_qn), index.get(&to_qn)) {
+                graph.add_edge(from, to, edge);
+                added += 1;
+            }
+        }
+        
+        added
     }
 
     /// Get all edges of a specific kind as (source_qn, target_qn) pairs
