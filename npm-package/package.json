@@ -1,6 +1,6 @@
 {
   "name": "repotoire",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Graph-powered code analysis - 81 detectors for security, architecture, and code quality",
   "keywords": ["code-analysis", "security", "linter", "static-analysis", "code-quality"],
   "author": "Zacharia Hammad",
