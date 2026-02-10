@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::ai::{AiClient, LlmBackend};
 use crate::detectors::{default_detectors, DetectorEngineBuilder};
 use crate::graph::GraphClient;
 use crate::models::FindingsSummary;
@@ -17,10 +18,12 @@ pub struct HandlerState {
     pub repo_path: PathBuf,
     /// Graph client (lazily initialized)
     graph: Option<Arc<GraphClient>>,
-    /// API key for PRO features
+    /// API key for cloud PRO features
     pub api_key: Option<String>,
     /// API base URL
     pub api_url: String,
+    /// BYOK: User's own AI backend
+    pub ai_backend: Option<LlmBackend>,
 }
 
 impl HandlerState {
@@ -29,16 +32,42 @@ impl HandlerState {
         let api_url = std::env::var("REPOTOIRE_API_URL")
             .unwrap_or_else(|_| "https://api.repotoire.io".to_string());
 
+        // Check for BYOK keys
+        let ai_backend = if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+            Some(LlmBackend::Anthropic)
+        } else if std::env::var("OPENAI_API_KEY").is_ok() {
+            Some(LlmBackend::OpenAi)
+        } else {
+            None
+        };
+
         Self {
             repo_path,
             graph: None,
             api_key,
             api_url,
+            ai_backend,
         }
     }
 
     pub fn is_pro(&self) -> bool {
         self.api_key.is_some()
+    }
+
+    /// Check if user has BYOK AI keys
+    pub fn has_ai(&self) -> bool {
+        self.ai_backend.is_some()
+    }
+
+    /// Get mode description
+    pub fn mode_description(&self) -> &'static str {
+        if self.is_pro() {
+            "PRO (cloud)"
+        } else if self.has_ai() {
+            "BYOK (local AI)"
+        } else {
+            "FREE"
+        }
     }
 
     /// Get or initialize the graph client
@@ -425,12 +454,19 @@ pub async fn handle_ask(state: &HandlerState, args: &Value) -> Result<Value> {
     handle_api_response(response).await
 }
 
-/// Generate fix for a finding (PRO)
+/// Generate fix for a finding (PRO or BYOK)
 pub async fn handle_generate_fix(state: &HandlerState, args: &Value) -> Result<Value> {
+    // BYOK: Use local AI if user provided their own key
+    if let Some(backend) = &state.ai_backend {
+        return handle_generate_fix_local(state, args, backend.clone()).await;
+    }
+
+    // Cloud PRO fallback
     if !state.is_pro() {
         return Ok(json!({
-            "error": "This feature requires a PRO subscription.",
-            "upgrade_url": "https://repotoire.com/pricing"
+            "error": "AI features require an API key.",
+            "hint": "Set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable AI fixes.",
+            "docs": "https://github.com/Zach-hammad/repotoire#ai-powered-fixes-optional"
         }));
     }
 
@@ -451,6 +487,75 @@ pub async fn handle_generate_fix(state: &HandlerState, args: &Value) -> Result<V
         .await?;
 
     handle_api_response(response).await
+}
+
+/// Generate fix using local AI (BYOK)
+async fn handle_generate_fix_local(state: &HandlerState, args: &Value, backend: LlmBackend) -> Result<Value> {
+    use crate::ai::FixGenerator;
+    use crate::models::Finding;
+
+    let finding_index = args
+        .get("finding_id")
+        .and_then(|v| v.as_str())
+        .or_else(|| args.get("finding_index").and_then(|v| v.as_str()))
+        .context("Missing required argument: finding_id or finding_index")?;
+
+    // Parse as 1-based index
+    let index: usize = finding_index.parse().unwrap_or(0);
+    if index == 0 {
+        return Ok(json!({
+            "error": "finding_id must be a number (1-based index from findings list)"
+        }));
+    }
+
+    // Load findings
+    let findings_path = state.repo_path.join(".repotoire/last_findings.json");
+    if !findings_path.exists() {
+        return Ok(json!({
+            "error": "No findings available. Run 'analyze' first."
+        }));
+    }
+
+    let findings_json = std::fs::read_to_string(&findings_path)?;
+    let parsed: Value = serde_json::from_str(&findings_json)?;
+    let findings: Vec<Finding> = serde_json::from_value(
+        parsed.get("findings").cloned().unwrap_or(json!([]))
+    )?;
+
+    if index > findings.len() {
+        return Ok(json!({
+            "error": format!("Invalid finding index: {}. Valid range: 1-{}", index, findings.len())
+        }));
+    }
+
+    let finding = &findings[index - 1];
+
+    // Generate fix using local AI
+    let client = AiClient::from_env(backend)?;
+    let generator = FixGenerator::new(client);
+    
+    let file = finding.affected_files.first()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    
+    match generator.generate_fix(finding, &state.repo_path).await {
+        Ok(fix) => Ok(json!({
+            "finding": {
+                "title": finding.title,
+                "severity": format!("{:?}", finding.severity),
+                "file": file,
+                "line": finding.line_start
+            },
+            "fix": {
+                "description": fix.description,
+                "changes": fix.changes,
+                "diff": fix.diff(&state.repo_path)
+            }
+        })),
+        Err(e) => Ok(json!({
+            "error": format!("Failed to generate fix: {}", e)
+        }))
+    }
 }
 
 /// Handle API response with proper error mapping

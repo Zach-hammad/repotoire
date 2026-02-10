@@ -180,23 +180,53 @@ pub fn PRO_TOOLS() -> Vec<Tool> {
         },
         Tool {
             name: "generate_fix".to_string(),
-            description: "Generate an AI-powered fix for a code finding. Returns proposed code changes with explanation. (PRO)".to_string(),
+            description: "Generate an AI-powered fix for a code finding. Returns proposed code changes with explanation. Requires ANTHROPIC_API_KEY or OPENAI_API_KEY.".to_string(),
             input_schema: ToolSchema::object()
                 .with_property("finding_id", json!({
                     "type": "string",
-                    "description": "ID of the finding to fix"
+                    "description": "Index of the finding to fix (1-based, from analyze results)"
                 }))
                 .with_required(vec!["finding_id"]),
         },
     ]
 }
 
-/// Get all available tools based on whether PRO mode is enabled
+/// AI tools that require BYOK (user's own API key)
+pub fn AI_TOOLS() -> Vec<Tool> {
+    vec![
+        Tool {
+            name: "generate_fix".to_string(),
+            description: "Generate an AI-powered fix for a code finding. Requires ANTHROPIC_API_KEY or OPENAI_API_KEY.".to_string(),
+            input_schema: ToolSchema::object()
+                .with_property("finding_id", json!({
+                    "type": "string",
+                    "description": "Index of the finding to fix (1-based, from analyze results)"
+                }))
+                .with_required(vec!["finding_id"]),
+        },
+    ]
+}
+
+/// Get all available tools based on mode
 pub fn get_available_tools(is_pro: bool) -> Vec<Tool> {
+    get_available_tools_full(is_pro, false)
+}
+
+/// Get all available tools based on mode and AI availability
+pub fn get_available_tools_full(is_pro: bool, has_ai: bool) -> Vec<Tool> {
     let mut tools = FREE_TOOLS();
-    if is_pro {
-        tools.extend(PRO_TOOLS());
+    
+    // AI tools available with BYOK or PRO
+    if has_ai || is_pro {
+        tools.extend(AI_TOOLS());
     }
+    
+    // Additional PRO-only cloud tools
+    if is_pro {
+        // search_code and ask are cloud-only (need embeddings)
+        tools.extend(PRO_TOOLS().into_iter().filter(|t| t.name != "generate_fix"));
+    }
+    
     tools
 }
 

@@ -11,7 +11,7 @@ use tokio::runtime::Runtime;
 use tracing::{debug, error, info};
 
 use super::handlers::HandlerState;
-use super::tools::get_available_tools;
+use super::tools::get_available_tools_full;
 
 /// MCP Server implementation
 pub struct McpServer {
@@ -35,12 +35,9 @@ impl McpServer {
         let reader = BufReader::new(stdin.lock());
 
         // Print startup message to stderr (visible to users)
-        if self.state.is_pro() {
-            eprintln!("🎼 Repotoire MCP server started (PRO mode)");
-        } else {
-            eprintln!("🎼 Repotoire MCP server started (FREE mode)");
-            eprintln!("   PRO features disabled. Set REPOTOIRE_API_KEY for: search_code, ask, generate_fix");
-            eprintln!("   Get your key: https://repotoire.com/settings/api");
+        eprintln!("🎼 Repotoire MCP server started ({})", self.state.mode_description());
+        if !self.state.is_pro() && !self.state.has_ai() {
+            eprintln!("   AI features disabled. Set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable.");
         }
         eprintln!();
 
@@ -134,7 +131,9 @@ impl McpServer {
     }
 
     fn handle_list_tools(&self, _params: &Option<Value>) -> Result<Value> {
-        let tools = get_available_tools(self.state.is_pro() && !self.force_local);
+        let is_pro = self.state.is_pro() && !self.force_local;
+        let has_ai = self.state.has_ai();
+        let tools = get_available_tools_full(is_pro, has_ai);
         Ok(json!({
             "tools": tools
         }))
