@@ -104,6 +104,14 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
 
+        /// Maximum findings to show
+        #[arg(long)]
+        top: Option<usize>,
+
+        /// Minimum severity to show (critical, high, medium, low)
+        #[arg(long)]
+        severity: Option<String>,
+
         /// Page number (1-indexed)
         #[arg(long, default_value = "1")]
         page: usize,
@@ -192,11 +200,11 @@ pub fn run(cli: Cli) -> Result<()> {
             analyze::run(&cli.path, &format, output.as_deref(), effective_severity, top, page, per_page, skip_detector, thorough, no_git, cli.workers, fail_on, no_emoji)
         }
 
-        Some(Commands::Findings { index, json, page, per_page, interactive }) => {
+        Some(Commands::Findings { index, json, top, severity, page, per_page, interactive }) => {
             if interactive {
                 findings::run_interactive(&cli.path)
             } else {
-                findings::run(&cli.path, index, json, page, per_page)
+                findings::run(&cli.path, index, json, top, severity, page, per_page)
             }
         }
 

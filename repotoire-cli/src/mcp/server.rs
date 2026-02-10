@@ -36,10 +36,13 @@ impl McpServer {
 
         // Print startup message to stderr (visible to users)
         eprintln!("🎼 Repotoire MCP server started ({})", self.state.mode_description());
+        eprintln!("   Transport: stdio (JSON-RPC 2.0)");
+        eprintln!("   Repository: {}", self.state.repo_path.display());
         if !self.state.is_pro() && !self.state.has_ai() {
             eprintln!("   AI features disabled. Set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable.");
         }
         eprintln!();
+        eprintln!("   Ready. Waiting for JSON-RPC messages on stdin...");
 
         info!(
             "Repotoire MCP server started ({} mode)",

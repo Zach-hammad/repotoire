@@ -41,8 +41,28 @@ fn load_findings(path: &Path) -> Result<Vec<Finding>> {
     Ok(findings)
 }
 
-pub fn run(path: &Path, index: Option<usize>, json: bool, page: usize, per_page: usize) -> Result<()> {
-    let findings = load_findings(path)?;
+pub fn run(path: &Path, index: Option<usize>, json: bool, top: Option<usize>, severity: Option<String>, page: usize, per_page: usize) -> Result<()> {
+    let mut findings = load_findings(path)?;
+    
+    // Filter by severity if specified
+    if let Some(min_sev) = &severity {
+        let min = match min_sev.to_lowercase().as_str() {
+            "critical" => Severity::Critical,
+            "high" => Severity::High,
+            "medium" => Severity::Medium,
+            "low" => Severity::Low,
+            _ => Severity::Info,
+        };
+        findings.retain(|f| f.severity >= min);
+    }
+    
+    // Sort by severity (critical first)
+    findings.sort_by(|a, b| b.severity.cmp(&a.severity));
+    
+    // Apply top N limit
+    if let Some(n) = top {
+        findings.truncate(n);
+    }
 
     if findings.is_empty() {
         println!("{}", style("No findings! Your code looks clean.").green());

@@ -80,6 +80,9 @@ pub fn run(path: &Path, query: &str, _format: &str) -> Result<()> {
         if imports.len() > 50 {
             println!("  ... and {} more", imports.len() - 50);
         }
+    } else if query_lower == "stats" {
+        // Redirect to stats command
+        return stats(path);
     } else {
         println!("{}", style("Supported queries:").bold());
         println!("  - functions: List all functions");
@@ -87,7 +90,8 @@ pub fn run(path: &Path, query: &str, _format: &str) -> Result<()> {
         println!("  - files: List all files");
         println!("  - calls: List call edges");
         println!("  - imports: List import edges");
-        println!("\nNote: Cypher queries are not supported. Use 'repotoire graph stats' for statistics.");
+        println!("  - stats: Show graph statistics");
+        println!("\nNote: Cypher queries are not supported. You can also run 'repotoire stats' directly.");
     }
 
     Ok(())
