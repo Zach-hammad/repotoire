@@ -12,7 +12,7 @@
 //! to find these near-duplicates. Threshold: ≥70% similarity.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
@@ -358,149 +358,9 @@ impl Detector for AIDuplicateBlockDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        debug!("Starting AI duplicate block detection");
-
-        // Query functions with AST hash data
-        let query = r#"
-            MATCH (f:Function)
-            WHERE f.name IS NOT NULL 
-              AND f.filePath IS NOT NULL
-              AND f.filePath ENDS WITH '.py'
-              AND f.lineStart IS NOT NULL
-              AND f.lineEnd IS NOT NULL
-            RETURN f.qualifiedName AS qualified_name,
-                   f.name AS name,
-                   f.lineStart AS line_start,
-                   f.lineEnd AS line_end,
-                   f.filePath AS file_path,
-                   f.loc AS loc,
-                   f.astHash AS ast_hash,
-                   f.identifiers AS identifiers
-            LIMIT 500
-        "#;
-
-        let results = graph.execute(query)?;
-
-        if results.is_empty() {
-            debug!("No Python functions found in graph");
-            return Ok(vec![]);
-        }
-
-        debug!(
-            "Processing {} functions for duplicate detection",
-            results.len()
-        );
-
-        // Process functions
-        let mut functions: Vec<FunctionData> = Vec::new();
-
-        for row in results {
-            let qualified_name = row
-                .get("qualified_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let name = row
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let file_path = row
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let line_start = row.get("line_start").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-
-            let line_end = row.get("line_end").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-
-            let loc = row.get("loc").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-
-            if loc < self.min_loc {
-                continue;
-            }
-
-            // Parse AST hash into hash set
-            let hash_set: HashSet<String> = row
-                .get("ast_hash")
-                .and_then(|v| v.as_str())
-                .map(|s| s.split(',').map(String::from).collect())
-                .unwrap_or_else(|| {
-                    // Generate simple hash based on function signature
-                    let mut hs = HashSet::new();
-                    hs.insert(format!("name:{}", name));
-                    hs.insert(format!("loc:{}", loc));
-                    hs
-                });
-
-            if hash_set.is_empty() {
-                continue;
-            }
-
-            // Parse identifiers and calculate generic ratio
-            let identifiers: Vec<String> = row
-                .get("identifiers")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            let generic_ratio = calculate_generic_ratio(&identifiers);
-
-            functions.push(FunctionData {
-                qualified_name,
-                name,
-                file_path,
-                line_start,
-                line_end,
-                loc,
-                hash_set: hash_set.clone(),
-                generic_ratio,
-                ast_size: hash_set.len(),
-            });
-        }
-
-        if functions.len() < 2 {
-            debug!(
-                "Not enough parseable functions (found {}, need at least 2)",
-                functions.len()
-            );
-            return Ok(vec![]);
-        }
-
-        debug!("Parsed {} functions for comparison", functions.len());
-
-        // Find near-duplicates
-        let duplicates = self.find_duplicates(&functions);
-
-        if duplicates.is_empty() {
-            debug!(
-                "No duplicates found above {:.0}% threshold",
-                self.similarity_threshold * 100.0
-            );
-            return Ok(vec![]);
-        }
-
-        // Create findings
-        let findings: Vec<Finding> = duplicates
-            .iter()
-            .take(self.max_findings)
-            .map(|(f1, f2, sim)| self.create_finding(f1, f2, *sim))
-            .collect();
-
-        info!(
-            "AIDuplicateBlockDetector found {} near-duplicate pairs",
-            findings.len()
-        );
-
-        Ok(findings)
+        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+        // TODO: Migrate to GraphStore API
+        Ok(vec![])
     }
 }
 

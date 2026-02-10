@@ -8,7 +8,7 @@
 //! Uses graph analysis to find nodes with zero incoming CALLS relationships.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
@@ -318,123 +318,77 @@ impl DeadCodeDetector {
         }
     }
 
-    /// Find dead functions
-    fn find_dead_functions(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        let query = r#"
-            MATCH (f:Function)
-            WHERE NOT (f.name STARTS WITH 'test_')
-              AND NOT f.name IN ['main', '__main__', '__init__', 'setUp', 'tearDown']
-            OPTIONAL MATCH (f)<-[rel:CALLS]-()
-            OPTIONAL MATCH (f)<-[use:USES]-()
-            WITH f, count(rel) AS call_count, count(use) AS use_count
-            WHERE call_count = 0 AND use_count = 0
-            OPTIONAL MATCH (file:File)-[:CONTAINS]->(f)
-            RETURN f.qualifiedName AS qualified_name,
-                   f.name AS name,
-                   f.filePath AS file_path,
-                   f.lineStart AS line_start,
-                   f.complexity AS complexity,
-                   file.filePath AS containing_file,
-                   f.decorators AS decorators,
-                   f.is_method AS is_method
-            ORDER BY f.complexity DESC
-            LIMIT 100
-        "#;
-
-        let results = graph.execute(query)?;
+    /// Find dead functions using GraphStore API
+    fn find_dead_functions(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-
-        for row in results {
-            let name = row
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let is_method = row
-                .get("is_method")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-
-            let decorators = row
-                .get("decorators")
-                .and_then(|v| v.as_array())
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
-
-            // Apply filters
-            if self.should_filter(&name, is_method, decorators) {
+        
+        // Get all functions
+        let functions = graph.get_functions();
+        
+        // Sort by complexity (descending) for prioritization
+        let mut functions: Vec<_> = functions.into_iter().collect();
+        functions.sort_by(|a, b| {
+            b.complexity().unwrap_or(0).cmp(&a.complexity().unwrap_or(0))
+        });
+        
+        for func in functions {
+            let name = &func.name;
+            
+            // Skip test functions and entry points
+            if name.starts_with("test_") || self.is_entry_point(name) {
                 continue;
             }
-
-            let qualified_name = row
-                .get("qualified_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let file_path = row
-                .get("containing_file")
-                .or_else(|| row.get("file_path"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let line_start = row
-                .get("line_start")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-
-            let complexity = row
-                .get("complexity")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-
+            
+            // Check if function has any callers
+            let callers = graph.get_callers(&func.qualified_name);
+            if !callers.is_empty() {
+                continue; // Function is called, not dead
+            }
+            
+            // Check additional properties
+            let is_method = func.get_bool("is_method").unwrap_or(false);
+            let has_decorators = func.get_bool("has_decorators").unwrap_or(false);
+            
+            // Apply filters
+            if self.should_filter(name, is_method, has_decorators) {
+                continue;
+            }
+            
+            let complexity = func.complexity().unwrap_or(1) as usize;
+            let line_start = Some(func.line_start);
+            
             findings.push(self.create_function_finding(
-                qualified_name,
-                name,
-                file_path,
+                func.qualified_name.clone(),
+                name.clone(),
+                func.file_path.clone(),
                 line_start,
                 complexity,
             ));
-
+            
             if findings.len() >= self.thresholds.max_results {
                 break;
             }
         }
-
+        
         Ok(findings)
     }
 
-    /// Find dead classes
-    fn find_dead_classes(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        let query = r#"
-            MATCH (file:File)-[:CONTAINS]->(c:Class)
-            OPTIONAL MATCH (c)<-[rel:CALLS]-()
-            OPTIONAL MATCH (c)<-[inherit:INHERITS]-()
-            OPTIONAL MATCH (c)<-[use:USES]-()
-            WITH c, file, count(rel) AS call_count, count(inherit) AS inherit_count, count(use) AS use_count
-            WHERE call_count = 0 AND inherit_count = 0 AND use_count = 0
-            RETURN c.qualifiedName AS qualified_name,
-                   c.name AS name,
-                   c.filePath AS file_path,
-                   c.complexity AS complexity,
-                   file.filePath AS containing_file,
-                   c.decorators AS decorators
-            ORDER BY c.complexity DESC
-            LIMIT 50
-        "#;
-
-        let results = graph.execute(query)?;
+    /// Find dead classes using GraphStore API
+    fn find_dead_classes(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-
-        for row in results {
-            let name = row
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
+        
+        // Get all classes
+        let classes = graph.get_classes();
+        
+        // Sort by complexity (descending)
+        let mut classes: Vec<_> = classes.into_iter().collect();
+        classes.sort_by(|a, b| {
+            b.complexity().unwrap_or(0).cmp(&a.complexity().unwrap_or(0))
+        });
+        
+        for class in classes {
+            let name = &class.name;
+            
             // Skip common patterns
             if name.ends_with("Error")
                 || name.ends_with("Exception")
@@ -449,46 +403,39 @@ impl DeadCodeDetector {
             {
                 continue;
             }
-
-            // Skip decorated classes
-            let decorators = row
-                .get("decorators")
-                .and_then(|v| v.as_array())
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
-
-            if decorators {
+            
+            // Check if class has any callers (instantiation)
+            let callers = graph.get_callers(&class.qualified_name);
+            if !callers.is_empty() {
                 continue;
             }
-
-            let qualified_name = row
-                .get("qualified_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let file_path = row
-                .get("containing_file")
-                .or_else(|| row.get("file_path"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let complexity = row
-                .get("complexity")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-
-            // TODO: Get actual method count from graph
-            let method_count = 0usize;
+            
+            // Check if class has any child classes
+            let children = graph.get_child_classes(&class.qualified_name);
+            if !children.is_empty() {
+                continue;
+            }
+            
+            // Skip decorated classes
+            let has_decorators = class.get_bool("has_decorators").unwrap_or(false);
+            if has_decorators {
+                continue;
+            }
+            
+            let complexity = class.complexity().unwrap_or(1) as usize;
+            let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
 
             findings.push(self.create_class_finding(
-                qualified_name,
-                name,
-                file_path,
+                class.qualified_name.clone(),
+                name.clone(),
+                class.file_path.clone(),
                 method_count,
                 complexity,
             ));
+            
+            if findings.len() >= 50 {
+                break;
+            }
         }
 
         Ok(findings)
@@ -518,7 +465,7 @@ impl Detector for DeadCodeDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         debug!("Starting dead code detection");
 
         let mut findings = Vec::new();

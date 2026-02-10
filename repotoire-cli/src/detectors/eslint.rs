@@ -5,7 +5,7 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::external_tool::{batch_get_graph_context, run_js_tool, GraphContext};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use serde_json::Value as JsonValue;
@@ -245,7 +245,7 @@ impl Detector for ESLintDetector {
         "Detects code quality issues in TypeScript/JavaScript using ESLint"
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         info!("Running ESLint on {:?}", self.repository_path);
 
         let results = self.run_eslint();

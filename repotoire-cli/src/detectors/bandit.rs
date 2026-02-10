@@ -9,7 +9,7 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::external_tool::{get_graph_context, run_external_tool, GraphContext};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use serde_json::Value as JsonValue;
@@ -108,7 +108,7 @@ impl BanditDetector {
     fn create_finding(
         &self,
         result: &JsonValue,
-        graph: &GraphClient,
+        graph: &GraphStore,
     ) -> Option<Finding> {
         let file_path = result.get("filename")?.as_str()?;
         let line = result.get("line_number")?.as_u64()? as u32;
@@ -221,7 +221,7 @@ impl Detector for BanditDetector {
         "Detects security vulnerabilities in Python code using Bandit"
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         info!("Running Bandit security scan on {:?}", self.repository_path);
 
         let results = self.run_bandit();

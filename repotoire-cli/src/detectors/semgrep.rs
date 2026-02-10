@@ -7,7 +7,7 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::external_tool::{get_graph_context, run_external_tool};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use serde_json::Value as JsonValue;
@@ -134,7 +134,7 @@ impl SemgrepDetector {
     }
 
     /// Create finding from semgrep result
-    fn create_finding(&self, result: &JsonValue, graph: &GraphClient) -> Option<Finding> {
+    fn create_finding(&self, result: &JsonValue, graph: &GraphStore) -> Option<Finding> {
         let path = result.get("path")?.as_str()?;
         let check_id = result.get("check_id")?.as_str().unwrap_or("");
         let extra = result.get("extra")?;
@@ -297,7 +297,7 @@ impl Detector for SemgrepDetector {
         "Detects security vulnerabilities using Semgrep pattern matching"
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         info!("Running Semgrep on {:?}", self.repository_path);
 
         let results = self.run_semgrep();

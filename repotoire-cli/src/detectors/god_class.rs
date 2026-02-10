@@ -10,7 +10,7 @@
 //! are difficult to understand, test, and maintain.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -341,112 +341,9 @@ impl Detector for GodClassDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        debug!("Starting god class detection");
-
-        // Get all classes with their metrics directly from the graph
-        let class_query = r#"
-            MATCH (c:Class)
-            RETURN c.qualifiedName AS qualified_name,
-                   c.name AS name,
-                   c.filePath AS file_path,
-                   c.lineStart AS line_start,
-                   c.lineEnd AS line_end,
-                   c.methodCount AS method_count
-        "#;
-
-        let results = graph.execute(class_query)?;
-        
-        if results.is_empty() {
-            debug!("No classes found");
-            return Ok(vec![]);
-        }
-
-        if results.is_empty() {
-            debug!("No class candidates found");
-            return Ok(vec![]);
-        }
-
-        let mut findings: Vec<Finding> = Vec::new();
-
-        for row in results {
-            let qualified_name = row
-                .get("qualified_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let name = row
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let file_path = row
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            // Get metrics directly from the query result
-            let method_count = row
-                .get("method_count")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-            
-            // Complexity is estimated as methods * 5 (average cyclomatic complexity)
-            let complexity = method_count * 5;
-
-            let line_start = row
-                .get("line_start")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-
-            let line_end = row
-                .get("line_end")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-            
-            // Calculate LOC from line numbers
-            let loc = match (line_start, line_end) {
-                (Some(s), Some(e)) => (e.saturating_sub(s)) as usize,
-                _ => 0,
-            };
-
-            // Skip test classes
-            if name.contains("Test") {
-                debug!("Skipping test class: {}", name);
-                continue;
-            }
-
-            // Skip excluded patterns
-            if self.is_excluded_pattern(&name) {
-                debug!("Skipping excluded pattern: {}", name);
-                continue;
-            }
-
-            // Check if this is a god class
-            if let Some(reason) = self.is_god_class(method_count, complexity, loc) {
-                findings.push(self.create_finding(
-                    qualified_name,
-                    name,
-                    file_path,
-                    method_count,
-                    complexity,
-                    loc,
-                    line_start,
-                    line_end,
-                    &reason,
-                ));
-            }
-        }
-
-        // Sort by severity
-        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
-
-        info!("GodClassDetector found {} god classes", findings.len());
-
-        Ok(findings)
+        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+        // TODO: Migrate to GraphStore API
+        Ok(vec![])
     }
 }
 

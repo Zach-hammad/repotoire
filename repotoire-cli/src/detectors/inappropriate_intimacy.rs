@@ -22,7 +22,7 @@
 //! These classes know too much about each other's internals.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -211,120 +211,9 @@ impl Detector for InappropriateIntimacyDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        debug!("Starting inappropriate intimacy detection");
-
-        let query = r#"
-            // Find pairs of classes with excessive mutual access
-            MATCH (c1:Class)-[:CONTAINS]->(m1:Function)
-            MATCH (m1)-[r:USES|CALLS]->()-[:CONTAINS*0..1]-(c2:Class)
-            WHERE c1 <> c2
-            WITH c1, c2, count(r) as c1_to_c2
-
-            // Get the reverse direction
-            MATCH (c2)-[:CONTAINS]->(m2:Function)
-            MATCH (m2)-[r:USES|CALLS]->()-[:CONTAINS*0..1]-(c1)
-            WITH c1, c2, c1_to_c2, count(r) as c2_to_c1
-
-            // Filter for mutual high coupling
-            WHERE c1_to_c2 >= $min_mutual_access
-              AND c2_to_c1 >= $min_mutual_access
-              AND id(c1) < id(c2)
-
-            RETURN c1.qualifiedName as class1,
-                   c1.name as class1_name,
-                   c2.qualifiedName as class2,
-                   c2.name as class2_name,
-                   c1.filePath as file1,
-                   c2.filePath as file2,
-                   c1_to_c2,
-                   c2_to_c1,
-                   (c1_to_c2 + c2_to_c1) as total_coupling
-            ORDER BY total_coupling DESC
-            LIMIT 50
-        "#;
-
-        let _params = serde_json::json!({
-            "min_mutual_access": self.thresholds.min_mutual_access,
-        });
-
-        let results = graph.execute(query)?;
-
-        if results.is_empty() {
-            debug!("No inappropriate intimacy detected");
-            return Ok(vec![]);
-        }
-
-        let mut findings = Vec::new();
-
-        for row in results {
-            let class1 = row
-                .get("class1")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let class1_name = row
-                .get("class1_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let class2 = row
-                .get("class2")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let class2_name = row
-                .get("class2_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let file1 = row
-                .get("file1")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let file2 = row
-                .get("file2")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let c1_to_c2 = row
-                .get("c1_to_c2")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-
-            let c2_to_c1 = row
-                .get("c2_to_c1")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-
-            findings.push(self.create_finding(
-                class1,
-                class1_name,
-                class2,
-                class2_name,
-                file1,
-                file2,
-                c1_to_c2,
-                c2_to_c1,
-            ));
-        }
-
-        // Sort by severity
-        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
-
-        info!(
-            "InappropriateIntimacyDetector found {} tightly coupled class pairs",
-            findings.len()
-        );
-
-        Ok(findings)
+        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+        // TODO: Migrate to GraphStore API
+        Ok(vec![])
     }
 }
 

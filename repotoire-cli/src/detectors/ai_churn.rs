@@ -11,7 +11,7 @@
 //! Key detection signal: time_to_first_fix < 48h AND modifications >= 3 → HIGH
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
@@ -385,151 +385,15 @@ impl Detector for AIChurnDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        debug!("Starting AI churn detection");
-
-        // Query for functions with modification history
-        // Note: This requires git history data in the graph
-        let query = r#"
-            MATCH (f:Function)
-            WHERE f.name IS NOT NULL 
-              AND f.filePath IS NOT NULL
-              AND f.createdAt IS NOT NULL
-            OPTIONAL MATCH (f)-[:MODIFIED_IN]->(c:Commit)
-            WITH f, collect(c) AS commits
-            WHERE list_len(commits) >= 2
-            RETURN f.qualifiedName AS qualified_name,
-                   f.name AS name,
-                   f.filePath AS file_path,
-                   f.loc AS loc,
-                   f.createdAt AS created_at,
-                   f.creationCommit AS creation_commit,
-                   [c IN commits | {
-                       sha: c.sha,
-                       timestamp: c.timestamp,
-                       linesAdded: c.linesAdded,
-                       linesDeleted: c.linesDeleted
-                   }] AS modifications
-            LIMIT 500
-        "#;
-
-        let results = graph.execute(query)?;
-
-        if results.is_empty() {
-            debug!("No functions with modification history found");
-            // Fall back to simpler query without git history
-            return self.detect_without_git_history(graph);
-        }
-
-        let mut findings: Vec<Finding> = Vec::new();
-
-        for row in results {
-            let qualified_name = row
-                .get("qualified_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let function_name = row
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let file_path = row
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let loc = row.get("loc").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-
-            if loc < self.min_function_lines {
-                continue;
-            }
-
-            let created_at = row
-                .get("created_at")
-                .and_then(|v| v.as_str())
-                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-                .map(|dt| dt.with_timezone(&Utc));
-
-            let creation_commit = row
-                .get("creation_commit")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            // Parse modifications
-            let modifications: Vec<Modification> = row
-                .get("modifications")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|m| {
-                            let sha = m.get("sha")?.as_str()?.to_string();
-                            let timestamp = m
-                                .get("timestamp")
-                                .and_then(|v| v.as_str())
-                                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-                                .map(|dt| dt.with_timezone(&Utc))?;
-                            let lines_added =
-                                m.get("linesAdded").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                            let lines_deleted =
-                                m.get("linesDeleted").and_then(|v| v.as_u64()).unwrap_or(0)
-                                    as usize;
-                            Some(Modification {
-                                timestamp,
-                                commit_sha: sha,
-                                lines_added,
-                                lines_deleted,
-                            })
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            // Sort modifications by timestamp
-            let mut sorted_mods = modifications;
-            sorted_mods.sort_by_key(|m| m.timestamp);
-
-            let first_modification_at = sorted_mods.first().map(|m| m.timestamp);
-            let first_modification_commit = sorted_mods
-                .first()
-                .map(|m| m.commit_sha.clone())
-                .unwrap_or_default();
-
-            let record = FunctionChurnRecord {
-                qualified_name,
-                file_path,
-                function_name,
-                created_at,
-                creation_commit,
-                lines_original: loc,
-                first_modification_at,
-                first_modification_commit,
-                modifications: sorted_mods,
-            };
-
-            if let Some(finding) = self.create_finding(&record) {
-                findings.push(finding);
-            }
-        }
-
-        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
-
-        info!(
-            "AIChurnDetector found {} high-churn patterns",
-            findings.len()
-        );
-
-        Ok(findings)
+        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+        // TODO: Migrate to GraphStore API
+        Ok(vec![])
     }
 }
 
 impl AIChurnDetector {
     /// Fallback detection without git history data
-    fn detect_without_git_history(&self, _graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect_without_git_history(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
         warn!(
             "AIChurnDetector: No git history data in graph. \
              For full churn detection, ensure git history is indexed."

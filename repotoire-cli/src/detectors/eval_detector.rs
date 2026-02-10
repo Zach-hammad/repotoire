@@ -12,7 +12,7 @@
 //! CWE-78: OS Command Injection
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -465,7 +465,7 @@ impl Detector for EvalDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, _graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
         debug!("Starting eval/exec detection");
 
         // Primary detection is via source scanning

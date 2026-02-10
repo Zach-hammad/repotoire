@@ -4,7 +4,7 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::external_tool::{get_graph_context, run_external_tool};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -172,7 +172,7 @@ impl VultureDetector {
     }
 
     /// Create finding from vulture result
-    fn create_finding(&self, result: &VultureResult, graph: &GraphClient) -> Finding {
+    fn create_finding(&self, result: &VultureResult, graph: &GraphStore) -> Finding {
         let rel_path = Path::new(&result.file)
             .strip_prefix(&self.repository_path)
             .map(|p| p.to_string_lossy().to_string())
@@ -273,7 +273,7 @@ impl Detector for VultureDetector {
         "Detects unused Python code (dead code) using vulture"
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         info!("Running Vulture on {:?}", self.repository_path);
 
         let results = self.run_vulture();

@@ -5,7 +5,7 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::external_tool::{get_graph_context, run_external_tool, GraphContext};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use serde_json::Value as JsonValue;
@@ -114,7 +114,7 @@ impl RuffLintDetector {
     fn create_finding(
         &self,
         result: &JsonValue,
-        graph: &GraphClient,
+        graph: &GraphStore,
     ) -> Option<Finding> {
         let file_path = result.get("filename")?.as_str()?;
         let location = result.get("location")?;
@@ -236,7 +236,7 @@ impl Detector for RuffLintDetector {
         "Detects code quality issues in Python using Ruff (100x faster than Pylint)"
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         info!("Running Ruff on {:?}", self.repository_path);
 
         let results = self.run_ruff();
@@ -304,7 +304,7 @@ impl Detector for RuffImportDetector {
         "Detects unused imports using Ruff's F401 rule"
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         info!("Running Ruff import check on {:?}", self.repository_path);
 
         let results = self.run_ruff();

@@ -13,7 +13,7 @@ use crate::detectors::{
     default_detectors, DetectorEngine, Detector,
 };
 use crate::git;
-use crate::graph::GraphClient;
+use crate::graph::{GraphStore, CodeNode, CodeEdge, NodeKind};
 use crate::models::{FindingsSummary, HealthReport, Severity};
 use crate::parsers::{parse_file, ParseResult};
 use crate::reporters;
@@ -79,9 +79,9 @@ pub fn run(
         .with_context(|| "Failed to create .repotoire directory")?;
 
     // Initialize graph database
-    let db_path = repotoire_dir.join("kuzu_db");
+    let db_path = repotoire_dir.join("graph_db");
     println!("{}Initializing graph database...", style("🕸️  ").bold());
-    let graph = GraphClient::new(&db_path).with_context(|| "Failed to initialize Kuzu database")?;
+    let graph = GraphStore::new(&db_path).with_context(|| "Failed to initialize Kuzu database")?;
 
     // Set up progress bars
     let multi = MultiProgress::new();
@@ -158,21 +158,18 @@ pub fn run(
     graph_bar.set_style(bar_style.clone());
     graph_bar.set_message("Building code graph...");
 
-    // Batch insert files first (no edges)
+    // Batch insert files first
     for (file_path, _) in &parse_results {
         let relative_path = file_path.strip_prefix(&repo_path).unwrap_or(file_path);
         let relative_str = relative_path.display().to_string();
         let language = detect_language(file_path);
         let loc = count_lines(file_path).unwrap_or(0);
 
-        let query = format!(
-            "CREATE (:File {{qualifiedName: '{}', filePath: '{}', language: '{}', loc: {}}})",
-            escape_cypher(&relative_str),
-            escape_cypher(&relative_str),
-            escape_cypher(&language),
-            loc
-        );
-        let _ = graph.execute(&query);
+        let node = CodeNode::new(NodeKind::File, &relative_str, &relative_str)
+            .with_qualified_name(&relative_str)
+            .with_language(&language)
+            .with_property("loc", loc as i64);
+        graph.add_node(node);
         graph_bar.inc(1);
     }
 
@@ -196,27 +193,16 @@ pub fn run(
             let complexity = func.complexity.unwrap_or(1);
             
             // Create function node
-            let query = format!(
-                "CREATE (:Function {{qualifiedName: '{}', name: '{}', filePath: '{}', lineStart: {}, lineEnd: {}, is_async: {}, complexity: {}, loc: {}, parameters: []}})",
-                escape_cypher(&func.qualified_name),
-                escape_cypher(&func.name),
-                escape_cypher(&relative_str),
-                func.line_start,
-                func.line_end,
-                func.is_async,
-                complexity,
-                loc
-            );
-            let _ = graph.execute(&query);
+            let node = CodeNode::new(NodeKind::Function, &func.name, &relative_str)
+                .with_qualified_name(&func.qualified_name)
+                .with_lines(func.line_start, func.line_end)
+                .with_property("is_async", func.is_async)
+                .with_property("complexity", complexity as i64)
+                .with_property("loc", loc as i64);
+            graph.add_node(node);
             
-            // Create CONTAINS_FUNCTION edge from File to Function (MERGE to avoid duplicates)
-            let contains_query = format!(
-                "MATCH (f:File {{filePath: '{}'}}), (fn:Function {{qualifiedName: '{}'}}) \
-                 MERGE (f)-[:CONTAINS_FUNCTION]->(fn)",
-                escape_cypher(&relative_str),
-                escape_cypher(&func.qualified_name)
-            );
-            let _ = graph.execute(&contains_query);
+            // Create CONTAINS edge from File to Function
+            graph.add_edge_by_name(&relative_str, &func.qualified_name, CodeEdge::contains());
             graph_bar.inc(1);
         }
 
@@ -224,54 +210,38 @@ pub fn run(
         for class in &result.classes {
             let method_count = class.methods.len();
             // Create class node
-            let query = format!(
-                "CREATE (:Class {{qualifiedName: '{}', name: '{}', filePath: '{}', lineStart: {}, lineEnd: {}, methodCount: {}}})",
-                escape_cypher(&class.qualified_name),
-                escape_cypher(&class.name),
-                escape_cypher(&relative_str),
-                class.line_start,
-                class.line_end,
-                method_count
-            );
+            let node = CodeNode::new(NodeKind::Class, &class.name, &relative_str)
+                .with_qualified_name(&class.qualified_name)
+                .with_lines(class.line_start, class.line_end)
+                .with_property("methodCount", method_count as i64);
+            graph.add_node(node);
             
-            let _ = graph.execute(&query);
-            
-            // Create CONTAINS_CLASS edge from File to Class (MERGE to avoid duplicates)
-            let contains_query = format!(
-                "MATCH (f:File {{filePath: '{}'}}), (c:Class {{qualifiedName: '{}'}}) \
-                 MERGE (f)-[:CONTAINS_CLASS]->(c)",
-                escape_cypher(&relative_str),
-                escape_cypher(&class.qualified_name)
-            );
-            let _ = graph.execute(&contains_query);
+            // Create CONTAINS edge from File to Class
+            graph.add_edge_by_name(&relative_str, &class.qualified_name, CodeEdge::contains());
             graph_bar.inc(1);
         }
 
-        // Insert call edges with required properties (MERGE to avoid duplicates)
-        // caller is a qualified name, callee is just a function name
+        // Insert call edges
+        // Note: callee is just a function name, we need to find it by name
         for (caller, callee) in &result.calls {
-            let query = format!(
-                "MATCH (a:Function {{qualifiedName: '{}'}}), (b:Function) \
-                 WHERE b.name = '{}' \
-                 MERGE (a)-[:CALLS {{line: 0, call_name: '{}', is_self_call: false, count: 1, coupling_type: 'call'}}]->(b)",
-                escape_cypher(caller),
-                escape_cypher(callee),
-                escape_cypher(callee)
-            );
-            let _ = graph.execute(&query);
+            // For now, try to find callee by qualified name pattern
+            // This is a simplification - in practice we'd need better resolution
+            let callee_qn = format!("{}::{}", relative_str, callee);
+            graph.add_edge_by_name(caller, &callee_qn, CodeEdge::calls());
         }
 
-        // Insert import edges (MERGE to avoid duplicates)
+        // Insert import edges
         for import in &result.imports {
-            // Try to find matching file for import
-            let query = format!(
-                "MATCH (a:File {{filePath: '{}'}}), (b:File) \
-                 WHERE b.filePath CONTAINS '{}' \
-                 MERGE (a)-[:IMPORTS_FILE]->(b)",
-                escape_cypher(&relative_str),
-                escape_cypher(import)
-            );
-            let _ = graph.execute(&query);
+            // Try to match import to a file - simple heuristic
+            // Look for files that contain the import name
+            for (other_file, _) in &parse_results {
+                let other_relative = other_file.strip_prefix(&repo_path).unwrap_or(other_file);
+                let other_str = other_relative.display().to_string();
+                if other_str.contains(import) && other_str != relative_str {
+                    graph.add_edge_by_name(&relative_str, &other_str, CodeEdge::imports());
+                    break;
+                }
+            }
         }
 
         graph_bar.inc(1);

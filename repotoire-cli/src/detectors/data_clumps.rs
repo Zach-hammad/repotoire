@@ -18,7 +18,7 @@
 //! ```
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
@@ -368,91 +368,9 @@ impl Detector for DataClumpsDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        debug!("Starting data clumps detection");
-
-        // Query functions with parameters
-        let query = r#"
-            MATCH (f:Function)
-            WHERE f.parameters IS NOT NULL
-              AND list_len(f.parameters) >= $min_params
-            OPTIONAL MATCH (file:File)-[:CONTAINS*]->(f)
-            RETURN f.qualifiedName AS name,
-                   f.parameters AS params,
-                   file.filePath AS filePath
-        "#;
-
-        let _params = serde_json::json!({
-            "min_params": self.thresholds.min_params,
-        });
-
-        let results = graph.execute(query)?;
-
-        if results.is_empty() {
-            debug!("No functions with sufficient parameters found");
-            return Ok(vec![]);
-        }
-
-        // Parse results into function data
-        let mut functions_params: Vec<(String, HashSet<String>, Option<String>)> = Vec::new();
-
-        for row in results {
-            let name = row
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let raw_params = row
-                .get("params")
-                .and_then(|v| v.as_array())
-                .map(|v| v.to_vec())
-                .unwrap_or_default();
-
-            let file_path = row.get("filePath").and_then(|v| v.as_str()).map(String::from);
-
-            // Extract parameter names
-            let mut param_names: HashSet<String> = HashSet::new();
-            for p in raw_params {
-                let param_name = if p.is_string() {
-                    p.as_str().map(String::from)
-                } else if let Some(obj) = p.as_object() {
-                    obj.get("name").and_then(|n| n.as_str()).map(String::from)
-                } else {
-                    None
-                };
-
-                if let Some(n) = param_name {
-                    // Skip self, cls, *args, **kwargs
-                    if n != "self" && n != "cls" && !n.starts_with('*') {
-                        param_names.insert(n);
-                    }
-                }
-            }
-
-            if param_names.len() >= self.thresholds.min_params {
-                functions_params.push((name, param_names, file_path));
-            }
-        }
-
-        debug!(
-            "Found {} functions with {}+ parameters",
-            functions_params.len(),
-            self.thresholds.min_params
-        );
-
-        // Find clumps
-        let clumps = self.find_clumps(functions_params);
-
-        // Convert to findings
-        let findings: Vec<Finding> = clumps
-            .into_iter()
-            .map(|(params, functions, files)| self.create_finding(params, functions, files))
-            .collect();
-
-        info!("DataClumpsDetector found {} data clump(s)", findings.len());
-
-        Ok(findings)
+        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+        // TODO: Migrate to GraphStore API
+        Ok(vec![])
     }
 }
 

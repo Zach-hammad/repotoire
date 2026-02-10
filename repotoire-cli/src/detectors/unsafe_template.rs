@@ -14,7 +14,7 @@
 //! CWE-1336: Server-Side Template Injection
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -654,7 +654,7 @@ impl Detector for UnsafeTemplateDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, _graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
         debug!("Starting unsafe template detection");
 
         let mut findings = Vec::new();

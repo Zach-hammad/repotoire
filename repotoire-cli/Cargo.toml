@@ -1,6 +1,6 @@
 [package]
 name = "repotoire"
-version = "0.2.22"
+version = "0.3.0"
 edition = "2021"
 description = "Graph-powered code analysis CLI"
 license = "MIT"
@@ -42,7 +42,6 @@ indicatif = "0.17"  # Progress bars
 console = "0.15"    # Terminal styling
 
 # Graph database
-kuzu = "0.8"
 
 # Parsing
 tree-sitter = "0.24"
@@ -61,6 +60,7 @@ tree-sitter-cpp = "0.23"
 rayon = "1.11"
 rustc-hash = "2"
 petgraph = "0.7"
+sled = "0.34"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

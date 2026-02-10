@@ -26,27 +26,20 @@ pub fn run(path: &Path) -> Result<()> {
     println!("  {} Initialized", style("✓").green());
 
     // Check for database
-    let db_path = repotoire_dir.join("kuzu_db");
+    let db_path = repotoire_dir.join("graph_db");
     if db_path.exists() {
         println!("  {} Graph database exists", style("✓").green());
         
         // Try to get stats
-        if let Ok(graph) = crate::graph::GraphClient::new(&db_path) {
-            if let Ok(results) = graph.execute("MATCH (n:File) RETURN count(n) AS count") {
-                if let Some(count) = results.first().and_then(|r| r.get("count")).and_then(|v| v.as_u64()) {
-                    println!("    {} files indexed", style(count).cyan());
-                }
-            }
-            if let Ok(results) = graph.execute("MATCH (n:Function) RETURN count(n) AS count") {
-                if let Some(count) = results.first().and_then(|r| r.get("count")).and_then(|v| v.as_u64()) {
-                    println!("    {} functions", style(count).cyan());
-                }
-            }
-            if let Ok(results) = graph.execute("MATCH (n:Class) RETURN count(n) AS count") {
-                if let Some(count) = results.first().and_then(|r| r.get("count")).and_then(|v| v.as_u64()) {
-                    println!("    {} classes", style(count).cyan());
-                }
-            }
+        if let Ok(graph) = crate::graph::GraphStore::new(&db_path) {
+            let stats = graph.stats();
+            let file_count = stats.get("files").copied().unwrap_or(0);
+            let func_count = stats.get("functions").copied().unwrap_or(0);
+            let class_count = stats.get("classes").copied().unwrap_or(0);
+            
+            println!("    {} files indexed", style(file_count).cyan());
+            println!("    {} functions", style(func_count).cyan());
+            println!("    {} classes", style(class_count).cyan());
         }
     } else {
         println!(

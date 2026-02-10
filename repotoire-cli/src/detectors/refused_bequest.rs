@@ -20,7 +20,7 @@
 //! Penguin shouldn't inherit from Bird if it can't fly.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -212,156 +212,9 @@ impl Detector for RefusedBequestDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        debug!("Starting refused bequest detection");
-
-        let query = r#"
-            // Find classes that inherit from another class
-            MATCH (child:Class)-[:INHERITS]->(parent:Class)
-            WHERE parent.name IS NOT NULL
-              AND child.name IS NOT NULL
-
-            // Find overridden methods (same name in both child and parent)
-            MATCH (child)-[:CONTAINS]->(method:Function)
-            WHERE method.name IS NOT NULL
-
-            // Check if method overrides a parent method
-            OPTIONAL MATCH (parent)-[:CONTAINS]->(parent_method:Function)
-            WHERE parent_method.name = method.name
-
-            // Check if override calls the parent method (super() call)
-            OPTIONAL MATCH (method)-[:CALLS]->(parent_method)
-
-            WITH child, parent, method, parent_method,
-                 CASE WHEN parent_method IS NOT NULL THEN 1 ELSE 0 END AS is_override,
-                 CASE WHEN (method)-[:CALLS]->(parent_method) THEN 1 ELSE 0 END AS calls_parent
-
-            // Aggregate per child class
-            WITH child, parent,
-                 sum(is_override) AS total_overrides,
-                 sum(calls_parent) AS overrides_calling_parent
-
-            // Filter for classes with enough overrides
-            WHERE total_overrides >= $min_overrides
-
-            // Calculate parent call ratio
-            WITH child, parent, total_overrides, overrides_calling_parent,
-                 CASE WHEN total_overrides > 0
-                      THEN cast(overrides_calling_parent, "DOUBLE") / total_overrides
-                      ELSE 0 END AS parent_call_ratio
-
-            // Flag classes where most overrides don't call parent
-            WHERE parent_call_ratio <= $max_parent_call_ratio
-
-            // Get file path
-            OPTIONAL MATCH (child)<-[:CONTAINS*]-(f:File)
-
-            RETURN child.qualifiedName AS child_name,
-                   child.name AS child_class,
-                   child.lineStart AS line_start,
-                   child.lineEnd AS line_end,
-                   parent.qualifiedName AS parent_name,
-                   parent.name AS parent_class,
-                   total_overrides,
-                   overrides_calling_parent,
-                   parent_call_ratio,
-                   f.filePath AS file_path
-            ORDER BY total_overrides DESC
-            LIMIT 50
-        "#;
-
-        let _params = serde_json::json!({
-            "min_overrides": self.thresholds.min_overrides,
-            "max_parent_call_ratio": self.thresholds.max_parent_call_ratio,
-        });
-
-        let results = graph.execute(query)?;
-
-        if results.is_empty() {
-            debug!("No refused bequest violations found");
-            return Ok(vec![]);
-        }
-
-        let mut findings = Vec::new();
-
-        for row in results {
-            let parent_class = row
-                .get("parent_class")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            // Skip if parent is an abstract base class
-            if self.is_abstract_parent(&parent_class) {
-                continue;
-            }
-
-            let child_name = row
-                .get("child_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let child_class = row
-                .get("child_class")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let parent_name = row
-                .get("parent_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let file_path = row
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let line_start = row
-                .get("line_start")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-
-            let line_end = row
-                .get("line_end")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-
-            let total_overrides = row
-                .get("total_overrides")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-
-            let overrides_calling_parent = row
-                .get("overrides_calling_parent")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-
-            findings.push(self.create_finding(
-                child_name,
-                child_class,
-                parent_name,
-                parent_class,
-                file_path,
-                line_start,
-                line_end,
-                total_overrides,
-                overrides_calling_parent,
-            ));
-        }
-
-        // Sort by severity
-        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
-
-        info!(
-            "RefusedBequestDetector found {} refused bequest violations",
-            findings.len()
-        );
-
-        Ok(findings)
+        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+        // TODO: Migrate to GraphStore API
+        Ok(vec![])
     }
 }
 

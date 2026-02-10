@@ -5,7 +5,7 @@
 //! - `DetectorResult` for capturing execution results
 //! - Helper types for detector configuration
 
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashMap;
@@ -122,7 +122,7 @@ impl DetectorConfig {
 ///         "Detects my specific code smell"
 ///     }
 ///
-///     fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
+///     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
 ///         // Query the graph and analyze results
 ///         Ok(vec![])
 ///     }
@@ -141,16 +141,16 @@ pub trait Detector: Send + Sync {
     /// Run detection and return findings
     ///
     /// This is the main entry point for detection. Implementations should:
-    /// 1. Query the graph database for relevant data
+    /// 1. Query the graph store for relevant data
     /// 2. Analyze the data to find issues
     /// 3. Return a list of findings with appropriate severity
     ///
     /// # Arguments
-    /// * `graph` - Graph database client for querying code structure
+    /// * `graph` - Graph store for querying code structure
     ///
     /// # Returns
     /// A list of findings, or an error if detection fails
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>>;
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>>;
 
     /// Whether this detector depends on results from other detectors
     ///

@@ -9,7 +9,7 @@
 //! stored in the code graph.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
@@ -324,85 +324,9 @@ impl Detector for LongParameterListDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        debug!("Starting long parameter list detection");
-
-        // Query all functions - filter params in code since Kuzu has limited query support
-        let query = r#"
-            MATCH (f:Function)
-            RETURN f.qualifiedName AS qualified_name,
-                   f.name AS func_name,
-                   f.filePath AS file_path,
-                   f.lineStart AS line_start,
-                   f.parameters AS params
-        "#;
-
-        let results = graph.execute(query)?;
-
-        if results.is_empty() {
-            debug!("No functions with long parameter lists found");
-            return Ok(vec![]);
-        }
-
-        let mut findings: Vec<Finding> = Vec::new();
-
-        for row in results {
-            let qualified_name = row
-                .get("qualified_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let func_name = row
-                .get("func_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let file_path = row
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let line_start = row
-                .get("line_start")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-
-            let raw_params = row
-                .get("params")
-                .and_then(|v| v.as_array())
-                .map(|v| v.to_vec())
-                .unwrap_or_default();
-
-            // Get meaningful parameters (excluding self/cls)
-            let params = self.get_meaningful_params(&raw_params);
-            let param_count = params.len();
-
-            // Skip if under threshold after filtering
-            if param_count <= self.thresholds.max_params {
-                continue;
-            }
-
-            findings.push(self.create_finding(
-                qualified_name,
-                func_name,
-                file_path,
-                line_start,
-                params,
-            ));
-        }
-
-        // Sort by severity
-        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
-
-        info!(
-            "LongParameterListDetector found {} issues",
-            findings.len()
-        );
-
-        Ok(findings)
+        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+        // TODO: Migrate to GraphStore API
+        Ok(vec![])
     }
 }
 

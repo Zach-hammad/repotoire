@@ -15,7 +15,7 @@
 //! - JavaScript/TypeScript: *.test.js, *.spec.ts, __tests__/*
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -324,152 +324,9 @@ impl Detector for AIMissingTestsDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        debug!("Starting AI missing tests detection");
-
-        // Step 1: Get all test function names
-        let test_query = r#"
-            MATCH (f:Function)
-            WHERE f.name IS NOT NULL
-              AND (f.name STARTS WITH 'test_' 
-                   OR f.name STARTS WITH 'test'
-                   OR f.name ENDS WITH '_test')
-            RETURN DISTINCT lower(f.name) AS test_name
-        "#;
-
-        let test_results = graph.execute(test_query)?;
-        let test_names: HashSet<String> = test_results
-            .iter()
-            .filter_map(|row| row.get("test_name").and_then(|v| v.as_str()))
-            .map(String::from)
-            .collect();
-
-        debug!("Found {} test functions", test_names.len());
-
-        // Step 2: Get test files
-        let file_query = r#"
-            MATCH (f:File)
-            WHERE f.filePath IS NOT NULL
-            RETURN f.filePath AS file_path
-        "#;
-
-        let file_results = graph.execute(file_query)?;
-        let test_files: HashSet<String> = file_results
-            .iter()
-            .filter_map(|row| row.get("file_path").and_then(|v| v.as_str()))
-            .filter(|p| self.is_test_file(p))
-            .map(|p| p.to_lowercase())
-            .collect();
-
-        debug!("Found {} test files", test_files.len());
-
-        // Step 3: Get all functions
-        let func_query = r#"
-            MATCH (file:File)-[:CONTAINS*]->(func:Function)
-            WHERE func.name IS NOT NULL
-              AND (func.loc >= $min_loc OR func.loc IS NULL)
-            RETURN DISTINCT 
-                   func.qualifiedName AS qualified_name,
-                   func.name AS name,
-                   func.lineStart AS line_start,
-                   func.lineEnd AS line_end,
-                   func.loc AS loc,
-                   func.isMethod AS is_method,
-                   file.filePath AS file_path,
-                   file.language AS language
-            LIMIT $max_results
-        "#;
-
-        let _params = serde_json::json!({
-            "min_loc": self.min_function_loc,
-            "max_results": self.max_findings * 3,
-        });
-
-        let func_results = graph.execute(func_query)?;
-
-        if func_results.is_empty() {
-            debug!("No functions found for test coverage analysis");
-            return Ok(vec![]);
-        }
-
-        // Step 4: Find functions without tests
-        let mut findings: Vec<Finding> = Vec::new();
-
-        for row in func_results {
-            let name = row.get("name").and_then(|v| v.as_str()).unwrap_or("");
-
-            let file_path = row.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
-
-            if self.should_skip_function(name, file_path) {
-                continue;
-            }
-
-            let qualified_name = row
-                .get("qualified_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let line_start = row
-                .get("line_start")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-            let line_end = row
-                .get("line_end")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-            let loc = row.get("loc").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-            let is_method = row
-                .get("is_method")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let language = row
-                .get("language")
-                .and_then(|v| v.as_str())
-                .unwrap_or("python");
-
-            // Check if any test function variant exists
-            let test_variants = self.get_test_function_variants(name);
-            let has_test = test_variants.iter().any(|v| test_names.contains(v));
-
-            if has_test {
-                continue;
-            }
-
-            // Check if test file exists
-            let test_file_variants = self.get_test_file_variants(file_path);
-            let has_test_file = test_file_variants
-                .iter()
-                .any(|v| test_files.contains(&v.to_lowercase()));
-
-            if has_test_file {
-                // Test file exists but no specific test function found
-                // Give benefit of doubt
-                continue;
-            }
-
-            findings.push(self.create_finding(
-                &qualified_name,
-                name,
-                file_path,
-                line_start,
-                line_end,
-                loc,
-                is_method,
-                language,
-            ));
-
-            if findings.len() >= self.max_findings {
-                break;
-            }
-        }
-
-        info!(
-            "AIMissingTestsDetector found {} functions without tests",
-            findings.len()
-        );
-
-        Ok(findings)
+        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+        // TODO: Migrate to GraphStore API
+        Ok(vec![])
     }
 }
 

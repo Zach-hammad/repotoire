@@ -5,7 +5,7 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::external_tool::{get_graph_context, run_external_tool};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use serde_json::Value as JsonValue;
@@ -98,7 +98,7 @@ impl MypyDetector {
     fn create_finding(
         &self,
         result: &JsonValue,
-        graph: &GraphClient,
+        graph: &GraphStore,
     ) -> Option<Finding> {
         let file_path = result.get("file")?.as_str()?;
         let line = result.get("line")?.as_u64()? as u32;
@@ -207,7 +207,7 @@ impl Detector for MypyDetector {
         "Detects type errors in Python code using mypy static type checker"
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         info!("Running mypy on {:?}", self.repository_path);
 
         let results = self.run_mypy();

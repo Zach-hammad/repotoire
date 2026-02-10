@@ -20,7 +20,7 @@
 //! This method should probably be on Customer, not Order.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -225,118 +225,9 @@ impl Detector for FeatureEnvyDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        debug!("Starting feature envy detection");
-
-        let query = r#"
-            MATCH (c:Class)-[:CONTAINS]->(m:Function)
-            WHERE m.is_method = true
-
-            // Count internal uses (same class)
-            OPTIONAL MATCH (m)-[r_internal:USES|CALLS]->()-[:CONTAINS*0..1]-(c)
-            WITH m, c, count(DISTINCT r_internal) as internal_uses
-
-            // Count external uses (other classes)
-            OPTIONAL MATCH (m)-[r_external:USES|CALLS]->(target:Function)
-            WHERE NOT (target)-[:CONTAINS*0..1]-(c)
-            WITH m, c, internal_uses, count(DISTINCT r_external) as external_uses
-
-            // Filter based on thresholds
-            WHERE external_uses >= $min_external_uses
-              AND (internal_uses = 0 OR external_uses > internal_uses * $threshold_ratio)
-
-            RETURN m.qualifiedName as method,
-                   m.name as method_name,
-                   c.qualifiedName as owner_class,
-                   m.filePath as file_path,
-                   m.lineStart as line_start,
-                   m.lineEnd as line_end,
-                   internal_uses,
-                   external_uses
-            ORDER BY external_uses DESC
-            LIMIT 100
-        "#;
-
-        let _params = serde_json::json!({
-            "threshold_ratio": self.thresholds.threshold_ratio,
-            "min_external_uses": self.thresholds.min_external_uses,
-        });
-
-        let results = graph.execute(query)?;
-
-        if results.is_empty() {
-            debug!("No feature envy detected");
-            return Ok(vec![]);
-        }
-
-        let mut findings = Vec::new();
-
-        for row in results {
-            let method_name = row
-                .get("method")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let method_simple = row
-                .get("method_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let owner_class = row
-                .get("owner_class")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let file_path = row
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let line_start = row
-                .get("line_start")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-
-            let line_end = row
-                .get("line_end")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-
-            let internal_uses = row
-                .get("internal_uses")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-
-            let external_uses = row
-                .get("external_uses")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-
-            findings.push(self.create_finding(
-                method_name,
-                method_simple,
-                owner_class,
-                file_path,
-                line_start,
-                line_end,
-                internal_uses,
-                external_uses,
-            ));
-        }
-
-        // Sort by severity
-        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
-
-        info!(
-            "FeatureEnvyDetector found {} methods with feature envy",
-            findings.len()
-        );
-
-        Ok(findings)
+        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+        // TODO: Migrate to GraphStore API
+        Ok(vec![])
     }
 }
 

@@ -18,7 +18,7 @@
 //! This class just delegates - use OrderService directly.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -187,133 +187,9 @@ impl Detector for MiddleManDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        debug!("Starting middle man detection");
-
-        let query = r#"
-            // First count total methods per class
-            MATCH (c:Class)-[:CONTAINS]->(all_m:Function)
-            WHERE all_m.is_method = true
-            WITH c, count(all_m) as total_methods
-            WHERE total_methods > 0
-
-            // Find delegation patterns
-            MATCH (c)-[:CONTAINS]->(m:Function)
-            WHERE m.is_method = true
-              AND (m.complexity IS NULL OR m.complexity <= $max_complexity)
-            MATCH (m)-[:CALLS]->(delegated:Function)
-            MATCH (delegated)<-[:CONTAINS]-(target:Class)
-            WHERE c <> target
-
-            WITH c, target, total_methods,
-                 count(DISTINCT m) as delegation_count
-
-            // Filter based on thresholds
-            WHERE delegation_count >= $min_delegation_methods
-              AND cast(delegation_count, "DOUBLE") / total_methods >= $delegation_threshold
-
-            RETURN c.qualifiedName as middle_man,
-                   c.name as class_name,
-                   c.filePath as file_path,
-                   c.lineStart as line_start,
-                   c.lineEnd as line_end,
-                   target.qualifiedName as delegates_to,
-                   target.name as target_name,
-                   delegation_count,
-                   total_methods,
-                   cast(delegation_count * 100, "DOUBLE") / total_methods as delegation_percentage
-            ORDER BY delegation_percentage DESC
-            LIMIT 50
-        "#;
-
-        let _params = serde_json::json!({
-            "min_delegation_methods": self.thresholds.min_delegation_methods,
-            "delegation_threshold": self.thresholds.delegation_threshold,
-            "max_complexity": self.thresholds.max_complexity,
-        });
-
-        let results = graph.execute(query)?;
-
-        if results.is_empty() {
-            debug!("No middle man classes found");
-            return Ok(vec![]);
-        }
-
-        let mut findings = Vec::new();
-
-        for row in results {
-            let class_name = row
-                .get("middle_man")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let class_simple = row
-                .get("class_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let target_class = row
-                .get("delegates_to")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let target_name = row
-                .get("target_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let file_path = row
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let line_start = row
-                .get("line_start")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-
-            let line_end = row
-                .get("line_end")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-
-            let delegation_count = row
-                .get("delegation_count")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-
-            let total_methods = row
-                .get("total_methods")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(1) as usize;
-
-            findings.push(self.create_finding(
-                class_name,
-                class_simple,
-                target_class,
-                target_name,
-                file_path,
-                line_start,
-                line_end,
-                delegation_count,
-                total_methods,
-            ));
-        }
-
-        // Sort by severity
-        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
-
-        info!(
-            "MiddleManDetector found {} classes acting as middle men",
-            findings.len()
-        );
-
-        Ok(findings)
+        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+        // TODO: Migrate to GraphStore API
+        Ok(vec![])
     }
 }
 

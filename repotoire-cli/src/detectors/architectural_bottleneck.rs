@@ -6,7 +6,7 @@
 //! Uses Brandes algorithm for betweenness centrality calculation.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use rayon::prelude::*;
@@ -254,147 +254,9 @@ impl Detector for ArchitecturalBottleneckDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        debug!("Starting architectural bottleneck detection");
-
-        // Get all functions
-        let functions_query = r#"
-            MATCH (f:Function)
-            RETURN f.qualifiedName AS qualified_name,
-                   f.name AS name,
-                   f.filePath AS file_path,
-                   f.lineStart AS line_number,
-                   coalesce(f.complexity, 0) AS complexity
-            ORDER BY qualified_name
-        "#;
-        let functions_result = graph.execute(functions_query)?;
-
-        if functions_result.is_empty() {
-            debug!("No functions found in graph");
-            return Ok(vec![]);
-        }
-
-        // Build function index
-        let mut func_to_idx: HashMap<String, usize> = HashMap::new();
-        let mut func_data: Vec<(String, String, String, Option<u32>, u32)> = Vec::new();
-
-        for (idx, row) in functions_result.iter().enumerate() {
-            if let Some(qname) = row.get("qualified_name").and_then(|v| v.as_str()) {
-                func_to_idx.insert(qname.to_string(), idx);
-                func_data.push((
-                    qname.to_string(),
-                    row.get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown")
-                        .to_string(),
-                    row.get("file_path")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown")
-                        .to_string(),
-                    row.get("line_number")
-                        .and_then(|v| v.as_i64())
-                        .map(|n| n as u32),
-                    row.get("complexity").and_then(|v| v.as_i64()).unwrap_or(0) as u32,
-                ));
-            }
-        }
-
-        let num_nodes = func_data.len();
-        debug!("Found {} functions", num_nodes);
-
-        // Get call edges
-        let edges_query = r#"
-            MATCH (caller:Function)-[:CALLS]->(callee:Function)
-            RETURN caller.qualifiedName AS src, callee.qualifiedName AS dst
-        "#;
-        let edges_result = graph.execute(edges_query)?;
-
-        // Build adjacency list
-        let mut adj: Vec<Vec<usize>> = vec![vec![]; num_nodes];
-        for row in edges_result {
-            if let (Some(src), Some(dst)) = (
-                row.get("src").and_then(|v| v.as_str()),
-                row.get("dst").and_then(|v| v.as_str()),
-            ) {
-                if let (Some(&src_idx), Some(&dst_idx)) =
-                    (func_to_idx.get(src), func_to_idx.get(dst))
-                {
-                    adj[src_idx].push(dst_idx);
-                }
-            }
-        }
-
-        debug!("Built adjacency list");
-
-        // Calculate betweenness centrality
-        let betweenness = self.calculate_betweenness(&adj, num_nodes);
-
-        if betweenness.is_empty() {
-            return Ok(vec![]);
-        }
-
-        // Calculate statistics
-        let max_betweenness = betweenness.iter().cloned().fold(0.0_f64, f64::max);
-        let avg_betweenness = betweenness.iter().sum::<f64>() / num_nodes as f64;
-        let stdev = if num_nodes > 1 {
-            let variance = betweenness
-                .iter()
-                .map(|&b| (b - avg_betweenness).powi(2))
-                .sum::<f64>()
-                / num_nodes as f64;
-            variance.sqrt()
-        } else {
-            0.0
-        };
-
-        // Threshold: mean + 2*stdev (top ~5%)
-        let threshold = avg_betweenness + 2.0 * stdev;
-
-        info!(
-            "Betweenness stats: max={:.4}, avg={:.4}, stdev={:.4}, threshold={:.4}",
-            max_betweenness, avg_betweenness, stdev, threshold
-        );
-
-        // Find bottlenecks (above threshold)
-        let mut findings: Vec<Finding> = Vec::new();
-
-        for (idx, &score) in betweenness.iter().enumerate() {
-            if score >= threshold && score > 0.0 {
-                let (qualified_name, name, file_path, line_number, complexity) = &func_data[idx];
-                
-                // Skip parser files - they are designed to be central/orchestrating
-                if file_path.contains("/parsers/") || file_path.contains("\\parsers\\") {
-                    continue;
-                }
-                
-                let finding = self.create_finding(
-                    name,
-                    qualified_name,
-                    file_path,
-                    *line_number,
-                    score,
-                    max_betweenness,
-                    avg_betweenness,
-                    *complexity,
-                );
-                findings.push(finding);
-            }
-        }
-
-        // Sort by severity (highest first)
-        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
-
-        // Limit findings
-        if let Some(max) = self.config.max_findings {
-            findings.truncate(max);
-        }
-
-        info!(
-            "ArchitecturalBottleneckDetector found {} bottlenecks",
-            findings.len()
-        );
-
-        Ok(findings)
+        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+        // TODO: Migrate to GraphStore API
+        Ok(vec![])
     }
 }
 

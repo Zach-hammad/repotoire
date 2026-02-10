@@ -12,11 +12,11 @@ use std::path::Path;
 use tracing::{debug, info};
 
 use crate::git::{self, EnrichmentStats, GitHistory};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 
 /// Full analysis pipeline.
 pub struct Pipeline {
-    graph: GraphClient,
+    graph: GraphStore,
     /// Whether to enrich with git history
     enable_git_enrichment: bool,
     /// Repository ID for multi-tenant isolation
@@ -25,7 +25,7 @@ pub struct Pipeline {
 
 impl Pipeline {
     /// Create a new pipeline with a graph client.
-    pub fn new(graph: GraphClient) -> Self {
+    pub fn new(graph: GraphStore) -> Self {
         Self {
             graph,
             enable_git_enrichment: true,
@@ -87,7 +87,7 @@ impl Pipeline {
     }
 
     /// Get a reference to the graph client.
-    pub fn graph(&self) -> &GraphClient {
+    pub fn graph(&self) -> &GraphStore {
         &self.graph
     }
 }
@@ -142,7 +142,7 @@ mod tests {
     fn test_pipeline_creation() -> Result<()> {
         let dir = tempdir()?;
         let graph_path = dir.path().join("graph");
-        let graph = GraphClient::new(&graph_path)?;
+        let graph = GraphStore::new(&graph_path)?;
 
         let pipeline = Pipeline::new(graph)
             .without_git()

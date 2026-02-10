@@ -6,7 +6,7 @@
 //! CWE-78: Improper Neutralization of Special Elements used in an OS Command
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -270,7 +270,7 @@ impl Detector for GHActionsInjectionDetector {
         "Detects command injection vulnerabilities in GitHub Actions workflows"
     }
 
-    fn detect(&self, _graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
         let workflows_dir = self.repository_path.join(".github").join("workflows");
 
         if !workflows_dir.exists() {

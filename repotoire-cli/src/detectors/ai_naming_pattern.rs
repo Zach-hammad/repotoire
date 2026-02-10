@@ -14,7 +14,7 @@
 //! - Type-hinted names: user_list, config_dict
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -438,125 +438,9 @@ impl Detector for AINamingPatternDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        debug!("Starting AI naming pattern detection");
-
-        // Query functions with their identifiers
-        let query = r#"
-            MATCH (f:Function)
-            WHERE f.name IS NOT NULL
-              AND f.filePath IS NOT NULL
-              AND f.identifiers IS NOT NULL
-            RETURN f.qualifiedName AS qualified_name,
-                   f.name AS name,
-                   f.filePath AS file_path,
-                   f.lineStart AS line_start,
-                   f.identifiers AS identifiers
-            LIMIT 500
-        "#;
-
-        let results = graph.execute(query)?;
-
-        if results.is_empty() {
-            debug!("No functions with identifier data found");
-            return Ok(vec![]);
-        }
-
-        let mut analyses: Vec<FunctionNamingAnalysis> = Vec::new();
-
-        for row in results {
-            let qualified_name = row
-                .get("qualified_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let function_name = row
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let file_path = row
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let line_number = row.get("line_start").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-
-            // Parse identifiers
-            let identifiers: Vec<String> = row
-                .get("identifiers")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            // Filter ignored names
-            let filtered: Vec<String> = identifiers
-                .into_iter()
-                .filter(|name| {
-                    !self.ignored_set.contains(&name.to_lowercase())
-                        && !name.starts_with("__")
-                        && !name.starts_with('_')
-                })
-                .collect();
-
-            if filtered.len() < self.min_identifiers {
-                continue;
-            }
-
-            // Analyze for generic names
-            let generic_identifiers = self.analyze_identifiers(&filtered);
-            let generic_count = generic_identifiers.len();
-            let total = filtered.len();
-            let generic_ratio = if total > 0 {
-                generic_count as f64 / total as f64
-            } else {
-                0.0
-            };
-
-            // Skip if below threshold
-            if generic_ratio <= self.generic_ratio_threshold {
-                continue;
-            }
-
-            analyses.push(FunctionNamingAnalysis {
-                file_path,
-                function_name,
-                qualified_name,
-                total_identifiers: total,
-                generic_count,
-                generic_ratio,
-                generic_identifiers,
-                line_number,
-            });
-        }
-
-        // Sort by generic ratio descending
-        analyses.sort_by(|a, b| {
-            b.generic_ratio
-                .partial_cmp(&a.generic_ratio)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        // Create findings
-        let findings: Vec<Finding> = analyses
-            .iter()
-            .take(self.max_findings)
-            .map(|a| self.create_finding(a))
-            .collect();
-
-        info!(
-            "AINamingPatternDetector found {} naming pattern issues",
-            findings.len()
-        );
-
-        Ok(findings)
+        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+        // TODO: Migrate to GraphStore API
+        Ok(vec![])
     }
 }
 

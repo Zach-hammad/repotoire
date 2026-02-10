@@ -21,7 +21,7 @@
 //! ```
 
 use crate::detectors::base::{DetectionSummary, Detector, DetectorResult, ProgressCallback};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::Finding;
 use anyhow::Result;
 use rayon::prelude::*;
@@ -118,7 +118,7 @@ impl DetectorEngine {
     ///
     /// # Returns
     /// All findings from all detectors, sorted by severity (highest first)
-    pub fn run(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
+    pub fn run(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let start = Instant::now();
         info!(
             "Starting detection with {} detectors on {} workers",
@@ -225,7 +225,7 @@ impl DetectorEngine {
     ///
     /// Unlike `run()`, this returns individual results for each detector,
     /// useful for debugging and detailed reporting.
-    pub fn run_detailed(&self, graph: &GraphClient) -> Result<(Vec<DetectorResult>, DetectionSummary)> {
+    pub fn run_detailed(&self, graph: &GraphStore) -> Result<(Vec<DetectorResult>, DetectionSummary)> {
         let start = Instant::now();
         
         // Partition detectors
@@ -262,7 +262,7 @@ impl DetectorEngine {
     }
 
     /// Run a single detector with error handling and timing
-    fn run_single_detector(&self, detector: &Arc<dyn Detector>, graph: &GraphClient) -> DetectorResult {
+    fn run_single_detector(&self, detector: &Arc<dyn Detector>, graph: &GraphStore) -> DetectorResult {
         let name = detector.name().to_string();
         let start = Instant::now();
 
@@ -415,7 +415,7 @@ mod tests {
             "Mock detector for testing"
         }
 
-        fn detect(&self, _graph: &GraphClient) -> Result<Vec<Finding>> {
+        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
             Ok((0..self.findings_count)
                 .map(|i| Finding {
                     id: format!("{}-{}", self.name, i),

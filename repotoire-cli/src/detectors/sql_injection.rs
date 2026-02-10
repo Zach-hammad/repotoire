@@ -10,7 +10,7 @@
 //! CWE-89: Improper Neutralization of Special Elements used in an SQL Command
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -397,7 +397,7 @@ impl Detector for SQLInjectionDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, _graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
         debug!("Starting SQL injection detection");
 
         let findings = self.scan_source_files();

@@ -5,7 +5,7 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::external_tool::{batch_get_graph_context, run_js_tool, GraphContext};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -272,7 +272,7 @@ impl Detector for TscDetector {
         "Detects type errors in TypeScript using the TypeScript compiler"
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         use crate::detectors::walk_source_files;
         
         info!("Running tsc type check on {:?}", self.repository_path);

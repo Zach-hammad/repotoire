@@ -1,17 +1,19 @@
 //! Graph command - query the code graph directly
 
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use anyhow::{Context, Result};
 use console::style;
 use std::path::Path;
 
-/// Run a Cypher query against the code graph
-pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
+/// Run a query against the code graph
+/// 
+/// Note: Cypher queries are no longer supported. Use the built-in query commands instead.
+pub fn run(path: &Path, query: &str, _format: &str) -> Result<()> {
     let repo_path = path
         .canonicalize()
         .with_context(|| format!("Path does not exist: {}", path.display()))?;
 
-    let db_path = repo_path.join(".repotoire").join("kuzu_db");
+    let db_path = repo_path.join(".repotoire").join("graph_db");
     if !db_path.exists() {
         anyhow::bail!(
             "No analysis found. Run {} first.",
@@ -19,50 +21,73 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
         );
     }
 
-    let graph = GraphClient::new(&db_path)
+    let graph = GraphStore::new(&db_path)
         .with_context(|| "Failed to open graph database")?;
 
-    let results = graph.execute(query)
-        .with_context(|| format!("Query failed: {}", query))?;
-
-    match format {
-        "json" => {
-            let json = serde_json::to_string_pretty(&results)?;
-            println!("{}", json);
+    // Parse simple query patterns
+    let query_lower = query.to_lowercase();
+    
+    if query_lower.contains("function") {
+        let functions = graph.get_functions();
+        println!("\n{} Functions ({})\n", style("📊").bold(), functions.len());
+        for func in functions.iter().take(50) {
+            println!("  {} ({}:{})", 
+                style(&func.qualified_name).cyan(),
+                &func.file_path,
+                func.line_start
+            );
         }
-        "table" | "text" => {
-            if results.is_empty() {
-                println!("{}", style("No results").dim());
-                return Ok(());
-            }
-
-            // Get column names from first row
-            if let Some(first_row) = results.first() {
-                let columns: Vec<&str> = first_row.keys().map(|s| s.as_str()).collect();
-                
-                // Print header
-                println!("{}", style(columns.join(" | ")).bold());
-                println!("{}", "-".repeat(columns.len() * 20));
-
-                // Print rows
-                for row in &results {
-                    let values: Vec<String> = columns
-                        .iter()
-                        .map(|col| {
-                            row.get(*col)
-                                .map(|v| format!("{}", v))
-                                .unwrap_or_else(|| "null".to_string())
-                        })
-                        .collect();
-                    println!("{}", values.join(" | "));
-                }
-            }
-
-            println!("\n{} {} rows", style("→").dim(), results.len());
+        if functions.len() > 50 {
+            println!("  ... and {} more", functions.len() - 50);
         }
-        _ => {
-            anyhow::bail!("Unknown format: {}. Use 'json' or 'table'", format);
+    } else if query_lower.contains("class") {
+        let classes = graph.get_classes();
+        println!("\n{} Classes ({})\n", style("📊").bold(), classes.len());
+        for class in classes.iter().take(50) {
+            println!("  {} ({}:{})", 
+                style(&class.qualified_name).cyan(),
+                &class.file_path,
+                class.line_start
+            );
         }
+        if classes.len() > 50 {
+            println!("  ... and {} more", classes.len() - 50);
+        }
+    } else if query_lower.contains("file") {
+        let files = graph.get_files();
+        println!("\n{} Files ({})\n", style("📊").bold(), files.len());
+        for file in files.iter().take(50) {
+            println!("  {}", style(&file.file_path).cyan());
+        }
+        if files.len() > 50 {
+            println!("  ... and {} more", files.len() - 50);
+        }
+    } else if query_lower.contains("call") {
+        let calls = graph.get_calls();
+        println!("\n{} Call Edges ({})\n", style("📊").bold(), calls.len());
+        for (from, to) in calls.iter().take(50) {
+            println!("  {} -> {}", style(from).cyan(), style(to).green());
+        }
+        if calls.len() > 50 {
+            println!("  ... and {} more", calls.len() - 50);
+        }
+    } else if query_lower.contains("import") {
+        let imports = graph.get_imports();
+        println!("\n{} Import Edges ({})\n", style("📊").bold(), imports.len());
+        for (from, to) in imports.iter().take(50) {
+            println!("  {} -> {}", style(from).cyan(), style(to).green());
+        }
+        if imports.len() > 50 {
+            println!("  ... and {} more", imports.len() - 50);
+        }
+    } else {
+        println!("{}", style("Supported queries:").bold());
+        println!("  - functions: List all functions");
+        println!("  - classes: List all classes");
+        println!("  - files: List all files");
+        println!("  - calls: List call edges");
+        println!("  - imports: List import edges");
+        println!("\nNote: Cypher queries are not supported. Use 'repotoire graph stats' for statistics.");
     }
 
     Ok(())
@@ -74,7 +99,7 @@ pub fn stats(path: &Path) -> Result<()> {
         .canonicalize()
         .with_context(|| format!("Path does not exist: {}", path.display()))?;
 
-    let db_path = repo_path.join(".repotoire").join("kuzu_db");
+    let db_path = repo_path.join(".repotoire").join("graph_db");
     if !db_path.exists() {
         anyhow::bail!(
             "No analysis found. Run {} first.",
@@ -82,58 +107,28 @@ pub fn stats(path: &Path) -> Result<()> {
         );
     }
 
-    let graph = GraphClient::new(&db_path)
+    let graph = GraphStore::new(&db_path)
         .with_context(|| "Failed to open graph database")?;
 
     println!("\n{} Graph Statistics\n", style("📊").bold());
 
-    // Count nodes
-    let queries = vec![
-        ("Files", "MATCH (n:File) RETURN count(n) AS count"),
-        ("Functions", "MATCH (n:Function) RETURN count(n) AS count"),
-        ("Classes", "MATCH (n:Class) RETURN count(n) AS count"),
-        ("Commits", "MATCH (n:Commit) RETURN count(n) AS count"),
-    ];
-
-    for (label, query) in queries {
-        match graph.execute(query) {
-            Ok(results) => {
-                let count = results
-                    .first()
-                    .and_then(|r| r.get("count"))
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-                println!("  {}: {}", style(label).cyan(), style(count).bold());
-            }
-            Err(_) => {
-                println!("  {}: {}", style(label).cyan(), style("N/A").dim());
-            }
-        }
-    }
-
-    // Count edges
+    let stats = graph.stats();
+    
+    // Node counts
+    println!("  {}: {}", style("Files").cyan(), style(stats.get("files").copied().unwrap_or(0)).bold());
+    println!("  {}: {}", style("Functions").cyan(), style(stats.get("functions").copied().unwrap_or(0)).bold());
+    println!("  {}: {}", style("Classes").cyan(), style(stats.get("classes").copied().unwrap_or(0)).bold());
+    
+    // Edge counts
     println!();
-    let edge_queries = vec![
-        ("CALLS", "MATCH ()-[r:CALLS]->() RETURN count(r) AS count"),
-        ("CONTAINS", "MATCH ()-[r:CONTAINS_FUNCTION|CONTAINS_CLASS|CONTAINS_METHOD]->() RETURN count(r) AS count"),
-        ("IMPORTS", "MATCH ()-[r:IMPORTS|IMPORTS_FILE]->() RETURN count(r) AS count"),
-    ];
-
-    for (label, query) in edge_queries {
-        match graph.execute(query) {
-            Ok(results) => {
-                let count = results
-                    .first()
-                    .and_then(|r| r.get("count"))
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-                println!("  {} edges: {}", style(label).cyan(), style(count).bold());
-            }
-            Err(_) => {
-                println!("  {} edges: {}", style(label).cyan(), style("N/A").dim());
-            }
-        }
-    }
+    println!("  {} edges: {}", style("CALLS").cyan(), style(stats.get("call_edges").copied().unwrap_or(0)).bold());
+    println!("  {} edges: {}", style("IMPORTS").cyan(), style(stats.get("import_edges").copied().unwrap_or(0)).bold());
+    println!("  {} edges: {}", style("CONTAINS").cyan(), style(stats.get("contains_edges").copied().unwrap_or(0)).bold());
+    
+    // Total
+    println!();
+    println!("  Total nodes: {}", style(graph.node_count()).bold());
+    println!("  Total edges: {}", style(graph.edge_count()).bold());
 
     Ok(())
 }

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::ai::{AiClient, LlmBackend};
 use crate::detectors::{default_detectors, DetectorEngineBuilder};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::FindingsSummary;
 
 /// State shared across tool calls
@@ -17,7 +17,7 @@ pub struct HandlerState {
     /// Path to the repository being analyzed
     pub repo_path: PathBuf,
     /// Graph client (lazily initialized)
-    graph: Option<Arc<GraphClient>>,
+    graph: Option<Arc<GraphStore>>,
     /// API key for cloud PRO features
     pub api_key: Option<String>,
     /// API base URL
@@ -77,13 +77,13 @@ impl HandlerState {
     }
 
     /// Get or initialize the graph client
-    pub fn get_graph(&mut self) -> Result<Arc<GraphClient>> {
+    pub fn get_graph(&mut self) -> Result<Arc<GraphStore>> {
         if let Some(ref client) = self.graph {
             return Ok(Arc::clone(client));
         }
 
         let db_path = self.repo_path.join(".repotoire").join("graph");
-        let client = GraphClient::new(&db_path)
+        let client = GraphStore::new(&db_path)
             .context("Failed to initialize graph database")?;
         let client = Arc::new(client);
         self.graph = Some(Arc::clone(&client));
@@ -137,16 +137,58 @@ pub fn handle_analyze(state: &mut HandlerState, args: &Value) -> Result<Value> {
     }))
 }
 
-/// Execute a Cypher query on the code graph
+/// Execute a query on the code graph (limited - Cypher no longer supported)
 pub fn handle_query_graph(state: &mut HandlerState, args: &Value) -> Result<Value> {
-    let cypher = args
-        .get("cypher")
+    let query_type = args
+        .get("type")
         .and_then(|v| v.as_str())
-        .context("Missing required argument: cypher")?;
+        .unwrap_or("functions");
 
     let graph = state.get_graph()?;
-
-    let results = graph.execute(cypher)?;
+    
+    let results: Vec<serde_json::Value> = match query_type {
+        "functions" => {
+            graph.get_functions()
+                .iter()
+                .take(100)
+                .map(|f| json!({
+                    "qualified_name": f.qualified_name,
+                    "name": f.name,
+                    "file_path": f.file_path,
+                    "line_start": f.line_start,
+                    "complexity": f.complexity()
+                }))
+                .collect()
+        }
+        "classes" => {
+            graph.get_classes()
+                .iter()
+                .take(100)
+                .map(|c| json!({
+                    "qualified_name": c.qualified_name,
+                    "name": c.name,
+                    "file_path": c.file_path,
+                    "line_start": c.line_start
+                }))
+                .collect()
+        }
+        "files" => {
+            graph.get_files()
+                .iter()
+                .take(100)
+                .map(|f| json!({
+                    "file_path": f.file_path,
+                    "language": f.language
+                }))
+                .collect()
+        }
+        "stats" => {
+            vec![json!(graph.stats())]
+        }
+        _ => {
+            return Err(anyhow::anyhow!("Unknown query type: {}. Use: functions, classes, files, stats", query_type));
+        }
+    };
 
     Ok(json!({
         "results": results,
@@ -274,25 +316,36 @@ pub fn handle_get_architecture(state: &mut HandlerState, _args: &Value) -> Resul
     let graph = state.get_graph()?;
 
     // Get node counts
-    let stats = graph.get_stats()?;
+    let stats = graph.stats();
 
-    // Get top-level module structure
-    let modules_query = r#"
-        MATCH (f:File)
-        RETURN f.language AS language, count(*) AS file_count
-        ORDER BY file_count DESC
-    "#;
-    let languages = graph.execute_safe(modules_query);
+    // Get language distribution
+    let files = graph.get_files();
+    let mut lang_counts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    for file in &files {
+        let lang = file.language.clone().unwrap_or_else(|| "unknown".to_string());
+        *lang_counts.entry(lang).or_insert(0) += 1;
+    }
+    let languages: Vec<serde_json::Value> = lang_counts
+        .into_iter()
+        .map(|(lang, count)| json!({"language": lang, "file_count": count}))
+        .collect();
 
-    // Get class overview
-    let classes_query = r#"
-        MATCH (c:Class)
-        OPTIONAL MATCH (c)-[:CONTAINS]->(m:Function)
-        RETURN c.name AS class_name, c.filePath AS file, count(m) AS method_count
-        ORDER BY method_count DESC
-        LIMIT 20
-    "#;
-    let top_classes = graph.execute_safe(classes_query);
+    // Get class overview with method counts
+    let classes = graph.get_classes();
+    let mut top_classes: Vec<serde_json::Value> = classes
+        .iter()
+        .map(|c| json!({
+            "class_name": c.name,
+            "file": c.file_path,
+            "method_count": c.get_i64("methodCount").unwrap_or(0)
+        }))
+        .collect();
+    top_classes.sort_by(|a, b| {
+        let a_count = a.get("method_count").and_then(|v| v.as_i64()).unwrap_or(0);
+        let b_count = b.get("method_count").and_then(|v| v.as_i64()).unwrap_or(0);
+        b_count.cmp(&a_count)
+    });
+    top_classes.truncate(20);
 
     Ok(json!({
         "node_counts": stats,

@@ -6,7 +6,7 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::external_tool::{get_graph_context, run_external_tool};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use serde_json::Value as JsonValue;
@@ -157,7 +157,7 @@ impl RadonDetector {
     }
 
     /// Create finding from cyclomatic complexity result
-    fn create_cc_finding(&self, result: &CcResult, graph: &GraphClient) -> Option<Finding> {
+    fn create_cc_finding(&self, result: &CcResult, graph: &GraphStore) -> Option<Finding> {
         let severity = Self::cc_severity(&result.rank)?;
 
         let rel_path = Path::new(&result.file)
@@ -210,7 +210,7 @@ impl RadonDetector {
     }
 
     /// Create finding from maintainability index result
-    fn create_mi_finding(&self, result: &MiResult, graph: &GraphClient) -> Option<Finding> {
+    fn create_mi_finding(&self, result: &MiResult, graph: &GraphStore) -> Option<Finding> {
         let severity = Self::mi_severity(result.mi)?;
 
         let rel_path = Path::new(&result.file)
@@ -307,7 +307,7 @@ impl Detector for RadonDetector {
         "Detects complexity and maintainability issues in Python using radon"
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         info!("Running Radon on {:?}", self.repository_path);
 
         let cc_results = self.run_radon_cc();

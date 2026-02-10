@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::Severity;
 
 /// Metric trend information
@@ -75,12 +75,12 @@ pub struct MetricChange {
 /// - Calculate technical debt velocity
 /// - Compare commits (before/after analysis)
 pub struct TemporalMetrics<'a> {
-    graph: &'a GraphClient,
+    graph: &'a GraphStore,
 }
 
 impl<'a> TemporalMetrics<'a> {
     /// Create a new temporal metrics analyzer
-    pub fn new(graph: &'a GraphClient) -> Self {
+    pub fn new(graph: &'a GraphStore) -> Self {
         Self { graph }
     }
 

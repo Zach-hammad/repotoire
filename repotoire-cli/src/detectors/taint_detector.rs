@@ -16,7 +16,7 @@
 //! is not available, providing similar coverage through regex matching.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -554,7 +554,7 @@ impl Detector for TaintDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, _graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
         debug!("Starting taint tracking detection");
 
         let findings = self.scan_source_files();

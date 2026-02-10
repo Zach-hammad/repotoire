@@ -56,6 +56,14 @@ pub struct GitHistory {
 }
 
 impl GitHistory {
+    /// Create a new GitHistory for a repository.
+    ///
+    /// # Arguments
+    /// * `path` - Path to the repository (or any subdirectory)
+    pub fn new(path: &Path) -> Result<Self> {
+        Self::open(path)
+    }
+
     /// Open a git repository.
     ///
     /// # Arguments

@@ -327,118 +327,45 @@ impl GraphContext {
 /// * `file_path` - Relative file path
 /// * `line` - Optional line number to find containing entity
 pub fn get_graph_context(
-    graph: &crate::graph::GraphClient,
+    graph: &crate::graph::GraphStore,
     file_path: &str,
-    line: Option<u32>,
+    _line: Option<u32>,
 ) -> GraphContext {
-    // Normalize path for consistent matching
-    let normalized_path = file_path.replace('\\', "/");
-
-    let query = if let Some(line_num) = line {
-        format!(
-            r#"
-            MATCH (file:File {{filePath: '{}'}})
-            OPTIONAL MATCH (file)-[:CONTAINS]->(entity)
-            WHERE entity.lineStart <= {} AND entity.lineEnd >= {}
-            RETURN file.loc as file_loc,
-                   file.language as language,
-                   collect(DISTINCT entity.qualifiedName) as affected_nodes,
-                   collect(DISTINCT entity.complexity) as complexities
-            "#,
-            normalized_path, line_num, line_num
-        )
+    // Get file info from GraphStore
+    if let Some(file_node) = graph.get_node(file_path) {
+        GraphContext {
+            file_loc: file_node.get_i64("loc"),
+            language: file_node.language.clone(),
+            affected_nodes: Vec::new(),
+            complexities: Vec::new(),
+        }
     } else {
-        format!(
-            r#"
-            MATCH (file:File {{filePath: '{}'}})
-            RETURN file.loc as file_loc,
-                   file.language as language,
-                   [] as affected_nodes,
-                   [] as complexities
-            "#,
-            normalized_path
-        )
-    };
-
-    match graph.execute(&query) {
-        Ok(results) if !results.is_empty() => {
-            let row = &results[0];
-            GraphContext {
-                file_loc: row.get("file_loc").and_then(|v| v.as_i64()),
-                language: row.get("language").and_then(|v| v.as_str()).map(String::from),
-                affected_nodes: row
-                    .get("affected_nodes")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-                complexities: row
-                    .get("complexities")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
-                    .unwrap_or_default(),
-            }
-        }
-        Ok(_) => GraphContext::default(),
-        Err(e) => {
-            debug!("Could not get graph context for {}: {}", file_path, e);
-            GraphContext::default()
-        }
+        GraphContext::default()
     }
 }
 
 /// Batch get graph context for multiple files in a single query
 pub fn batch_get_graph_context(
-    graph: &crate::graph::GraphClient,
+    graph: &crate::graph::GraphStore,
     file_paths: &[String],
 ) -> HashMap<String, GraphContext> {
-    if file_paths.is_empty() {
-        return HashMap::new();
-    }
-
-    // Build paths list for query
-    let paths_list: Vec<String> = file_paths
-        .iter()
-        .map(|p| format!("'{}'", p.replace('\\', "/").replace('\'', "\\'")))
-        .collect();
-
-    let query = format!(
-        r#"
-        UNWIND [{}] AS path
-        MATCH (file:File {{filePath: path}})
-        RETURN file.filePath as filePath,
-               file.loc as file_loc,
-               file.language as language
-        "#,
-        paths_list.join(", ")
-    );
-
-    match graph.execute(&query) {
-        Ok(results) => {
-            let mut contexts = HashMap::new();
-            for row in results {
-                if let Some(path) = row.get("filePath").and_then(|v| v.as_str()) {
-                    contexts.insert(
-                        path.to_string(),
-                        GraphContext {
-                            file_loc: row.get("file_loc").and_then(|v| v.as_i64()),
-                            language: row.get("language").and_then(|v| v.as_str()).map(String::from),
-                            affected_nodes: Vec::new(),
-                            complexities: Vec::new(),
-                        },
-                    );
-                }
-            }
-            contexts
-        }
-        Err(e) => {
-            debug!("Could not batch get graph context: {}", e);
-            HashMap::new()
+    let mut contexts = HashMap::new();
+    
+    for path in file_paths {
+        if let Some(file_node) = graph.get_node(path) {
+            contexts.insert(
+                path.clone(),
+                GraphContext {
+                    file_loc: file_node.get_i64("loc"),
+                    language: file_node.language.clone(),
+                    affected_nodes: Vec::new(),
+                    complexities: Vec::new(),
+                },
+            );
         }
     }
+    
+    contexts
 }
 
 /// Estimate fix effort based on severity

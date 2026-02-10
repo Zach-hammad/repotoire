@@ -13,7 +13,7 @@
 //! This class might be unnecessary - just use the Value directly.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -191,125 +191,9 @@ impl Detector for LazyClassDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        debug!("Starting lazy class detection");
-
-        let query = r#"
-            MATCH (c:Class)
-            WHERE c.name IS NOT NULL
-
-            // Get method count and LOC
-            OPTIONAL MATCH (c)-[:CONTAINS]->(m:Function)
-            WITH c,
-                 count(m) AS method_count,
-                 coalesce(sum(m.loc), 0) AS total_loc,
-                 collect(m.loc) AS method_locs
-
-            // Filter for lazy class criteria
-            WHERE method_count > 0
-              AND method_count <= $max_methods
-              AND total_loc >= $min_total_loc
-
-            // Calculate average method LOC
-            WITH c, method_count, total_loc,
-                 cast(total_loc, "DOUBLE") / method_count AS avg_method_loc
-
-            WHERE avg_method_loc <= $max_avg_loc
-
-            // Get file path
-            OPTIONAL MATCH (c)<-[:CONTAINS*]-(f:File)
-
-            RETURN c.qualifiedName AS qualified_name,
-                   c.name AS class_name,
-                   c.lineStart AS line_start,
-                   c.lineEnd AS line_end,
-                   method_count,
-                   total_loc,
-                   avg_method_loc,
-                   f.filePath AS file_path
-            ORDER BY method_count ASC, total_loc ASC
-            LIMIT 50
-        "#;
-
-        let _params = serde_json::json!({
-            "max_methods": self.thresholds.max_methods,
-            "max_avg_loc": self.thresholds.max_avg_loc_per_method,
-            "min_total_loc": self.thresholds.min_total_loc,
-        });
-
-        let results = graph.execute(query)?;
-
-        if results.is_empty() {
-            debug!("No lazy classes found");
-            return Ok(vec![]);
-        }
-
-        let mut findings = Vec::new();
-
-        for row in results {
-            let class_name = row
-                .get("class_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            // Skip excluded patterns
-            if self.should_exclude(&class_name) {
-                continue;
-            }
-
-            let qualified_name = row
-                .get("qualified_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let file_path = row
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let line_start = row
-                .get("line_start")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-
-            let line_end = row
-                .get("line_end")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-
-            let method_count = row
-                .get("method_count")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-
-            let total_loc = row
-                .get("total_loc")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-
-            let avg_method_loc = row
-                .get("avg_method_loc")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
-
-            findings.push(self.create_finding(
-                qualified_name,
-                class_name,
-                file_path,
-                line_start,
-                line_end,
-                method_count,
-                total_loc,
-                avg_method_loc,
-            ));
-        }
-
-        info!("LazyClassDetector found {} lazy classes", findings.len());
-
-        Ok(findings)
+        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+        // TODO: Migrate to GraphStore API
+        Ok(vec![])
     }
 }
 

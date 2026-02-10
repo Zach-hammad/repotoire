@@ -5,7 +5,7 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::external_tool::{get_graph_context, get_js_runtime, run_external_tool, JsRuntime};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use serde_json::Value as JsonValue;
@@ -191,34 +191,25 @@ impl NpmAuditDetector {
     }
 
     /// Find files that import a vulnerable package
-    fn find_importing_files(&self, graph: &GraphClient, package: &str) -> Vec<String> {
-        let query = format!(
-            r#"
-            MATCH (f:File)-[:CONTAINS]->(e)-[r:IMPORTS]->(target)
-            WHERE target.qualifiedName ENDS WITH '{}'
-               OR r.module ENDS WITH '{}'
-               OR target.qualifiedName = '{}'
-               OR r.module = '{}'
-            RETURN DISTINCT f.filePath as file_path
-            LIMIT 10
-            "#,
-            package, package, package, package
-        );
-
-        match graph.execute(&query) {
-            Ok(results) => results
-                .iter()
-                .filter_map(|r| r.get("file_path").and_then(|v| v.as_str()).map(String::from))
-                .collect(),
-            Err(e) => {
-                debug!("Could not find importing files for {}: {}", package, e);
-                Vec::new()
-            }
-        }
+    fn find_importing_files(&self, graph: &GraphStore, package: &str) -> Vec<String> {
+        // Get all import edges and filter for the package
+        let imports = graph.get_imports();
+        let mut files: Vec<String> = imports
+            .iter()
+            .filter(|(_, imported)| {
+                imported.ends_with(package) || imported == package
+            })
+            .map(|(importer, _)| importer.clone())
+            .take(10)
+            .collect();
+        
+        files.sort();
+        files.dedup();
+        files
     }
 
     /// Create finding from vulnerability
-    fn create_finding(&self, vuln: &Vulnerability, graph: &GraphClient) -> Finding {
+    fn create_finding(&self, vuln: &Vulnerability, graph: &GraphStore) -> Finding {
         let affected_files = self.find_importing_files(graph, &vuln.package);
         let severity = Self::map_severity(&vuln.severity);
 
@@ -309,7 +300,7 @@ impl Detector for NpmAuditDetector {
         "Detects security vulnerabilities in npm dependencies"
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         info!("Running npm audit on {:?}", self.repository_path);
 
         let vulnerabilities = self.run_audit();

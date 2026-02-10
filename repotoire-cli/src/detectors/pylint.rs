@@ -6,7 +6,7 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::external_tool::{get_graph_context, run_external_tool};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use serde_json::Value as JsonValue;
@@ -106,7 +106,7 @@ impl PylintDetector {
     fn create_finding(
         &self,
         result: &JsonValue,
-        graph: &GraphClient,
+        graph: &GraphStore,
     ) -> Option<Finding> {
         let file_path = result.get("path")?.as_str()?;
         let line = result.get("line")?.as_u64()? as u32;
@@ -217,7 +217,7 @@ impl Detector for PylintDetector {
         "Detects code quality issues in Python using Pylint"
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         info!("Running Pylint on {:?}", self.repository_path);
 
         let results = self.run_pylint();

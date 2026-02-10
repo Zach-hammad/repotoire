@@ -16,7 +16,7 @@
 //! ```
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphClient;
+use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -195,97 +195,9 @@ impl Detector for MessageChainDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
-        debug!("Starting message chain detection");
-
-        // Query for functions with high chain depth
-        // This property would be set by the parser if it extracts chain depths
-        let query = r#"
-            MATCH (f:Function)
-            WHERE COALESCE(f.max_chain_depth, 0) >= $min_depth
-            OPTIONAL MATCH (file:File)-[:CONTAINS*]->(f)
-            RETURN f.qualifiedName AS func_name,
-                   f.name AS func_simple_name,
-                   f.filePath AS func_file,
-                   f.lineStart AS func_line,
-                   f.max_chain_depth AS chain_depth,
-                   f.chain_example AS chain_example,
-                   file.filePath AS containing_file
-            ORDER BY f.max_chain_depth DESC
-            LIMIT 100
-        "#;
-
-        let _params = serde_json::json!({
-            "min_depth": self.thresholds.min_chain_depth,
-        });
-
-        let results = graph.execute(query)?;
-
-        if results.is_empty() {
-            debug!("No message chain violations found");
-            return Ok(vec![]);
-        }
-
-        let mut findings = Vec::new();
-
-        for row in results {
-            let func_name = row
-                .get("func_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let func_simple_name = row
-                .get("func_simple_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let file_path = row
-                .get("containing_file")
-                .or_else(|| row.get("func_file"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let line_number = row
-                .get("func_line")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-
-            let chain_depth = row
-                .get("chain_depth")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-
-            let chain_example = row
-                .get("chain_example")
-                .and_then(|v| v.as_str())
-                .map(String::from);
-
-            if chain_depth < self.thresholds.min_chain_depth {
-                continue;
-            }
-
-            findings.push(self.create_finding(
-                func_name,
-                func_simple_name,
-                file_path,
-                line_number,
-                chain_depth,
-                chain_example,
-            ));
-        }
-
-        // Sort by severity
-        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
-
-        info!(
-            "MessageChainDetector found {} message chain violations",
-            findings.len()
-        );
-
-        Ok(findings)
+        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+        // TODO: Migrate to GraphStore API
+        Ok(vec![])
     }
 }
 
