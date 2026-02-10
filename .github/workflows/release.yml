@@ -60,9 +60,27 @@ jobs:
           name: repotoire-macos-aarch64
           path: repotoire-cli/repotoire-macos-aarch64.tar.gz
 
+  build-windows:
+    name: Build Windows x86_64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cd repotoire-cli && cargo build --release
+      - name: Package
+        shell: bash
+        run: |
+          cd repotoire-cli/target/release
+          7z a ../../repotoire-windows-x86_64.zip repotoire.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repotoire-windows-x86_64
+          path: repotoire-cli/repotoire-windows-x86_64.zip
+
   release:
     name: Create Release
-    needs: [build-linux, build-macos-intel, build-macos-arm]
+    needs: [build-linux, build-macos-intel, build-macos-arm, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -79,31 +97,42 @@ jobs:
           body: |
             ## Installation
             
-            ### npm (easiest)
+            ### npm (all platforms)
             ```bash
             npx repotoire analyze .
+            # or
+            npm install -g repotoire
             ```
             
-            ### Homebrew (macOS)
+            ### Homebrew (macOS/Linux)
             ```bash
             brew install zach-hammad/tap/repotoire
             ```
             
-            ### Cargo
+            ### Cargo (all platforms)
             ```bash
             cargo install repotoire
             ```
             
             ### Binary download
+            
+            **Linux:**
             ```bash
-            # Linux
             curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-linux-x86_64.tar.gz | tar xz
-            
-            # macOS Apple Silicon
-            curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-macos-aarch64.tar.gz | tar xz
-            
-            # macOS Intel
-            curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-macos-x86_64.tar.gz | tar xz
-            
             sudo mv repotoire /usr/local/bin/
             ```
+            
+            **macOS (Apple Silicon):**
+            ```bash
+            curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-macos-aarch64.tar.gz | tar xz
+            sudo mv repotoire /usr/local/bin/
+            ```
+            
+            **macOS (Intel):**
+            ```bash
+            curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-macos-x86_64.tar.gz | tar xz
+            sudo mv repotoire /usr/local/bin/
+            ```
+            
+            **Windows:**
+            Download `repotoire-windows-x86_64.zip`, extract, and add to PATH.

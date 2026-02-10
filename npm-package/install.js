@@ -8,37 +8,33 @@ const VERSION = '0.3.1';
 const REPO = 'Zach-hammad/repotoire';
 
 const PLATFORMS = {
-  'linux-x64': 'repotoire-linux-x86_64.tar.gz',
-  'darwin-x64': 'repotoire-macos-x86_64.tar.gz',
-  'darwin-arm64': 'repotoire-macos-aarch64.tar.gz',
+  'linux-x64': { file: 'repotoire-linux-x86_64.tar.gz', ext: 'tar.gz' },
+  'darwin-x64': { file: 'repotoire-macos-x86_64.tar.gz', ext: 'tar.gz' },
+  'darwin-arm64': { file: 'repotoire-macos-aarch64.tar.gz', ext: 'tar.gz' },
+  'win32-x64': { file: 'repotoire-windows-x86_64.zip', ext: 'zip' },
 };
 
 const platform = `${process.platform}-${process.arch}`;
-const artifact = PLATFORMS[platform];
+const info = PLATFORMS[platform];
 
-if (!artifact) {
+if (!info) {
   console.error(`Unsupported platform: ${platform}`);
-  console.error('Supported: linux-x64, darwin-x64, darwin-arm64');
-  console.error('For Windows, use WSL or cargo install repotoire');
+  console.error('Supported: linux-x64, darwin-x64, darwin-arm64, win32-x64');
   process.exit(1);
 }
 
 const binDir = path.join(__dirname, 'bin');
-const binPath = path.join(binDir, 'repotoire');
+const binName = process.platform === 'win32' ? 'repotoire.exe' : 'repotoire';
+const binPath = path.join(binDir, binName);
 
-// Create bin directory
 if (!fs.existsSync(binDir)) {
   fs.mkdirSync(binDir, { recursive: true });
 }
 
-const url = `https://github.com/${REPO}/releases/download/v${VERSION}/${artifact}`;
+const url = `https://github.com/${REPO}/releases/download/v${VERSION}/${info.file}`;
+const tmpFile = path.join(__dirname, `tmp.${info.ext}`);
 
 console.log(`Downloading repotoire v${VERSION} for ${platform}...`);
-
-const tmpFile = path.join(__dirname, 'tmp.tar.gz');
-
-// Download file
-const file = fs.createWriteStream(tmpFile);
 
 function download(url) {
   return new Promise((resolve, reject) => {
@@ -51,6 +47,7 @@ function download(url) {
         reject(new Error(`Failed to download: ${response.statusCode}`));
         return;
       }
+      const file = fs.createWriteStream(tmpFile);
       response.pipe(file);
       file.on('finish', () => {
         file.close();
@@ -62,13 +59,25 @@ function download(url) {
 
 download(url)
   .then(() => {
-    // Extract
     console.log('Extracting...');
-    execSync(`tar xzf "${tmpFile}" -C "${binDir}"`, { stdio: 'inherit' });
+    
+    if (info.ext === 'tar.gz') {
+      execSync(`tar xzf "${tmpFile}" -C "${binDir}"`, { stdio: 'inherit' });
+    } else if (info.ext === 'zip') {
+      // Windows: use PowerShell to extract
+      if (process.platform === 'win32') {
+        execSync(`powershell -command "Expand-Archive -Force '${tmpFile}' '${binDir}'"`, { stdio: 'inherit' });
+      } else {
+        execSync(`unzip -o "${tmpFile}" -d "${binDir}"`, { stdio: 'inherit' });
+      }
+    }
+    
     fs.unlinkSync(tmpFile);
     
-    // Make executable
-    fs.chmodSync(binPath, 0o755);
+    // Make executable (not needed on Windows)
+    if (process.platform !== 'win32') {
+      fs.chmodSync(binPath, 0o755);
+    }
     
     console.log('✓ repotoire installed successfully!');
     console.log('  Run: npx repotoire analyze .');

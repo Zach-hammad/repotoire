@@ -2,6 +2,13 @@
 const { spawn } = require('child_process');
 const path = require('path');
 
-const bin = path.join(__dirname, process.platform === 'win32' ? 'repotoire.exe' : 'repotoire');
+const ext = process.platform === 'win32' ? '.exe' : '';
+const bin = path.join(__dirname, `repotoire${ext}`);
+
 const child = spawn(bin, process.argv.slice(2), { stdio: 'inherit' });
-child.on('exit', (code) => process.exit(code));
+child.on('exit', (code) => process.exit(code || 0));
+child.on('error', (err) => {
+  console.error('Failed to run repotoire:', err.message);
+  console.error('Try reinstalling: npm install -g repotoire');
+  process.exit(1);
+});
