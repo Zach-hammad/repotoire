@@ -147,6 +147,19 @@ mod ruff;
 mod semgrep;
 mod tsc;
 mod vulture;
+mod secrets;
+mod empty_catch;
+mod todo_scanner;
+mod deep_nesting;
+mod magic_numbers;
+mod large_files;
+mod path_traversal;
+mod command_injection;
+mod ssrf;
+mod missing_docstrings;
+mod regex_dos;
+mod sync_in_async;
+mod n_plus_one;
 
 // Re-export base types
 pub use base::{
@@ -236,6 +249,21 @@ pub use semgrep::SemgrepDetector;
 pub use tsc::TscDetector;
 pub use vulture::VultureDetector;
 
+// New detectors
+pub use secrets::SecretDetector;
+pub use empty_catch::EmptyCatchDetector;
+pub use todo_scanner::TodoScanner;
+pub use deep_nesting::DeepNestingDetector;
+pub use magic_numbers::MagicNumbersDetector;
+pub use large_files::LargeFilesDetector;
+pub use path_traversal::PathTraversalDetector;
+pub use command_injection::CommandInjectionDetector;
+pub use ssrf::SsrfDetector;
+pub use missing_docstrings::MissingDocstringsDetector;
+pub use regex_dos::RegexDosDetector;
+pub use sync_in_async::SyncInAsyncDetector;
+pub use n_plus_one::NPlusOneDetector;
+
 // Re-export external tool utilities
 pub use external_tool::{
     ExternalToolResult,
@@ -297,6 +325,22 @@ pub fn default_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
         Arc::new(GeneratorMisuseDetector::new()),
         Arc::new(InfiniteLoopDetector::new()),
         Arc::new(UnusedImportsDetector::new()),
+        // New security detectors
+        Arc::new(SecretDetector::new(repository_path)),
+        Arc::new(PathTraversalDetector::new(repository_path)),
+        Arc::new(CommandInjectionDetector::new(repository_path)),
+        Arc::new(SsrfDetector::new(repository_path)),
+        Arc::new(RegexDosDetector::new(repository_path)),
+        // New code quality detectors
+        Arc::new(EmptyCatchDetector::new(repository_path)),
+        Arc::new(TodoScanner::new(repository_path)),
+        Arc::new(DeepNestingDetector::new(repository_path)),
+        Arc::new(MagicNumbersDetector::new(repository_path)),
+        Arc::new(LargeFilesDetector::new(repository_path)),
+        Arc::new(MissingDocstringsDetector::new(repository_path)),
+        // New performance detectors
+        Arc::new(SyncInAsyncDetector::new(repository_path)),
+        Arc::new(NPlusOneDetector::new(repository_path)),
     ]
 }
 
@@ -328,13 +372,18 @@ pub fn javascript_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
 
 /// Create security-focused detectors for a repository
 ///
-/// Includes: Bandit, Semgrep, npm audit, GitHub Actions injection
+/// Includes: Bandit, Semgrep, npm audit, GitHub Actions injection, secrets, path traversal, etc.
 pub fn security_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
     vec![
         Arc::new(BanditDetector::new(repository_path)),
         Arc::new(SemgrepDetector::new(repository_path)),
         Arc::new(NpmAuditDetector::new(repository_path)),
         Arc::new(GHActionsInjectionDetector::new(repository_path)),
+        Arc::new(SecretDetector::new(repository_path)),
+        Arc::new(PathTraversalDetector::new(repository_path)),
+        Arc::new(CommandInjectionDetector::new(repository_path)),
+        Arc::new(SsrfDetector::new(repository_path)),
+        Arc::new(RegexDosDetector::new(repository_path)),
     ]
 }
 
