@@ -102,6 +102,13 @@ impl SecretDetector {
         }
     }
 
+    /// Convert absolute path to relative path for consistent output
+    fn relative_path(&self, path: &Path) -> PathBuf {
+        path.strip_prefix(&self.repository_path)
+            .unwrap_or(path)
+            .to_path_buf()
+    }
+    
     fn scan_file(&self, path: &Path) -> Vec<Finding> {
         let mut findings = vec![];
         
@@ -149,7 +156,7 @@ impl SecretDetector {
                             Secrets should be stored in environment variables or secret management systems.",
                             pattern.name, line_start
                         ),
-                        affected_files: vec![path.to_path_buf()],
+                        affected_files: vec![self.relative_path(path)],
                         line_start: Some(line_start),
                         line_end: Some(line_start),
                         suggested_fix: Some("Move this secret to an environment variable or secrets manager".to_string()),

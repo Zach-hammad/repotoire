@@ -29,6 +29,13 @@ impl InsecureCryptoDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
         Self { repository_path: repository_path.into(), max_findings: 50 }
     }
+    
+    /// Convert absolute path to relative path for consistent output
+    fn relative_path(&self, path: &std::path::Path) -> PathBuf {
+        path.strip_prefix(&self.repository_path)
+            .unwrap_or(path)
+            .to_path_buf()
+    }
 }
 
 impl Detector for InsecureCryptoDetector {
@@ -73,7 +80,7 @@ impl Detector for InsecureCryptoDetector {
                             severity: Severity::High,
                             title: "Weak hash algorithm (MD5/SHA1)".to_string(),
                             description: "MD5 and SHA1 are cryptographically broken.".to_string(),
-                            affected_files: vec![path.to_path_buf()],
+                            affected_files: vec![self.relative_path(path)],
                             line_start: Some((i + 1) as u32),
                             line_end: Some((i + 1) as u32),
                             suggested_fix: Some("Use SHA-256 or better (SHA-3, BLAKE3).".to_string()),
@@ -90,7 +97,7 @@ impl Detector for InsecureCryptoDetector {
                             severity: Severity::High,
                             title: "Weak cipher algorithm".to_string(),
                             description: "DES, RC4, and ECB mode are insecure.".to_string(),
-                            affected_files: vec![path.to_path_buf()],
+                            affected_files: vec![self.relative_path(path)],
                             line_start: Some((i + 1) as u32),
                             line_end: Some((i + 1) as u32),
                             suggested_fix: Some("Use AES-GCM or ChaCha20-Poly1305.".to_string()),

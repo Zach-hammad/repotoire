@@ -437,12 +437,17 @@ fn extract_method_names(class_node: &Node, source: &[u8]) -> Vec<String> {
 }
 
 /// Extract method signatures from an interface
+/// NOTE: Only counts actual method signatures (with function type), NOT properties
+/// Properties like `name: string` are data, not behavior - they shouldn't affect
+/// the "method count" used by GodClass detection
 fn extract_interface_methods(iface_node: &Node, source: &[u8]) -> Vec<String> {
     let mut methods = Vec::new();
 
     if let Some(body) = iface_node.child_by_field_name("body") {
         for child in body.children(&mut body.walk()) {
-            if child.kind() == "method_signature" || child.kind() == "property_signature" {
+            // Only count method_signature (e.g., `getName(): string`)
+            // Skip property_signature (e.g., `name: string`) - these are data, not methods
+            if child.kind() == "method_signature" {
                 if let Some(name_node) = child.child_by_field_name("name") {
                     if let Ok(name) = name_node.utf8_text(source) {
                         methods.push(name.to_string());

@@ -5,7 +5,7 @@ use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use uuid::Uuid;
 
@@ -29,6 +29,13 @@ pub struct CommandInjectionDetector {
 impl CommandInjectionDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
         Self { repository_path: repository_path.into(), max_findings: 50 }
+    }
+    
+    /// Convert absolute path to relative path for consistent output
+    fn relative_path(&self, path: &Path) -> PathBuf {
+        path.strip_prefix(&self.repository_path)
+            .unwrap_or(path)
+            .to_path_buf()
     }
 }
 
@@ -76,7 +83,7 @@ impl Detector for CommandInjectionDetector {
                                 severity: Severity::Critical,
                                 title: "Potential command injection".to_string(),
                                 description: "Shell command execution with potential user input.".to_string(),
-                                affected_files: vec![path.to_path_buf()],
+                                affected_files: vec![self.relative_path(path)],
                                 line_start: Some((i + 1) as u32),
                                 line_end: Some((i + 1) as u32),
                                 suggested_fix: Some("Use subprocess with list args, avoid shell=True, sanitize input.".to_string()),
