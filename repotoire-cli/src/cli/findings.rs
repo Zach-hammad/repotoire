@@ -7,7 +7,7 @@ use std::path::Path;
 
 use crate::models::{Finding, Severity};
 
-pub fn run(path: &Path, index: Option<usize>, json: bool) -> Result<()> {
+pub fn run(path: &Path, index: Option<usize>, json: bool, page: usize, per_page: usize) -> Result<()> {
     // Load findings from last analysis
     let findings_path = path.join(".repotoire/last_findings.json");
     if !findings_path.exists() {
@@ -69,10 +69,20 @@ pub fn run(path: &Path, index: Option<usize>, json: bool) -> Result<()> {
     println!("   {} {} low", style(low.len()).dim(), if low.len() == 1 { "finding" } else { "findings" });
     println!();
 
-    // Print top 20 findings
-    let display_count = findings.len().min(20);
-    for (i, finding) in findings.iter().take(display_count).enumerate() {
-        let idx = i + 1;
+    // Apply pagination (per_page = 0 means all)
+    let total_findings = findings.len();
+    let (start_idx, end_idx, current_page, total_pages) = if per_page > 0 {
+        let total_pages = (total_findings + per_page - 1) / per_page;
+        let current_page = page.max(1).min(total_pages.max(1));
+        let start = (current_page - 1) * per_page;
+        let end = (start + per_page).min(total_findings);
+        (start, end, current_page, total_pages)
+    } else {
+        (0, total_findings, 1, 1)
+    };
+
+    for (i, finding) in findings.iter().enumerate().skip(start_idx).take(end_idx - start_idx) {
+        let idx = i + 1;  // 1-indexed for user display
         let severity_icon = match finding.severity {
             Severity::Critical => style("🔴").red(),
             Severity::High => style("🟠").yellow(),
@@ -98,9 +108,23 @@ pub fn run(path: &Path, index: Option<usize>, json: bool) -> Result<()> {
         println!("     {} {}{}", style("└─").dim(), style(&file).dim(), style(&line).dim());
     }
 
-    if findings.len() > display_count {
+    // Show pagination info
+    if per_page > 0 && total_pages > 1 {
         println!();
-        println!("   {} ...and {} more", style("└─").dim(), findings.len() - display_count);
+        println!(
+            "{}Showing page {} of {} ({} per page, {} total)",
+            style("📑 ").bold(),
+            style(current_page).cyan(),
+            style(total_pages).cyan(),
+            style(per_page).dim(),
+            style(total_findings).cyan(),
+        );
+        if current_page < total_pages {
+            println!(
+                "   Use {} to see more",
+                style(format!("--page {}", current_page + 1)).yellow()
+            );
+        }
     }
 
     println!();

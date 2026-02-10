@@ -92,6 +92,14 @@ pub enum Commands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Page number (1-indexed)
+        #[arg(long, default_value = "1")]
+        page: usize,
+
+        /// Findings per page (default: 20, 0 = all)
+        #[arg(long, default_value = "20")]
+        per_page: usize,
     },
 
     /// Generate AI-powered fix for a finding
@@ -160,7 +168,7 @@ pub fn run(cli: Cli) -> Result<()> {
             analyze::run(&cli.path, &format, output.as_deref(), effective_severity, top, page, per_page, skip_detector, thorough, no_git, cli.workers)
         }
 
-        Some(Commands::Findings { index, json }) => findings::run(&cli.path, index, json),
+        Some(Commands::Findings { index, json, page, per_page }) => findings::run(&cli.path, index, json, page, per_page),
 
         Some(Commands::Fix { index, apply }) => fix::run(&cli.path, index, apply),
 
