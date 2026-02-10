@@ -1,297 +1,84 @@
 name: Release
 
 on:
-  # Manual trigger with version selection
-  workflow_dispatch:
-    inputs:
-      version_type:
-        description: 'Version bump type'
-        required: true
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
-        default: 'patch'
-      dry_run:
-        description: 'Dry run (no actual release)'
-        required: false
-        type: boolean
-        default: false
-
-  # Also trigger on tag push (for manual local releases)
   push:
     tags:
       - 'v*'
 
-permissions:
-  contents: write
-  id-token: write  # Required for PyPI trusted publishing
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  # Version bump job - only runs on manual trigger
-  bump-version:
-    name: Bump Version
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
-    outputs:
-      new_version: ${{ steps.bump.outputs.new_version }}
-      new_tag: ${{ steps.bump.outputs.new_tag }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Install dependencies
-        run: |
-          uv tool install bump-my-version
-          uv tool install git-cliff
-
-      - name: Update changelog
-        run: |
-          git-cliff --output CHANGELOG.md
-          git add CHANGELOG.md
-          git diff --cached --quiet || git commit -m "docs: update changelog"
-
-      - name: Bump version
-        id: bump
-        run: |
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            echo "🔍 Dry run - showing what would happen:"
-            bump-my-version bump ${{ inputs.version_type }} --dry-run --verbose
-            NEW_VERSION=$(bump-my-version show new_version --increment ${{ inputs.version_type }})
-          else
-            bump-my-version bump ${{ inputs.version_type }}
-            NEW_VERSION=$(bump-my-version show current_version)
-          fi
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "new_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "📦 New version: $NEW_VERSION"
-
-      - name: Push changes and tag
-        if: inputs.dry_run == false
-        run: |
-          git push
-          git push --tags
-
-  # Build wheels with Rust extension bundled (maturin builds the complete package)
-  build-wheels:
-    name: Build wheels (${{ matrix.target }})
+  build:
+    name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-    needs: [bump-version]
-    if: always() && github.event.inputs.dry_run != 'true' && (needs.bump-version.result == 'success' || github.event_name == 'push')
     strategy:
-      fail-fast: false
       matrix:
         include:
-          # Linux x86_64
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            manylinux: auto
-          # Linux ARM64 - Native ARM runner (no cross-compilation issues!)
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            manylinux: auto
-          # macOS ARM64 (Apple Silicon)
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            manylinux: auto
-          # macOS x86_64 (Intel) - macos-15-intel (available until 2027)
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            manylinux: auto
-          # Windows x86_64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            manylinux: auto
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: repotoire-linux-x86_64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            name: repotoire-macos-x86_64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            name: repotoire-macos-aarch64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            name: repotoire-windows-x86_64.exe
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.bump-version.outputs.new_tag || github.ref }}
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
         with:
-          python-version: '3.11'
+          targets: ${{ matrix.target }}
 
-      - name: Build wheels (maturin bundles Rust + Python)
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter
-          manylinux: ${{ matrix.manylinux }}
-          sccache: true
-          before-script-linux: |
-            # Install OpenSSL dev headers for openssl-sys crate (required by git2)
-            if command -v yum &> /dev/null; then
-              yum install -y openssl-devel perl-IPC-Cmd || true
-            elif command -v apt-get &> /dev/null; then
-              apt-get update && apt-get install -y libssl-dev pkg-config || true
-            elif command -v apk &> /dev/null; then
-              apk add openssl-dev || true
-            fi
+      - name: Install cmake (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
 
-      - name: Store wheels
+      - name: Install cmake (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install cmake
+
+      - name: Build
+        run: |
+          cd repotoire-cli
+          cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd repotoire-cli/target/${{ matrix.target }}/release
+          tar czf ../../../${{ matrix.name }}.tar.gz repotoire
+          
+      - name: Package (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd repotoire-cli/target/${{ matrix.target }}/release
+          7z a ../../../${{ matrix.name }}.zip repotoire.exe
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.target }}
-          path: dist/
+          name: ${{ matrix.name }}
+          path: repotoire-cli/${{ matrix.name }}.*
 
-  # Build source distribution (for platforms without pre-built wheels)
-  build-sdist:
-    name: Build source distribution
+  release:
+    name: Create Release
+    needs: build
     runs-on: ubuntu-latest
-    needs: [bump-version]
-    if: always() && github.event.inputs.dry_run != 'true' && (needs.bump-version.result == 'success' || github.event_name == 'push')
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.bump-version.outputs.new_tag || github.ref }}
-          fetch-depth: 0
-
-      - name: Build sdist
-        uses: PyO3/maturin-action@v1
-        with:
-          command: sdist
-          args: --out dist
-
-      - name: Store sdist
-        uses: actions/upload-artifact@v4
-        with:
-          name: sdist
-          path: dist/
-
-  # Publish to PyPI (single package: repotoire with bundled Rust extension)
-  publish-pypi:
-    name: Publish to PyPI
-    needs: [build-wheels, build-sdist]
-    runs-on: ubuntu-latest
-    if: always() && !cancelled() && !failure() && (github.event_name == 'push' || github.event.inputs.dry_run != 'true')
-    environment:
-      name: pypi
-      url: https://pypi.org/p/repotoire
-
-    steps:
-      - name: Download all wheels
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: wheels-*
-          path: dist/
-          merge-multiple: true
+          path: artifacts
 
-      - name: Download sdist
-        uses: actions/download-artifact@v4
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
         with:
-          name: sdist
-          path: dist/
-
-      - name: List distributions
-        run: ls -la dist/
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
-
-  # Create GitHub Release
-  github-release:
-    name: Create GitHub Release
-    needs: [build-wheels, build-sdist]
-    runs-on: ubuntu-latest
-    if: always() && !cancelled() && !failure() && (github.event_name == 'push' || github.event.inputs.dry_run != 'true')
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
-          fetch-depth: 0
-
-      - name: Download all wheels
-        uses: actions/download-artifact@v4
-        with:
-          pattern: wheels-*
-          path: dist/
-          merge-multiple: true
-
-      - name: Download sdist
-        uses: actions/download-artifact@v4
-        with:
-          name: sdist
-          path: dist/
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Install git-cliff
-        run: uv tool install git-cliff
-
-      - name: Generate changelog for release
-        run: |
-          TAG=${{ github.ref_name }}
-          PREV_TAG=$(git describe --tags --abbrev=0 $TAG^ 2>/dev/null || echo "")
-
-          if [ -n "$PREV_TAG" ]; then
-            git-cliff $PREV_TAG..$TAG --output RELEASE_NOTES.md
-          else
-            git-cliff --output RELEASE_NOTES.md
-          fi
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          body_path: RELEASE_NOTES.md
-          files: dist/*
-          generate_release_notes: false
-          draft: false
-          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Summary job
-  summary:
-    name: Release Summary
-    needs: [bump-version, build-wheels, build-sdist, publish-pypi, github-release]
-    runs-on: ubuntu-latest
-    if: always()
-
-    steps:
-      - name: Summary
-        run: |
-          echo "## 🚀 Release Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
-            echo "⚠️ **Dry Run** - No changes were made" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Would have released: **v${{ needs.bump-version.outputs.new_version }}**" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "✅ **Released: v${{ needs.bump-version.outputs.new_version || github.ref_name }}**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
-            echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
-            echo "| Version Bump | ${{ needs.bump-version.result == 'success' && '✅' || needs.bump-version.result == 'skipped' && '⏭️' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-            echo "| Build Wheels | ${{ needs.build-wheels.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-            echo "| Build Sdist | ${{ needs.build-sdist.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-            echo "| PyPI Publish | ${{ needs.publish-pypi.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-            echo "| GitHub Release | ${{ needs.github-release.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-          fi
+          files: artifacts/**/*
+          generate_release_notes: true

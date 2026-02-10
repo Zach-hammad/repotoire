@@ -27,24 +27,37 @@ file3.py ✓                   file3.py ──┘
 
 ## Quick Start
 
-### Option 1: Cargo (Recommended)
+### Option 1: Download Binary (Easiest)
 ```bash
-# Requires cmake (see below)
-cargo install repotoire
-repotoire analyze .
+# Linux
+curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-linux-x86_64.tar.gz | tar xz
+sudo mv repotoire /usr/local/bin/
+
+# macOS (Apple Silicon)
+curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-macos-aarch64.tar.gz | tar xz
+sudo mv repotoire /usr/local/bin/
+
+# macOS (Intel)
+curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-macos-x86_64.tar.gz | tar xz
+sudo mv repotoire /usr/local/bin/
 ```
 
-### Option 2: pip
+### Option 2: Cargo
+```bash
+# Requires cmake (see Build Dependencies below)
+cargo install repotoire
+```
+
+### Option 3: pip
 ```bash
 pip install repotoire
-repotoire analyze .
 ```
 
 That's it. No API keys required. No Docker. No cloud account.
 
-### Build Dependencies
+### Build Dependencies (for cargo install)
 
-The Rust version requires **cmake** to build the embedded graph database:
+Building from source requires **cmake**:
 
 ```bash
 # macOS
@@ -57,8 +70,7 @@ sudo apt install cmake build-essential
 sudo dnf install cmake gcc-c++
 
 # Windows
-# Install CMake from https://cmake.org/download/
-# Or: winget install cmake
+winget install cmake
 ```
 
 ## ⚡ Performance
