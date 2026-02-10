@@ -35,7 +35,7 @@ pub fn get_findings_cache_path(repo_path: &Path) -> PathBuf {
 
 /// Get the graph database path for a repository.
 pub fn get_graph_db_path(repo_path: &Path) -> PathBuf {
-    get_cache_dir(repo_path).join("graph.db")
+    get_cache_dir(repo_path).join("graph_db")
 }
 
 /// Hash a path to create a unique but deterministic directory name.

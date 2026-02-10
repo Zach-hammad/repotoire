@@ -118,16 +118,19 @@ pub fn stats(path: &Path) -> Result<()> {
 
     let stats = graph.stats();
     
-    // Node counts
-    println!("  {}: {}", style("Files").cyan(), style(stats.get("files").copied().unwrap_or(0)).bold());
-    println!("  {}: {}", style("Functions").cyan(), style(stats.get("functions").copied().unwrap_or(0)).bold());
-    println!("  {}: {}", style("Classes").cyan(), style(stats.get("classes").copied().unwrap_or(0)).bold());
+    // Node counts (stats uses "total_*" keys)
+    println!("  {}: {}", style("Files").cyan(), style(stats.get("total_files").copied().unwrap_or(0)).bold());
+    println!("  {}: {}", style("Functions").cyan(), style(stats.get("total_functions").copied().unwrap_or(0)).bold());
+    println!("  {}: {}", style("Classes").cyan(), style(stats.get("total_classes").copied().unwrap_or(0)).bold());
     
-    // Edge counts
+    // Edge counts by type
+    let calls = graph.get_calls().len();
+    let imports = graph.get_imports().len();
+    let contains = graph.edge_count() - calls - imports;
     println!();
-    println!("  {} edges: {}", style("CALLS").cyan(), style(stats.get("call_edges").copied().unwrap_or(0)).bold());
-    println!("  {} edges: {}", style("IMPORTS").cyan(), style(stats.get("import_edges").copied().unwrap_or(0)).bold());
-    println!("  {} edges: {}", style("CONTAINS").cyan(), style(stats.get("contains_edges").copied().unwrap_or(0)).bold());
+    println!("  {} edges: {}", style("CALLS").cyan(), style(calls).bold());
+    println!("  {} edges: {}", style("IMPORTS").cyan(), style(imports).bold());
+    println!("  {} edges: {}", style("CONTAINS").cyan(), style(contains).bold());
     
     // Total
     println!();
