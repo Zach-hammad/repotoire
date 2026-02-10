@@ -252,6 +252,19 @@ pub fn run(
     // Persist graph to disk so other commands (stats, graph, findings) can access it
     graph.save().with_context(|| "Failed to save graph database")?;
 
+    // Save graph stats to a separate JSON file (avoids sled lock issues)
+    let graph_stats = serde_json::json!({
+        "total_files": graph.get_files().len(),
+        "total_functions": graph.get_functions().len(),
+        "total_classes": graph.get_classes().len(),
+        "total_nodes": graph.node_count(),
+        "total_edges": graph.edge_count(),
+        "calls": graph.get_calls().len(),
+        "imports": graph.get_imports().len(),
+    });
+    let stats_path = crate::cache::get_graph_stats_path(&repo_path);
+    std::fs::write(&stats_path, serde_json::to_string_pretty(&graph_stats)?)?;
+
     // Step 4 & 5: Run git enrichment and detectors IN PARALLEL
     // Git enrichment updates graph properties while detectors read graph structure
     // Both are safe due to RwLock on GraphStore

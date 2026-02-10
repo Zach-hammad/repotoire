@@ -38,6 +38,11 @@ pub fn get_graph_db_path(repo_path: &Path) -> PathBuf {
     get_cache_dir(repo_path).join("graph_db")
 }
 
+/// Get the graph stats cache file path for a repository.
+pub fn get_graph_stats_path(repo_path: &Path) -> PathBuf {
+    get_cache_dir(repo_path).join("graph_stats.json")
+}
+
 /// Hash a path to create a unique but deterministic directory name.
 /// Uses the canonical path to ensure consistency.
 fn hash_path(path: &Path) -> String {

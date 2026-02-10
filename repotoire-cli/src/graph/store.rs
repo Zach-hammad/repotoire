@@ -778,6 +778,19 @@ impl GraphStore {
     }
 }
 
+impl Drop for GraphStore {
+    fn drop(&mut self) {
+        // Explicitly flush and close the sled database to release the lock
+        if let Some(ref db) = self.db {
+            let _ = db.flush();
+            // Force sync to disk
+            let _ = db.flush_async();
+        }
+        // Taking ownership of db triggers sled's Drop which releases the lock
+        let _ = self.db.take();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
