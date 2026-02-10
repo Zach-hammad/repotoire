@@ -204,12 +204,20 @@ Repotoire Doctor
 Bring your own API key for AI-assisted fixes:
 
 ```bash
-export OPENAI_API_KEY=sk-...      # or
-export ANTHROPIC_API_KEY=sk-...   # or
-export DEEPINFRA_API_KEY=...      # (cheapest)
+# Pick any provider (in order of recommendation):
+export ANTHROPIC_API_KEY=sk-ant-...   # Claude (best quality)
+export OPENAI_API_KEY=sk-...          # GPT-4
+export DEEPINFRA_API_KEY=...          # Llama 3.3 (cheapest!)
+export OPENROUTER_API_KEY=...         # Any model
 
-repotoire fix                     # Generate fixes for findings
+repotoire fix 1                       # Fix finding #1
 ```
+
+**Get your key:**
+- Anthropic: https://console.anthropic.com/settings/keys
+- OpenAI: https://platform.openai.com/api-keys
+- Deepinfra: https://deepinfra.com/dash/api_keys (💰 cheapest)
+- OpenRouter: https://openrouter.ai/keys
 
 No API key? No problem. All analysis works offline.
 

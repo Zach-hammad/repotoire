@@ -13,39 +13,54 @@ pub enum LlmBackend {
     #[default]
     Anthropic,
     OpenAi,
+    Deepinfra,
+    OpenRouter,
 }
 
 impl LlmBackend {
     /// Get the environment variable name for the API key
     pub fn env_key(&self) -> &'static str {
         match self {
-            LlmBackend::OpenAi => "OPENAI_API_KEY",
             LlmBackend::Anthropic => "ANTHROPIC_API_KEY",
+            LlmBackend::OpenAi => "OPENAI_API_KEY",
+            LlmBackend::Deepinfra => "DEEPINFRA_API_KEY",
+            LlmBackend::OpenRouter => "OPENROUTER_API_KEY",
         }
     }
 
     /// Get the signup URL for the API key
     pub fn signup_url(&self) -> &'static str {
         match self {
-            LlmBackend::OpenAi => "https://platform.openai.com/api-keys",
             LlmBackend::Anthropic => "https://console.anthropic.com/settings/keys",
+            LlmBackend::OpenAi => "https://platform.openai.com/api-keys",
+            LlmBackend::Deepinfra => "https://deepinfra.com/dash/api_keys",
+            LlmBackend::OpenRouter => "https://openrouter.ai/keys",
         }
     }
 
     /// Get the default model for this backend
     pub fn default_model(&self) -> &'static str {
         match self {
-            LlmBackend::OpenAi => "gpt-4o",
             LlmBackend::Anthropic => "claude-sonnet-4-20250514",
+            LlmBackend::OpenAi => "gpt-4o",
+            LlmBackend::Deepinfra => "meta-llama/Llama-3.3-70B-Instruct",
+            LlmBackend::OpenRouter => "anthropic/claude-sonnet-4",
         }
     }
 
     /// Get the API base URL
     pub fn api_url(&self) -> &'static str {
         match self {
-            LlmBackend::OpenAi => "https://api.openai.com/v1/chat/completions",
             LlmBackend::Anthropic => "https://api.anthropic.com/v1/messages",
+            LlmBackend::OpenAi => "https://api.openai.com/v1/chat/completions",
+            LlmBackend::Deepinfra => "https://api.deepinfra.com/v1/openai/chat/completions",
+            LlmBackend::OpenRouter => "https://openrouter.ai/api/v1/chat/completions",
         }
+    }
+
+    /// Check if this backend uses OpenAI-compatible API format
+    pub fn is_openai_compatible(&self) -> bool {
+        matches!(self, LlmBackend::OpenAi | LlmBackend::Deepinfra | LlmBackend::OpenRouter)
     }
 }
 
@@ -170,9 +185,10 @@ impl AiClient {
         messages: Vec<Message>,
         system: Option<&str>,
     ) -> AiResult<String> {
-        match self.config.backend {
-            LlmBackend::OpenAi => self.generate_openai(messages, system).await,
-            LlmBackend::Anthropic => self.generate_anthropic(messages, system).await,
+        if self.config.backend.is_openai_compatible() {
+            self.generate_openai(messages, system).await
+        } else {
+            self.generate_anthropic(messages, system).await
         }
     }
 

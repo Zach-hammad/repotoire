@@ -42,26 +42,31 @@ pub fn run(path: &Path, index: usize, apply: bool) -> Result<()> {
 
     let finding = &findings[index - 1];
 
-    // Try to create AI client (check for API key)
-    let client = match AiClient::from_env(LlmBackend::Anthropic) {
-        Ok(c) => c,
-        Err(e) => {
-            // Try OpenAI as fallback
-            match AiClient::from_env(LlmBackend::OpenAi) {
-                Ok(c) => c,
-                Err(_) => {
-                    eprintln!("{}", style("No API key found!").red().bold());
-                    eprintln!("\nTo generate AI fixes, set one of these environment variables:");
-                    eprintln!("  {} - Anthropic Claude (recommended)", style("ANTHROPIC_API_KEY").cyan());
-                    eprintln!("  {} - OpenAI GPT-4", style("OPENAI_API_KEY").cyan());
-                    eprintln!("\nGet your API key:");
-                    eprintln!("  Anthropic: https://console.anthropic.com/settings/keys");
-                    eprintln!("  OpenAI: https://platform.openai.com/api-keys");
-                    return Err(e.into());
-                }
-            }
-        }
-    };
+    // Try to create AI client (check for API key) - in order of preference
+    let backends = [
+        LlmBackend::Anthropic,
+        LlmBackend::OpenAi,
+        LlmBackend::Deepinfra,
+        LlmBackend::OpenRouter,
+    ];
+    
+    let client = backends
+        .iter()
+        .find_map(|&b| AiClient::from_env(b).ok())
+        .ok_or_else(|| {
+            eprintln!("{}", style("No API key found!").red().bold());
+            eprintln!("\nTo generate AI fixes, set one of these environment variables:");
+            eprintln!("  {} - Anthropic Claude (recommended)", style("ANTHROPIC_API_KEY").cyan());
+            eprintln!("  {} - OpenAI GPT-4", style("OPENAI_API_KEY").cyan());
+            eprintln!("  {} - Deepinfra (cheapest)", style("DEEPINFRA_API_KEY").cyan());
+            eprintln!("  {} - OpenRouter (any model)", style("OPENROUTER_API_KEY").cyan());
+            eprintln!("\nGet your API key:");
+            eprintln!("  Anthropic:   https://console.anthropic.com/settings/keys");
+            eprintln!("  OpenAI:      https://platform.openai.com/api-keys");
+            eprintln!("  Deepinfra:   https://deepinfra.com/dash/api_keys");
+            eprintln!("  OpenRouter:  https://openrouter.ai/keys");
+            anyhow::anyhow!("No AI API key configured")
+        })?;
 
     let term = Term::stderr();
     term.write_line(&format!(
@@ -87,6 +92,8 @@ pub fn run(path: &Path, index: usize, apply: bool) -> Result<()> {
         match client.backend() {
             LlmBackend::Anthropic => "Anthropic",
             LlmBackend::OpenAi => "OpenAI",
+            LlmBackend::Deepinfra => "Deepinfra",
+            LlmBackend::OpenRouter => "OpenRouter",
         }
     ))?;
 

@@ -32,11 +32,15 @@ impl HandlerState {
         let api_url = std::env::var("REPOTOIRE_API_URL")
             .unwrap_or_else(|_| "https://api.repotoire.io".to_string());
 
-        // Check for BYOK keys
+        // Check for BYOK keys (in order of preference)
         let ai_backend = if std::env::var("ANTHROPIC_API_KEY").is_ok() {
             Some(LlmBackend::Anthropic)
         } else if std::env::var("OPENAI_API_KEY").is_ok() {
             Some(LlmBackend::OpenAi)
+        } else if std::env::var("DEEPINFRA_API_KEY").is_ok() {
+            Some(LlmBackend::Deepinfra)
+        } else if std::env::var("OPENROUTER_API_KEY").is_ok() {
+            Some(LlmBackend::OpenRouter)
         } else {
             None
         };
