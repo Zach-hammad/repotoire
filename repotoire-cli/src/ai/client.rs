@@ -15,6 +15,7 @@ pub enum LlmBackend {
     OpenAi,
     Deepinfra,
     OpenRouter,
+    Ollama,
 }
 
 impl LlmBackend {
@@ -25,6 +26,7 @@ impl LlmBackend {
             LlmBackend::OpenAi => "OPENAI_API_KEY",
             LlmBackend::Deepinfra => "DEEPINFRA_API_KEY",
             LlmBackend::OpenRouter => "OPENROUTER_API_KEY",
+            LlmBackend::Ollama => "OLLAMA_MODEL", // Not a key, just model name
         }
     }
 
@@ -35,6 +37,7 @@ impl LlmBackend {
             LlmBackend::OpenAi => "https://platform.openai.com/api-keys",
             LlmBackend::Deepinfra => "https://deepinfra.com/dash/api_keys",
             LlmBackend::OpenRouter => "https://openrouter.ai/keys",
+            LlmBackend::Ollama => "https://ollama.ai (no key needed, just run locally)",
         }
     }
 
@@ -45,6 +48,7 @@ impl LlmBackend {
             LlmBackend::OpenAi => "gpt-4o",
             LlmBackend::Deepinfra => "meta-llama/Llama-3.3-70B-Instruct",
             LlmBackend::OpenRouter => "anthropic/claude-sonnet-4",
+            LlmBackend::Ollama => "llama3.3:70b",
         }
     }
 
@@ -55,12 +59,18 @@ impl LlmBackend {
             LlmBackend::OpenAi => "https://api.openai.com/v1/chat/completions",
             LlmBackend::Deepinfra => "https://api.deepinfra.com/v1/openai/chat/completions",
             LlmBackend::OpenRouter => "https://openrouter.ai/api/v1/chat/completions",
+            LlmBackend::Ollama => "http://localhost:11434/v1/chat/completions",
         }
     }
 
     /// Check if this backend uses OpenAI-compatible API format
     pub fn is_openai_compatible(&self) -> bool {
-        matches!(self, LlmBackend::OpenAi | LlmBackend::Deepinfra | LlmBackend::OpenRouter)
+        matches!(self, LlmBackend::OpenAi | LlmBackend::Deepinfra | LlmBackend::OpenRouter | LlmBackend::Ollama)
+    }
+    
+    /// Check if this backend requires an API key
+    pub fn requires_api_key(&self) -> bool {
+        !matches!(self, LlmBackend::Ollama)
     }
 }
 
@@ -159,7 +169,16 @@ impl AiClient {
     }
 
     /// Create a client from environment with custom config
-    pub fn from_env_with_config(config: AiConfig) -> AiResult<Self> {
+    pub fn from_env_with_config(mut config: AiConfig) -> AiResult<Self> {
+        // Ollama doesn't require an API key
+        if !config.backend.requires_api_key() {
+            // Check if OLLAMA_MODEL is set to override default
+            if let Ok(model) = env::var("OLLAMA_MODEL") {
+                config.model = Some(model);
+            }
+            return Ok(Self::new(config, "ollama"));
+        }
+        
         let env_key = config.backend.env_key();
         let api_key = env::var(env_key).map_err(|_| AiError::MissingApiKey {
             env_var: env_key.to_string(),
@@ -167,6 +186,12 @@ impl AiClient {
         })?;
 
         Ok(Self::new(config, api_key))
+    }
+    
+    /// Check if Ollama is available locally
+    pub fn ollama_available() -> bool {
+        // Quick check if Ollama is running
+        std::net::TcpStream::connect("127.0.0.1:11434").is_ok()
     }
 
     /// Get the backend being used

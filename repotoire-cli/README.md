@@ -201,25 +201,28 @@ Repotoire Doctor
 
 ## AI-Powered Fixes (Optional)
 
-Bring your own API key for AI-assisted fixes:
+Bring your own API key — or use local AI for free:
 
 ```bash
-# Pick any provider (in order of recommendation):
+# Cloud providers (pick one):
 export ANTHROPIC_API_KEY=sk-ant-...   # Claude (best quality)
 export OPENAI_API_KEY=sk-...          # GPT-4
-export DEEPINFRA_API_KEY=...          # Llama 3.3 (cheapest!)
+export DEEPINFRA_API_KEY=...          # Llama 3.3 (cheapest cloud)
 export OPENROUTER_API_KEY=...         # Any model
 
-repotoire fix 1                       # Fix finding #1
+# Or use Ollama for 100% local, free AI:
+ollama pull llama3.3                  # One-time download
+repotoire fix 1                       # Auto-detects Ollama!
 ```
 
 **Get your key:**
 - Anthropic: https://console.anthropic.com/settings/keys
 - OpenAI: https://platform.openai.com/api-keys
-- Deepinfra: https://deepinfra.com/dash/api_keys (💰 cheapest)
+- Deepinfra: https://deepinfra.com/dash/api_keys
 - OpenRouter: https://openrouter.ai/keys
+- **Ollama: https://ollama.ai** (🆓 free, runs locally)
 
-No API key? No problem. All analysis works offline.
+No API key and no Ollama? No problem. All analysis works offline.
 
 ## Configuration
 

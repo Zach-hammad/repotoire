@@ -50,22 +50,31 @@ pub fn run(path: &Path, index: usize, apply: bool) -> Result<()> {
         LlmBackend::OpenRouter,
     ];
     
+    // Try cloud providers first
     let client = backends
         .iter()
         .find_map(|&b| AiClient::from_env(b).ok())
+        // Then try Ollama if running locally
+        .or_else(|| {
+            if AiClient::ollama_available() {
+                AiClient::from_env(LlmBackend::Ollama).ok()
+            } else {
+                None
+            }
+        })
         .ok_or_else(|| {
-            eprintln!("{}", style("No API key found!").red().bold());
-            eprintln!("\nTo generate AI fixes, set one of these environment variables:");
-            eprintln!("  {} - Anthropic Claude (recommended)", style("ANTHROPIC_API_KEY").cyan());
+            eprintln!("{}", style("No AI provider found!").red().bold());
+            eprintln!("\nOptions:");
+            eprintln!("  {} - Anthropic Claude", style("ANTHROPIC_API_KEY").cyan());
             eprintln!("  {} - OpenAI GPT-4", style("OPENAI_API_KEY").cyan());
-            eprintln!("  {} - Deepinfra (cheapest)", style("DEEPINFRA_API_KEY").cyan());
+            eprintln!("  {} - Deepinfra (cheapest cloud)", style("DEEPINFRA_API_KEY").cyan());
             eprintln!("  {} - OpenRouter (any model)", style("OPENROUTER_API_KEY").cyan());
-            eprintln!("\nGet your API key:");
-            eprintln!("  Anthropic:   https://console.anthropic.com/settings/keys");
-            eprintln!("  OpenAI:      https://platform.openai.com/api-keys");
-            eprintln!("  Deepinfra:   https://deepinfra.com/dash/api_keys");
-            eprintln!("  OpenRouter:  https://openrouter.ai/keys");
-            anyhow::anyhow!("No AI API key configured")
+            eprintln!("  {} - Local (free!)", style("Ollama").green());
+            eprintln!("\nFor local AI (free):");
+            eprintln!("  1. Install Ollama: https://ollama.ai");
+            eprintln!("  2. Run: ollama pull llama3.3:70b");
+            eprintln!("  3. Then: repotoire fix 1");
+            anyhow::anyhow!("No AI provider configured")
         })?;
 
     let term = Term::stderr();
@@ -94,6 +103,7 @@ pub fn run(path: &Path, index: usize, apply: bool) -> Result<()> {
             LlmBackend::OpenAi => "OpenAI",
             LlmBackend::Deepinfra => "Deepinfra",
             LlmBackend::OpenRouter => "OpenRouter",
+            LlmBackend::Ollama => "Ollama (local)",
         }
     ))?;
 

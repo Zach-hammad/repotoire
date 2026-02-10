@@ -41,6 +41,8 @@ impl HandlerState {
             Some(LlmBackend::Deepinfra)
         } else if std::env::var("OPENROUTER_API_KEY").is_ok() {
             Some(LlmBackend::OpenRouter)
+        } else if AiClient::ollama_available() {
+            Some(LlmBackend::Ollama)
         } else {
             None
         };
