@@ -91,6 +91,7 @@ md5 = "0.7"
 lto = true
 codegen-units = 1
 strip = true
+opt-level = 3
 
 [[bin]]
 name = "repotoire"

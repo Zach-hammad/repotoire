@@ -13,7 +13,8 @@ use uuid::Uuid;
 static NUMBER_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn get_pattern() -> &'static Regex {
-    NUMBER_PATTERN.get_or_init(|| Regex::new(r"(?<![a-zA-Z_\d])(\d{2,})(?![a-zA-Z_\d])").unwrap())
+    // Match standalone numbers (2+ digits), filter context in logic
+    NUMBER_PATTERN.get_or_init(|| Regex::new(r"\b(\d{2,})\b").unwrap())
 }
 
 pub struct MagicNumbersDetector {
