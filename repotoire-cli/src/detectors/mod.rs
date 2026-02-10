@@ -160,6 +160,17 @@ mod missing_docstrings;
 mod regex_dos;
 mod sync_in_async;
 mod n_plus_one;
+mod insecure_crypto;
+mod xss;
+mod hardcoded_ips;
+mod insecure_random;
+mod cors_misconfig;
+mod debug_code;
+mod commented_code;
+mod long_methods;
+mod duplicate_code;
+mod unreachable_code;
+mod string_concat_loop;
 
 // Re-export base types
 pub use base::{
@@ -263,6 +274,17 @@ pub use missing_docstrings::MissingDocstringsDetector;
 pub use regex_dos::RegexDosDetector;
 pub use sync_in_async::SyncInAsyncDetector;
 pub use n_plus_one::NPlusOneDetector;
+pub use insecure_crypto::InsecureCryptoDetector;
+pub use xss::XssDetector;
+pub use hardcoded_ips::HardcodedIpsDetector;
+pub use insecure_random::InsecureRandomDetector;
+pub use cors_misconfig::CorsMisconfigDetector;
+pub use debug_code::DebugCodeDetector;
+pub use commented_code::CommentedCodeDetector;
+pub use long_methods::LongMethodsDetector;
+pub use duplicate_code::DuplicateCodeDetector;
+pub use unreachable_code::UnreachableCodeDetector;
+pub use string_concat_loop::StringConcatLoopDetector;
 
 // Re-export external tool utilities
 pub use external_tool::{
@@ -341,6 +363,19 @@ pub fn default_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
         // New performance detectors
         Arc::new(SyncInAsyncDetector::new(repository_path)),
         Arc::new(NPlusOneDetector::new(repository_path)),
+        // More security detectors
+        Arc::new(InsecureCryptoDetector::new(repository_path)),
+        Arc::new(XssDetector::new(repository_path)),
+        Arc::new(HardcodedIpsDetector::new(repository_path)),
+        Arc::new(InsecureRandomDetector::new(repository_path)),
+        Arc::new(CorsMisconfigDetector::new(repository_path)),
+        // More code quality detectors
+        Arc::new(DebugCodeDetector::new(repository_path)),
+        Arc::new(CommentedCodeDetector::new(repository_path)),
+        Arc::new(LongMethodsDetector::new(repository_path)),
+        Arc::new(DuplicateCodeDetector::new(repository_path)),
+        Arc::new(UnreachableCodeDetector::new(repository_path)),
+        Arc::new(StringConcatLoopDetector::new(repository_path)),
     ]
 }
 
