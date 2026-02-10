@@ -9,68 +9,37 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            name: repotoire-linux-x86_64
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            name: repotoire-macos-aarch64
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            name: repotoire-windows-x86_64
-
+  build-linux:
+    name: Build Linux x86_64
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
-      - name: Install dependencies (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential
-
-      - name: Install dependencies (macOS)
-        if: matrix.os == 'macos-latest'
-        run: brew install cmake
 
       - name: Build
         run: |
           cd repotoire-cli
-          cargo build --release --target ${{ matrix.target }}
+          cargo build --release
 
-      - name: Package (Unix)
-        if: matrix.os != 'windows-latest'
+      - name: Package
         run: |
-          cd repotoire-cli/target/${{ matrix.target }}/release
-          tar czf ../../../${{ matrix.name }}.tar.gz repotoire
-          
-      - name: Package (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          cd repotoire-cli/target/${{ matrix.target }}/release
-          Compress-Archive -Path repotoire.exe -DestinationPath ../../../${{ matrix.name }}.zip
+          cd repotoire-cli/target/release
+          tar czf ../../repotoire-linux-x86_64.tar.gz repotoire
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}
-          path: |
-            repotoire-cli/${{ matrix.name }}.tar.gz
-            repotoire-cli/${{ matrix.name }}.zip
+          name: repotoire-linux-x86_64
+          path: repotoire-cli/repotoire-linux-x86_64.tar.gz
 
   release:
     name: Create Release
-    needs: build
+    needs: build-linux
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -88,3 +57,22 @@ jobs:
         with:
           files: artifacts/**/*
           generate_release_notes: true
+          body: |
+            ## Installation
+            
+            ### Cargo (recommended)
+            ```bash
+            cargo install repotoire
+            ```
+            
+            ### Binary download (Linux x86_64)
+            ```bash
+            curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-linux-x86_64.tar.gz | tar xz
+            sudo mv repotoire /usr/local/bin/
+            ```
+            
+            ### Build from source
+            Requires cmake and a C++ compiler.
+            ```bash
+            cargo install --git https://github.com/Zach-hammad/repotoire
+            ```
