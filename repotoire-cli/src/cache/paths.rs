@@ -56,8 +56,8 @@ fn hash_path(path: &Path) -> String {
     path_str.hash(&mut hasher);
     let hash = hasher.finish();
     
-    // Use first 12 hex chars + sanitized repo name for readability
-    let repo_name = path.file_name()
+    // Use canonical path's file_name for consistent naming (important when path is ".")
+    let repo_name = canonical.file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("repo")
         .chars()
