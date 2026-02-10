@@ -171,6 +171,18 @@ mod long_methods;
 mod duplicate_code;
 mod unreachable_code;
 mod string_concat_loop;
+mod xxe;
+mod insecure_deserialize;
+mod cleartext_credentials;
+mod wildcard_imports;
+mod mutable_default_args;
+mod global_variables;
+mod implicit_coercion;
+mod single_char_names;
+mod missing_await;
+mod unhandled_promise;
+mod callback_hell;
+mod test_in_production;
 
 // Re-export base types
 pub use base::{
@@ -285,6 +297,18 @@ pub use long_methods::LongMethodsDetector;
 pub use duplicate_code::DuplicateCodeDetector;
 pub use unreachable_code::UnreachableCodeDetector;
 pub use string_concat_loop::StringConcatLoopDetector;
+pub use xxe::XxeDetector;
+pub use insecure_deserialize::InsecureDeserializeDetector;
+pub use cleartext_credentials::CleartextCredentialsDetector;
+pub use wildcard_imports::WildcardImportsDetector;
+pub use mutable_default_args::MutableDefaultArgsDetector;
+pub use global_variables::GlobalVariablesDetector;
+pub use implicit_coercion::ImplicitCoercionDetector;
+pub use single_char_names::SingleCharNamesDetector;
+pub use missing_await::MissingAwaitDetector;
+pub use unhandled_promise::UnhandledPromiseDetector;
+pub use callback_hell::CallbackHellDetector;
+pub use test_in_production::TestInProductionDetector;
 
 // Re-export external tool utilities
 pub use external_tool::{
@@ -376,6 +400,22 @@ pub fn default_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
         Arc::new(DuplicateCodeDetector::new(repository_path)),
         Arc::new(UnreachableCodeDetector::new(repository_path)),
         Arc::new(StringConcatLoopDetector::new(repository_path)),
+        // Additional security
+        Arc::new(XxeDetector::new(repository_path)),
+        Arc::new(InsecureDeserializeDetector::new(repository_path)),
+        Arc::new(CleartextCredentialsDetector::new(repository_path)),
+        // Code quality
+        Arc::new(WildcardImportsDetector::new(repository_path)),
+        Arc::new(MutableDefaultArgsDetector::new(repository_path)),
+        Arc::new(GlobalVariablesDetector::new(repository_path)),
+        Arc::new(ImplicitCoercionDetector::new(repository_path)),
+        Arc::new(SingleCharNamesDetector::new(repository_path)),
+        // Async issues
+        Arc::new(MissingAwaitDetector::new(repository_path)),
+        Arc::new(UnhandledPromiseDetector::new(repository_path)),
+        Arc::new(CallbackHellDetector::new(repository_path)),
+        // Testing
+        Arc::new(TestInProductionDetector::new(repository_path)),
     ]
 }
 
