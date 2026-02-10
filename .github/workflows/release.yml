@@ -13,20 +13,18 @@ jobs:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             name: repotoire-linux-x86_64
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            name: repotoire-macos-x86_64
           - target: aarch64-apple-darwin
             os: macos-latest
             name: repotoire-macos-aarch64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            name: repotoire-windows-x86_64.exe
+            name: repotoire-windows-x86_64
 
     steps:
       - uses: actions/checkout@v4
@@ -36,11 +34,11 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cmake (Ubuntu)
+      - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential
 
-      - name: Install cmake (macOS)
+      - name: Install dependencies (macOS)
         if: matrix.os == 'macos-latest'
         run: brew install cmake
 
@@ -57,25 +55,33 @@ jobs:
           
       - name: Package (Windows)
         if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
           cd repotoire-cli/target/${{ matrix.target }}/release
-          7z a ../../../${{ matrix.name }}.zip repotoire.exe
+          Compress-Archive -Path repotoire.exe -DestinationPath ../../../${{ matrix.name }}.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: repotoire-cli/${{ matrix.name }}.*
+          path: |
+            repotoire-cli/${{ matrix.name }}.tar.gz
+            repotoire-cli/${{ matrix.name }}.zip
 
   release:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
