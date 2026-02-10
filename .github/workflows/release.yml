@@ -26,39 +26,34 @@ jobs:
           name: repotoire-linux-x86_64
           path: repotoire-cli/repotoire-linux-x86_64.tar.gz
 
-  build-macos-intel:
-    name: Build macOS x86_64
-    runs-on: macos-13
+  build-macos:
+    name: Build macOS (Universal)
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Build
-        run: cd repotoire-cli && cargo build --release
-      - name: Package
-        run: |
-          cd repotoire-cli/target/release
-          tar czf ../../repotoire-macos-x86_64.tar.gz repotoire
-      - uses: actions/upload-artifact@v4
         with:
-          name: repotoire-macos-x86_64
-          path: repotoire-cli/repotoire-macos-x86_64.tar.gz
-
-  build-macos-arm:
-    name: Build macOS ARM64
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build
-        run: cd repotoire-cli && cargo build --release
-      - name: Package
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+      - name: Build ARM64
+        run: cd repotoire-cli && cargo build --release --target aarch64-apple-darwin
+      - name: Build x86_64
+        run: cd repotoire-cli && cargo build --release --target x86_64-apple-darwin
+      - name: Package ARM64
         run: |
-          cd repotoire-cli/target/release
-          tar czf ../../repotoire-macos-aarch64.tar.gz repotoire
+          cd repotoire-cli/target/aarch64-apple-darwin/release
+          tar czf ../../../repotoire-macos-aarch64.tar.gz repotoire
+      - name: Package x86_64
+        run: |
+          cd repotoire-cli/target/x86_64-apple-darwin/release
+          tar czf ../../../repotoire-macos-x86_64.tar.gz repotoire
       - uses: actions/upload-artifact@v4
         with:
           name: repotoire-macos-aarch64
           path: repotoire-cli/repotoire-macos-aarch64.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repotoire-macos-x86_64
+          path: repotoire-cli/repotoire-macos-x86_64.tar.gz
 
   build-windows:
     name: Build Windows x86_64
@@ -80,7 +75,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: [build-linux, build-macos-intel, build-macos-arm, build-windows]
+    needs: [build-linux, build-macos, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
