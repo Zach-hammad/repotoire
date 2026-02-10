@@ -60,6 +60,8 @@ pip install repotoire
 
 That's it. No API keys required. No Docker. No cloud account.
 
+> **Upgrading from Python version?** Delete the old database first: `rm -rf .repotoire`
+
 ### Build Dependencies (for cargo install)
 
 Building from source requires **cmake**:
@@ -295,6 +297,34 @@ repos:
 | AI code smell detection | ✅ | ❌ | ❌ |
 | BYOK AI fixes | ✅ | ❌ | ❌ |
 | Free | ✅ | Limited | Limited |
+
+## Troubleshooting
+
+### "Cannot open file .repotoire/kuzu_db/.lock: Not a directory"
+You have a stale database from a previous version. Delete it:
+```bash
+rm -rf .repotoire
+repotoire analyze .
+```
+
+### "cmake not installed" during cargo install
+Install cmake first:
+```bash
+# macOS
+brew install cmake
+
+# Ubuntu/Debian
+sudo apt install cmake build-essential
+
+# Or use cargo binstall (no cmake needed)
+cargo binstall repotoire
+```
+
+### Analysis is slow
+Use `--relaxed` for faster runs (only high-severity findings):
+```bash
+repotoire analyze . --relaxed
+```
 
 ## Documentation
 
