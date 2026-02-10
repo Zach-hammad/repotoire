@@ -20,7 +20,7 @@ pub fn run_interactive(path: &Path) -> Result<()> {
 
 /// Load findings from last analysis
 fn load_findings(path: &Path) -> Result<Vec<Finding>> {
-    let findings_path = path.join(".repotoire/last_findings.json");
+    let findings_path = crate::cache::get_findings_cache_path(path);
     if !findings_path.exists() {
         anyhow::bail!(
             "No findings found. Run `repotoire analyze` first.\n\

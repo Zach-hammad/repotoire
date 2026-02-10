@@ -10,25 +10,20 @@ pub fn run(path: &Path) -> Result<()> {
         .canonicalize()
         .with_context(|| format!("Path does not exist: {}", path.display()))?;
 
-    println!("\n{} Repotoire Status\n", style("📊").bold());
+    println!("\nRepotoire Status\n");
 
-    // Check if initialized
-    let repotoire_dir = repo_path.join(".repotoire");
-    if !repotoire_dir.exists() {
-        println!(
-            "  {} Not initialized. Run {}",
-            style("⚠").yellow(),
-            style("repotoire init").cyan()
-        );
-        return Ok(());
-    }
+    // Check cache directory
+    let cache_dir = crate::cache::get_cache_dir(&repo_path);
+    let db_path = crate::cache::get_graph_db_path(&repo_path);
+    let findings_path = crate::cache::get_findings_cache_path(&repo_path);
 
-    println!("  {} Initialized", style("✓").green());
+    println!("  Repository: {}", style(repo_path.display()).cyan());
+    println!("  Cache: {}", style(cache_dir.display()).dim());
+    println!();
 
     // Check for database
-    let db_path = repotoire_dir.join("graph_db");
     if db_path.exists() {
-        println!("  {} Graph database exists", style("✓").green());
+        println!("  {} Graph database exists", style("[OK]").green());
         
         // Try to get stats
         if let Ok(graph) = crate::graph::GraphStore::new(&db_path) {
@@ -37,78 +32,68 @@ pub fn run(path: &Path) -> Result<()> {
             let func_count = stats.get("functions").copied().unwrap_or(0);
             let class_count = stats.get("classes").copied().unwrap_or(0);
             
-            println!("    {} files indexed", style(file_count).cyan());
-            println!("    {} functions", style(func_count).cyan());
-            println!("    {} classes", style(class_count).cyan());
+            println!("      {} files, {} functions, {} classes", 
+                style(file_count).cyan(),
+                style(func_count).cyan(),
+                style(class_count).cyan()
+            );
         }
     } else {
         println!(
             "  {} No analysis yet. Run {}",
-            style("○").dim(),
+            style("[--]").dim(),
             style("repotoire analyze").cyan()
         );
     }
 
     // Check for cached findings
-    let findings_path = repotoire_dir.join("last_findings.json");
     if findings_path.exists() {
-        println!("  {} Findings cached", style("✓").green());
+        println!("  {} Findings cached", style("[OK]").green());
         
         if let Ok(content) = std::fs::read_to_string(&findings_path) {
             if let Ok(report) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(summary) = report.get("findings_summary") {
-                    let total = summary.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let critical = summary.get("critical").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let high = summary.get("high").and_then(|v| v.as_u64()).unwrap_or(0);
+                if let Some(findings) = report.get("findings").and_then(|f| f.as_array()) {
+                    let total = findings.len();
+                    let critical = findings.iter()
+                        .filter(|f| f.get("severity").and_then(|s| s.as_str()) == Some("critical"))
+                        .count();
+                    let high = findings.iter()
+                        .filter(|f| f.get("severity").and_then(|s| s.as_str()) == Some("high"))
+                        .count();
                     
                     println!(
-                        "    {} findings ({} critical, {} high)",
+                        "      {} findings ({} critical, {} high)",
                         style(total).cyan(),
                         style(critical).red(),
                         style(high).yellow()
-                    );
-                }
-                if let Some(score) = report.get("overall_score").and_then(|v| v.as_f64()) {
-                    let grade = report.get("grade").and_then(|v| v.as_str()).unwrap_or("?");
-                    println!(
-                        "    Health: {} ({})",
-                        style(format!("{:.1}", score)).cyan(),
-                        style(grade).bold()
                     );
                 }
             }
         }
     }
 
-    // Check config
-    let config_path = repotoire_dir.join("config.toml");
-    if config_path.exists() {
-        println!("  {} Config file exists", style("✓").green());
-    }
-
     // Check for API keys
     println!();
-    println!("  {} API Keys:", style("🔑").bold());
+    println!("  API Keys:");
     
     let has_openai = std::env::var("OPENAI_API_KEY").is_ok();
     let has_anthropic = std::env::var("ANTHROPIC_API_KEY").is_ok();
     
     if has_openai {
-        println!("    {} OPENAI_API_KEY set", style("✓").green());
+        println!("    {} OPENAI_API_KEY", style("[OK]").green());
     } else {
-        println!("    {} OPENAI_API_KEY not set", style("○").dim());
+        println!("    {} OPENAI_API_KEY", style("[--]").dim());
     }
     
     if has_anthropic {
-        println!("    {} ANTHROPIC_API_KEY set", style("✓").green());
+        println!("    {} ANTHROPIC_API_KEY", style("[OK]").green());
     } else {
-        println!("    {} ANTHROPIC_API_KEY not set", style("○").dim());
+        println!("    {} ANTHROPIC_API_KEY", style("[--]").dim());
     }
 
     if !has_openai && !has_anthropic {
         println!(
-            "\n  {} Set an API key to enable AI fixes (BYOK)",
-            style("💡").bold()
+            "\n  Set an API key to enable AI fixes (BYOK)"
         );
     }
 

@@ -2,10 +2,14 @@
 //!
 //! Provides a shared cache to avoid re-reading files across multiple detectors.
 
+pub mod paths;
+
 use dashmap::DashMap;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
+
+pub use paths::{get_cache_dir, get_findings_cache_path, get_git_cache_path, get_graph_db_path, ensure_cache_dir};
 
 /// Global file cache instance
 static GLOBAL_CACHE: OnceLock<FileCache> = OnceLock::new();

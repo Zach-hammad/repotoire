@@ -13,7 +13,7 @@ use crate::models::Finding;
 /// Run the fix command
 pub fn run(path: &Path, index: usize, apply: bool) -> Result<()> {
     // Load findings from last analysis
-    let findings_path = path.join(".repotoire/last_findings.json");
+    let findings_path = crate::cache::get_findings_cache_path(path);
     if !findings_path.exists() {
         anyhow::bail!(
             "No findings found. Run `repotoire analyze` first.\n\
@@ -194,7 +194,7 @@ pub fn run(path: &Path, index: usize, apply: bool) -> Result<()> {
     }
 
     // Save fix proposal
-    let fixes_dir = path.join(".repotoire/fixes");
+    let fixes_dir = crate::cache::get_cache_dir(path).join("fixes");
     fs::create_dir_all(&fixes_dir)?;
     let fix_path = fixes_dir.join(format!("{}.json", fix.id));
     fs::write(&fix_path, serde_json::to_string_pretty(&fix)?)?;

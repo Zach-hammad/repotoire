@@ -76,10 +76,9 @@ pub fn run(
         style(repo_path.display()).cyan()
     );
 
-    // Create .repotoire directory if needed
-    let repotoire_dir = repo_path.join(".repotoire");
-    std::fs::create_dir_all(&repotoire_dir)
-        .with_context(|| "Failed to create .repotoire directory")?;
+    // Create cache directory (~/.cache/repotoire/<repo-hash>/)
+    let repotoire_dir = crate::cache::ensure_cache_dir(&repo_path)
+        .with_context(|| "Failed to create cache directory")?;
 
     // Initialize graph database
     let db_path = repotoire_dir.join("graph_db");

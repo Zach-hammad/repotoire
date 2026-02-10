@@ -91,6 +91,7 @@ md5 = "0.7"
 ratatui = "0.30.0"
 crossterm = "0.29.0"
 walkdir = "2.5.0"
+dirs = "6.0.0"
 [profile.release]
 lto = true
 codegen-units = 1

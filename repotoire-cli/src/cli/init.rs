@@ -14,31 +14,22 @@ pub fn run(path: &Path) -> Result<()> {
         anyhow::bail!("Path is not a directory: {}", repo_path.display());
     }
 
-    println!("\n{} Initializing Repotoire\n", style("🎼").bold());
+    println!("\nInitializing Repotoire\n");
 
-    // Create .repotoire directory
-    let repotoire_dir = repo_path.join(".repotoire");
-    if repotoire_dir.exists() {
-        println!(
-            "{} Already initialized at {}",
-            style("✓").green(),
-            style(repotoire_dir.display()).cyan()
-        );
-    } else {
-        std::fs::create_dir_all(&repotoire_dir)
-            .with_context(|| "Failed to create .repotoire directory")?;
-        println!(
-            "{} Created {}",
-            style("✓").green(),
-            style(repotoire_dir.display()).cyan()
-        );
-    }
+    // Create cache directory (~/.cache/repotoire/<repo-hash>/)
+    let cache_dir = crate::cache::ensure_cache_dir(&repo_path)
+        .with_context(|| "Failed to create cache directory")?;
+    
+    println!(
+        "{} Cache directory: {}",
+        style("[OK]").green(),
+        style(cache_dir.display()).dim()
+    );
 
-    // Create config file
-    let config_path = repotoire_dir.join("config.toml");
+    // Create config file in cache
+    let config_path = cache_dir.join("config.toml");
     if !config_path.exists() {
         let default_config = r#"# Repotoire Configuration
-# See https://repotoire.com/docs/configuration
 
 [analysis]
 # Minimum severity to report (critical, high, medium, low, info)
@@ -58,13 +49,6 @@ god_class_max_lines = 500
 # Long parameter list threshold
 long_parameter_max = 5
 
-[ai]
-# AI provider (openai, anthropic)
-# provider = "openai"
-
-# Model to use for fix generation
-# model = "gpt-4o"
-
 [output]
 # Default output format (text, json, sarif, html, markdown)
 format = "text"
@@ -75,36 +59,25 @@ show_fixes = true
         std::fs::write(&config_path, default_config)
             .with_context(|| "Failed to create config file")?;
         println!(
-            "{} Created {}",
-            style("✓").green(),
-            style("config.toml").cyan()
+            "{} Created config.toml",
+            style("[OK]").green()
         );
     }
 
-    // Add to .gitignore
-    let gitignore_path = repo_path.join(".gitignore");
-    let gitignore_entry = "\n# Repotoire\n.repotoire/\n";
-    
-    if gitignore_path.exists() {
-        let content = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
-        if !content.contains(".repotoire") {
-            let mut file = std::fs::OpenOptions::new()
-                .append(true)
-                .open(&gitignore_path)?;
-            use std::io::Write;
-            file.write_all(gitignore_entry.as_bytes())?;
-            println!(
-                "{} Added .repotoire/ to {}",
-                style("✓").green(),
-                style(".gitignore").cyan()
-            );
-        }
+    // Check for .repotoireignore (optional, stays in repo)
+    let ignore_path = repo_path.join(".repotoireignore");
+    if !ignore_path.exists() {
+        println!(
+            "{} Optional: create .repotoireignore to exclude paths",
+            style("[TIP]").cyan()
+        );
     }
 
-    println!("\n{} Repository initialized!", style("✨").bold());
+    println!("\n{} Repository initialized!\n", style("[DONE]").green().bold());
+    println!("Cache stored in: {}", style(cache_dir.display()).dim());
     println!("\nNext steps:");
     println!("  {} Run analysis", style("repotoire analyze .").cyan());
-    println!("  {} View findings", style("repotoire findings").cyan());
+    println!("  {} View findings interactively", style("repotoire findings -i").cyan());
     println!("  {} Get AI fixes", style("repotoire fix <id>").cyan());
 
     Ok(())

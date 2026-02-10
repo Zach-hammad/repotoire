@@ -13,7 +13,7 @@ pub fn run(path: &Path, query: &str, _format: &str) -> Result<()> {
         .canonicalize()
         .with_context(|| format!("Path does not exist: {}", path.display()))?;
 
-    let db_path = repo_path.join(".repotoire").join("graph_db");
+    let db_path = crate::cache::get_graph_db_path(&repo_path);
     if !db_path.exists() {
         anyhow::bail!(
             "No analysis found. Run {} first.",
@@ -99,7 +99,7 @@ pub fn stats(path: &Path) -> Result<()> {
         .canonicalize()
         .with_context(|| format!("Path does not exist: {}", path.display()))?;
 
-    let db_path = repo_path.join(".repotoire").join("graph_db");
+    let db_path = crate::cache::get_graph_db_path(&repo_path);
     if !db_path.exists() {
         anyhow::bail!(
             "No analysis found. Run {} first.",

@@ -1,35 +1,43 @@
-//! Clean command - remove .repotoire directories
+//! Clean command - remove cache directories
 
 use anyhow::Result;
 use std::path::Path;
 use walkdir::WalkDir;
 
 pub fn run(path: &Path, dry_run: bool) -> Result<()> {
-    let mut found = Vec::new();
+    let repo_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     
-    // Find all .repotoire directories
+    let mut to_remove = Vec::new();
+    
+    // 1. Check central cache directory
+    let cache_dir = crate::cache::get_cache_dir(&repo_path);
+    if cache_dir.exists() {
+        to_remove.push(("Central cache".to_string(), cache_dir));
+    }
+    
+    // 2. Find any legacy .repotoire directories in repo
     for entry in WalkDir::new(path)
         .follow_links(false)
         .into_iter()
         .filter_map(|e| e.ok())
     {
         if entry.file_type().is_dir() && entry.file_name() == ".repotoire" {
-            found.push(entry.path().to_path_buf());
+            to_remove.push(("Legacy".to_string(), entry.path().to_path_buf()));
         }
     }
     
-    if found.is_empty() {
-        println!("No .repotoire directories found.");
+    if to_remove.is_empty() {
+        println!("No cache directories found.");
         return Ok(());
     }
     
-    println!("Found {} .repotoire director{}:", 
-        found.len(), 
-        if found.len() == 1 { "y" } else { "ies" }
+    println!("Found {} cache director{}:", 
+        to_remove.len(), 
+        if to_remove.len() == 1 { "y" } else { "ies" }
     );
     
-    for dir in &found {
-        println!("  {}", dir.display());
+    for (kind, dir) in &to_remove {
+        println!("  [{}] {}", kind, dir.display());
     }
     
     if dry_run {
@@ -38,16 +46,20 @@ pub fn run(path: &Path, dry_run: bool) -> Result<()> {
     }
     
     println!();
-    for dir in &found {
+    let mut removed = 0;
+    for (_, dir) in &to_remove {
         match std::fs::remove_dir_all(dir) {
-            Ok(_) => println!("Removed: {}", dir.display()),
+            Ok(_) => {
+                println!("Removed: {}", dir.display());
+                removed += 1;
+            }
             Err(e) => eprintln!("Failed to remove {}: {}", dir.display(), e),
         }
     }
     
     println!("\nCleaned {} director{}.", 
-        found.len(),
-        if found.len() == 1 { "y" } else { "ies" }
+        removed,
+        if removed == 1 { "y" } else { "ies" }
     );
     
     Ok(())
