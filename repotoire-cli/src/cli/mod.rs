@@ -1,6 +1,7 @@
 //! CLI command definitions and handlers
 
 mod analyze;
+mod clean;
 mod doctor;
 mod findings;
 mod fix;
@@ -136,6 +137,13 @@ pub enum Commands {
     /// Check environment setup
     Doctor,
 
+    /// Remove all .repotoire directories
+    Clean {
+        /// Preview what would be removed without deleting
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Show version info
     Version,
 
@@ -190,6 +198,8 @@ pub fn run(cli: Cli) -> Result<()> {
         Some(Commands::Status) => status::run(&cli.path),
 
         Some(Commands::Doctor) => doctor::run(),
+
+        Some(Commands::Clean { dry_run }) => clean::run(&cli.path, dry_run),
 
         Some(Commands::Version) => {
             println!("repotoire {}", env!("CARGO_PKG_VERSION"));
