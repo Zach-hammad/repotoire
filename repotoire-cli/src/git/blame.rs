@@ -5,9 +5,11 @@
 
 use anyhow::{Context, Result};
 use chrono::{TimeZone, Utc};
+use dashmap::DashMap;
 use git2::{BlameOptions, Repository};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 use tracing::debug;
 
 /// Blame information for a single line or contiguous range.
@@ -52,9 +54,11 @@ pub struct BlameInfo {
     pub blame_entries: Vec<LineBlame>,
 }
 
-/// Git blame analyzer.
+/// Git blame analyzer with file-level caching.
 pub struct GitBlame {
     repo: Repository,
+    /// Cache of file blame results: file_path -> blame entries
+    file_cache: Arc<DashMap<String, Vec<LineBlame>>>,
 }
 
 impl GitBlame {
@@ -62,7 +66,10 @@ impl GitBlame {
     pub fn open(path: &Path) -> Result<Self> {
         let repo = Repository::discover(path)
             .with_context(|| format!("Failed to open git repository at {:?}", path))?;
-        Ok(Self { repo })
+        Ok(Self { 
+            repo,
+            file_cache: Arc::new(DashMap::new()),
+        })
     }
 
     /// Get blame information for a specific line range.
@@ -206,7 +213,21 @@ impl GitBlame {
         Ok(entries)
     }
 
+    /// Get cached blame for entire file, or compute and cache it.
+    fn get_cached_file_blame(&self, file_path: &str) -> Result<Vec<LineBlame>> {
+        // Check cache first
+        if let Some(cached) = self.file_cache.get(file_path) {
+            return Ok(cached.clone());
+        }
+        
+        // Compute and cache
+        let entries = self.blame_file(file_path)?;
+        self.file_cache.insert(file_path.to_string(), entries.clone());
+        Ok(entries)
+    }
+
     /// Get aggregated blame information for an entity (function/class).
+    /// Uses cached file blame for efficiency.
     ///
     /// # Arguments
     /// * `file_path` - Relative path to file
@@ -218,7 +239,12 @@ impl GitBlame {
         line_start: u32,
         line_end: u32,
     ) -> Result<BlameInfo> {
-        let blame_entries = self.blame_lines(file_path, line_start, line_end)?;
+        // Use cached full-file blame and filter to line range
+        let all_entries = self.get_cached_file_blame(file_path)?;
+        let blame_entries: Vec<LineBlame> = all_entries
+            .into_iter()
+            .filter(|e| e.line_end >= line_start && e.line_start <= line_end)
+            .collect();
 
         if blame_entries.is_empty() {
             return Ok(BlameInfo::default());
