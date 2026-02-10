@@ -10,18 +10,41 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
+use std::fs;
 use std::io;
+use std::path::Path;
 
 use crate::models::{Finding, Severity};
+
+/// Read code snippet from file around the given line range
+fn read_code_snippet(repo_path: &Path, file_path: &str, line_start: u32, line_end: u32, context: usize) -> Option<Vec<(u32, String)>> {
+    let full_path = repo_path.join(file_path);
+    let content = fs::read_to_string(&full_path).ok()?;
+    let lines: Vec<&str> = content.lines().collect();
+    
+    let start = (line_start as usize).saturating_sub(context + 1);
+    let end = (line_end as usize + context).min(lines.len());
+    
+    Some(
+        lines[start..end]
+            .iter()
+            .enumerate()
+            .map(|(i, line)| ((start + i + 1) as u32, line.to_string()))
+            .collect()
+    )
+}
 
 pub struct App {
     findings: Vec<Finding>,
     list_state: ListState,
     show_detail: bool,
+    repo_path: std::path::PathBuf,
+    code_cache: Option<Vec<(u32, String)>>,
+    cached_index: Option<usize>,
 }
 
 impl App {
-    pub fn new(findings: Vec<Finding>) -> Self {
+    pub fn new(findings: Vec<Finding>, repo_path: std::path::PathBuf) -> Self {
         let mut list_state = ListState::default();
         if !findings.is_empty() {
             list_state.select(Some(0));
@@ -30,7 +53,34 @@ impl App {
             findings,
             list_state,
             show_detail: false,
+            repo_path,
+            code_cache: None,
+            cached_index: None,
         }
+    }
+
+    fn get_code_snippet(&mut self) -> Option<&Vec<(u32, String)>> {
+        let selected = self.list_state.selected()?;
+        
+        // Return cached if same selection
+        if self.cached_index == Some(selected) {
+            return self.code_cache.as_ref();
+        }
+        
+        let finding = self.findings.get(selected)?;
+        let file_path = finding.affected_files.first()?;
+        let line_start = finding.line_start.unwrap_or(1);
+        let line_end = finding.line_end.unwrap_or(line_start);
+        
+        self.code_cache = read_code_snippet(
+            &self.repo_path,
+            &file_path.to_string_lossy(),
+            line_start,
+            line_end,
+            3, // 3 lines of context
+        );
+        self.cached_index = Some(selected);
+        self.code_cache.as_ref()
     }
 
     fn next(&mut self) {
@@ -66,7 +116,7 @@ impl App {
     }
 }
 
-pub fn run(findings: Vec<Finding>) -> Result<()> {
+pub fn run(findings: Vec<Finding>, repo_path: std::path::PathBuf) -> Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -74,7 +124,7 @@ pub fn run(findings: Vec<Finding>) -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(findings);
+    let mut app = App::new(findings, repo_path);
     let res = run_app(&mut terminal, &mut app);
 
     // Restore terminal
@@ -136,38 +186,44 @@ fn ui(f: &mut Frame, app: &mut App) {
         .constraints([
             Constraint::Length(3),
             Constraint::Min(0),
-            Constraint::Length(3),
+            Constraint::Length(1),
         ])
         .split(f.area());
 
-    // Header
+    // Header with stats
+    let selected = app.list_state.selected().unwrap_or(0) + 1;
     let header = Paragraph::new(format!(
-        " Repotoire - {} findings",
+        " Repotoire | {} findings | {}/{}",
+        app.findings.len(),
+        selected,
         app.findings.len()
     ))
     .style(Style::default().fg(Color::Cyan).bold())
     .block(Block::default().borders(Borders::ALL));
     f.render_widget(header, chunks[0]);
 
-    if app.show_detail {
-        // Detail view
-        if let Some(finding) = app.selected_finding() {
-            render_detail(f, chunks[1], finding);
-        }
-    } else {
-        // List view
-        render_list(f, chunks[1], app);
+    // Split main area into list and detail
+    let main_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(40),
+            Constraint::Percentage(60),
+        ])
+        .split(chunks[1]);
+
+    // List (left pane)
+    render_list(f, main_chunks[0], app);
+
+    // Detail (right pane) - always visible
+    if let Some(finding) = app.selected_finding().cloned() {
+        let code = app.get_code_snippet().cloned();
+        render_detail(f, main_chunks[1], &finding, code.as_ref());
     }
 
     // Footer
-    let help = if app.show_detail {
-        " [Enter/Esc] Back  [q] Quit"
-    } else {
-        " [j/k] Navigate  [Enter] Details  [q] Quit"
-    };
+    let help = " j/k:Navigate  Enter:Toggle  q:Quit";
     let footer = Paragraph::new(help)
-        .style(Style::default().fg(Color::DarkGray))
-        .block(Block::default().borders(Borders::ALL));
+        .style(Style::default().fg(Color::DarkGray));
     f.render_widget(footer, chunks[2]);
 }
 
@@ -227,7 +283,7 @@ fn render_list(f: &mut Frame, area: Rect, app: &mut App) {
     f.render_stateful_widget(list, area, &mut app.list_state);
 }
 
-fn render_detail(f: &mut Frame, area: Rect, finding: &Finding) {
+fn render_detail(f: &mut Frame, area: Rect, finding: &Finding, code_snippet: Option<&Vec<(u32, String)>>) {
     let severity_str = match finding.severity {
         Severity::Critical => "CRITICAL",
         Severity::High => "HIGH",
@@ -241,6 +297,9 @@ fn render_detail(f: &mut Frame, area: Rect, finding: &Finding) {
         .first()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "unknown".to_string());
+
+    let line_start = finding.line_start.unwrap_or(0);
+    let line_end = finding.line_end.unwrap_or(line_start);
 
     let line_info = match (finding.line_start, finding.line_end) {
         (Some(start), Some(end)) if start != end => format!(":{}-{}", start, end),
@@ -266,39 +325,56 @@ fn render_detail(f: &mut Frame, area: Rect, finding: &Finding) {
             ),
         ]),
         Line::from(vec![
-            Span::styled("Detector: ", Style::default().bold()),
-            Span::raw(&finding.detector),
-        ]),
-        Line::from(vec![
             Span::styled("File: ", Style::default().bold()),
             Span::raw(format!("{}{}", file, line_info)),
         ]),
         Line::from(""),
-        Line::from(Span::styled("Description:", Style::default().bold())),
     ];
 
-    for line in finding.description.lines() {
+    // Add code snippet
+    if let Some(lines) = code_snippet {
+        text.push(Line::from(Span::styled("Code:", Style::default().bold())));
+        text.push(Line::from(""));
+        
+        for (line_num, code) in lines {
+            let is_highlighted = *line_num >= line_start && *line_num <= line_end;
+            let line_style = if is_highlighted {
+                Style::default().bg(Color::DarkGray).fg(Color::White)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            
+            // Truncate long lines
+            let display_code = if code.len() > 80 {
+                format!("{}...", &code[..77])
+            } else {
+                code.clone()
+            };
+            
+            text.push(Line::from(vec![
+                Span::styled(format!("{:>4} | ", line_num), Style::default().fg(Color::DarkGray)),
+                Span::styled(display_code, line_style),
+            ]));
+        }
+        text.push(Line::from(""));
+    }
+
+    // Description
+    text.push(Line::from(Span::styled("Description:", Style::default().bold())));
+    for line in finding.description.lines().take(3) {
         text.push(Line::from(format!("  {}", line)));
     }
 
     if let Some(fix) = &finding.suggested_fix {
         text.push(Line::from(""));
-        text.push(Line::from(Span::styled("Suggested Fix:", Style::default().bold())));
-        for line in fix.lines() {
-            text.push(Line::from(format!("  {}", line)));
-        }
-    }
-
-    if let Some(why) = &finding.why_it_matters {
-        text.push(Line::from(""));
-        text.push(Line::from(Span::styled("Why It Matters:", Style::default().bold())));
-        for line in why.lines() {
+        text.push(Line::from(Span::styled("Fix:", Style::default().bold())));
+        for line in fix.lines().take(2) {
             text.push(Line::from(format!("  {}", line)));
         }
     }
 
     let paragraph = Paragraph::new(text)
-        .block(Block::default().borders(Borders::ALL).title(format!(" Finding Details ")))
+        .block(Block::default().borders(Borders::ALL).title(" Details "))
         .wrap(Wrap { trim: false });
 
     f.render_widget(paragraph, area);

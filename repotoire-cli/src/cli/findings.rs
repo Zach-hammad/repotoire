@@ -15,7 +15,7 @@ pub fn run_interactive(path: &Path) -> Result<()> {
         println!("No findings! Your code looks clean.");
         return Ok(());
     }
-    tui::run(findings)
+    tui::run(findings, path.to_path_buf())
 }
 
 /// Load findings from last analysis
