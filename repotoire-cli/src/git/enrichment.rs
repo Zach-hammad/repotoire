@@ -28,6 +28,10 @@ pub struct EnrichmentStats {
     pub edges_created: usize,
     /// Files skipped (not in git)
     pub files_skipped: usize,
+    /// Files loaded from disk cache
+    pub cache_hits: usize,
+    /// Files computed fresh
+    pub cache_misses: usize,
 }
 
 /// Git enricher for the code graph.
@@ -72,13 +76,18 @@ impl<'a> GitEnricher<'a> {
             }
         }
         
-        // Pre-warm blame cache in parallel
+        // Pre-warm blame cache in parallel (uses disk cache for unchanged files)
         let file_list: Vec<String> = unique_files.into_iter().collect();
-        if !file_list.is_empty() {
-            info!("Pre-warming git blame cache for {} files (parallel)...", file_list.len());
-            let warmed = self.blame.prewarm_cache(&file_list);
-            debug!("Warmed {} file blames", warmed);
-        }
+        let (cache_hits, cache_misses) = if !file_list.is_empty() {
+            info!("Pre-warming git blame cache for {} files...", file_list.len());
+            let (hits, misses) = self.blame.prewarm_cache(&file_list);
+            debug!("Git cache: {} hits, {} computed", hits, misses);
+            (hits, misses)
+        } else {
+            (0, 0)
+        };
+        stats.cache_hits = cache_hits;
+        stats.cache_misses = cache_misses;
 
         // Enrich Functions (now just cache lookups)
         info!("Enriching Function nodes with git history...");

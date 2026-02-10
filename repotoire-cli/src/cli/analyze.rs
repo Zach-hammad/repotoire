@@ -84,7 +84,8 @@ pub fn run(
     // Initialize graph database
     let db_path = repotoire_dir.join("graph_db");
     println!("{}Initializing graph database...", style("🕸️  ").bold());
-    let graph = GraphStore::new(&db_path).with_context(|| "Failed to initialize Kuzu database")?;
+    let graph = Arc::new(GraphStore::new(&db_path).with_context(|| "Failed to initialize Kuzu database")?);
+    let graph_ref = &graph; // For local usage
 
     // Set up progress bars
     let multi = MultiProgress::new();
@@ -242,46 +243,33 @@ pub fn run(
 
     graph_bar.finish_with_message(format!("{}Built code graph", style("✓ ").green(),));
 
-    // Step 4: Enrich with git history (skip with --no-git)
-    if !no_git {
-        let git_spinner = multi.add(ProgressBar::new_spinner());
-        git_spinner.set_style(spinner_style.clone());
-        git_spinner.set_message("Enriching with git history...");
-        git_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
-
-        match git::enrichment::enrich_graph_with_git(&repo_path, &graph, None) {
-            Ok(stats) => {
-                if stats.functions_enriched > 0 || stats.classes_enriched > 0 {
-                    git_spinner.finish_with_message(format!(
-                        "{}Enriched {} functions, {} classes with git data",
-                        style("✓ ").green(),
-                        style(stats.functions_enriched).cyan(),
-                        style(stats.classes_enriched).cyan(),
-                    ));
-                } else {
-                    git_spinner.finish_with_message(format!(
-                        "{}No git history to enrich (or not a git repo)",
-                        style("- ").dim(),
-                    ));
-                }
-            }
-            Err(e) => {
-                git_spinner.finish_with_message(format!(
-                    "{}Git enrichment skipped: {}",
-                    style("⚠ ").yellow(),
-                    e
-                ));
-            }
-        }
-    } else {
-        println!("{}Skipping git enrichment (--no-git)", style("⏭ ").dim());
-    }
-
-    // Step 5: Run detectors
-    println!("\n{}Running detectors...", style("🕵️  ").bold());
+    // Step 4 & 5: Run git enrichment and detectors IN PARALLEL
+    // Git enrichment updates graph properties while detectors read graph structure
+    // Both are safe due to RwLock on GraphStore
     
     // Pre-warm file cache for faster detector execution
     crate::cache::warm_global_cache(&repo_path, SUPPORTED_EXTENSIONS);
+
+    let git_result = if !no_git {
+        let git_spinner = multi.add(ProgressBar::new_spinner());
+        git_spinner.set_style(spinner_style.clone());
+        git_spinner.set_message("Enriching with git history (async)...");
+        git_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+
+        // Run git enrichment in a background thread
+        let repo_path_clone = repo_path.clone();
+        let graph_clone = Arc::clone(&graph);
+        let git_handle = std::thread::spawn(move || {
+            git::enrichment::enrich_graph_with_git(&repo_path_clone, &graph_clone, None)
+        });
+        Some((git_handle, git_spinner))
+    } else {
+        println!("{}Skipping git enrichment (--no-git)", style("⏭ ").dim());
+        None
+    };
+
+    // Step 5: Run detectors (in parallel with git enrichment)
+    println!("\n{}Running detectors...", style("🕵️  ").bold());
 
     let mut engine = DetectorEngine::new(workers);
 
@@ -314,7 +302,47 @@ pub fn run(
         style(findings.len()).cyan(),
     ));
 
-    // Step 5: Filter findings by severity and top N
+    // Wait for git enrichment to complete (if running)
+    if let Some((git_handle, git_spinner)) = git_result {
+        match git_handle.join() {
+            Ok(Ok(stats)) => {
+                if stats.functions_enriched > 0 || stats.classes_enriched > 0 {
+                    let cache_info = if stats.cache_hits > 0 {
+                        format!(" ({} cached)", stats.cache_hits)
+                    } else {
+                        String::new()
+                    };
+                    git_spinner.finish_with_message(format!(
+                        "{}Enriched {} functions, {} classes{}",
+                        style("✓ ").green(),
+                        style(stats.functions_enriched).cyan(),
+                        style(stats.classes_enriched).cyan(),
+                        style(cache_info).dim(),
+                    ));
+                } else {
+                    git_spinner.finish_with_message(format!(
+                        "{}No git history to enrich",
+                        style("- ").dim(),
+                    ));
+                }
+            }
+            Ok(Err(e)) => {
+                git_spinner.finish_with_message(format!(
+                    "{}Git enrichment skipped: {}",
+                    style("⚠ ").yellow(),
+                    e
+                ));
+            }
+            Err(_) => {
+                git_spinner.finish_with_message(format!(
+                    "{}Git enrichment failed",
+                    style("⚠ ").yellow(),
+                ));
+            }
+        }
+    }
+
+    // Step 6: Filter findings by severity and top N
     if let Some(min_severity) = &severity {
         let min = parse_severity(min_severity);
         findings.retain(|f| f.severity >= min);

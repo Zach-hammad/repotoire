@@ -8,13 +8,61 @@ use chrono::{TimeZone, Utc};
 use dashmap::DashMap;
 use git2::{BlameOptions, Repository};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::SystemTime;
 use tracing::debug;
 
+/// Cached blame entry with file modification time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedBlame {
+    pub entries: Vec<LineBlame>,
+    pub mtime_secs: u64,
+}
+
+/// Persistent git cache stored in .repotoire/git_cache.json
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct GitCache {
+    pub files: HashMap<String, CachedBlame>,
+}
+
+impl GitCache {
+    /// Load cache from disk.
+    pub fn load(cache_path: &Path) -> Self {
+        if let Ok(data) = fs::read_to_string(cache_path) {
+            serde_json::from_str(&data).unwrap_or_default()
+        } else {
+            Self::default()
+        }
+    }
+
+    /// Save cache to disk.
+    pub fn save(&self, cache_path: &Path) -> Result<()> {
+        let data = serde_json::to_string(self)?;
+        fs::write(cache_path, data)?;
+        Ok(())
+    }
+
+    /// Check if file cache is valid (mtime matches).
+    pub fn is_valid(&self, file_path: &str, repo_root: &Path) -> bool {
+        if let Some(cached) = self.files.get(file_path) {
+            if let Ok(meta) = fs::metadata(repo_root.join(file_path)) {
+                if let Ok(mtime) = meta.modified() {
+                    if let Ok(duration) = mtime.duration_since(SystemTime::UNIX_EPOCH) {
+                        return duration.as_secs() == cached.mtime_secs;
+                    }
+                }
+            }
+        }
+        false
+    }
+}
+
 /// Blame information for a single line or contiguous range.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LineBlame {
     /// Commit hash (short)
     pub commit_hash: String,
@@ -59,8 +107,12 @@ pub struct BlameInfo {
 pub struct GitBlame {
     repo: Repository,
     repo_path: PathBuf,
-    /// Cache of file blame results: file_path -> blame entries
+    /// In-memory cache of file blame results
     file_cache: Arc<DashMap<String, Vec<LineBlame>>>,
+    /// Persistent disk cache
+    disk_cache: Arc<std::sync::RwLock<GitCache>>,
+    /// Path to disk cache file
+    cache_path: PathBuf,
 }
 
 impl GitBlame {
@@ -71,37 +123,83 @@ impl GitBlame {
         let repo_path = repo.workdir()
             .unwrap_or(repo.path())
             .to_path_buf();
+        
+        // Load disk cache from .repotoire/git_cache.json
+        let cache_path = repo_path.join(".repotoire/git_cache.json");
+        let disk_cache = GitCache::load(&cache_path);
+        
         Ok(Self { 
             repo,
             repo_path,
             file_cache: Arc::new(DashMap::new()),
+            disk_cache: Arc::new(std::sync::RwLock::new(disk_cache)),
+            cache_path,
         })
     }
 
+    /// Save the disk cache.
+    pub fn save_cache(&self) -> Result<()> {
+        let cache = self.disk_cache.read().unwrap();
+        cache.save(&self.cache_path)
+    }
+
     /// Pre-warm the blame cache in parallel for the given files.
-    /// Each thread opens its own Repository instance.
-    pub fn prewarm_cache(&self, file_paths: &[String]) -> usize {
-        let cache = Arc::clone(&self.file_cache);
+    /// Uses disk cache for unchanged files, computes fresh for modified files.
+    pub fn prewarm_cache(&self, file_paths: &[String]) -> (usize, usize) {
+        let mem_cache = Arc::clone(&self.file_cache);
+        let disk_cache = Arc::clone(&self.disk_cache);
         let repo_path = self.repo_path.clone();
         
-        let warmed = std::sync::atomic::AtomicUsize::new(0);
+        let cache_hits = std::sync::atomic::AtomicUsize::new(0);
+        let computed = std::sync::atomic::AtomicUsize::new(0);
         
         file_paths.par_iter().for_each(|file_path| {
-            // Skip if already cached
-            if cache.contains_key(file_path) {
+            // Skip if already in memory cache
+            if mem_cache.contains_key(file_path) {
                 return;
             }
             
-            // Open thread-local repo and compute blame
+            // Check disk cache first
+            {
+                let dc = disk_cache.read().unwrap();
+                if dc.is_valid(file_path, &repo_path) {
+                    if let Some(cached) = dc.files.get(file_path) {
+                        mem_cache.insert(file_path.clone(), cached.entries.clone());
+                        cache_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        return;
+                    }
+                }
+            }
+            
+            // Compute fresh blame
             if let Ok(repo) = Repository::discover(&repo_path) {
                 if let Ok(entries) = blame_file_with_repo(&repo, file_path) {
-                    cache.insert(file_path.clone(), entries);
-                    warmed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    mem_cache.insert(file_path.clone(), entries.clone());
+                    
+                    // Update disk cache
+                    if let Ok(meta) = fs::metadata(repo_path.join(file_path)) {
+                        if let Ok(mtime) = meta.modified() {
+                            if let Ok(duration) = mtime.duration_since(SystemTime::UNIX_EPOCH) {
+                                let mut dc = disk_cache.write().unwrap();
+                                dc.files.insert(file_path.clone(), CachedBlame {
+                                    entries,
+                                    mtime_secs: duration.as_secs(),
+                                });
+                            }
+                        }
+                    }
+                    computed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
             }
         });
         
-        warmed.load(std::sync::atomic::Ordering::Relaxed)
+        // Save disk cache after warming
+        if let Ok(dc) = disk_cache.read() {
+            let _ = dc.save(&self.cache_path);
+        }
+        
+        (cache_hits.load(std::sync::atomic::Ordering::Relaxed), 
+         computed.load(std::sync::atomic::Ordering::Relaxed))
     }
 
     /// Get blame information for a specific line range.
