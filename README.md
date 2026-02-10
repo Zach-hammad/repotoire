@@ -27,12 +27,39 @@ file3.py ✓                   file3.py ──┘
 
 ## Quick Start
 
+### Option 1: Cargo (Recommended)
+```bash
+# Requires cmake (see below)
+cargo install repotoire
+repotoire analyze .
+```
+
+### Option 2: pip
 ```bash
 pip install repotoire
 repotoire analyze .
 ```
 
 That's it. No API keys required. No Docker. No cloud account.
+
+### Build Dependencies
+
+The Rust version requires **cmake** to build the embedded graph database:
+
+```bash
+# macOS
+brew install cmake
+
+# Ubuntu/Debian
+sudo apt install cmake build-essential
+
+# Fedora
+sudo dnf install cmake gcc-c++
+
+# Windows
+# Install CMake from https://cmake.org/download/
+# Or: winget install cmake
+```
 
 ## ⚡ Performance
 
