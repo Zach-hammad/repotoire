@@ -42,7 +42,12 @@ curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repoto
 sudo mv repotoire /usr/local/bin/
 ```
 
-### Option 2: Cargo
+### Option 2: Cargo Binstall (No cmake needed)
+```bash
+cargo binstall repotoire
+```
+
+### Option 3: Cargo Install
 ```bash
 # Requires cmake (see Build Dependencies below)
 cargo install repotoire

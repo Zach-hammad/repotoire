@@ -1,6 +1,6 @@
 [package]
 name = "repotoire"
-version = "0.2.14"
+version = "0.2.15"
 edition = "2021"
 description = "Graph-powered code analysis CLI"
 license = "MIT"
@@ -17,6 +17,23 @@ exclude = [
     "tests/",
     "benches/",
 ]
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/repotoire-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+pkg-url = "{ repo }/releases/download/v{ version }/repotoire-windows-x86_64.exe.zip"
+
+[package.metadata.binstall.overrides.x86_64-unknown-linux-gnu]
+pkg-url = "{ repo }/releases/download/v{ version }/repotoire-linux-x86_64.tar.gz"
+
+[package.metadata.binstall.overrides.x86_64-apple-darwin]
+pkg-url = "{ repo }/releases/download/v{ version }/repotoire-macos-x86_64.tar.gz"
+
+[package.metadata.binstall.overrides.aarch64-apple-darwin]
+pkg-url = "{ repo }/releases/download/v{ version }/repotoire-macos-aarch64.tar.gz"
 
 [dependencies]
 # CLI
