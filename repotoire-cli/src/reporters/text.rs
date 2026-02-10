@@ -31,161 +31,130 @@ const RESET: &str = "\x1b[0m";
 const BOLD: &str = "\x1b[1m";
 const DIM: &str = "\x1b[2m";
 
+/// Severity tag
+fn severity_tag(severity: &Severity) -> &'static str {
+    match severity {
+        Severity::Critical => "[C]",
+        Severity::High => "[H]",
+        Severity::Medium => "[M]",
+        Severity::Low => "[L]",
+        Severity::Info => "[I]",
+    }
+}
+
 /// Render report as formatted terminal output
 pub fn render(report: &HealthReport) -> Result<String> {
     let mut out = String::new();
 
-    // Header box
+    // Header
     let grade_c = grade_color(&report.grade);
+    out.push_str(&format!("\n{BOLD}Repotoire Analysis{RESET}\n"));
+    out.push_str(&format!("{DIM}──────────────────────────────────────{RESET}\n"));
     out.push_str(&format!(
-        "\n{BOLD}╭────────────────────────────────────────────╮{RESET}\n"
-    ));
-    out.push_str(&format!(
-        "{BOLD}│{RESET}  🎼 {BOLD}Repotoire Health Report{RESET}                 {BOLD}│{RESET}\n"
-    ));
-    out.push_str(&format!(
-        "{BOLD}├────────────────────────────────────────────┤{RESET}\n"
-    ));
-    out.push_str(&format!(
-        "{BOLD}│{RESET}     Score: {BOLD}{:.1}/100{RESET}   Grade: {grade_c}{BOLD}{}{RESET}         {BOLD}│{RESET}\n",
+        "Score: {BOLD}{:.1}/100{RESET}  Grade: {grade_c}{BOLD}{}{RESET}  ",
         report.overall_score, report.grade
     ));
     out.push_str(&format!(
-        "{BOLD}╰────────────────────────────────────────────╯{RESET}\n\n"
+        "Files: {}  Functions: {}  Classes: {}\n\n",
+        report.total_files, report.total_functions, report.total_classes
     ));
 
-    // Category scores
-    out.push_str(&format!("{BOLD}📊 Category Scores{RESET}\n"));
+    // Category scores (compact)
+    out.push_str(&format!("{BOLD}SCORES{RESET}\n"));
     out.push_str(&format!(
-        "   Structure:    {} {}\n",
-        progress_bar(report.structure_score, 20),
-        format_score(report.structure_score)
-    ));
-    out.push_str(&format!(
-        "   Quality:      {} {}\n",
-        progress_bar(report.quality_score, 20),
+        "  Structure: {}  Quality: {}",
+        format_score(report.structure_score),
         format_score(report.quality_score)
     ));
     if let Some(arch) = report.architecture_score {
-        out.push_str(&format!(
-            "   Architecture: {} {}\n",
-            progress_bar(arch, 20),
-            format_score(arch)
-        ));
+        out.push_str(&format!("  Architecture: {}", format_score(arch)));
     }
-    out.push('\n');
-
-    // Codebase metrics
-    out.push_str(&format!("{BOLD}📈 Codebase{RESET}\n"));
-    out.push_str(&format!("   📁 {} files  ", report.total_files));
-    out.push_str(&format!("⚙️  {} functions  ", report.total_functions));
-    out.push_str(&format!("🏛️  {} classes\n\n", report.total_classes));
+    out.push_str("\n\n");
 
     // Findings summary
     let fs = &report.findings_summary;
-    out.push_str(&format!("{BOLD}🔍 Findings ({} total){RESET}\n", fs.total));
+    out.push_str(&format!("{BOLD}FINDINGS{RESET} ({} total)\n", fs.total));
+    
+    let mut summary_parts = Vec::new();
     if fs.critical > 0 {
-        out.push_str(&format!(
-            "   \x1b[31m🔴 Critical:  {}{RESET}\n",
-            fs.critical
-        ));
+        summary_parts.push(format!("\x1b[31m{} critical{RESET}", fs.critical));
     }
     if fs.high > 0 {
-        out.push_str(&format!("   \x1b[91m🟠 High:      {}{RESET}\n", fs.high));
+        summary_parts.push(format!("\x1b[91m{} high{RESET}", fs.high));
     }
     if fs.medium > 0 {
-        out.push_str(&format!("   \x1b[33m🟡 Medium:    {}{RESET}\n", fs.medium));
+        summary_parts.push(format!("\x1b[33m{} medium{RESET}", fs.medium));
     }
     if fs.low > 0 {
-        out.push_str(&format!("   \x1b[34m🔵 Low:       {}{RESET}\n", fs.low));
+        summary_parts.push(format!("\x1b[34m{} low{RESET}", fs.low));
     }
-    if fs.info > 0 {
-        out.push_str(&format!("   {DIM}ℹ️  Info:      {}{RESET}\n", fs.info));
+    if !summary_parts.is_empty() {
+        out.push_str(&format!("  {}\n\n", summary_parts.join(" | ")));
     }
-    out.push('\n');
 
-    // Top findings (up to 10)
+    // Top findings as table
     if !report.findings.is_empty() {
-        out.push_str(&format!("{BOLD}📋 Top Issues{RESET}\n"));
+        out.push_str(&format!("{DIM}  #   SEV   TITLE                                    FILE{RESET}\n"));
+        out.push_str(&format!("{DIM}  ─────────────────────────────────────────────────────────────────{RESET}\n"));
+        
         for (i, finding) in report.findings.iter().take(10).enumerate() {
             let sev_c = severity_color(&finding.severity);
-            let sev_icon = match finding.severity {
-                Severity::Critical => "🔴",
-                Severity::High => "🟠",
-                Severity::Medium => "🟡",
-                Severity::Low => "🔵",
-                Severity::Info => "ℹ️ ",
+            let sev_tag = severity_tag(&finding.severity);
+            
+            // Truncate title if too long
+            let title = if finding.title.len() > 38 {
+                format!("{}...", &finding.title[..35])
+            } else {
+                finding.title.clone()
+            };
+
+            // Get file and line
+            let file_info = if let Some(file) = finding.affected_files.first() {
+                let file_str = file.display().to_string();
+                let short_file = if file_str.len() > 25 {
+                    format!("...{}", &file_str[file_str.len()-22..])
+                } else {
+                    file_str
+                };
+                if let Some(line) = finding.line_start {
+                    format!("{}:{}", short_file, line)
+                } else {
+                    short_file
+                }
+            } else {
+                String::new()
             };
 
             out.push_str(&format!(
-                "   {DIM}{:2}.{RESET} {sev_c}{sev_icon} {}{RESET}\n",
+                "  {DIM}{:>3}{RESET}  {sev_c}{}{RESET}  {:<40}  {DIM}{}{RESET}\n",
                 i + 1,
-                finding.title
+                sev_tag,
+                title,
+                file_info
             ));
-
-            // Show affected file
-            if let Some(file) = finding.affected_files.first() {
-                out.push_str(&format!("       {DIM}└─ {}{RESET}", file.display()));
-                if let Some(line) = finding.line_start {
-                    out.push_str(&format!(":{}", line));
-                }
-                out.push('\n');
-            }
         }
 
         let remaining = report.findings.len().saturating_sub(10);
         if remaining > 0 {
             out.push_str(&format!(
-                "   {DIM}...and {} more findings{RESET}\n",
+                "\n  {DIM}...and {} more (use --page 2 or findings -i){RESET}\n",
                 remaining
             ));
         }
         out.push('\n');
     }
 
-    // Quick tips based on grade
-    out.push_str(&format!("{BOLD}💡 Quick Tips{RESET}\n"));
+    // Tips based on grade
     match report.grade.as_str() {
-        "A" => out.push_str("   ✨ Excellent! Keep up the good work.\n"),
-        "B" => out.push_str("   👍 Good shape. Address the remaining issues for an A.\n"),
-        "C" => {
-            out.push_str("   ⚠️  Fair. Focus on high-severity issues first.\n");
-            if fs.critical > 0 {
-                out.push_str(&format!(
-                    "   🔴 Fix {} critical issues immediately.\n",
-                    fs.critical
-                ));
-            }
-        }
-        "D" | "F" => {
-            out.push_str("   🚨 Needs attention. Significant technical debt.\n");
-            out.push_str("   📌 Run `repotoire findings` to see details.\n");
-            out.push_str("   🔧 Run `repotoire fix <n>` for AI-assisted fixes.\n");
+        "A" => out.push_str(&format!("{DIM}Excellent! Keep up the good work.{RESET}\n")),
+        "B" => out.push_str(&format!("{DIM}Good shape. Address remaining issues for an A.{RESET}\n")),
+        "C" | "D" | "F" => {
+            out.push_str(&format!("{DIM}Run `repotoire findings -i` for interactive review.{RESET}\n"));
         }
         _ => {}
     }
 
     Ok(out)
-}
-
-/// Create an ASCII progress bar
-fn progress_bar(score: f64, width: usize) -> String {
-    let filled = ((score / 100.0) * width as f64).round() as usize;
-    let empty = width.saturating_sub(filled);
-
-    let color = if score >= 80.0 {
-        "\x1b[32m"
-    } else if score >= 60.0 {
-        "\x1b[33m"
-    } else {
-        "\x1b[31m"
-    };
-
-    format!(
-        "{color}[{}{}]{RESET}",
-        "█".repeat(filled),
-        "░".repeat(empty)
-    )
 }
 
 /// Format score with color
@@ -197,5 +166,5 @@ fn format_score(score: f64) -> String {
     } else {
         "\x1b[31m"
     };
-    format!("{color}{:.1}{RESET}", score)
+    format!("{color}{:.0}{RESET}", score)
 }
