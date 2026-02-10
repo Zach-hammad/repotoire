@@ -193,6 +193,12 @@ impl Detector for LazyClassDetector {
         let mut findings = Vec::new();
         
         for class in graph.get_classes() {
+            // Skip TypeScript interfaces and type aliases - they're not "lazy classes"
+            // Interfaces define contracts, not behavior. Small is fine.
+            if class.qualified_name.contains("::interface::") || class.qualified_name.contains("::type::") {
+                continue;
+            }
+            
             let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
             let loc = class.loc() as usize;
             

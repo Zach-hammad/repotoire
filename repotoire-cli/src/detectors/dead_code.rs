@@ -27,6 +27,7 @@ static ENTRY_POINTS: &[&str] = &[
 
 /// Framework-specific files where default exports are auto-loaded
 /// (Next.js, React Native Navigation, Fastify, Remix, etc.)
+/// Note: patterns without leading / also match at start of relative paths
 static FRAMEWORK_AUTO_LOAD_PATTERNS: &[&str] = &[
     // Next.js App Router
     "/page.tsx", "/page.ts", "/page.jsx", "/page.js",
@@ -37,14 +38,14 @@ static FRAMEWORK_AUTO_LOAD_PATTERNS: &[&str] = &[
     "/template.tsx", "/template.ts",
     "/route.tsx", "/route.ts",
     // Next.js Pages Router
-    "/pages/",
+    "/pages/", "pages/",
     // Fastify AutoLoad
-    "/routes/",
-    "/plugins/",
+    "/routes/", "routes/",
+    "/plugins/", "plugins/",
     // Remix
-    "/routes.",
+    "/routes.", "routes.",
     // Expo Router
-    "/app/",
+    "/app/", "app/",
     // React Navigation screens typically end in Screen
 ];
 
@@ -166,9 +167,9 @@ impl DeadCodeDetector {
             return true;
         }
         
-        // Fastify route handlers
-        if file_path.contains("/routes/") && 
-           matches!(name, "default" | "handler" | "preHandler" | "onRequest" | "onResponse") {
+        // Fastify route handlers - any function in /routes/ is likely auto-loaded
+        if file_path.contains("/routes/") || file_path.starts_with("routes/") {
+            // Fastify AutoLoad registers all exports from route files
             return true;
         }
         
