@@ -51,7 +51,7 @@ fn extract_functions(
     path: &Path,
     result: &mut ParseResult,
 ) -> Result<()> {
-    // Query for both sync and async function definitions at module level
+    // Query for function definitions at module level (handles both sync and async)
     let query_str = r#"
         (module
             (function_definition
@@ -97,10 +97,13 @@ fn extract_functions(
         }
 
         if let Some(node) = func_node {
-            let is_async = node.kind() == "async_function_definition"
-                || node.parent().map_or(false, |p| {
-                    p.kind() == "async_function_definition"
-                });
+            // Check for async: check if the line starts with "async def"
+            let line_text = {
+                let start = node.start_byte();
+                let line_start = source[..start].iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+                std::str::from_utf8(&source[line_start..start + 10.min(source.len() - start)]).unwrap_or("")
+            };
+            let is_async = line_text.trim_start().starts_with("async");
 
             let parameters = extract_parameters(params_node, source);
             let return_type = return_type_node
