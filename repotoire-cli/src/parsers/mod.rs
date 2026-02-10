@@ -11,7 +11,7 @@ mod java;
 mod csharp;
 // mod kotlin;
 mod c;
-// mod cpp;
+mod cpp;
 
 use anyhow::Result;
 use std::path::Path;
@@ -46,7 +46,7 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
         "c" | "h" => c::parse(path),
         
         // C++
-        "cpp" | "cc" | "cxx" | "c++" | "hpp" | "hh" | "hxx" | "h++" => Ok(ParseResult::default()), // cpp disabled
+        "cpp" | "cc" | "cxx" | "c++" | "hpp" | "hh" | "hxx" | "h++" => cpp::parse(path),
         
         // Unknown extension
         _ => Ok(ParseResult::default()),
