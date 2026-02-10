@@ -1,0 +1,180 @@
+//! Findings command implementation
+
+use anyhow::{Context, Result};
+use console::style;
+use std::fs;
+use std::path::Path;
+
+use crate::models::{Finding, Severity};
+
+pub fn run(path: &Path, index: Option<usize>, json: bool) -> Result<()> {
+    // Load findings from last analysis
+    let findings_path = path.join(".repotoire/last_findings.json");
+    if !findings_path.exists() {
+        anyhow::bail!(
+            "No findings found. Run `repotoire analyze` first.\n\
+             Looking for: {}",
+            findings_path.display()
+        );
+    }
+
+    let findings_json = fs::read_to_string(&findings_path)
+        .context("Failed to read findings file")?;
+    
+    // Parse the wrapped format { "findings": [...] }
+    let parsed: serde_json::Value = serde_json::from_str(&findings_json)
+        .context("Failed to parse findings file")?;
+    let findings: Vec<Finding> = serde_json::from_value(
+        parsed.get("findings").cloned().unwrap_or(serde_json::json!([]))
+    ).context("Failed to parse findings array")?;
+
+    if findings.is_empty() {
+        println!("{}", style("No findings! Your code looks clean.").green());
+        return Ok(());
+    }
+
+    // If JSON output requested
+    if json {
+        println!("{}", serde_json::to_string_pretty(&findings)?);
+        return Ok(());
+    }
+
+    // If specific index requested
+    if let Some(idx) = index {
+        if idx == 0 || idx > findings.len() {
+            anyhow::bail!(
+                "Invalid finding index: {}. Valid range: 1-{}",
+                idx,
+                findings.len()
+            );
+        }
+        let finding = &findings[idx - 1];
+        print_finding_detail(finding, idx);
+        return Ok(());
+    }
+
+    // Print summary of all findings
+    println!("{}", style("🔍 Code Findings").bold());
+    println!();
+
+    // Group by severity
+    let critical: Vec<_> = findings.iter().filter(|f| f.severity == Severity::Critical).collect();
+    let high: Vec<_> = findings.iter().filter(|f| f.severity == Severity::High).collect();
+    let medium: Vec<_> = findings.iter().filter(|f| f.severity == Severity::Medium).collect();
+    let low: Vec<_> = findings.iter().filter(|f| f.severity == Severity::Low).collect();
+
+    println!("   {} {} critical", style(critical.len()).red().bold(), if critical.len() == 1 { "finding" } else { "findings" });
+    println!("   {} {} high", style(high.len()).yellow().bold(), if high.len() == 1 { "finding" } else { "findings" });
+    println!("   {} {} medium", style(medium.len()).cyan(), if medium.len() == 1 { "finding" } else { "findings" });
+    println!("   {} {} low", style(low.len()).dim(), if low.len() == 1 { "finding" } else { "findings" });
+    println!();
+
+    // Print top 20 findings
+    let display_count = findings.len().min(20);
+    for (i, finding) in findings.iter().take(display_count).enumerate() {
+        let idx = i + 1;
+        let severity_icon = match finding.severity {
+            Severity::Critical => style("🔴").red(),
+            Severity::High => style("🟠").yellow(),
+            Severity::Medium => style("🟡").cyan(),
+            Severity::Low => style("⚪").dim(),
+            Severity::Info => style("ℹ️").dim(),
+        };
+        
+        let file = finding.affected_files.first()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        
+        let line = finding.line_start
+            .map(|l| format!(":{}", l))
+            .unwrap_or_default();
+
+        println!(
+            "{:>3}. {} {}",
+            style(idx).dim(),
+            severity_icon,
+            style(&finding.title).bold()
+        );
+        println!("     {} {}{}", style("└─").dim(), style(&file).dim(), style(&line).dim());
+    }
+
+    if findings.len() > display_count {
+        println!();
+        println!("   {} ...and {} more", style("└─").dim(), findings.len() - display_count);
+    }
+
+    println!();
+    println!("{}", style("💡 Tips").bold());
+    println!("   • Run {} for details on a specific finding", style("repotoire findings <n>").cyan());
+    println!("   • Run {} for AI-assisted fixes", style("repotoire fix <n>").cyan());
+    println!("   • Run {} for JSON output", style("repotoire findings --json").cyan());
+
+    Ok(())
+}
+
+fn print_finding_detail(finding: &Finding, index: usize) {
+    let severity_str = match finding.severity {
+        Severity::Critical => style("CRITICAL").red().bold(),
+        Severity::High => style("HIGH").yellow().bold(),
+        Severity::Medium => style("MEDIUM").cyan(),
+        Severity::Low => style("LOW").dim(),
+        Severity::Info => style("INFO").dim(),
+    };
+
+    println!();
+    println!("{} Finding #{}", style("📋").bold(), index);
+    println!();
+    println!("   {} {}", style("Title:").bold(), finding.title);
+    println!("   {} {}", style("Severity:").bold(), severity_str);
+    println!("   {} {}", style("Detector:").bold(), finding.detector);
+    
+    if let Some(cat) = &finding.category {
+        println!("   {} {}", style("Category:").bold(), cat);
+    }
+    
+    if let Some(cwe) = &finding.cwe_id {
+        println!("   {} {}", style("CWE:").bold(), cwe);
+    }
+
+    println!();
+    println!("{}", style("📁 Affected Files").bold());
+    for file in &finding.affected_files {
+        let line_info = match (finding.line_start, finding.line_end) {
+            (Some(start), Some(end)) if start != end => format!(" (lines {}-{})", start, end),
+            (Some(start), _) => format!(" (line {})", start),
+            _ => String::new(),
+        };
+        println!("   • {}{}", file.display(), style(&line_info).dim());
+    }
+
+    println!();
+    println!("{}", style("📝 Description").bold());
+    for line in finding.description.lines() {
+        println!("   {}", line);
+    }
+
+    if let Some(fix) = &finding.suggested_fix {
+        println!();
+        println!("{}", style("🔧 Suggested Fix").bold());
+        for line in fix.lines() {
+            println!("   {}", line);
+        }
+    }
+
+    if let Some(why) = &finding.why_it_matters {
+        println!();
+        println!("{}", style("❓ Why It Matters").bold());
+        for line in why.lines() {
+            println!("   {}", line);
+        }
+    }
+
+    if let Some(effort) = &finding.estimated_effort {
+        println!();
+        println!("   {} {}", style("⏱️  Estimated Effort:").bold(), effort);
+    }
+
+    println!();
+    println!("{}", style("💡 Next Steps").bold());
+    println!("   • Run {} for AI-assisted fix", style(format!("repotoire fix {}", index)).cyan());
+}

@@ -1,0 +1,254 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/yourusername/falkor/schema.json",
+  "title": "Falkor Configuration",
+  "description": "Configuration schema for Falkor code analysis platform",
+  "type": "object",
+  "properties": {
+    "neo4j": {
+      "type": "object",
+      "description": "Neo4j database connection settings",
+      "properties": {
+        "uri": {
+          "type": "string",
+          "description": "Neo4j connection URI",
+          "pattern": "^(bolt|neo4j|bolt\\+s|neo4j\\+s|bolt\\+ssc|neo4j\\+ssc)://",
+          "default": "bolt://localhost:7687",
+          "examples": [
+            "bolt://localhost:7687",
+            "neo4j://localhost:7687",
+            "bolt+s://production.neo4j.com:7687"
+          ]
+        },
+        "user": {
+          "type": "string",
+          "description": "Neo4j username",
+          "default": "neo4j",
+          "minLength": 1
+        },
+        "password": {
+          "type": ["string", "null"],
+          "description": "Neo4j password (use environment variables for security)",
+          "default": null,
+          "examples": ["${NEO4J_PASSWORD}", "$NEO4J_PASSWORD"]
+        },
+        "max_retries": {
+          "type": "integer",
+          "description": "Maximum number of connection retry attempts",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 3
+        },
+        "retry_backoff_factor": {
+          "type": "number",
+          "description": "Exponential backoff multiplier (delay = base_delay * factor^attempt)",
+          "minimum": 1.0,
+          "maximum": 10.0,
+          "default": 2.0
+        },
+        "retry_base_delay": {
+          "type": "number",
+          "description": "Base delay in seconds between retries",
+          "minimum": 0.1,
+          "maximum": 60.0,
+          "default": 1.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ingestion": {
+      "type": "object",
+      "description": "Code ingestion pipeline settings",
+      "properties": {
+        "patterns": {
+          "type": "array",
+          "description": "Glob patterns for files to analyze",
+          "items": {
+            "type": "string",
+            "pattern": "^[^\\0]+$"
+          },
+          "default": ["**/*.py"],
+          "minItems": 1,
+          "examples": [
+            ["**/*.py"],
+            ["**/*.py", "**/*.js", "**/*.ts"],
+            ["**/*.py", "!**/tests/**", "!**/migrations/**"]
+          ]
+        },
+        "follow_symlinks": {
+          "type": "boolean",
+          "description": "Whether to follow symbolic links (security consideration)",
+          "default": false
+        },
+        "max_file_size_mb": {
+          "type": "number",
+          "description": "Maximum file size in MB to process",
+          "minimum": 0.1,
+          "maximum": 1000.0,
+          "default": 10.0
+        },
+        "batch_size": {
+          "type": "integer",
+          "description": "Number of entities to batch before loading to graph",
+          "minimum": 10,
+          "maximum": 10000,
+          "default": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "analysis": {
+      "type": "object",
+      "description": "Code analysis engine settings",
+      "properties": {
+        "min_modularity": {
+          "type": "number",
+          "description": "Minimum acceptable modularity score (0-1, optimal 0.3-0.7)",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.3
+        },
+        "max_coupling": {
+          "type": "number",
+          "description": "Maximum acceptable coupling score (lower is better)",
+          "minimum": 0.0,
+          "default": 5.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "detectors": {
+      "type": "object",
+      "description": "Code smell detector thresholds",
+      "properties": {
+        "god_class_high_method_count": {
+          "type": "integer",
+          "description": "Method count threshold for high severity god class detection",
+          "minimum": 1,
+          "default": 20
+        },
+        "god_class_medium_method_count": {
+          "type": "integer",
+          "description": "Method count threshold for medium severity god class detection",
+          "minimum": 1,
+          "default": 15
+        },
+        "god_class_high_complexity": {
+          "type": "integer",
+          "description": "Cyclomatic complexity threshold for high severity god class",
+          "minimum": 1,
+          "default": 100
+        },
+        "god_class_medium_complexity": {
+          "type": "integer",
+          "description": "Cyclomatic complexity threshold for medium severity god class",
+          "minimum": 1,
+          "default": 50
+        },
+        "god_class_high_loc": {
+          "type": "integer",
+          "description": "Lines of code threshold for high severity god class",
+          "minimum": 1,
+          "default": 500
+        },
+        "god_class_medium_loc": {
+          "type": "integer",
+          "description": "Lines of code threshold for medium severity god class",
+          "minimum": 1,
+          "default": 300
+        },
+        "god_class_high_lcom": {
+          "type": "number",
+          "description": "LCOM (Lack of Cohesion) threshold for high severity (0-1, higher is worse)",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.8
+        },
+        "god_class_medium_lcom": {
+          "type": "number",
+          "description": "LCOM threshold for medium severity (0-1, higher is worse)",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.6
+        }
+      },
+      "additionalProperties": false
+    },
+    "logging": {
+      "type": "object",
+      "description": "Logging output settings",
+      "properties": {
+        "level": {
+          "type": "string",
+          "description": "Log level",
+          "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+          "default": "INFO"
+        },
+        "format": {
+          "type": "string",
+          "description": "Log output format",
+          "enum": ["human", "json"],
+          "default": "human"
+        },
+        "file": {
+          "type": ["string", "null"],
+          "description": "Path to log file (optional, logs to stderr if not set)",
+          "default": null,
+          "examples": ["logs/falkor.log", "/var/log/falkor/analysis.log"]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "neo4j": {
+        "uri": "bolt://localhost:7687",
+        "user": "neo4j",
+        "password": "${NEO4J_PASSWORD}"
+      },
+      "ingestion": {
+        "patterns": ["**/*.py"],
+        "follow_symlinks": false,
+        "max_file_size_mb": 10,
+        "batch_size": 100
+      },
+      "analysis": {
+        "min_modularity": 0.3,
+        "max_coupling": 5.0
+      },
+      "logging": {
+        "level": "INFO",
+        "format": "human"
+      }
+    },
+    {
+      "neo4j": {
+        "uri": "bolt+s://production-neo4j:7687",
+        "user": "falkor_user",
+        "password": "${NEO4J_PASSWORD}",
+        "max_retries": 5,
+        "retry_backoff_factor": 2.0
+      },
+      "ingestion": {
+        "patterns": ["**/*.py", "**/*.js", "**/*.ts"],
+        "max_file_size_mb": 50,
+        "batch_size": 500
+      },
+      "analysis": {
+        "min_modularity": 0.5,
+        "max_coupling": 3.0
+      },
+      "detectors": {
+        "god_class_high_method_count": 25,
+        "god_class_medium_method_count": 18
+      },
+      "logging": {
+        "level": "WARNING",
+        "format": "json",
+        "file": "/var/log/falkor/production.log"
+      }
+    }
+  ]
+}

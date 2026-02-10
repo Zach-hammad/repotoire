@@ -1,0 +1,33 @@
+app = "repotoire-falkor"
+primary_region = "iad"
+
+[build]
+  image = "falkordb/falkordb:latest"
+
+[env]
+  FALKORDB_ARGS = "THREAD_COUNT 2 CACHE_SIZE 25"
+
+[[mounts]]
+  source = "falkordb_data"
+  destination = "/var/lib/falkordb/data"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 6379
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    handlers = ["tls"]
+    port = 6379
+
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1

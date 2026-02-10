@@ -1,0 +1,46 @@
+# Fly.io configuration for Repotoire Celery Workers
+# Deploy with: fly deploy --config fly.worker.toml
+
+app = 'repotoire-worker'
+primary_region = 'iad'
+
+[build]
+  dockerfile = "Dockerfile.api"
+
+# Mount persistent volume for LanceDB vector storage
+[mounts]
+  source = "repotoire_vectors"
+  destination = "/data/vectors"
+
+[env]
+  ENVIRONMENT = "production"
+  LOG_LEVEL = "INFO"
+  REPOTOIRE_CLONE_DIR = "/tmp/repotoire-clones"
+  # LanceDB vector storage path (persistent volume)
+  REPOTOIRE_VECTOR_STORE_PATH = "/data/vectors"
+  # Hugging Face cache directory (writable location for embedding models)
+  HF_HOME = "/tmp/huggingface"
+  TRANSFORMERS_CACHE = "/tmp/huggingface"
+  SENTENCE_TRANSFORMERS_HOME = "/tmp/huggingface"
+  # PyTorch thread control - let Celery manage parallelism
+  OMP_NUM_THREADS = "1"
+  MKL_NUM_THREADS = "1"
+  TOKENIZERS_PARALLELISM = "false"
+
+# No HTTP service - this is a background worker
+# Celery workers don't expose a health endpoint, so we rely on process monitoring
+# The worker will auto-restart if it crashes
+
+[processes]
+  # Single worker (concurrency=1) with full memory access for ML models
+  # max-memory-per-child=3500000 (3.5GB) allows 2.5GB model + 1GB headroom
+  # max-tasks-per-child=50 prevents memory leaks via predictable recycling
+  # prefetch-multiplier=1 prevents prefetching for long-running ML tasks
+  worker = "/opt/venv/bin/celery -A repotoire.workers.celery_app worker --loglevel=info -Q default,analysis,analysis.high,webhooks,notifications,notifications.low --concurrency=1 --max-memory-per-child=3500000 --max-tasks-per-child=50 --prefetch-multiplier=1"
+
+[[vm]]
+  memory = '8gb'
+  cpu_kind = 'performance'  # Performance CPU for consistent performance
+  cpus = 2
+  # Swap for memory spikes during model loading
+  swap_size_mb = 4096

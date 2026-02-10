@@ -1,0 +1,444 @@
+//! Async Anti-Pattern detector - identifies async-specific code smells.
+//!
+//! Detects common async anti-patterns that cause performance issues:
+//! 1. Blocking calls in async functions (time.sleep, requests, subprocess)
+//! 2. Wasteful async - async functions with no await calls
+//! 3. Sync I/O in async context (open(), input())
+
+use std::collections::{HashMap, HashSet};
+
+use crate::detectors::base::{Detector, DetectorConfig, DetectorResult};
+use crate::graph::GraphClient;
+use crate::models::{Finding, Severity};
+
+/// Async anti-pattern detector
+///
+/// Uses function properties to detect:
+/// - Blocking calls: time.sleep(), requests.*, subprocess.run(), etc.
+/// - Wasteful async: async def with no await (unnecessary overhead)
+/// - Sync I/O: open(), input() instead of aiofiles/async alternatives
+pub struct AsyncAntipatternDetector {
+    config: DetectorConfig,
+    /// Maximum async functions without await to report
+    max_findings: usize,
+}
+
+impl AsyncAntipatternDetector {
+    /// Create a new async antipattern detector with default config
+    pub fn new() -> Self {
+        Self {
+            config: DetectorConfig::default(),
+            max_findings: 100,
+        }
+    }
+
+    /// Create with custom max findings limit
+    pub fn with_max_findings(mut self, max: usize) -> Self {
+        self.max_findings = max;
+        self
+    }
+
+    /// Get blocking alternatives map
+    fn blocking_calls() -> HashMap<&'static str, &'static str> {
+        let mut map = HashMap::new();
+        // Time/sleep
+        map.insert("time.sleep", "asyncio.sleep");
+        map.insert("sleep", "asyncio.sleep");
+        // HTTP requests
+        map.insert("requests.get", "aiohttp.ClientSession.get or httpx.AsyncClient.get");
+        map.insert("requests.post", "aiohttp.ClientSession.post or httpx.AsyncClient.post");
+        map.insert("requests.put", "aiohttp.ClientSession.put or httpx.AsyncClient.put");
+        map.insert("requests.delete", "aiohttp.ClientSession.delete or httpx.AsyncClient.delete");
+        map.insert("requests.patch", "aiohttp.ClientSession.patch or httpx.AsyncClient.patch");
+        map.insert("requests.request", "aiohttp or httpx async client");
+        map.insert("urllib.request.urlopen", "aiohttp or httpx async client");
+        // Subprocess
+        map.insert("subprocess.run", "asyncio.create_subprocess_exec");
+        map.insert("subprocess.call", "asyncio.create_subprocess_exec");
+        map.insert("subprocess.check_output", "asyncio.create_subprocess_exec with communicate()");
+        map.insert("subprocess.Popen", "asyncio.create_subprocess_exec");
+        map.insert("os.system", "asyncio.create_subprocess_shell");
+        // File I/O
+        map.insert("open", "aiofiles.open");
+        // User input
+        map.insert("input", "aioconsole.ainput or async stdin reader");
+        // Database
+        map.insert("cursor.execute", "async database driver (asyncpg, aiomysql, aiosqlite)");
+        map.insert("connection.execute", "async database driver");
+        map
+    }
+
+    /// Get blocking patterns (prefix matches)
+    fn blocking_patterns() -> HashMap<&'static str, &'static str> {
+        let mut map = HashMap::new();
+        map.insert("requests.", "aiohttp or httpx async client");
+        map.insert("urllib.", "aiohttp or httpx async client");
+        map.insert("subprocess.", "asyncio subprocess APIs");
+        map.insert("sqlite3.", "aiosqlite");
+        map.insert("psycopg2.", "asyncpg");
+        map.insert("pymysql.", "aiomysql");
+        map
+    }
+
+    /// Get async alternative for a blocking call
+    fn get_blocking_alternative(call_name: &str) -> Option<&'static str> {
+        // Check exact match
+        if let Some(alt) = Self::blocking_calls().get(call_name) {
+            return Some(alt);
+        }
+
+        // Check prefix patterns
+        for (pattern, alt) in Self::blocking_patterns() {
+            if call_name.starts_with(pattern) {
+                return Some(alt);
+            }
+        }
+
+        None
+    }
+
+    /// Find blocking calls in async functions
+    fn find_blocking_calls_in_async(&self, graph: &GraphClient) -> anyhow::Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+
+        // Query for async functions and their calls
+        let query = r#"
+            MATCH (f:Function)-[:CALLS]->(target)
+            WHERE f.is_async = true AND target.name IS NOT NULL
+            RETURN f.qualifiedName AS func_name,
+                   f.name AS func_simple_name,
+                   f.filePath AS func_file,
+                   f.lineStart AS func_line,
+                   target.name AS call_name
+            ORDER BY f.qualifiedName
+        "#;
+
+        let results = graph.execute(query)?;
+
+        // Group blocking calls by function
+        let mut func_blocking_calls: HashMap<String, FunctionBlockingInfo> = HashMap::new();
+
+        for row in results {
+            let func_name = row.get_string("func_name").unwrap_or_default();
+            let call_name = row.get_string("call_name").unwrap_or_default();
+
+            if func_name.is_empty() || call_name.is_empty() {
+                continue;
+            }
+
+            // Check if this is a blocking call
+            if let Some(alternative) = Self::get_blocking_alternative(&call_name) {
+                let entry = func_blocking_calls.entry(func_name.clone()).or_insert_with(|| {
+                    FunctionBlockingInfo {
+                        func_simple_name: row.get_string("func_simple_name").unwrap_or_default(),
+                        func_file: row.get_string("func_file").unwrap_or_default(),
+                        func_line: row.get_i64("func_line"),
+                        blocking_calls: Vec::new(),
+                    }
+                });
+
+                entry.blocking_calls.push(BlockingCallInfo {
+                    call_name: call_name.clone(),
+                    alternative: alternative.to_string(),
+                });
+            }
+        }
+
+        // Create findings
+        for (func_name, info) in func_blocking_calls {
+            if findings.len() >= self.max_findings {
+                break;
+            }
+
+            let finding = self.create_blocking_call_finding(&func_name, &info);
+            findings.push(finding);
+        }
+
+        Ok(findings)
+    }
+
+    /// Find async functions that never use await
+    fn find_wasteful_async(&self, graph: &GraphClient) -> anyhow::Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+
+        // Query for async functions with no calls to other async functions
+        let query = r#"
+            MATCH (f:Function)
+            WHERE f.is_async = true
+              AND f.has_yield = false
+            OPTIONAL MATCH (f)-[:CALLS]->(called:Function)
+            WHERE called.is_async = true
+            WITH f, count(called) AS async_calls
+            WHERE async_calls = 0
+            RETURN f.qualifiedName AS func_name,
+                   f.name AS func_simple_name,
+                   f.filePath AS func_file,
+                   f.lineStart AS func_line,
+                   f.complexity AS complexity
+            ORDER BY f.complexity DESC
+            LIMIT 50
+        "#;
+
+        let results = graph.execute(query)?;
+
+        for row in results {
+            let func_name = row.get_string("func_name").unwrap_or_default();
+            let func_simple_name = row.get_string("func_simple_name").unwrap_or_default();
+
+            if func_name.is_empty() {
+                continue;
+            }
+
+            // Skip legitimate patterns
+            if Self::is_legitimate_async_without_await(&func_simple_name) {
+                continue;
+            }
+
+            if findings.len() >= self.max_findings {
+                break;
+            }
+
+            let finding = self.create_wasteful_async_finding(&row);
+            findings.push(finding);
+        }
+
+        Ok(findings)
+    }
+
+    /// Check if function is a legitimate async without await
+    fn is_legitimate_async_without_await(func_name: &str) -> bool {
+        let legitimate_patterns = [
+            "__aenter__",
+            "__aexit__",
+            "__anext__",
+            "__aiter__",
+            "async_generator",
+            "mock_",
+            "stub_",
+            "fake_",
+        ];
+
+        for pattern in legitimate_patterns {
+            if func_name == pattern
+                || func_name.starts_with(pattern)
+                || func_name.ends_with(pattern)
+            {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn create_blocking_call_finding(&self, func_name: &str, info: &FunctionBlockingInfo) -> Finding {
+        let call_count = info.blocking_calls.len();
+
+        // Format blocking calls for description
+        let calls_display: Vec<String> = info
+            .blocking_calls
+            .iter()
+            .take(5)
+            .map(|bc| format!("- `{}` → use `{}`", bc.call_name, bc.alternative))
+            .collect();
+
+        let mut description = format!(
+            "Async function `{}` calls blocking operations:\n\n{}\n\n\
+             Blocking calls in async functions defeat the purpose of async/await \
+             and can block the entire event loop, causing performance issues.",
+            info.func_simple_name,
+            calls_display.join("\n")
+        );
+
+        if call_count > 5 {
+            description.push_str(&format!("\n- ... and {} more", call_count - 5));
+        }
+
+        let severity = if call_count >= 3 {
+            Severity::High
+        } else {
+            Severity::Medium
+        };
+
+        // Build suggestion
+        let mut seen_alternatives: HashSet<String> = HashSet::new();
+        let mut suggestion_lines = vec!["Replace blocking calls with async alternatives:\n".to_string()];
+
+        for bc in &info.blocking_calls {
+            if !seen_alternatives.contains(&bc.alternative) {
+                suggestion_lines.push(format!("- {} → {}", bc.call_name, bc.alternative));
+                seen_alternatives.insert(bc.alternative.clone());
+            }
+        }
+
+        let effort = if call_count >= 5 {
+            "Medium (2-4 hours)"
+        } else if call_count >= 2 {
+            "Small (1-2 hours)"
+        } else {
+            "Small (30 minutes)"
+        };
+
+        Finding {
+            id: format!("async_blocking_{}_{}", func_name, call_count),
+            detector: "AsyncAntipatternDetector".to_string(),
+            severity,
+            title: format!(
+                "Blocking calls in async function: {}",
+                info.func_simple_name
+            ),
+            description,
+            affected_nodes: vec![func_name.to_string()],
+            affected_files: if info.func_file.is_empty() {
+                vec![]
+            } else {
+                vec![info.func_file.clone()]
+            },
+            line_start: info.func_line,
+            line_end: None,
+            suggested_fix: Some(suggestion_lines.join("\n")),
+            estimated_effort: Some(effort.to_string()),
+            confidence: 0.90,
+            tags: vec![
+                "async_antipattern".to_string(),
+                "blocking_call".to_string(),
+                "performance".to_string(),
+            ],
+            metadata: serde_json::json!({
+                "pattern_type": "blocking_call",
+                "function_name": info.func_simple_name,
+                "blocking_calls": info.blocking_calls.iter().map(|bc| &bc.call_name).collect::<Vec<_>>(),
+                "call_count": call_count,
+            }),
+        }
+    }
+
+    fn create_wasteful_async_finding(&self, row: &crate::graph::QueryRow) -> Finding {
+        let func_name = row.get_string("func_name").unwrap_or_default();
+        let func_simple_name = row.get_string("func_simple_name").unwrap_or_default();
+        let func_file = row.get_string("func_file").unwrap_or_default();
+        let func_line = row.get_i64("func_line");
+        let complexity = row.get_i64("complexity").unwrap_or(0);
+
+        let description = format!(
+            "Async function `{}` doesn't use `await` anywhere.\n\n\
+             This function has async overhead but doesn't perform any async operations. \
+             Either:\n\
+             1. Remove the `async` keyword if no async operations are needed\n\
+             2. Add proper async operations using `await`\n\
+             3. If this is intentional (e.g., for API compatibility), add a comment",
+            func_simple_name
+        );
+
+        let suggestion = format!(
+            "Option 1: Remove 'async' keyword if no async operations needed:\n\
+             - Change 'async def {}(...)' to 'def {}(...)'\n\n\
+             Option 2: Add async operations if they should be async:\n\
+             - Use 'await' for async function calls\n\
+             - Use 'async for' for async iteration\n\
+             - Use 'async with' for async context managers",
+            func_simple_name, func_simple_name
+        );
+
+        Finding {
+            id: format!("async_wasteful_{}", func_name),
+            detector: "AsyncAntipatternDetector".to_string(),
+            severity: Severity::Medium,
+            title: format!("Wasteful async: {} has no await", func_simple_name),
+            description,
+            affected_nodes: vec![func_name],
+            affected_files: if func_file.is_empty() {
+                vec![]
+            } else {
+                vec![func_file]
+            },
+            line_start: func_line,
+            line_end: None,
+            suggested_fix: Some(suggestion),
+            estimated_effort: Some("Small (15-30 minutes)".to_string()),
+            confidence: 0.75,
+            tags: vec![
+                "async_antipattern".to_string(),
+                "wasteful_async".to_string(),
+                "code_smell".to_string(),
+            ],
+            metadata: serde_json::json!({
+                "pattern_type": "wasteful_async",
+                "function_name": func_simple_name,
+                "complexity": complexity,
+            }),
+        }
+    }
+}
+
+impl Default for AsyncAntipatternDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Detector for AsyncAntipatternDetector {
+    fn name(&self) -> &'static str {
+        "AsyncAntipatternDetector"
+    }
+
+    fn description(&self) -> &'static str {
+        "Detects async anti-patterns: blocking calls in async functions and wasteful async (no await)"
+    }
+
+    fn detect(&self, graph: &GraphClient) -> DetectorResult {
+        let mut findings = Vec::new();
+
+        // Find blocking calls in async functions
+        match self.find_blocking_calls_in_async(graph) {
+            Ok(blocking_findings) => findings.extend(blocking_findings),
+            Err(e) => tracing::warn!("Failed to find blocking calls: {}", e),
+        }
+
+        // Find wasteful async
+        match self.find_wasteful_async(graph) {
+            Ok(wasteful_findings) => findings.extend(wasteful_findings),
+            Err(e) => tracing::warn!("Failed to find wasteful async: {}", e),
+        }
+
+        Ok(findings)
+    }
+
+    fn is_dependent(&self) -> bool {
+        false
+    }
+}
+
+/// Info about blocking calls in a function
+struct FunctionBlockingInfo {
+    func_simple_name: String,
+    func_file: String,
+    func_line: Option<i64>,
+    blocking_calls: Vec<BlockingCallInfo>,
+}
+
+/// Info about a single blocking call
+struct BlockingCallInfo {
+    call_name: String,
+    alternative: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_blocking_alternatives() {
+        assert!(AsyncAntipatternDetector::get_blocking_alternative("time.sleep").is_some());
+        assert!(AsyncAntipatternDetector::get_blocking_alternative("requests.get").is_some());
+        assert!(AsyncAntipatternDetector::get_blocking_alternative("requests.custom").is_some());
+        assert!(AsyncAntipatternDetector::get_blocking_alternative("unknown_func").is_none());
+    }
+
+    #[test]
+    fn test_legitimate_async_patterns() {
+        assert!(AsyncAntipatternDetector::is_legitimate_async_without_await("__aenter__"));
+        assert!(AsyncAntipatternDetector::is_legitimate_async_without_await("__aexit__"));
+        assert!(AsyncAntipatternDetector::is_legitimate_async_without_await("mock_something"));
+        assert!(!AsyncAntipatternDetector::is_legitimate_async_without_await("regular_async"));
+    }
+}

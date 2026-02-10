@@ -1,0 +1,315 @@
+name: 'Repotoire PR Check'
+description: 'Run Repotoire code analysis on pull requests'
+author: 'Repotoire'
+
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  severity:
+    description: 'Minimum severity to report (info, low, medium, high, critical)'
+    required: false
+    default: 'medium'
+  fail-on:
+    description: 'Fail the check if issues at this severity or above are found'
+    required: false
+    default: 'high'
+  changed-only:
+    description: 'Only analyze changed files in the PR'
+    required: false
+    default: 'true'
+  token:
+    description: 'GitHub token for posting PR comments'
+    required: false
+    default: ${{ github.token }}
+  openai-key:
+    description: 'OpenAI API key for AI-powered suggestions (optional)'
+    required: false
+  anthropic-key:
+    description: 'Anthropic API key for AI-powered suggestions (optional)'
+    required: false
+
+outputs:
+  findings-count:
+    description: 'Total number of findings'
+    value: ${{ steps.analyze.outputs.findings-count }}
+  critical-count:
+    description: 'Number of critical findings'
+    value: ${{ steps.analyze.outputs.critical-count }}
+  high-count:
+    description: 'Number of high severity findings'
+    value: ${{ steps.analyze.outputs.high-count }}
+  grade:
+    description: 'Overall code health grade (A-F)'
+    value: ${{ steps.analyze.outputs.grade }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Repotoire
+      shell: bash
+      run: |
+        pip install repotoire --quiet
+        repotoire --version
+
+    - name: Run analysis
+      id: analyze
+      shell: bash
+      env:
+        OPENAI_API_KEY: ${{ inputs.openai-key }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-key }}
+      run: |
+        # Build analyze command
+        # Use --changed to analyze only files changed in PR
+        if [ "${{ inputs.changed-only }}" == "true" ] && [ "${{ github.event_name }}" == "pull_request" ]; then
+          ANALYZE_CMD="repotoire analyze . --severity ${{ inputs.severity }} --changed ${{ github.event.pull_request.base.sha }} -f json -o .repotoire/findings.json"
+        else
+          ANALYZE_CMD="repotoire analyze . --severity ${{ inputs.severity }} -f json -o .repotoire/findings.json"
+        fi
+        
+        echo "Running: $ANALYZE_CMD"
+        eval $ANALYZE_CMD || true
+        
+        # Parse results
+        if [ -f .repotoire/findings.json ]; then
+          FINDINGS=$(cat .repotoire/findings.json)
+          TOTAL=$(echo "$FINDINGS" | jq 'length')
+          CRITICAL=$(echo "$FINDINGS" | jq '[.[] | select(.severity == "critical")] | length')
+          HIGH=$(echo "$FINDINGS" | jq '[.[] | select(.severity == "high")] | length')
+          MEDIUM=$(echo "$FINDINGS" | jq '[.[] | select(.severity == "medium")] | length')
+          LOW=$(echo "$FINDINGS" | jq '[.[] | select(.severity == "low")] | length')
+        else
+          TOTAL=0
+          CRITICAL=0
+          HIGH=0
+          MEDIUM=0
+          LOW=0
+        fi
+        
+        # Get grade and score from health report
+        if [ -f .repotoire/last_health.json ]; then
+          GRADE=$(cat .repotoire/last_health.json | jq -r '.grade // "N/A"')
+          SCORE=$(cat .repotoire/last_health.json | jq -r '.health_score // 0')
+        else
+          GRADE="N/A"
+          SCORE=0
+        fi
+        
+        echo "findings-count=$TOTAL" >> $GITHUB_OUTPUT
+        echo "critical-count=$CRITICAL" >> $GITHUB_OUTPUT
+        echo "high-count=$HIGH" >> $GITHUB_OUTPUT
+        echo "medium-count=$MEDIUM" >> $GITHUB_OUTPUT
+        echo "low-count=$LOW" >> $GITHUB_OUTPUT
+        echo "grade=$GRADE" >> $GITHUB_OUTPUT
+        echo "score=$SCORE" >> $GITHUB_OUTPUT
+
+    - name: Post PR comment
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      env:
+        FINDINGS_COUNT: ${{ steps.analyze.outputs.findings-count }}
+        CRITICAL_COUNT: ${{ steps.analyze.outputs.critical-count }}
+        HIGH_COUNT: ${{ steps.analyze.outputs.high-count }}
+        MEDIUM_COUNT: ${{ steps.analyze.outputs.medium-count }}
+        LOW_COUNT: ${{ steps.analyze.outputs.low-count }}
+        GRADE: ${{ steps.analyze.outputs.grade }}
+        SCORE: ${{ steps.analyze.outputs.score }}
+      with:
+        github-token: ${{ inputs.token }}
+        script: |
+          const fs = require('fs');
+          
+          const total = parseInt(process.env.FINDINGS_COUNT) || 0;
+          const critical = parseInt(process.env.CRITICAL_COUNT) || 0;
+          const high = parseInt(process.env.HIGH_COUNT) || 0;
+          const medium = parseInt(process.env.MEDIUM_COUNT) || 0;
+          const low = parseInt(process.env.LOW_COUNT) || 0;
+          const grade = process.env.GRADE || 'N/A';
+          const score = parseInt(process.env.SCORE) || 0;
+          
+          // Load findings for detailed view
+          let findings = [];
+          if (fs.existsSync('.repotoire/findings.json')) {
+            try {
+              findings = JSON.parse(fs.readFileSync('.repotoire/findings.json', 'utf8'));
+              if (!Array.isArray(findings)) findings = [];
+            } catch (e) {
+              console.log('Could not parse findings:', e);
+            }
+          }
+          
+          // Build status emoji
+          let statusEmoji = '✅';
+          if (critical > 0) statusEmoji = '🚨';
+          else if (high > 0) statusEmoji = '⚠️';
+          else if (medium > 0) statusEmoji = '📋';
+          
+          // Get previous counts from existing comment for trend indicators
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          
+          const botComment = comments.find(c => 
+            c.user.type === 'Bot' && c.body.includes('Repotoire Analysis')
+          );
+          
+          let prevCounts = null;
+          if (botComment) {
+            const match = botComment.body.match(/🔴 Critical \| (\d+)/);
+            const matchHigh = botComment.body.match(/🟠 High \| (\d+)/);
+            const matchMedium = botComment.body.match(/🟡 Medium \| (\d+)/);
+            const matchLow = botComment.body.match(/🟢 Low \| (\d+)/);
+            if (match) {
+              prevCounts = {
+                critical: parseInt(match[1]) || 0,
+                high: parseInt(matchHigh?.[1]) || 0,
+                medium: parseInt(matchMedium?.[1]) || 0,
+                low: parseInt(matchLow?.[1]) || 0
+              };
+            }
+          }
+          
+          // Trend indicator
+          const trend = (current, prev) => {
+            if (prev === null || prev === undefined) return '';
+            const diff = current - prev;
+            if (diff > 0) return ` +${diff} ↑`;
+            if (diff < 0) return ` ${diff} ↓`;
+            return ' →';
+          };
+          
+          // Build file breakdown
+          const fileIssues = {};
+          for (const f of findings) {
+            const file = f.file_path || f.path || 'unknown';
+            fileIssues[file] = (fileIssues[file] || 0) + 1;
+          }
+          const sortedFiles = Object.entries(fileIssues)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10);
+          
+          // Build link to file in PR diff
+          const fileLink = (f) => {
+            const file = f.file_path || f.path;
+            const line = f.line_start || f.line || 1;
+            if (!file) return '';
+            const base = `https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.issue.number}/files`;
+            const anchor = `#diff-${Buffer.from(file).toString('hex')}R${line}`;
+            return `${base}${anchor}`;
+          };
+          
+          // Sort findings by severity
+          const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+          const sortedFindings = [...findings].sort((a, b) => 
+            (severityOrder[a.severity] || 4) - (severityOrder[b.severity] || 4)
+          );
+          
+          // Build top 5 issues section (inline)
+          let topIssues = '';
+          if (sortedFindings.length > 0) {
+            topIssues = '\n### Top Issues\n';
+            const top5 = sortedFindings.slice(0, 5);
+            for (let i = 0; i < top5.length; i++) {
+              const f = top5[i];
+              const sev = f.severity === 'critical' ? '🔴' : 
+                         f.severity === 'high' ? '🟠' : 
+                         f.severity === 'medium' ? '🟡' : '🟢';
+              const file = f.file_path || f.path || 'N/A';
+              const line = f.line_start || f.line || '';
+              const title = f.title || f.message || f.rule_id || 'Issue';
+              const loc = line ? `\`${file}:${line}\`` : `\`${file}\``;
+              const link = fileLink(f);
+              const linkPart = link ? ` - [View](${link})` : '';
+              topIssues += `${i + 1}. ${sev} **${title}** in ${loc}${linkPart}\n`;
+            }
+          }
+          
+          // Build collapsible full findings list
+          let fullFindings = '';
+          if (sortedFindings.length > 5) {
+            fullFindings = `\n<details>\n<summary>📋 All findings (${sortedFindings.length})</summary>\n\n`;
+            fullFindings += '| Severity | Issue | Location |\n';
+            fullFindings += '|----------|-------|----------|\n';
+            for (const f of sortedFindings) {
+              const sev = f.severity === 'critical' ? '🔴' : 
+                         f.severity === 'high' ? '🟠' : 
+                         f.severity === 'medium' ? '🟡' : '🟢';
+              const file = f.file_path || f.path || 'N/A';
+              const line = f.line_start || f.line || '';
+              const title = (f.title || f.message || f.rule_id || 'Issue').substring(0, 50);
+              const loc = line ? `${file}:${line}` : file;
+              const link = fileLink(f);
+              const locCell = link ? `[\`${loc}\`](${link})` : `\`${loc}\``;
+              fullFindings += `| ${sev} ${f.severity} | ${title} | ${locCell} |\n`;
+            }
+            fullFindings += '\n</details>';
+          }
+          
+          // Build file breakdown section
+          let fileBreakdown = '';
+          if (sortedFiles.length > 0) {
+            fileBreakdown = `\n<details>\n<summary>📁 Files with most issues (${sortedFiles.length})</summary>\n\n`;
+            for (const [file, count] of sortedFiles) {
+              fileBreakdown += `- \`${file}\` - ${count} issue${count > 1 ? 's' : ''}\n`;
+            }
+            fileBreakdown += '\n</details>';
+          }
+          
+          const body = `## ${statusEmoji} Repotoire Analysis: ${grade} (${score}/100)
+
+### Summary
+| Severity | Count | Change |
+|----------|-------|--------|
+| 🔴 Critical | ${critical} |${prevCounts ? trend(critical, prevCounts.critical) : ' -'} |
+| 🟠 High | ${high} |${prevCounts ? trend(high, prevCounts.high) : ' -'} |
+| 🟡 Medium | ${medium} |${prevCounts ? trend(medium, prevCounts.medium) : ' -'} |
+| 🟢 Low | ${low} |${prevCounts ? trend(low, prevCounts.low) : ' -'} |
+${topIssues}${fullFindings}${fileBreakdown}
+
+---
+<sub>Powered by [Repotoire](https://repotoire.com) · [View full report](https://repotoire.com/cli)</sub>`;
+          
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+          }
+
+    - name: Check threshold
+      shell: bash
+      run: |
+        CRITICAL=${{ steps.analyze.outputs.critical-count }}
+        HIGH=${{ steps.analyze.outputs.high-count }}
+        FAIL_ON="${{ inputs.fail-on }}"
+        
+        if [ "$FAIL_ON" == "critical" ] && [ "$CRITICAL" -gt 0 ]; then
+          echo "❌ Found $CRITICAL critical issue(s)"
+          exit 1
+        fi
+        
+        if [ "$FAIL_ON" == "high" ]; then
+          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            echo "❌ Found $CRITICAL critical and $HIGH high severity issue(s)"
+            exit 1
+          fi
+        fi
+        
+        echo "✅ No blocking issues found"

@@ -1,0 +1,1243 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* =============================================================================
+   REPOTOIRE DESIGN SYSTEM: "Digital Pathologist"
+   Clinical precision meets data artistry - like a high-end diagnostic instrument
+   ============================================================================= */
+
+/* Light mode - clean, bright, professional */
+:root {
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.145 0.005 250);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0.005 250);
+  --card-elevated: oklch(0.995 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0.005 250);
+
+  /* Primary: Purple - matches logo */
+  --primary: oklch(0.55 0.25 295);
+  --primary-foreground: oklch(0.98 0 0);
+
+  /* Secondary: Neutral */
+  --secondary: oklch(0.96 0.005 250);
+  --secondary-foreground: oklch(0.25 0.005 250);
+
+  /* Muted backgrounds */
+  --muted: oklch(0.94 0.005 250);
+  --muted-foreground: oklch(0.40 0.01 250);
+
+  /* Accent: Light purple tint */
+  --accent: oklch(0.96 0.01 295);
+  --accent-foreground: oklch(0.25 0.005 250);
+
+  /* Destructive */
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  /* Borders and inputs */
+  --border: oklch(0.88 0.005 250);
+  --input: oklch(0.88 0.005 250);
+  --ring: oklch(0.55 0.25 295);
+
+  /* Severity spectrum */
+  --severity-critical: oklch(0.50 0.22 25);
+  --severity-high: oklch(0.58 0.18 45);
+  --severity-medium: oklch(0.72 0.14 85);
+  --severity-low: oklch(0.55 0.15 145);
+  --severity-info: oklch(0.50 0.08 260);
+
+  /* Chart colors */
+  --chart-1: oklch(0.55 0.25 295);
+  --chart-2: oklch(0.6 0.2 330);
+  --chart-3: oklch(0.6 0.18 25);
+  --chart-4: oklch(0.6 0.15 30);
+  --chart-5: oklch(0.55 0.12 300);
+
+  /* Chart severity colors (for trend lines) */
+  --chart-critical: oklch(0.65 0.25 25);
+  --chart-high: oklch(0.75 0.15 55);
+  --chart-medium: oklch(0.8 0.15 85);
+  --chart-low: oklch(0.7 0.15 145);
+  --chart-info: oklch(0.55 0.08 260);
+
+  /* Base radius */
+  --radius: 0.75rem;
+
+  /* Semantic shadows */
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+  --shadow-card-hover: 0 4px 6px -1px rgb(0 0 0 / 0.06), 0 2px 4px -2px rgb(0 0 0 / 0.06);
+  --shadow-elevated: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.08);
+  --shadow-dropdown: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.06);
+  --shadow-modal: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --shadow-popover: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.06);
+
+  /* Animation timing - mirrors animation-constants.ts */
+  --duration-instant: 150ms;
+  --duration-fast: 200ms;
+  --duration-normal: 300ms;
+  --duration-medium: 500ms;
+  --duration-slow: 600ms;
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-gentle: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Sidebar */
+  --sidebar: oklch(0.98 0.005 250);
+  --sidebar-foreground: oklch(0.145 0.005 250);
+  --sidebar-primary: oklch(0.55 0.25 295);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.94 0.005 250);
+  --sidebar-accent-foreground: oklch(0.25 0.005 250);
+  --sidebar-border: oklch(0.88 0.005 250);
+  --sidebar-ring: oklch(0.55 0.25 295);
+}
+
+/* Dark mode - deep, modern, easy on eyes */
+.dark {
+  --background: oklch(0.14 0.005 250);
+  --foreground: oklch(0.95 0 0);
+  --card: oklch(0.14 0.005 250);
+  --card-foreground: oklch(0.95 0 0);
+  --card-elevated: oklch(0.18 0.005 250);
+  --popover: oklch(0.14 0.005 250);
+  --popover-foreground: oklch(0.95 0 0);
+
+  /* Brighter purple for dark mode visibility */
+  --primary: oklch(0.65 0.25 295);
+  --primary-foreground: oklch(0.14 0.005 250);
+
+  --secondary: oklch(0.22 0.005 250);
+  --secondary-foreground: oklch(0.95 0 0);
+
+  --muted: oklch(0.20 0.005 250);
+  --muted-foreground: oklch(0.65 0.01 250);
+
+  --accent: oklch(0.22 0.02 295);
+  --accent-foreground: oklch(0.95 0 0);
+
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  --border: oklch(0.26 0.005 250);
+  --input: oklch(0.20 0.005 250);
+  --ring: oklch(0.65 0.25 295);
+
+  /* Severity - slightly brighter for dark */
+  --severity-critical: oklch(0.58 0.22 25);
+  --severity-high: oklch(0.65 0.18 45);
+  --severity-medium: oklch(0.75 0.14 85);
+  --severity-low: oklch(0.60 0.15 145);
+  --severity-info: oklch(0.55 0.08 260);
+
+  /* Chart colors - adjusted for dark */
+  --chart-1: oklch(0.65 0.25 295);
+  --chart-2: oklch(0.65 0.2 330);
+  --chart-3: oklch(0.65 0.18 25);
+  --chart-4: oklch(0.65 0.15 30);
+  --chart-5: oklch(0.60 0.12 300);
+
+  /* Chart severity colors (for trend lines) - brighter for dark */
+  --chart-critical: oklch(0.70 0.25 25);
+  --chart-high: oklch(0.78 0.15 55);
+  --chart-medium: oklch(0.82 0.15 85);
+  --chart-low: oklch(0.75 0.15 145);
+  --chart-info: oklch(0.60 0.08 260);
+
+  --sidebar: oklch(0.14 0.005 250);
+  --sidebar-foreground: oklch(0.95 0 0);
+  --sidebar-primary: oklch(0.65 0.25 295);
+  --sidebar-primary-foreground: oklch(0.14 0.005 250);
+  --sidebar-accent: oklch(0.20 0.02 295);
+  --sidebar-accent-foreground: oklch(0.95 0 0);
+  --sidebar-border: oklch(0.26 0.005 250);
+  --sidebar-ring: oklch(0.65 0.25 295);
+
+  /* Dark mode shadows - more pronounced for visibility */
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.2), 0 1px 2px -1px rgb(0 0 0 / 0.2);
+  --shadow-card-hover: 0 4px 6px -1px rgb(0 0 0 / 0.25), 0 2px 4px -2px rgb(0 0 0 / 0.2);
+  --shadow-elevated: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.25);
+  --shadow-dropdown: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.25);
+  --shadow-modal: 0 20px 25px -5px rgb(0 0 0 / 0.4), 0 8px 10px -6px rgb(0 0 0 / 0.3);
+  --shadow-popover: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.25);
+}
+
+/* =============================================================================
+   THEME CONFIG
+   ============================================================================= */
+
+@theme inline {
+  /* Typography - clean, professional fonts */
+  --font-sans: var(--font-inter), "Inter Fallback", system-ui, sans-serif;
+  --font-display: var(--font-space), "Space Grotesk", system-ui, sans-serif;
+  --font-mono: var(--font-mono), "Geist Mono", monospace;
+
+  /* Color mappings */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Severity color utilities */
+  --color-severity-critical: var(--severity-critical);
+  --color-severity-high: var(--severity-high);
+  --color-severity-medium: var(--severity-medium);
+  --color-severity-low: var(--severity-low);
+  --color-severity-info: var(--severity-info);
+
+  /* Radius scale */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Sidebar */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Semantic shadows */
+  --shadow-card: var(--shadow-card);
+  --shadow-card-hover: var(--shadow-card-hover);
+  --shadow-elevated: var(--shadow-elevated);
+  --shadow-dropdown: var(--shadow-dropdown);
+  --shadow-modal: var(--shadow-modal);
+  --shadow-popover: var(--shadow-popover);
+}
+
+/* =============================================================================
+   BASE STYLES
+   ============================================================================= */
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* =============================================================================
+   TYPOGRAPHY UTILITIES
+   ============================================================================= */
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Headline styles - editorial feel */
+.headline-xl {
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 5vw, 4rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.headline-lg {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+}
+
+/* =============================================================================
+   BACKGROUND PATTERNS
+   ============================================================================= */
+
+/* Animated code helix - DNA-like pattern for backgrounds */
+.code-helix {
+  background:
+    linear-gradient(90deg, transparent 49.5%, var(--primary) 49.5%, var(--primary) 50.5%, transparent 50.5%),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 20px,
+      var(--border) 20px,
+      var(--border) 21px
+    );
+  background-size: 60px 100%, 100% 100%;
+  opacity: 0.04;
+  animation: helix-scroll 30s linear infinite;
+}
+
+@keyframes helix-scroll {
+  from { background-position: 0 0, 0 0; }
+  to { background-position: 60px 0, 0 100px; }
+}
+
+/* Subtle dot grid - cleaner than before */
+.dot-grid {
+  position: relative;
+}
+
+.dot-grid::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, var(--muted-foreground) 0.5px, transparent 0.5px);
+  background-size: 20px 20px;
+  opacity: 0.15;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.dot-grid > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Scanline overlay - CRT/diagnostic feel */
+.scanline::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    var(--foreground) 2px,
+    var(--foreground) 3px
+  );
+  opacity: 0.015;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* Noise texture overlay */
+.noise::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  opacity: 0.025;
+  pointer-events: none;
+  border-radius: inherit;
+  mix-blend-mode: overlay;
+}
+
+/* Grid pattern - architectural */
+.grid-pattern {
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.5;
+}
+
+/* =============================================================================
+   ANIMATIONS
+   ============================================================================= */
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 var(--primary);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 20px 4px var(--primary);
+    opacity: 0.8;
+  }
+}
+
+/* EKG heartbeat animation */
+@keyframes ekg-line {
+  0% { stroke-dashoffset: 100; opacity: 0; }
+  10% { opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+/* Fallback: ensure visibility after page load even if IntersectionObserver fails */
+@keyframes ensure-visible {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Fallback for elements that stay opacity-0 too long (e.g., screenshot tools) */
+.opacity-0:not(.animate-fade-up):not(.animate-scale-in):not(.animate-fade-in) {
+  animation: ensure-visible 0.1s ease-out 2s forwards;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.5s ease-out forwards;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Staggered delays for orchestrated reveals */
+.delay-0 { animation-delay: 0ms; }
+.delay-75 { animation-delay: 75ms; }
+.delay-100 { animation-delay: 100ms; }
+.delay-150 { animation-delay: 150ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; }
+.delay-600 { animation-delay: 600ms; }
+.delay-700 { animation-delay: 700ms; }
+.delay-800 { animation-delay: 800ms; }
+
+/* =============================================================================
+   CARD STYLES
+   ============================================================================= */
+
+/* Elevated card with subtle glow */
+.card-elevated {
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 2px 4px rgba(0, 0, 0, 0.04),
+    0 4px 8px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s ease;
+}
+
+.card-elevated:hover {
+  border-color: var(--primary);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 4px 8px rgba(0, 0, 0, 0.06),
+    0 8px 16px rgba(0, 0, 0, 0.06),
+    0 0 0 1px var(--primary);
+}
+
+.dark .card-elevated {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 2px 4px rgba(0, 0, 0, 0.2),
+    0 4px 8px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.dark .card-elevated:hover {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 4px 8px rgba(0, 0, 0, 0.2),
+    0 8px 24px rgba(0, 0, 0, 0.2),
+    0 0 0 1px var(--primary),
+    0 0 30px -10px var(--primary);
+}
+
+/* Diagnostic card with corner accents */
+.card-diagnostic {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+
+.card-diagnostic::before,
+.card-diagnostic::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--primary);
+  opacity: 0.5;
+}
+
+.card-diagnostic::before {
+  top: 4px;
+  left: 4px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.card-diagnostic::after {
+  bottom: 4px;
+  right: 4px;
+  border-left: none;
+  border-top: none;
+}
+
+/* Critical state card */
+.card-critical {
+  background: color-mix(in oklch, var(--severity-critical) 8%, var(--card));
+  border-color: color-mix(in oklch, var(--severity-critical) 30%, var(--border));
+}
+
+/* =============================================================================
+   GRADIENTS
+   ============================================================================= */
+
+/* Brand gradient - purple to violet (matches logo) */
+.text-gradient {
+  background: linear-gradient(135deg,
+    oklch(0.55 0.25 295) 0%,
+    oklch(0.58 0.22 310) 50%,
+    oklch(0.62 0.20 320) 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.bg-brand-gradient {
+  background: linear-gradient(135deg,
+    oklch(0.55 0.25 295) 0%,
+    oklch(0.58 0.22 310) 50%,
+    oklch(0.62 0.20 320) 100%
+  );
+}
+
+.bg-brand-gradient:hover {
+  background: linear-gradient(135deg,
+    oklch(0.50 0.25 295) 0%,
+    oklch(0.53 0.22 310) 50%,
+    oklch(0.57 0.20 320) 100%
+  );
+}
+
+/* Severity gradients */
+.bg-severity-gradient-critical {
+  background: linear-gradient(135deg, var(--severity-critical), var(--severity-high));
+}
+
+.bg-severity-gradient-warning {
+  background: linear-gradient(135deg, var(--severity-high), var(--severity-medium));
+}
+
+/* Glow effects */
+.glow-primary {
+  box-shadow: 0 0 20px -5px var(--primary);
+}
+
+.glow-critical {
+  box-shadow: 0 0 20px -5px var(--severity-critical);
+}
+
+/* =============================================================================
+   CHART STYLES
+   ============================================================================= */
+
+.dark .recharts-cartesian-grid line {
+  stroke: var(--border);
+}
+
+.dark .recharts-tooltip-wrapper .recharts-default-tooltip {
+  background-color: var(--popover) !important;
+  border-color: var(--border) !important;
+}
+
+/* =============================================================================
+   SCROLLBAR
+   ============================================================================= */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--muted-foreground);
+  border-radius: 3px;
+  opacity: 0.3;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  opacity: 0.5;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  opacity: 0.2;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  opacity: 0.4;
+}
+
+/* =============================================================================
+   SKELETON / LOADING
+   ============================================================================= */
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--muted) 0%,
+    color-mix(in oklch, var(--muted-foreground) 10%, var(--muted)) 50%,
+    var(--muted) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* =============================================================================
+   FOCUS & ACCESSIBILITY
+   ============================================================================= */
+
+*:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Respect motion preferences (WCAG 2.3.3) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-fade-up,
+  .animate-fade-in,
+  .animate-slide-in-right,
+  .animate-scale-in,
+  .animate-pulse-subtle,
+  .animate-glow-pulse {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+  }
+
+  .code-helix {
+    animation: none !important;
+  }
+}
+
+/* =============================================================================
+   UTILITY CLASSES
+   ============================================================================= */
+
+/* Status indicators */
+.status-nominal { color: var(--chart-2); }
+.status-warning { color: var(--severity-medium); }
+.status-critical { color: var(--severity-critical); }
+
+/* Severity text colors */
+.text-severity-critical { color: var(--severity-critical); }
+.text-severity-high { color: var(--severity-high); }
+.text-severity-medium { color: var(--severity-medium); }
+.text-severity-low { color: var(--severity-low); }
+.text-severity-info { color: var(--severity-info); }
+
+/* Severity backgrounds */
+.bg-severity-critical { background-color: var(--severity-critical); }
+.bg-severity-high { background-color: var(--severity-high); }
+.bg-severity-medium { background-color: var(--severity-medium); }
+.bg-severity-low { background-color: var(--severity-low); }
+.bg-severity-info { background-color: var(--severity-info); }
+
+/* =============================================================================
+   SEMANTIC COLORS - Use these instead of hardcoded Tailwind colors
+   ============================================================================= */
+
+:root {
+  /* Success/positive states */
+  --color-success: oklch(0.65 0.18 145);
+  --color-success-muted: oklch(0.65 0.18 145 / 0.15);
+  
+  /* Error/negative states */
+  --color-error: oklch(0.55 0.22 25);
+  --color-error-muted: oklch(0.55 0.22 25 / 0.15);
+  
+  /* Warning states */
+  --color-warning: oklch(0.72 0.16 70);
+  --color-warning-muted: oklch(0.72 0.16 70 / 0.15);
+  
+  /* Info states */
+  --color-info: oklch(0.55 0.15 250);
+  --color-info-muted: oklch(0.55 0.15 250 / 0.15);
+}
+
+.dark {
+  --color-success: oklch(0.70 0.18 145);
+  --color-success-muted: oklch(0.70 0.18 145 / 0.20);
+  --color-error: oklch(0.62 0.22 25);
+  --color-error-muted: oklch(0.62 0.22 25 / 0.20);
+  --color-warning: oklch(0.75 0.16 70);
+  --color-warning-muted: oklch(0.75 0.16 70 / 0.20);
+  --color-info: oklch(0.60 0.15 250);
+  --color-info-muted: oklch(0.60 0.15 250 / 0.20);
+}
+
+/* Semantic text colors */
+.text-success { color: var(--color-success); }
+.text-error { color: var(--color-error); }
+.text-warning { color: var(--color-warning); }
+.text-info-semantic { color: var(--color-info); }
+
+/* Semantic background colors */
+.bg-success { background-color: var(--color-success); }
+.bg-success-muted { background-color: var(--color-success-muted); }
+.bg-error { background-color: var(--color-error); }
+.bg-error-muted { background-color: var(--color-error-muted); }
+.bg-warning { background-color: var(--color-warning); }
+.bg-warning-muted { background-color: var(--color-warning-muted); }
+.bg-info-semantic { background-color: var(--color-info); }
+.bg-info-muted { background-color: var(--color-info-muted); }
+
+/* Semantic border colors */
+.border-success { border-color: var(--color-success); }
+.border-error { border-color: var(--color-error); }
+.border-warning { border-color: var(--color-warning); }
+.border-info-semantic { border-color: var(--color-info); }
+
+/* Tabular numbers for data */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Uppercase labels */
+.label-caps {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Semantic shadow utilities */
+.shadow-card {
+  box-shadow: var(--shadow-card);
+}
+
+.shadow-card-hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+.shadow-elevated {
+  box-shadow: var(--shadow-elevated);
+}
+
+.shadow-dropdown {
+  box-shadow: var(--shadow-dropdown);
+}
+
+.shadow-modal {
+  box-shadow: var(--shadow-modal);
+}
+
+.shadow-popover {
+  box-shadow: var(--shadow-popover);
+}
+
+/* =============================================================================
+   GLOW SYSTEM - Neon Diagnostic Effects
+   ============================================================================= */
+
+:root {
+  /* Glow colors - more saturated for glow effect */
+  --glow-good: oklch(0.75 0.18 185);
+  --glow-warning: oklch(0.68 0.22 35);
+  --glow-critical: oklch(0.58 0.25 25);
+  --glow-primary: oklch(0.60 0.28 295);
+  --glow-cyan: oklch(0.78 0.15 200);
+  --glow-magenta: oklch(0.68 0.25 340);
+
+  /* Glow intensities */
+  --glow-intensity-subtle: 8px;
+  --glow-intensity-medium: 16px;
+  --glow-intensity-strong: 24px;
+}
+
+.dark {
+  /* Brighter glows in dark mode */
+  --glow-good: oklch(0.80 0.20 185);
+  --glow-warning: oklch(0.72 0.24 35);
+  --glow-critical: oklch(0.65 0.28 25);
+  --glow-primary: oklch(0.70 0.30 295);
+  --glow-cyan: oklch(0.82 0.18 200);
+  --glow-magenta: oklch(0.72 0.28 340);
+}
+
+/* Drop shadow glow utilities */
+.glow-subtle {
+  filter: drop-shadow(0 0 var(--glow-intensity-subtle) currentColor);
+}
+
+.glow-medium {
+  filter: drop-shadow(0 0 var(--glow-intensity-medium) currentColor);
+}
+
+.glow-strong {
+  filter: drop-shadow(0 0 var(--glow-intensity-strong) currentColor);
+}
+
+/* Specific glow colors */
+.glow-cyan {
+  filter: drop-shadow(0 0 12px var(--glow-cyan));
+}
+
+.glow-magenta {
+  filter: drop-shadow(0 0 12px var(--glow-magenta));
+}
+
+.glow-good {
+  filter: drop-shadow(0 0 12px var(--glow-good));
+}
+
+.glow-warning-glow {
+  filter: drop-shadow(0 0 12px var(--glow-warning));
+}
+
+.glow-critical-glow {
+  filter: drop-shadow(0 0 12px var(--glow-critical));
+}
+
+/* Box glow for cards/panels */
+.box-glow-good {
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 0 20px -5px var(--glow-good),
+    0 0 40px -10px var(--glow-good);
+}
+
+.box-glow-warning {
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 0 20px -5px var(--glow-warning),
+    0 0 40px -10px var(--glow-warning);
+}
+
+.box-glow-critical {
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 0 20px -5px var(--glow-critical),
+    0 0 40px -10px var(--glow-critical);
+}
+
+.box-glow-primary {
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 0 20px -5px var(--glow-primary),
+    0 0 40px -10px var(--glow-primary);
+}
+
+.box-glow-cyan {
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 0 20px -5px var(--glow-cyan),
+    0 0 40px -10px var(--glow-cyan);
+}
+
+/* Animated glow breathing */
+@keyframes glow-breathe {
+  0%, 100% {
+    filter: drop-shadow(0 0 8px currentColor);
+    opacity: 0.8;
+  }
+  50% {
+    filter: drop-shadow(0 0 20px currentColor);
+    opacity: 1;
+  }
+}
+
+@keyframes box-glow-breathe {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px var(--border),
+      0 0 15px -5px var(--glow-primary),
+      0 0 30px -10px var(--glow-primary);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px var(--border),
+      0 0 25px -5px var(--glow-primary),
+      0 0 50px -10px var(--glow-primary);
+  }
+}
+
+.glow-animate {
+  animation: glow-breathe 3s ease-in-out infinite;
+}
+
+.box-glow-animate {
+  animation: box-glow-breathe 3s ease-in-out infinite;
+}
+
+/* =============================================================================
+   HOLOGRAPHIC CARDS - Glass Morphism + Light Refraction
+   ============================================================================= */
+
+/* Base holographic card */
+.card-holographic {
+  position: relative;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--card) 85%, transparent),
+    color-mix(in oklch, var(--card) 70%, transparent)
+  );
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid color-mix(in oklch, var(--border) 50%, transparent);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+/* Light refraction effect - rainbow top edge */
+.card-holographic::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(0.85 0.12 200) 20%,
+    oklch(0.85 0.12 295) 50%,
+    oklch(0.85 0.12 340) 80%,
+    transparent 100%
+  );
+  opacity: 0.6;
+}
+
+/* Iridescent shimmer overlay */
+.card-holographic::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    125deg,
+    transparent 0%,
+    oklch(0.9 0.05 200 / 0.05) 25%,
+    oklch(0.9 0.05 295 / 0.08) 50%,
+    oklch(0.9 0.05 340 / 0.05) 75%,
+    transparent 100%
+  );
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.card-holographic:hover::after {
+  opacity: 1;
+}
+
+/* Dark mode adjustments */
+.dark .card-holographic {
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--card) 75%, transparent),
+    color-mix(in oklch, var(--card) 60%, transparent)
+  );
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+}
+
+.dark .card-holographic::before {
+  opacity: 0.8;
+}
+
+.dark .card-holographic::after {
+  background: linear-gradient(
+    125deg,
+    transparent 0%,
+    oklch(0.7 0.08 200 / 0.08) 25%,
+    oklch(0.7 0.08 295 / 0.12) 50%,
+    oklch(0.7 0.08 340 / 0.08) 75%,
+    transparent 100%
+  );
+}
+
+/* Interactive holographic with mouse tracking */
+.card-holographic-interactive {
+  --mouse-x: 50%;
+  --mouse-y: 50%;
+}
+
+.card-holographic-interactive::after {
+  background: radial-gradient(
+    600px circle at var(--mouse-x) var(--mouse-y),
+    oklch(0.9 0.08 295 / 0.15),
+    transparent 40%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.card-holographic-interactive:hover::after {
+  opacity: 1;
+}
+
+/* =============================================================================
+   DATA FLOW LINES - Animated Connections
+   ============================================================================= */
+
+@keyframes data-flow {
+  0% {
+    stroke-dashoffset: 100;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+
+.data-flow-line {
+  stroke-dasharray: 8 4;
+  animation: data-flow 2s linear infinite;
+}
+
+.data-flow-line-slow {
+  animation-duration: 4s;
+}
+
+.data-flow-line-fast {
+  animation-duration: 1s;
+}
+
+/* =============================================================================
+   3D BACKGROUND LAYER
+   ============================================================================= */
+
+/* Container for 3D wireframe background */
+.wireframe-container {
+  position: fixed;
+  inset: 0;
+  z-index: -20;
+  pointer-events: none;
+  opacity: 0.12;
+}
+
+.dark .wireframe-container {
+  opacity: 0.20;
+}
+
+/* Fallback gradient for non-WebGL browsers */
+.wireframe-fallback {
+  background:
+    radial-gradient(ellipse at 20% 30%, oklch(0.6 0.15 200 / 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 70%, oklch(0.6 0.15 295 / 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, oklch(0.6 0.15 340 / 0.05) 0%, transparent 60%);
+}
+
+/* Respect reduced motion for 3D backgrounds */
+@media (prefers-reduced-motion: reduce) {
+  .wireframe-container {
+    display: none;
+  }
+
+  .wireframe-container + .wireframe-fallback {
+    display: block;
+  }
+}
+
+/* =============================================================================
+   AI NARRATOR STYLES
+   ============================================================================= */
+
+/* Typing cursor animation */
+@keyframes blink-cursor {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.ai-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--primary);
+  margin-left: 2px;
+  animation: blink-cursor 1s step-end infinite;
+}
+
+/* AI insight sparkle */
+@keyframes sparkle {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.2) rotate(180deg);
+    opacity: 1;
+  }
+}
+
+.ai-sparkle {
+  animation: sparkle 2s ease-in-out infinite;
+}
+
+/* Streaming text reveal */
+@keyframes text-reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.ai-text-stream {
+  animation: text-reveal 0.5s ease-out forwards;
+}
+
+/* =============================================================================
+   ACCESSIBILITY ENHANCEMENTS FOR NEW EFFECTS
+   ============================================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  .glow-animate,
+  .box-glow-animate {
+    animation: none !important;
+  }
+
+  .card-holographic::after {
+    transition: none !important;
+  }
+
+  .data-flow-line {
+    animation: none !important;
+    opacity: 0.5 !important;
+    stroke-dashoffset: 0 !important;
+  }
+
+  .ai-cursor {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+
+  .ai-sparkle {
+    animation: none !important;
+  }
+}
+
+/* High contrast mode adjustments */
+@media (prefers-contrast: high) {
+  .card-holographic {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--card);
+    border: 2px solid var(--border);
+  }
+
+  .card-holographic::before,
+  .card-holographic::after {
+    display: none;
+  }
+
+  .glow-subtle,
+  .glow-medium,
+  .glow-strong {
+    filter: none;
+  }
+
+  .box-glow-good,
+  .box-glow-warning,
+  .box-glow-critical,
+  .box-glow-primary,
+  .box-glow-cyan {
+    box-shadow: 0 0 0 2px currentColor;
+  }
+}

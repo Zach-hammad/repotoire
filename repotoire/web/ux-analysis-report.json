@@ -1,0 +1,390 @@
+{
+  "summary": {
+    "testsRun": 52,
+    "passed": 38,
+    "failed": 14,
+    "passRate": 73.1,
+    "testDuration": "44.2s",
+    "averagePageLoadTime": {
+      "homepage": "1560ms",
+      "pricing": "2181ms"
+    }
+  },
+  "performance": {
+    "loadTimes": {
+      "homepage": {
+        "actual": 1560,
+        "threshold": 3000,
+        "status": "good",
+        "recommendation": "Load time is acceptable but could be improved with image optimization and code splitting"
+      },
+      "pricing": {
+        "actual": 2181,
+        "threshold": 3000,
+        "status": "acceptable",
+        "recommendation": "Consider lazy-loading pricing components and optimizing bundle size"
+      }
+    },
+    "consoleErrors": {
+      "homepage": {
+        "count": 1,
+        "severity": "medium",
+        "impact": "Console errors detected on homepage - may indicate JavaScript issues"
+      },
+      "pricing": {
+        "count": 1,
+        "severity": "medium",
+        "impact": "Console errors detected on pricing page - may indicate JavaScript issues"
+      },
+      "docs": {
+        "count": 1,
+        "severity": "medium",
+        "impact": "Console errors detected on docs page - may indicate JavaScript issues"
+      }
+    }
+  },
+  "issues": [
+    {
+      "severity": "critical",
+      "category": "Navigation",
+      "description": "/samples route requires authentication but should be public",
+      "impact": "Users cannot access sample reports without signing in, blocking a key conversion funnel",
+      "evidence": "Test failed: Expected /samples but received redirect to /sign-in?redirect_url=http%3A%2F%2Flocalhost%3A3000%2Fsamples",
+      "affectedPages": [
+        "/samples",
+        "/samples/react"
+      ],
+      "recommendation": "Add '/samples(.*)' to the isPublicRoute matcher in /home/zach/code/repotoire/repotoire/web/src/middleware.ts at line 7-20",
+      "fix": {
+        "file": "/home/zach/code/repotoire/repotoire/web/src/middleware.ts",
+        "line": 19,
+        "change": "Add line: '/samples(.*)',"
+      }
+    },
+    {
+      "severity": "high",
+      "category": "Navigation",
+      "description": "Pricing link on homepage does not navigate to /pricing page",
+      "impact": "Users clicking the pricing link from the homepage stay on the same page, breaking navigation flow",
+      "evidence": "Test failed: Clicked pricing link but remained at http://localhost:3000/ instead of navigating to /pricing",
+      "affectedPages": [
+        "/"
+      ],
+      "recommendation": "Verify that the pricing link in the navigation has the correct href='/pricing' attribute. Check /home/zach/code/repotoire/repotoire/web/src/components/sections components for broken anchor tags or client-side scroll behavior that may be preventing navigation.",
+      "fix": {
+        "file": "Unknown - needs investigation",
+        "investigation": "Check Hero, Features, or navigation components for pricing links that use scroll-to-section instead of routing"
+      }
+    },
+    {
+      "severity": "high",
+      "category": "Content Structure",
+      "description": "Features section lacks proper semantic markup with identifiable feature items",
+      "impact": "Screen readers and automated tests cannot identify individual features, hurting accessibility",
+      "evidence": "Test failed: Expected >=2 feature items with class*='feature' or data-testid*='feature', but found 0",
+      "affectedPages": [
+        "/"
+      ],
+      "recommendation": "Add consistent CSS classes or data-testid attributes to feature items in /home/zach/code/repotoire/repotoire/web/src/components/sections/features.tsx. Use semantic HTML like <article> or <section> with class='feature-item' for each feature.",
+      "fix": {
+        "file": "/home/zach/code/repotoire/repotoire/web/src/components/sections/features.tsx",
+        "change": "Add class='feature-item' or data-testid='feature' to each feature card/item"
+      }
+    },
+    {
+      "severity": "high",
+      "category": "Navigation",
+      "description": "Documentation navigation does not allow navigation between doc sections",
+      "impact": "Users cannot explore documentation using sidebar/navigation links",
+      "evidence": "Test failed: Clicked first doc navigation link but page redirected to / instead of navigating to a doc subsection",
+      "affectedPages": [
+        "/docs"
+      ],
+      "recommendation": "Investigate the documentation sidebar navigation in /home/zach/code/repotoire/repotoire/web/src/app/docs. Ensure navigation links have proper href attributes and are not being intercepted by client-side code that redirects to homepage.",
+      "fix": {
+        "file": "/home/zach/code/repotoire/repotoire/web/src/app/docs",
+        "investigation": "Check doc navigation component for broken links or redirect logic"
+      }
+    },
+    {
+      "severity": "medium",
+      "category": "Content",
+      "description": "Sample report pages missing metric/stat visualizations",
+      "impact": "Sample reports should showcase code metrics but lack visual elements to demonstrate the product's value",
+      "evidence": "Test failed: No elements found with class*='metric', class*='stat', or class*='score' on /samples/react",
+      "affectedPages": [
+        "/samples/react"
+      ],
+      "recommendation": "Add data visualizations or stat cards to /home/zach/code/repotoire/repotoire/web/src/app/samples/react/page.tsx with appropriate CSS classes (e.g., 'metric-card', 'stat-value', 'health-score') to showcase the product's analysis capabilities.",
+      "fix": {
+        "file": "/home/zach/code/repotoire/repotoire/web/src/app/samples/react/page.tsx",
+        "change": "Add metric/stat components with semantic class names"
+      }
+    },
+    {
+      "severity": "medium",
+      "category": "Accessibility",
+      "description": "Keyboard navigation focus not visible on first tab press",
+      "impact": "Keyboard users may not see which element is focused, hurting accessibility",
+      "evidence": "Test expectation: Something should be focused after Tab press, but focus state may not be visible",
+      "affectedPages": [
+        "/"
+      ],
+      "recommendation": "Add visible focus styles to all interactive elements. Check /home/zach/code/repotoire/repotoire/web/src/app/globals.css or Tailwind config for focus ring styles. Ensure outline or ring classes are applied to buttons, links, and form controls.",
+      "fix": {
+        "file": "/home/zach/code/repotoire/repotoire/web/src/app/globals.css",
+        "change": "Add global focus styles: *:focus-visible { @apply ring-2 ring-primary ring-offset-2; }"
+      }
+    },
+    {
+      "severity": "medium",
+      "category": "Accessibility",
+      "description": "Missing main landmark on homepage",
+      "impact": "Screen reader users cannot quickly navigate to main content",
+      "evidence": "Test looked for <main> or role='main' element",
+      "affectedPages": [
+        "/"
+      ],
+      "recommendation": "Wrap the main content sections in /home/zach/code/repotoire/repotoire/web/src/app/(marketing)/page.tsx with a <main> element. Update the component to return <main><Hero /><Features />...</main> instead of a fragment.",
+      "fix": {
+        "file": "/home/zach/code/repotoire/repotoire/web/src/app/(marketing)/page.tsx",
+        "line": 31,
+        "change": "Wrap sections in <main> tag instead of fragment"
+      }
+    },
+    {
+      "severity": "medium",
+      "category": "Accessibility",
+      "description": "No skip-to-content link for keyboard users",
+      "impact": "Keyboard users must tab through entire navigation to reach main content",
+      "evidence": "First focusable element is not a skip link",
+      "affectedPages": [
+        "All pages"
+      ],
+      "recommendation": "Add a skip-to-content link as the first focusable element in the layout. Add to /home/zach/code/repotoire/repotoire/web/src/app/layout.tsx: <a href='#main-content' className='sr-only focus:not-sr-only'>Skip to content</a>",
+      "fix": {
+        "file": "/home/zach/code/repotoire/repotoire/web/src/app/layout.tsx",
+        "change": "Add skip link as first child in body"
+      }
+    },
+    {
+      "severity": "medium",
+      "category": "Navigation",
+      "description": "Page transition navigation is broken - clicking pricing returns to homepage",
+      "impact": "Users cannot navigate between pages using navigation links, breaking core UX flow",
+      "evidence": "Test failed: Navigation transitions test - clicked pricing link but page did not navigate to /pricing",
+      "affectedPages": [
+        "/"
+      ],
+      "recommendation": "This is likely related to the same issue as 'Pricing link on homepage'. Investigate whether the pricing link is using scroll behavior instead of Next.js routing, or if there's client-side JavaScript intercepting clicks.",
+      "fix": {
+        "file": "Navigation component",
+        "investigation": "Debug click handlers on navigation links"
+      }
+    },
+    {
+      "severity": "medium",
+      "category": "Navigation",
+      "description": "Browser back button navigation broken",
+      "impact": "Users cannot use browser back button to return to previous page",
+      "evidence": "Test failed: After navigating to pricing and pressing back, page showed 'about:blank' instead of homepage",
+      "affectedPages": [
+        "All pages"
+      ],
+      "recommendation": "This suggests client-side routing is replacing browser history incorrectly. Check for router.replace() calls that should be router.push(). Review Next.js Link components for incorrect behavior prop.",
+      "fix": {
+        "file": "Router usage throughout app",
+        "investigation": "Search for router.replace() and Link components with replace prop"
+      }
+    },
+    {
+      "severity": "low",
+      "category": "Performance",
+      "description": "Console errors present on multiple pages",
+      "impact": "JavaScript errors may degrade user experience or break functionality",
+      "evidence": "Homepage, pricing, and docs pages all have at least 1 console error (filtered excluding favicon/404)",
+      "affectedPages": [
+        "/",
+        "/pricing",
+        "/docs"
+      ],
+      "recommendation": "Open browser DevTools and check console for specific errors. Common issues: missing environment variables, unhandled promise rejections, or third-party script errors. Fix errors in order of severity.",
+      "fix": {
+        "investigation": "Run app in dev mode and check browser console for error details"
+      }
+    },
+    {
+      "severity": "low",
+      "category": "Content",
+      "description": "Sample reports lack interactive demo content",
+      "impact": "Potential customers cannot see the product's capabilities demonstrated with real data",
+      "evidence": "Multiple sample report tests failed due to missing content and metrics",
+      "affectedPages": [
+        "/samples",
+        "/samples/react"
+      ],
+      "recommendation": "Populate /home/zach/code/repotoire/repotoire/web/src/app/samples pages with realistic sample data showing code health scores, findings, and visualizations. This is a key conversion asset.",
+      "fix": {
+        "files": [
+          "/home/zach/code/repotoire/repotoire/web/src/app/samples/page.tsx",
+          "/home/zach/code/repotoire/repotoire/web/src/app/samples/react/page.tsx"
+        ],
+        "change": "Add sample metrics, charts, and code snippets"
+      }
+    }
+  ],
+  "successfulFeatures": [
+    {
+      "feature": "Page Load Performance",
+      "status": "good",
+      "details": "Homepage loads in 1.56s, pricing in 2.18s - both well under 3s threshold"
+    },
+    {
+      "feature": "Hero Section",
+      "status": "good",
+      "details": "Prominent H1 heading visible with meaningful content (>10 characters)"
+    },
+    {
+      "feature": "Call-to-Action Buttons",
+      "status": "good",
+      "details": "CTA buttons visible, enabled, and interactive with hover states"
+    },
+    {
+      "feature": "Navigation Bar",
+      "status": "good",
+      "details": "Navigation present with logo/brand visible"
+    },
+    {
+      "feature": "Footer",
+      "status": "good",
+      "details": "Footer visible with required legal links (Privacy, Terms)"
+    },
+    {
+      "feature": "Sign-in Navigation",
+      "status": "good",
+      "details": "Sign-in link successfully navigates to /sign-in page"
+    },
+    {
+      "feature": "Pricing Page Content",
+      "status": "good",
+      "details": "Pricing tiers, amounts, and features displayed correctly"
+    },
+    {
+      "feature": "Documentation Access",
+      "status": "good",
+      "details": "Docs index page loads with proper navigation structure"
+    },
+    {
+      "feature": "Legal Pages",
+      "status": "good",
+      "details": "Privacy and Terms pages load with proper content structure"
+    },
+    {
+      "feature": "Marketing Pages",
+      "status": "good",
+      "details": "About, Blog, and Contact pages load successfully"
+    },
+    {
+      "feature": "404 Handling",
+      "status": "good",
+      "details": "Unknown routes handled gracefully without crashes"
+    },
+    {
+      "feature": "Responsive Design",
+      "status": "good",
+      "details": "Pages responsive at 375px, 667px, and 768px viewports with no horizontal overflow"
+    },
+    {
+      "feature": "SEO Metadata",
+      "status": "good",
+      "details": "Proper meta titles (<70 chars) and descriptions (50-160 chars) on pages"
+    },
+    {
+      "feature": "Heading Structure",
+      "status": "good",
+      "details": "Exactly one H1 per page (proper SEO)"
+    },
+    {
+      "feature": "Image Alt Text",
+      "status": "good",
+      "details": "Most images have alt text (<=2 without, likely decorative)"
+    }
+  ],
+  "prioritizedActions": [
+    {
+      "priority": 1,
+      "action": "Add /samples route to public routes in middleware.ts",
+      "estimatedEffort": "5 minutes",
+      "impact": "Unblocks key conversion funnel - sample reports are critical for demos"
+    },
+    {
+      "priority": 2,
+      "action": "Fix pricing navigation link behavior",
+      "estimatedEffort": "15-30 minutes",
+      "impact": "Core navigation broken - users cannot access pricing from homepage"
+    },
+    {
+      "priority": 3,
+      "action": "Add main landmark to homepage layout",
+      "estimatedEffort": "5 minutes",
+      "impact": "Quick accessibility win with minimal effort"
+    },
+    {
+      "priority": 4,
+      "action": "Add semantic classes to features section",
+      "estimatedEffort": "10 minutes",
+      "impact": "Improves accessibility and maintainability"
+    },
+    {
+      "priority": 5,
+      "action": "Investigate and fix console errors",
+      "estimatedEffort": "30-60 minutes",
+      "impact": "May be causing subtle bugs affecting user experience"
+    },
+    {
+      "priority": 6,
+      "action": "Fix doc navigation and back button behavior",
+      "estimatedEffort": "30-60 minutes",
+      "impact": "Important for docs discoverability and user retention"
+    },
+    {
+      "priority": 7,
+      "action": "Add sample report content and visualizations",
+      "estimatedEffort": "2-4 hours",
+      "impact": "High-value marketing asset for demonstrating product capabilities"
+    },
+    {
+      "priority": 8,
+      "action": "Add skip-to-content link and improve keyboard focus visibility",
+      "estimatedEffort": "20-30 minutes",
+      "impact": "Important accessibility improvements for keyboard users"
+    }
+  ],
+  "overallAssessment": {
+    "grade": "B-",
+    "strengths": [
+      "Solid performance with fast load times",
+      "Good responsive design across devices",
+      "Proper SEO metadata and heading structure",
+      "Legal pages and basic navigation working",
+      "No critical rendering or crash issues"
+    ],
+    "weaknesses": [
+      "Critical navigation issues blocking key conversion paths",
+      "Missing accessibility landmarks and keyboard navigation support",
+      "Sample reports (key marketing asset) behind authentication wall",
+      "Client-side routing conflicts causing navigation failures",
+      "Incomplete content on important pages"
+    ],
+    "recommendation": "Focus on fixing the 3 critical navigation issues first (samples auth, pricing link, doc navigation). These are blocking core user flows and likely impacting conversion. Then address accessibility wins (main landmark, skip link) which are quick fixes with good ROI. Finally, invest time in sample report content as a high-value marketing asset."
+  },
+  "technicalDetails": {
+    "testFramework": "Playwright 1.57.0",
+    "browser": "Chromium (unauthenticated)",
+    "viewport": "1280x720 (desktop), 375x667 (mobile), 768x1024 (tablet)",
+    "environment": "Local development (localhost:3000)",
+    "testDate": "2025-12-22",
+    "totalTestDuration": "44.2s",
+    "parallelWorkers": 11
+  }
+}

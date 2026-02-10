@@ -1,0 +1,8 @@
+// Timing constants
+export const COPY_FEEDBACK_TIMEOUT_MS = 2000;
+export const POLL_INTERVAL_MS = 3000;
+export const TOAST_DURATION_MS = 10000;
+export const CACHE_DEDUP_INTERVAL_MS = 300000; // 5 minutes
+export const SANDBOX_REFRESH_INTERVAL_MS = 30000;
+export const NOTIFICATION_POLL_INTERVAL_MS = 30000;
+export const NOTIFICATION_REFRESH_INTERVAL_MS = 60000;

@@ -1,0 +1,38 @@
+# Pre-commit hooks for Repotoire
+# Install: pip install pre-commit && pre-commit install
+# See https://pre-commit.com for more information
+
+repos:
+  # Ruff - fast Python linter and formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # Basic file hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+
+  # Repotoire code quality checks (optional - can be slow)
+  - repo: local
+    hooks:
+      - id: repotoire-check
+        name: Repotoire Code Quality Check
+        description: Run Repotoire analysis on staged files and block commits with critical issues
+        entry: uv run repotoire-pre-commit
+        language: system
+        pass_filenames: true
+        types: [python]
+        require_serial: true
+        stages: [pre-push]  # Run on push, not every commit (faster workflow)
+        # Optional: Configure severity threshold (default: critical)
+        # args: [--fail-on=high]

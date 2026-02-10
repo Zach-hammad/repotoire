@@ -1,0 +1,341 @@
+//! Type Hint Coverage detector - identifies functions with missing type annotations.
+//!
+//! Detects functions and methods that lack proper type hints, which reduces
+//! code maintainability, IDE support, and static analysis effectiveness.
+
+use std::collections::HashSet;
+
+use crate::detectors::base::{Detector, DetectorConfig, DetectorResult};
+use crate::graph::GraphClient;
+use crate::models::{Finding, Severity};
+
+/// Type hint coverage detector
+///
+/// Type hints improve:
+/// - Code documentation and readability
+/// - IDE auto-completion and navigation
+/// - Static analysis with tools like mypy
+/// - Refactoring safety
+pub struct TypeHintCoverageDetector {
+    config: DetectorConfig,
+    /// Minimum parameters for warning
+    min_params_for_warning: usize,
+    /// Minimum complexity for HIGH severity
+    min_complexity_for_high: i64,
+    /// Maximum findings to report
+    max_findings: usize,
+}
+
+impl TypeHintCoverageDetector {
+    /// Create a new type hint coverage detector
+    pub fn new() -> Self {
+        Self {
+            config: DetectorConfig::default(),
+            min_params_for_warning: 1,
+            min_complexity_for_high: 10,
+            max_findings: 200,
+        }
+    }
+
+    /// Set minimum complexity for HIGH severity
+    pub fn with_complexity_threshold(mut self, threshold: i64) -> Self {
+        self.min_complexity_for_high = threshold;
+        self
+    }
+
+    /// Functions/methods that commonly don't need return type hints
+    fn no_return_needed() -> HashSet<&'static str> {
+        let mut set = HashSet::new();
+        set.insert("__init__");
+        set.insert("__del__");
+        set.insert("__setattr__");
+        set.insert("__delattr__");
+        set.insert("setUp");
+        set.insert("tearDown");
+        set.insert("setUpClass");
+        set.insert("tearDownClass");
+        set
+    }
+
+    /// Parameters that don't need type hints
+    fn skip_params() -> HashSet<&'static str> {
+        let mut set = HashSet::new();
+        set.insert("self");
+        set.insert("cls");
+        set.insert("*args");
+        set.insert("**kwargs");
+        set.insert("args");
+        set.insert("kwargs");
+        set
+    }
+
+    /// Find functions with missing type hints
+    fn find_functions_missing_hints(&self, graph: &GraphClient) -> anyhow::Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+
+        // Query for functions with parameters but potentially missing type info
+        let query = r#"
+            MATCH (f:Function)
+            WHERE f.parameters IS NOT NULL
+              AND size(f.parameters) > 0
+            RETURN f.qualifiedName AS func_name,
+                   f.name AS func_simple_name,
+                   f.filePath AS func_file,
+                   f.lineStart AS func_line,
+                   f.complexity AS complexity,
+                   f.is_method AS is_method,
+                   f.parameters AS params,
+                   f.parameter_types AS param_types,
+                   f.return_type AS return_type
+            ORDER BY f.complexity DESC
+            LIMIT 200
+        "#;
+
+        let results = graph.execute(query)?;
+
+        for row in results {
+            let func_name = row.get_string("func_name").unwrap_or_default();
+            let func_simple_name = row.get_string("func_simple_name").unwrap_or_default();
+
+            if func_name.is_empty() {
+                continue;
+            }
+
+            // Skip test functions
+            if func_simple_name.starts_with("test_") {
+                continue;
+            }
+
+            // Get parameters
+            let params: Vec<String> = row
+                .get_string_array("params")
+                .unwrap_or_default();
+
+            // Get meaningful parameters
+            let meaningful_params = self.get_meaningful_params(&params);
+
+            // Get parameter types (may be empty or None)
+            let param_types_str = row.get_string("param_types").unwrap_or_default();
+            let param_types: std::collections::HashMap<String, String> =
+                serde_json::from_str(&param_types_str).unwrap_or_default();
+
+            // Count typed params
+            let typed_params = meaningful_params
+                .iter()
+                .filter(|p| param_types.contains_key(*p) && !param_types[*p].is_empty())
+                .count();
+
+            // Check return type
+            let return_type = row.get_string("return_type");
+            let missing_return = return_type.is_none()
+                && !Self::no_return_needed().contains(func_simple_name.as_str());
+
+            // Skip if fully typed
+            let missing_param_hints = meaningful_params.len() - typed_params;
+            if missing_param_hints == 0 && !missing_return {
+                continue;
+            }
+
+            // Skip if no meaningful parameters and no missing return
+            if meaningful_params.is_empty() && !missing_return {
+                continue;
+            }
+
+            if findings.len() >= self.max_findings {
+                break;
+            }
+
+            let finding = self.create_function_finding(
+                &row,
+                &meaningful_params,
+                typed_params,
+                missing_return,
+            );
+            findings.push(finding);
+        }
+
+        Ok(findings)
+    }
+
+    /// Get parameter names that should have type hints
+    fn get_meaningful_params(&self, params: &[String]) -> Vec<&str> {
+        let skip = Self::skip_params();
+        params
+            .iter()
+            .filter(|p| !p.is_empty() && !skip.contains(p.as_str()) && !p.starts_with('*'))
+            .map(|s| s.as_str())
+            .collect()
+    }
+
+    fn create_function_finding(
+        &self,
+        row: &crate::graph::QueryRow,
+        meaningful_params: &[&str],
+        typed_params: usize,
+        missing_return: bool,
+    ) -> Finding {
+        let func_name = row.get_string("func_name").unwrap_or_default();
+        let func_simple_name = row.get_string("func_simple_name").unwrap_or_default();
+        let file_path = row.get_string("func_file").unwrap_or_default();
+        let complexity = row.get_i64("complexity").unwrap_or(0);
+        let func_line = row.get_i64("func_line");
+
+        // Calculate coverage percentage
+        let no_return_needed = Self::no_return_needed();
+        let total_items = meaningful_params.len()
+            + if !no_return_needed.contains(func_simple_name.as_str()) {
+                1
+            } else {
+                0
+            };
+        let typed_items = typed_params + if missing_return { 0 } else { 1 };
+        let coverage_pct = if total_items > 0 {
+            (typed_items as f64 / total_items as f64) * 100.0
+        } else {
+            100.0
+        };
+
+        // Determine if public
+        let is_public = !func_simple_name.starts_with('_');
+
+        // Build description
+        let mut missing_parts = Vec::new();
+        if typed_params < meaningful_params.len() {
+            let missing_count = meaningful_params.len() - typed_params;
+            missing_parts.push(format!("{} parameter(s) missing type hints", missing_count));
+        }
+        if missing_return {
+            missing_parts.push("return type missing".to_string());
+        }
+
+        let description = format!(
+            "Function `{}` has incomplete type hints: {}.\n\n\
+             **Coverage**: {:.0}% ({}/{} type hints)\n\
+             **Complexity**: {}\n\
+             **Public API**: {}\n\n\
+             Type hints improve code documentation, IDE support, and enable \
+             static analysis with tools like mypy.",
+            func_simple_name,
+            missing_parts.join(", "),
+            coverage_pct,
+            typed_items,
+            total_items,
+            complexity,
+            if is_public { "Yes" } else { "No" }
+        );
+
+        // Determine severity
+        let severity = if complexity >= self.min_complexity_for_high && coverage_pct < 50.0 {
+            Severity::High
+        } else if is_public && coverage_pct < 50.0 {
+            Severity::Medium
+        } else {
+            Severity::Low
+        };
+
+        // Build suggestion
+        let param_hints: Vec<String> = meaningful_params
+            .iter()
+            .map(|p| format!("{}: <type>", p))
+            .collect();
+        let params_str = param_hints.join(", ");
+        let return_str = if missing_return { " -> <return_type>" } else { "" };
+
+        let suggestion = format!(
+            "Add type hints to improve code quality:\n\n\
+             ```python\n\
+             def {}({}){}{}\n\
+             ```\n\n\
+             Common type hints:\n\
+             - `str`, `int`, `float`, `bool` for primitives\n\
+             - `List[T]`, `Dict[K, V]`, `Set[T]` for collections\n\
+             - `Optional[T]` for nullable values\n\
+             - `Any` when type is truly dynamic\n\
+             - `None` for functions that don't return a value",
+            func_simple_name,
+            params_str,
+            return_str,
+            ":"
+        );
+
+        Finding {
+            id: format!("type_hints_{}", func_name),
+            detector: "TypeHintCoverageDetector".to_string(),
+            severity,
+            title: format!("Missing type hints: {}", func_simple_name),
+            description,
+            affected_nodes: vec![func_name],
+            affected_files: if file_path.is_empty() {
+                vec![]
+            } else {
+                vec![file_path]
+            },
+            line_start: func_line,
+            line_end: None,
+            suggested_fix: Some(suggestion),
+            estimated_effort: Some("Small (15-30 minutes)".to_string()),
+            confidence: 0.95,
+            tags: vec![
+                "type_hints".to_string(),
+                "code_quality".to_string(),
+                "documentation".to_string(),
+            ],
+            metadata: serde_json::json!({
+                "coverage_type": "function_coverage",
+                "function_name": func_simple_name,
+                "complexity": complexity,
+                "is_public": is_public,
+                "total_params": meaningful_params.len(),
+                "typed_params": typed_params,
+                "missing_return": missing_return,
+                "typed_percentage": coverage_pct,
+            }),
+        }
+    }
+}
+
+impl Default for TypeHintCoverageDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Detector for TypeHintCoverageDetector {
+    fn name(&self) -> &'static str {
+        "TypeHintCoverageDetector"
+    }
+
+    fn description(&self) -> &'static str {
+        "Detects functions with missing or incomplete type hints"
+    }
+
+    fn detect(&self, graph: &GraphClient) -> DetectorResult {
+        self.find_functions_missing_hints(graph)
+    }
+
+    fn is_dependent(&self) -> bool {
+        false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_skip_params() {
+        let skip = TypeHintCoverageDetector::skip_params();
+        assert!(skip.contains("self"));
+        assert!(skip.contains("cls"));
+        assert!(skip.contains("*args"));
+        assert!(!skip.contains("name"));
+    }
+
+    #[test]
+    fn test_no_return_needed() {
+        let no_return = TypeHintCoverageDetector::no_return_needed();
+        assert!(no_return.contains("__init__"));
+        assert!(no_return.contains("setUp"));
+        assert!(!no_return.contains("get_value"));
+    }
+}

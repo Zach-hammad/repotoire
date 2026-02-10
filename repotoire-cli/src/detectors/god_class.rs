@@ -1,0 +1,521 @@
+//! God class detector - finds classes that do too much
+//!
+//! A "god class" is a class that:
+//! - Has too many methods
+//! - Has too many lines of code
+//! - Has too much complexity
+//! - Has low cohesion (methods don't share data)
+//!
+//! These classes violate the Single Responsibility Principle and
+//! are difficult to understand, test, and maintain.
+
+use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::GraphClient;
+use crate::models::{Finding, Severity};
+use anyhow::Result;
+use regex::Regex;
+use std::path::PathBuf;
+use tracing::{debug, info};
+use uuid::Uuid;
+
+/// Thresholds for god class detection
+#[derive(Debug, Clone)]
+pub struct GodClassThresholds {
+    /// Method count above which a class is suspicious
+    pub max_methods: usize,
+    /// Method count for critical severity
+    pub critical_methods: usize,
+    /// Lines of code above which a class is suspicious
+    pub max_lines: usize,
+    /// Lines of code for critical severity
+    pub critical_lines: usize,
+    /// Complexity above which a class is suspicious
+    pub max_complexity: usize,
+    /// Complexity for critical severity
+    pub critical_complexity: usize,
+}
+
+impl Default for GodClassThresholds {
+    fn default() -> Self {
+        Self {
+            max_methods: 20,
+            critical_methods: 30,
+            max_lines: 500,
+            critical_lines: 1000,
+            max_complexity: 100,
+            critical_complexity: 200,
+        }
+    }
+}
+
+/// Patterns for legitimate large classes
+const EXCLUDED_PATTERNS: &[&str] = &[
+    r".*Client$",       // Database/API clients
+    r".*Connection$",   // Connection managers
+    r".*Session$",      // Session handlers
+    r".*Pipeline$",     // Data pipelines
+    r".*Engine$",       // Workflow engines
+    r".*Generator$",    // Code generators
+    r".*Builder$",      // Builder pattern
+    r".*Factory$",      // Factory pattern
+    r".*Manager$",      // Resource managers
+    r".*Controller$",   // MVC controllers
+    r".*Adapter$",      // Adapter pattern
+    r".*Facade$",       // Facade pattern
+];
+
+/// Detects god classes (classes with too many responsibilities)
+pub struct GodClassDetector {
+    config: DetectorConfig,
+    thresholds: GodClassThresholds,
+    excluded_patterns: Vec<Regex>,
+    use_pattern_exclusions: bool,
+}
+
+impl GodClassDetector {
+    /// Create a new detector with default thresholds
+    pub fn new() -> Self {
+        Self::with_thresholds(GodClassThresholds::default())
+    }
+
+    /// Create with custom thresholds
+    pub fn with_thresholds(thresholds: GodClassThresholds) -> Self {
+        let excluded_patterns = EXCLUDED_PATTERNS
+            .iter()
+            .filter_map(|p| Regex::new(p).ok())
+            .collect();
+
+        Self {
+            config: DetectorConfig::new(),
+            thresholds,
+            excluded_patterns,
+            use_pattern_exclusions: true,
+        }
+    }
+
+    /// Create with custom config
+    pub fn with_config(config: DetectorConfig) -> Self {
+        let thresholds = GodClassThresholds {
+            max_methods: config.get_option_or("max_methods", 20),
+            critical_methods: config.get_option_or("critical_methods", 30),
+            max_lines: config.get_option_or("max_lines", 500),
+            critical_lines: config.get_option_or("critical_lines", 1000),
+            max_complexity: config.get_option_or("max_complexity", 100),
+            critical_complexity: config.get_option_or("critical_complexity", 200),
+        };
+
+        let use_pattern_exclusions = config.get_option_or("use_pattern_exclusions", true);
+
+        let excluded_patterns = EXCLUDED_PATTERNS
+            .iter()
+            .filter_map(|p| Regex::new(p).ok())
+            .collect();
+
+        Self {
+            config,
+            thresholds,
+            excluded_patterns,
+            use_pattern_exclusions,
+        }
+    }
+
+    /// Check if a class name matches excluded patterns
+    fn is_excluded_pattern(&self, class_name: &str) -> bool {
+        if !self.use_pattern_exclusions {
+            return false;
+        }
+        self.excluded_patterns.iter().any(|p| p.is_match(class_name))
+    }
+
+    /// Determine if metrics indicate a god class
+    fn is_god_class(
+        &self,
+        method_count: usize,
+        complexity: usize,
+        loc: usize,
+    ) -> Option<String> {
+        let mut reasons = Vec::new();
+
+        // Check method count
+        if method_count >= self.thresholds.critical_methods {
+            reasons.push(format!("very high method count ({})", method_count));
+        } else if method_count >= self.thresholds.max_methods {
+            reasons.push(format!("high method count ({})", method_count));
+        }
+
+        // Check complexity
+        if complexity >= self.thresholds.critical_complexity {
+            reasons.push(format!("very high complexity ({})", complexity));
+        } else if complexity >= self.thresholds.max_complexity {
+            reasons.push(format!("high complexity ({})", complexity));
+        }
+
+        // Check lines of code
+        if loc >= self.thresholds.critical_lines {
+            reasons.push(format!("very large class ({} LOC)", loc));
+        } else if loc >= self.thresholds.max_lines {
+            reasons.push(format!("large class ({} LOC)", loc));
+        }
+
+        // Need at least one critical violation or two regular violations
+        let critical_count = [
+            method_count >= self.thresholds.critical_methods,
+            complexity >= self.thresholds.critical_complexity,
+            loc >= self.thresholds.critical_lines,
+        ]
+        .iter()
+        .filter(|&&x| x)
+        .count();
+
+        if critical_count >= 1 || reasons.len() >= 2 {
+            Some(reasons.join(", "))
+        } else {
+            None
+        }
+    }
+
+    /// Calculate severity based on metrics
+    fn calculate_severity(&self, method_count: usize, complexity: usize, loc: usize) -> Severity {
+        let critical_count = [
+            method_count >= self.thresholds.critical_methods,
+            complexity >= self.thresholds.critical_complexity,
+            loc >= self.thresholds.critical_lines,
+        ]
+        .iter()
+        .filter(|&&x| x)
+        .count();
+
+        if critical_count >= 2 {
+            return Severity::Critical;
+        }
+
+        let high_count = [
+            method_count >= self.thresholds.max_methods,
+            complexity >= self.thresholds.max_complexity,
+            loc >= self.thresholds.max_lines,
+        ]
+        .iter()
+        .filter(|&&x| x)
+        .count();
+
+        match (critical_count, high_count) {
+            (1, _) => Severity::High,
+            (0, n) if n >= 2 => Severity::High,
+            (0, 1) => Severity::Medium,
+            _ => Severity::Low,
+        }
+    }
+
+    /// Generate refactoring suggestions
+    fn suggest_refactoring(
+        &self,
+        name: &str,
+        method_count: usize,
+        complexity: usize,
+        loc: usize,
+    ) -> String {
+        let mut suggestions = vec![format!("Refactor '{}' to reduce its responsibilities:\n", name)];
+
+        if method_count >= self.thresholds.max_methods {
+            suggestions.push(
+                "1. **Extract related methods into separate classes**\n\
+                    - Look for method groups that work with the same data\n\
+                    - Create focused classes with single responsibilities\n"
+                    .to_string(),
+            );
+        }
+
+        if complexity >= self.thresholds.max_complexity {
+            suggestions.push(
+                "2. **Simplify complex methods**\n\
+                    - Break down complex methods into smaller functions\n\
+                    - Consider using the Strategy or Command pattern\n"
+                    .to_string(),
+            );
+        }
+
+        if loc >= self.thresholds.max_lines {
+            suggestions.push(format!(
+                "3. **Break down the large class ({} LOC)**\n\
+                    - Split into smaller, focused classes\n\
+                    - Consider using composition over inheritance\n\
+                    - Extract data classes for complex state\n",
+                loc
+            ));
+        }
+
+        suggestions.push(
+            "\n**Apply SOLID principles:**\n\
+             - Single Responsibility: Each class should have one reason to change\n\
+             - Open/Closed: Extend behavior without modifying existing code\n\
+             - Interface Segregation: Create specific interfaces\n\
+             - Dependency Inversion: Depend on abstractions"
+                .to_string(),
+        );
+
+        suggestions.join("")
+    }
+
+    /// Estimate refactoring effort
+    fn estimate_effort(&self, method_count: usize, complexity: usize, loc: usize) -> String {
+        if method_count >= self.thresholds.critical_methods
+            || complexity >= self.thresholds.critical_complexity
+            || loc >= self.thresholds.critical_lines
+        {
+            "Large (1-2 weeks)".to_string()
+        } else if method_count >= self.thresholds.max_methods
+            || complexity >= self.thresholds.max_complexity
+            || loc >= self.thresholds.max_lines
+        {
+            "Medium (3-5 days)".to_string()
+        } else {
+            "Small (1-2 days)".to_string()
+        }
+    }
+
+    /// Create a finding for a god class
+    fn create_finding(
+        &self,
+        _qualified_name: String,
+        name: String,
+        file_path: String,
+        method_count: usize,
+        complexity: usize,
+        loc: usize,
+        line_start: Option<u32>,
+        line_end: Option<u32>,
+        reason: &str,
+    ) -> Finding {
+        let severity = self.calculate_severity(method_count, complexity, loc);
+
+        Finding {
+            id: Uuid::new_v4().to_string(),
+            detector: "GodClassDetector".to_string(),
+            severity,
+            title: format!("God class detected: {}", name),
+            description: format!(
+                "Class '{}' shows signs of being a god class: {}.\n\n\
+                 **Metrics:**\n\
+                 - Methods: {}\n\
+                 - Total complexity: {}\n\
+                 - Lines of code: {}",
+                name, reason, method_count, complexity, loc
+            ),
+            affected_files: vec![PathBuf::from(&file_path)],
+            line_start,
+            line_end,
+            suggested_fix: Some(self.suggest_refactoring(&name, method_count, complexity, loc)),
+            estimated_effort: Some(self.estimate_effort(method_count, complexity, loc)),
+            category: Some("complexity".to_string()),
+            cwe_id: None,
+            why_it_matters: Some(
+                "God classes violate the Single Responsibility Principle. They are difficult \
+                 to understand, test, and maintain. Changes to one part may unexpectedly \
+                 affect other parts, leading to bugs and technical debt."
+                    .to_string(),
+            ),
+        }
+    }
+}
+
+impl Default for GodClassDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Detector for GodClassDetector {
+    fn name(&self) -> &'static str {
+        "GodClassDetector"
+    }
+
+    fn description(&self) -> &'static str {
+        "Detects classes with too many methods or lines of code"
+    }
+
+    fn category(&self) -> &'static str {
+        "complexity"
+    }
+
+    fn config(&self) -> Option<&DetectorConfig> {
+        Some(&self.config)
+    }
+
+    fn detect(&self, graph: &GraphClient) -> Result<Vec<Finding>> {
+        debug!("Starting god class detection");
+
+        // Get all classes with their metrics directly from the graph
+        let class_query = r#"
+            MATCH (c:Class)
+            RETURN c.qualifiedName AS qualified_name,
+                   c.name AS name,
+                   c.filePath AS file_path,
+                   c.lineStart AS line_start,
+                   c.lineEnd AS line_end,
+                   c.methodCount AS method_count
+        "#;
+
+        let results = graph.execute(class_query)?;
+        
+        if results.is_empty() {
+            debug!("No classes found");
+            return Ok(vec![]);
+        }
+
+        if results.is_empty() {
+            debug!("No class candidates found");
+            return Ok(vec![]);
+        }
+
+        let mut findings: Vec<Finding> = Vec::new();
+
+        for row in results {
+            let qualified_name = row
+                .get("qualified_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let name = row
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let file_path = row
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            // Get metrics directly from the query result
+            let method_count = row
+                .get("method_count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            
+            // Complexity is estimated as methods * 5 (average cyclomatic complexity)
+            let complexity = method_count * 5;
+
+            let line_start = row
+                .get("line_start")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32);
+
+            let line_end = row
+                .get("line_end")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32);
+            
+            // Calculate LOC from line numbers
+            let loc = match (line_start, line_end) {
+                (Some(s), Some(e)) => (e.saturating_sub(s)) as usize,
+                _ => 0,
+            };
+
+            // Skip test classes
+            if name.contains("Test") {
+                debug!("Skipping test class: {}", name);
+                continue;
+            }
+
+            // Skip excluded patterns
+            if self.is_excluded_pattern(&name) {
+                debug!("Skipping excluded pattern: {}", name);
+                continue;
+            }
+
+            // Check if this is a god class
+            if let Some(reason) = self.is_god_class(method_count, complexity, loc) {
+                findings.push(self.create_finding(
+                    qualified_name,
+                    name,
+                    file_path,
+                    method_count,
+                    complexity,
+                    loc,
+                    line_start,
+                    line_end,
+                    &reason,
+                ));
+            }
+        }
+
+        // Sort by severity
+        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
+
+        info!("GodClassDetector found {} god classes", findings.len());
+
+        Ok(findings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_thresholds() {
+        let detector = GodClassDetector::new();
+        assert_eq!(detector.thresholds.max_methods, 20);
+        assert_eq!(detector.thresholds.max_lines, 500);
+        assert_eq!(detector.thresholds.max_complexity, 100);
+    }
+
+    #[test]
+    fn test_is_god_class() {
+        let detector = GodClassDetector::new();
+
+        // Not a god class - under all thresholds
+        assert!(detector.is_god_class(10, 50, 200).is_none());
+
+        // God class - over method threshold
+        assert!(detector.is_god_class(25, 50, 200).is_some());
+
+        // God class - critical methods
+        assert!(detector.is_god_class(35, 50, 200).is_some());
+
+        // God class - multiple violations
+        assert!(detector.is_god_class(20, 100, 500).is_some());
+    }
+
+    #[test]
+    fn test_severity_calculation() {
+        let detector = GodClassDetector::new();
+
+        // Low - under all thresholds
+        assert_eq!(
+            detector.calculate_severity(10, 50, 200),
+            Severity::Low
+        );
+
+        // Medium - one violation
+        assert_eq!(
+            detector.calculate_severity(20, 50, 200),
+            Severity::Medium
+        );
+
+        // High - two violations
+        assert_eq!(
+            detector.calculate_severity(25, 120, 200),
+            Severity::High
+        );
+
+        // Critical - critical violations
+        assert_eq!(
+            detector.calculate_severity(35, 250, 1200),
+            Severity::Critical
+        );
+    }
+
+    #[test]
+    fn test_excluded_patterns() {
+        let detector = GodClassDetector::new();
+
+        assert!(detector.is_excluded_pattern("DatabaseClient"));
+        assert!(detector.is_excluded_pattern("MyFactory"));
+        assert!(detector.is_excluded_pattern("UserController"));
+        assert!(!detector.is_excluded_pattern("UserService"));
+        assert!(!detector.is_excluded_pattern("MyClass"));
+    }
+}

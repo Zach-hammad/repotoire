@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: repotoire-timescaledb
+    environment:
+      POSTGRES_DB: repotoire_metrics
+      POSTGRES_USER: repotoire
+      POSTGRES_PASSWORD: ${TIMESCALE_PASSWORD:-repotoire-dev-password}
+      # Performance tuning for development
+      POSTGRES_MAX_CONNECTIONS: 100
+      POSTGRES_SHARED_BUFFERS: 256MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 1GB
+    ports:
+      - "5432:5432"
+    volumes:
+      # Persist data between container restarts
+      - timescale_data:/var/lib/postgresql/data
+      # Auto-initialize schema on first run
+      - ../../repotoire/historical/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U repotoire -d repotoire_metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - repotoire-net
+
+  # Optional: pgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: repotoire-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@repotoire.local
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - timescaledb
+    networks:
+      - repotoire-net
+    profiles:
+      - tools  # Only start with: docker compose --profile tools up
+
+volumes:
+  timescale_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  repotoire-net:
+    driver: bridge

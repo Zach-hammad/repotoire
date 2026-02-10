@@ -1,0 +1,429 @@
+//! Argument mismatch detector - identifies potential call signature issues.
+//!
+//! Detects functions with risky parameter signatures and potential override
+//! mismatches that could lead to runtime errors.
+
+use crate::detectors::base::{Detector, DetectorConfig, DetectorResult};
+use crate::graph::GraphClient;
+use crate::models::{Finding, Severity};
+
+/// Argument mismatch detector
+///
+/// Detects:
+/// 1. Functions with many required parameters (high error risk)
+/// 2. Override methods with different signatures than parent
+/// 3. Functions called frequently with complex signatures
+pub struct ArgumentMismatchDetector {
+    config: DetectorConfig,
+    /// Max required params before flagging
+    max_required_params: usize,
+    /// Min callers to consider high-risk
+    min_callers_for_risk: usize,
+    /// Max findings to report
+    max_findings: usize,
+}
+
+impl ArgumentMismatchDetector {
+    /// Create a new argument mismatch detector
+    pub fn new() -> Self {
+        Self {
+            config: DetectorConfig::default(),
+            max_required_params: 5,
+            min_callers_for_risk: 3,
+            max_findings: 50,
+        }
+    }
+
+    /// Set max required params threshold
+    pub fn with_max_required_params(mut self, max: usize) -> Self {
+        self.max_required_params = max;
+        self
+    }
+
+    /// Set min callers threshold
+    pub fn with_min_callers(mut self, min: usize) -> Self {
+        self.min_callers_for_risk = min;
+        self
+    }
+
+    /// Patterns to exclude (special methods, test functions)
+    fn exclude_patterns() -> Vec<&'static str> {
+        vec![
+            "__init__",
+            "__new__",
+            "test_",
+            "_test",
+            "mock_",
+        ]
+    }
+
+    /// Check if function should be excluded
+    fn should_exclude(func_name: &str) -> bool {
+        let func_lower = func_name.to_lowercase();
+        Self::exclude_patterns()
+            .iter()
+            .any(|pattern| func_lower.contains(pattern))
+    }
+
+    /// Check if function has variadic params (*args, **kwargs)
+    fn has_variadic_params(parameters: &[String]) -> bool {
+        parameters.iter().any(|p| p.starts_with('*'))
+    }
+
+    /// Count required parameters (no default value)
+    fn count_required_params(parameters: &[String]) -> usize {
+        parameters
+            .iter()
+            .filter(|p| {
+                // Skip self/cls
+                if *p == "self" || *p == "cls" {
+                    return false;
+                }
+                // Skip variadic
+                if p.starts_with('*') {
+                    return false;
+                }
+                // Assume params without = are required
+                true
+            })
+            .count()
+    }
+
+    /// Find functions with risky signatures
+    fn detect_risky_signatures(&self, graph: &GraphClient) -> anyhow::Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+
+        let query = format!(
+            r#"
+            MATCH (f:Function)
+            WHERE f.qualifiedName IS NOT NULL
+              AND f.parameters IS NOT NULL
+              AND size(f.parameters) >= {}
+
+            OPTIONAL MATCH (caller:Function)-[:CALLS]->(f)
+            WITH f, count(DISTINCT caller) AS caller_count
+            WHERE caller_count >= {}
+
+            RETURN
+                f.qualifiedName AS qualified_name,
+                f.name AS func_name,
+                f.parameters AS parameters,
+                f.lineStart AS line_start,
+                f.lineEnd AS line_end,
+                f.filePath AS file_path,
+                caller_count
+            ORDER BY caller_count DESC, size(f.parameters) DESC
+            LIMIT {}
+            "#,
+            self.max_required_params, self.min_callers_for_risk, self.max_findings
+        );
+
+        let results = graph.execute(&query)?;
+
+        for row in results {
+            let func_name = row.get_string("func_name").unwrap_or_default();
+
+            // Skip excluded patterns
+            if Self::should_exclude(&func_name) {
+                continue;
+            }
+
+            let parameters: Vec<String> = row
+                .get_string_array("parameters")
+                .unwrap_or_default();
+
+            // Skip if has variadic params (flexible signature)
+            if Self::has_variadic_params(&parameters) {
+                continue;
+            }
+
+            // Count required params
+            let required_count = Self::count_required_params(&parameters);
+
+            if required_count >= self.max_required_params {
+                if findings.len() >= self.max_findings {
+                    break;
+                }
+
+                let finding = self.create_risky_signature_finding(&row, required_count);
+                findings.push(finding);
+            }
+        }
+
+        Ok(findings)
+    }
+
+    /// Find override signature mismatches
+    fn detect_override_mismatches(&self, graph: &GraphClient) -> anyhow::Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+
+        let query = r#"
+            MATCH (childClass:Class)-[:INHERITS]->(parentClass:Class)
+            MATCH (childClass)-[:CONTAINS]->(childMethod:Function)
+            MATCH (parentClass)-[:CONTAINS]->(parentMethod:Function)
+            WHERE childMethod.name = parentMethod.name
+              AND childMethod.name IS NOT NULL
+              AND childMethod.parameters IS NOT NULL
+              AND parentMethod.parameters IS NOT NULL
+              AND size(childMethod.parameters) <> size(parentMethod.parameters)
+
+            RETURN
+                childMethod.qualifiedName AS qualified_name,
+                childMethod.name AS method_name,
+                childMethod.parameters AS child_params,
+                childMethod.lineStart AS line_start,
+                childMethod.lineEnd AS line_end,
+                parentMethod.qualifiedName AS parent_qualified_name,
+                parentMethod.parameters AS parent_params,
+                childClass.name AS child_class,
+                parentClass.name AS parent_class,
+                childMethod.filePath AS file_path
+            LIMIT 50
+        "#;
+
+        let results = graph.execute(query)?;
+
+        for row in results {
+            let method_name = row.get_string("method_name").unwrap_or_default();
+
+            // Skip dunder methods and excluded patterns
+            if method_name.starts_with("__") || Self::should_exclude(&method_name) {
+                continue;
+            }
+
+            let child_params: Vec<String> = row
+                .get_string_array("child_params")
+                .unwrap_or_default();
+            let parent_params: Vec<String> = row
+                .get_string_array("parent_params")
+                .unwrap_or_default();
+
+            // Skip if both have variadic params (likely intentional)
+            if Self::has_variadic_params(&child_params) && Self::has_variadic_params(&parent_params)
+            {
+                continue;
+            }
+
+            if findings.len() >= self.max_findings {
+                break;
+            }
+
+            let finding = self.create_override_mismatch_finding(&row);
+            findings.push(finding);
+        }
+
+        Ok(findings)
+    }
+
+    fn create_risky_signature_finding(
+        &self,
+        row: &crate::graph::QueryRow,
+        required_count: usize,
+    ) -> Finding {
+        let qualified_name = row.get_string("qualified_name").unwrap_or_default();
+        let func_name = row.get_string("func_name").unwrap_or_default();
+        let parameters: Vec<String> = row
+            .get_string_array("parameters")
+            .unwrap_or_default();
+        let caller_count = row.get_i64("caller_count").unwrap_or(0);
+        let file_path = row.get_string("file_path").unwrap_or_default();
+        let line_start = row.get_i64("line_start");
+
+        let description = format!(
+            "Function '{}' has {} parameters ({} required) and is called by {} \
+             functions. This complex signature is error-prone and may lead \
+             to argument mismatches at call sites.",
+            func_name,
+            parameters.len(),
+            required_count,
+            caller_count
+        );
+
+        let recommendation = r#"Consider one of the following:
+1. Use a configuration object/dataclass to group related parameters
+2. Add **kwargs for optional parameters
+3. Provide sensible default values for rarely-changed parameters
+4. Split the function into smaller, focused functions"#;
+
+        Finding {
+            id: format!("arg_mismatch_risky_sig_{}", qualified_name),
+            detector: "ArgumentMismatchDetector".to_string(),
+            severity: Severity::High,
+            title: format!("Risky signature: {} ({} required params)", func_name, required_count),
+            description,
+            affected_nodes: vec![qualified_name],
+            affected_files: if file_path.is_empty() {
+                vec![]
+            } else {
+                vec![file_path]
+            },
+            line_start,
+            line_end: row.get_i64("line_end"),
+            suggested_fix: Some(recommendation.to_string()),
+            estimated_effort: Some("Medium (1-2 hours)".to_string()),
+            confidence: 0.70,
+            tags: vec![
+                "argument_mismatch".to_string(),
+                "signature_complexity".to_string(),
+                "maintainability".to_string(),
+            ],
+            metadata: serde_json::json!({
+                "param_count": parameters.len(),
+                "required_count": required_count,
+                "caller_count": caller_count,
+                "parameters": parameters.iter().take(10).collect::<Vec<_>>(),
+            }),
+        }
+    }
+
+    fn create_override_mismatch_finding(&self, row: &crate::graph::QueryRow) -> Finding {
+        let qualified_name = row.get_string("qualified_name").unwrap_or_default();
+        let method_name = row.get_string("method_name").unwrap_or_default();
+        let child_params: Vec<String> = row
+            .get_string_array("child_params")
+            .unwrap_or_default();
+        let parent_params: Vec<String> = row
+            .get_string_array("parent_params")
+            .unwrap_or_default();
+        let child_class = row.get_string("child_class").unwrap_or_default();
+        let parent_class = row.get_string("parent_class").unwrap_or_default();
+        let parent_qn = row.get_string("parent_qualified_name").unwrap_or_default();
+        let file_path = row.get_string("file_path").unwrap_or_default();
+        let line_start = row.get_i64("line_start");
+
+        let description = format!(
+            "Method '{}' in {} has {} parameters but parent method in {} has \
+             {} parameters. This signature mismatch may cause runtime errors \
+             when the method is called polymorphically.",
+            method_name,
+            child_class,
+            child_params.len(),
+            parent_class,
+            parent_params.len()
+        );
+
+        let recommendation = r#"Ensure the override method signature is compatible with the parent:
+1. Match the number of required parameters
+2. Use *args, **kwargs if you need different signatures
+3. Add default values to additional parameters
+4. Consider if this should be a separate method, not an override"#;
+
+        let mut affected_nodes = vec![qualified_name.clone()];
+        if !parent_qn.is_empty() {
+            affected_nodes.push(parent_qn);
+        }
+
+        Finding {
+            id: format!("arg_mismatch_override_{}", qualified_name),
+            detector: "ArgumentMismatchDetector".to_string(),
+            severity: Severity::High,
+            title: format!(
+                "Override mismatch: {}.{} vs {}.{}",
+                child_class, method_name, parent_class, method_name
+            ),
+            description,
+            affected_nodes,
+            affected_files: if file_path.is_empty() {
+                vec![]
+            } else {
+                vec![file_path]
+            },
+            line_start,
+            line_end: row.get_i64("line_end"),
+            suggested_fix: Some(recommendation.to_string()),
+            estimated_effort: Some("Small (30 minutes)".to_string()),
+            confidence: 0.85,
+            tags: vec![
+                "argument_mismatch".to_string(),
+                "override".to_string(),
+                "polymorphism".to_string(),
+                "bug_risk".to_string(),
+            ],
+            metadata: serde_json::json!({
+                "child_param_count": child_params.len(),
+                "parent_param_count": parent_params.len(),
+                "child_class": child_class,
+                "parent_class": parent_class,
+                "child_params": child_params.iter().take(10).collect::<Vec<_>>(),
+                "parent_params": parent_params.iter().take(10).collect::<Vec<_>>(),
+            }),
+        }
+    }
+}
+
+impl Default for ArgumentMismatchDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Detector for ArgumentMismatchDetector {
+    fn name(&self) -> &'static str {
+        "ArgumentMismatchDetector"
+    }
+
+    fn description(&self) -> &'static str {
+        "Detects potential argument mismatch issues via signature analysis"
+    }
+
+    fn detect(&self, graph: &GraphClient) -> DetectorResult {
+        let mut findings = Vec::new();
+
+        // Detection 1: Risky signatures
+        match self.detect_risky_signatures(graph) {
+            Ok(risky) => findings.extend(risky),
+            Err(e) => tracing::warn!("Failed to detect risky signatures: {}", e),
+        }
+
+        // Detection 2: Override mismatches
+        match self.detect_override_mismatches(graph) {
+            Ok(overrides) => findings.extend(overrides),
+            Err(e) => tracing::warn!("Failed to detect override mismatches: {}", e),
+        }
+
+        Ok(findings)
+    }
+
+    fn is_dependent(&self) -> bool {
+        false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_should_exclude() {
+        assert!(ArgumentMismatchDetector::should_exclude("__init__"));
+        assert!(ArgumentMismatchDetector::should_exclude("test_something"));
+        assert!(!ArgumentMismatchDetector::should_exclude("process_data"));
+    }
+
+    #[test]
+    fn test_has_variadic() {
+        assert!(ArgumentMismatchDetector::has_variadic_params(&[
+            "a".to_string(),
+            "*args".to_string()
+        ]));
+        assert!(ArgumentMismatchDetector::has_variadic_params(&[
+            "a".to_string(),
+            "**kwargs".to_string()
+        ]));
+        assert!(!ArgumentMismatchDetector::has_variadic_params(&[
+            "a".to_string(),
+            "b".to_string()
+        ]));
+    }
+
+    #[test]
+    fn test_count_required() {
+        let params = vec![
+            "self".to_string(),
+            "a".to_string(),
+            "b".to_string(),
+            "*args".to_string(),
+        ];
+        assert_eq!(ArgumentMismatchDetector::count_required_params(&params), 2);
+    }
+}

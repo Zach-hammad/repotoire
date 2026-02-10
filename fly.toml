@@ -1,0 +1,39 @@
+# Fly.io configuration for Repotoire API
+# Deploy with: fly deploy
+
+app = 'repotoire-api'
+primary_region = 'iad'
+
+[build]
+  dockerfile = "Dockerfile.api"
+
+[env]
+  ENVIRONMENT = "production"
+  LOG_LEVEL = "INFO"
+  PORT = "8000"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = 'suspend'  # Suspend when idle (cheaper than stop)
+  auto_start_machines = true
+  min_machines_running = 0  # Scale to zero when no traffic
+  processes = ['app']
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 250
+    soft_limit = 200
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "30s"
+    path = "/health"
+
+[[vm]]
+  memory = '2gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  # Swap provides burst memory for ML model loading spikes
+  swap_size_mb = 512

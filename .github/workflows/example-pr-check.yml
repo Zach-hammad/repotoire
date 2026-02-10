@@ -1,0 +1,32 @@
+# Example workflow for Repotoire PR checks
+# Copy this to your repo as .github/workflows/repotoire.yml
+
+name: Repotoire
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+
+jobs:
+  analyze:
+    name: Code Analysis
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      pull-requests: write
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Repotoire
+        uses: repotoire/repotoire/.github/actions/pr-check@main
+        with:
+          severity: medium        # Report medium+ severity issues
+          fail-on: high           # Fail check on high/critical issues
+          changed-only: true      # Only analyze changed files
+          # Optional: Add API keys for AI-powered fix suggestions
+          # openai-key: ${{ secrets.OPENAI_API_KEY }}

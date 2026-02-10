@@ -1,0 +1,85 @@
+[package]
+name = "repotoire"
+version = "0.2.14"
+edition = "2021"
+description = "Graph-powered code analysis CLI"
+license = "MIT"
+repository = "https://github.com/Zach-hammad/repotoire"
+readme = "README.md"
+keywords = ["code-analysis", "linter", "graph", "rust"]
+categories = ["development-tools", "command-line-utilities"]
+exclude = [
+    "target/",
+    ".repotoire/",
+    "*.db",
+    "*.lock",
+    ".git/",
+    "tests/",
+    "benches/",
+]
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+indicatif = "0.17"  # Progress bars
+console = "0.15"    # Terminal styling
+
+# Graph database
+kuzu = "0.8"
+
+# Parsing
+tree-sitter = "0.24"
+tree-sitter-python = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-rust = "0.23"
+tree-sitter-go = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-c-sharp = "0.23"
+tree-sitter-kotlin = "0.3"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+
+# Graph algorithms (from repotoire-fast)
+rayon = "1.11"
+rustc-hash = "2"
+petgraph = "0.7"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Async (for AI API calls)
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Git history
+git2 = "0.19"
+
+# Misc
+walkdir = "2"
+ignore = "0.4"  # .gitignore support
+glob = "0.3"
+regex = "1"
+chrono = "0.4"
+uuid = { version = "1", features = ["v4"] }
+streaming-iterator = "0.1"
+lazy_static = "1.5"
+md5 = "0.7"
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+[[bin]]
+name = "repotoire"
+path = "src/main.rs"

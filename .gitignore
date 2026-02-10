@@ -1,0 +1,101 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+# Python lib directories (not src/lib for web apps)
+/lib/
+/lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Neo4j
+.neo4j/
+neo4j-data/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Node.js / npm
+node_modules/
+.next/
+.vercel/
+
+# Project specific
+examples/output/
+*.db
+
+# Analysis outputs
+*_analysis.json
+analysis_results.json
+falkor-*.html
+test.html
+
+# Generated scripts
+falkor.sh
+
+# Temporary test files
+test_ingestion.py
+benchmark.py
+
+# Rust
+repotoire-fast/target/
+Cargo.lock
+
+# Lean 4
+lean/.lake/
+lean/lake-manifest.json
+.vercel
+.env.production.local
+
+# Benchmark files
+benchmarks/
+**/bench_*.py
+
+# Claude Code (keep architecture-patterns.json for documentation)
+.claude/*
+!.claude/architecture-patterns.json
+
+# Playwright MCP
+.playwright-mcp/
+.repotoire/

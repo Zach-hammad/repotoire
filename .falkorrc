@@ -1,0 +1,41 @@
+# Falkor Configuration File (.falkorrc)
+#
+# This file configures Falkor's behavior. It can be placed:
+# - In your project root: .falkorrc
+# - In your home directory: ~/.falkorrc
+# - In your config directory: ~/.config/falkor.toml
+#
+# Environment variables can be referenced using ${VAR_NAME} syntax.
+
+neo4j:
+  uri: bolt://localhost:7688
+  user: neo4j
+  password: ${FALKOR_NEO4J_PASSWORD}
+  max_retries: 3
+  retry_backoff_factor: 2.0
+  retry_base_delay: 1.0
+ingestion:
+  patterns:
+  - '**/*.py'
+  follow_symlinks: false
+  max_file_size_mb: 10.0
+  batch_size: 100
+analysis:
+  min_modularity: 0.3
+  max_coupling: 5.0
+detectors:
+  god_class_high_method_count: 20
+  god_class_medium_method_count: 15
+  god_class_high_complexity: 100
+  god_class_medium_complexity: 50
+  god_class_high_loc: 500
+  god_class_medium_loc: 300
+  god_class_high_lcom: 0.8
+  god_class_medium_lcom: 0.6
+secrets:
+  enabled: true
+  policy: redact
+logging:
+  level: INFO
+  format: human
+  file: null

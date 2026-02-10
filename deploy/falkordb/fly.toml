@@ -1,0 +1,46 @@
+# Fly.io configuration for Repotoire FalkorDB
+# Deploy with: fly deploy --config deploy/falkordb/fly.toml
+#
+# Prerequisites:
+#   1. Create app: fly apps create repotoire-falkor
+#   2. Create volume: fly volumes create falkordb_data --region iad --size 10 -a repotoire-falkor
+#   3. Set secret: fly secrets set FALKOR_PASSWORD=<secure-password> -a repotoire-falkor
+#   4. Deploy: fly deploy --config deploy/falkordb/fly.toml
+
+app = 'repotoire-falkor'
+primary_region = 'iad'
+
+[build]
+  dockerfile = "Dockerfile"
+
+[mounts]
+  source = "falkordb_data"
+  destination = "/var/lib/falkordb/data"
+
+[env]
+  # FalkorDB module configuration
+  # THREAD_COUNT=1 prevents oversubscription on 1 vCPU
+  # TIMEOUT_DEFAULT prevents hung queries
+  # QUERY_MEM_CAPACITY limits memory per query (100MB)
+  FALKORDB_ARGS = "THREAD_COUNT 1 OMP_THREAD_COUNT 1 CACHE_SIZE 25 MAX_QUEUED_QUERIES 50 QUERY_MEM_CAPACITY 104857600 TIMEOUT_DEFAULT 60000"
+
+# TCP service for Redis protocol connections
+[[services]]
+  internal_port = 6379
+  protocol = "tcp"
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 6379
+
+  [[services.tcp_checks]]
+    grace_period = "10s"
+    interval = "15s"
+    timeout = "5s"
+
+[[vm]]
+  memory = '4gb'
+  cpu_kind = 'performance'
+  cpus = 1

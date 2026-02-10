@@ -1,0 +1,657 @@
+//! Java parser using tree-sitter
+//!
+//! Extracts classes, interfaces, methods, imports, and call relationships from Java source code.
+
+use crate::models::{Class, Function};
+use crate::parsers::ParseResult;
+use anyhow::{Context, Result};
+use std::collections::HashMap;
+use std::path::Path;
+use streaming_iterator::StreamingIterator;
+use tree_sitter::{Node, Parser, Query, QueryCursor};
+
+/// Parse a Java file and extract all code entities
+pub fn parse(path: &Path) -> Result<ParseResult> {
+    let source = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read file: {}", path.display()))?;
+
+    parse_source(&source, path)
+}
+
+/// Parse Java source code directly (useful for testing)
+pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
+    let mut parser = Parser::new();
+    let language = tree_sitter_java::LANGUAGE;
+    parser
+        .set_language(&language.into())
+        .context("Failed to set Java language")?;
+
+    let tree = parser
+        .parse(source, None)
+        .context("Failed to parse Java source")?;
+
+    let root = tree.root_node();
+    let source_bytes = source.as_bytes();
+
+    let mut result = ParseResult::default();
+
+    extract_classes_and_interfaces(&root, source_bytes, path, &mut result)?;
+    extract_imports(&root, source_bytes, &mut result)?;
+    extract_calls(&root, source_bytes, path, &mut result)?;
+
+    Ok(result)
+}
+
+/// Extract class and interface definitions from the AST
+fn extract_classes_and_interfaces(
+    root: &Node,
+    source: &[u8],
+    path: &Path,
+    result: &mut ParseResult,
+) -> Result<()> {
+    extract_classes_recursive(root, source, path, result, None);
+    Ok(())
+}
+
+/// Recursively extract classes (handles nested classes)
+fn extract_classes_recursive(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    result: &mut ParseResult,
+    parent_class: Option<&str>,
+) {
+    for child in node.children(&mut node.walk()) {
+        match child.kind() {
+            "class_declaration" => {
+                if let Some(class) = parse_class_node(&child, source, path, parent_class) {
+                    let class_name = class.name.clone();
+                    // Extract methods from the class
+                    extract_class_methods(&child, source, path, result, &class_name);
+                    result.classes.push(class);
+
+                    // Handle nested classes
+                    if let Some(body) = child.child_by_field_name("body") {
+                        extract_classes_recursive(&body, source, path, result, Some(&class_name));
+                    }
+                }
+            }
+            "interface_declaration" => {
+                if let Some(iface) = parse_interface_node(&child, source, path, parent_class) {
+                    let iface_name = iface.name.clone();
+                    // Extract methods from the interface
+                    extract_interface_methods(&child, source, path, result, &iface_name);
+                    result.classes.push(iface);
+                }
+            }
+            "enum_declaration" => {
+                if let Some(enum_class) = parse_enum_node(&child, source, path, parent_class) {
+                    let enum_name = enum_class.name.clone();
+                    extract_class_methods(&child, source, path, result, &enum_name);
+                    result.classes.push(enum_class);
+                }
+            }
+            "record_declaration" => {
+                if let Some(record) = parse_record_node(&child, source, path, parent_class) {
+                    let record_name = record.name.clone();
+                    extract_class_methods(&child, source, path, result, &record_name);
+                    result.classes.push(record);
+                }
+            }
+            _ => {
+                // Continue searching in other nodes
+                extract_classes_recursive(&child, source, path, result, parent_class);
+            }
+        }
+    }
+}
+
+/// Parse a class declaration into a Class struct
+fn parse_class_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str>) -> Option<Class> {
+    let name_node = node.child_by_field_name("name")?;
+    let name = name_node.utf8_text(source).ok()?.to_string();
+
+    let full_name = if let Some(parent_name) = parent {
+        format!("{}.{}", parent_name, name)
+    } else {
+        name.clone()
+    };
+
+    let line_start = node.start_position().row as u32 + 1;
+    let line_end = node.end_position().row as u32 + 1;
+    let qualified_name = format!("{}::{}:{}", path.display(), full_name, line_start);
+
+    // Extract superclass
+    let mut bases = Vec::new();
+    if let Some(superclass) = node.child_by_field_name("superclass") {
+        if let Ok(text) = superclass.utf8_text(source) {
+            // Remove 'extends ' prefix if present
+            let base = text.trim_start_matches("extends ").trim().to_string();
+            if !base.is_empty() {
+                bases.push(base);
+            }
+        }
+    }
+
+    // Extract implemented interfaces
+    if let Some(interfaces) = node.child_by_field_name("interfaces") {
+        for child in interfaces.children(&mut interfaces.walk()) {
+            if child.kind() == "type_identifier" || child.kind() == "generic_type" {
+                if let Ok(text) = child.utf8_text(source) {
+                    bases.push(text.to_string());
+                }
+            }
+        }
+    }
+
+    // Extract method names from body
+    let methods = extract_method_names(node, source);
+
+    Some(Class {
+        name: full_name,
+        qualified_name,
+        file_path: path.to_path_buf(),
+        line_start,
+        line_end,
+        methods,
+        bases,
+    })
+}
+
+/// Parse an interface declaration into a Class struct
+fn parse_interface_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str>) -> Option<Class> {
+    let name_node = node.child_by_field_name("name")?;
+    let name = name_node.utf8_text(source).ok()?.to_string();
+
+    let full_name = if let Some(parent_name) = parent {
+        format!("{}.{}", parent_name, name)
+    } else {
+        name.clone()
+    };
+
+    let line_start = node.start_position().row as u32 + 1;
+    let line_end = node.end_position().row as u32 + 1;
+    let qualified_name = format!("{}::interface::{}:{}", path.display(), full_name, line_start);
+
+    // Extract extended interfaces
+    let mut bases = Vec::new();
+    for child in node.children(&mut node.walk()) {
+        if child.kind() == "extends_interfaces" {
+            for grandchild in child.children(&mut child.walk()) {
+                if grandchild.kind() == "type_identifier" || grandchild.kind() == "generic_type" {
+                    if let Ok(text) = grandchild.utf8_text(source) {
+                        bases.push(text.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    let methods = extract_method_names(node, source);
+
+    Some(Class {
+        name: full_name,
+        qualified_name,
+        file_path: path.to_path_buf(),
+        line_start,
+        line_end,
+        methods,
+        bases,
+    })
+}
+
+/// Parse an enum declaration into a Class struct
+fn parse_enum_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str>) -> Option<Class> {
+    let name_node = node.child_by_field_name("name")?;
+    let name = name_node.utf8_text(source).ok()?.to_string();
+
+    let full_name = if let Some(parent_name) = parent {
+        format!("{}.{}", parent_name, name)
+    } else {
+        name.clone()
+    };
+
+    let line_start = node.start_position().row as u32 + 1;
+    let line_end = node.end_position().row as u32 + 1;
+    let qualified_name = format!("{}::enum::{}:{}", path.display(), full_name, line_start);
+
+    let methods = extract_method_names(node, source);
+
+    Some(Class {
+        name: full_name,
+        qualified_name,
+        file_path: path.to_path_buf(),
+        line_start,
+        line_end,
+        methods,
+        bases: vec![],
+    })
+}
+
+/// Parse a record declaration into a Class struct
+fn parse_record_node(node: &Node, source: &[u8], path: &Path, parent: Option<&str>) -> Option<Class> {
+    let name_node = node.child_by_field_name("name")?;
+    let name = name_node.utf8_text(source).ok()?.to_string();
+
+    let full_name = if let Some(parent_name) = parent {
+        format!("{}.{}", parent_name, name)
+    } else {
+        name.clone()
+    };
+
+    let line_start = node.start_position().row as u32 + 1;
+    let line_end = node.end_position().row as u32 + 1;
+    let qualified_name = format!("{}::record::{}:{}", path.display(), full_name, line_start);
+
+    let methods = extract_method_names(node, source);
+
+    Some(Class {
+        name: full_name,
+        qualified_name,
+        file_path: path.to_path_buf(),
+        line_start,
+        line_end,
+        methods,
+        bases: vec![],
+    })
+}
+
+/// Extract method names from a class/interface body
+fn extract_method_names(class_node: &Node, source: &[u8]) -> Vec<String> {
+    let mut methods = Vec::new();
+
+    let body = class_node.child_by_field_name("body");
+    let body_node = body.as_ref().unwrap_or(class_node);
+
+    for child in body_node.children(&mut body_node.walk()) {
+        if child.kind() == "method_declaration" {
+            if let Some(name_node) = child.child_by_field_name("name") {
+                if let Ok(name) = name_node.utf8_text(source) {
+                    methods.push(name.to_string());
+                }
+            }
+        } else if child.kind() == "constructor_declaration" {
+            if let Some(name_node) = child.child_by_field_name("name") {
+                if let Ok(name) = name_node.utf8_text(source) {
+                    methods.push(format!("<init>:{}", name));
+                }
+            }
+        }
+    }
+
+    methods
+}
+
+/// Extract methods from a class body as Function entities
+fn extract_class_methods(
+    class_node: &Node,
+    source: &[u8],
+    path: &Path,
+    result: &mut ParseResult,
+    class_name: &str,
+) {
+    let body = class_node.child_by_field_name("body");
+    let body_node = body.as_ref().unwrap_or(class_node);
+
+    for child in body_node.children(&mut body_node.walk()) {
+        if child.kind() == "method_declaration" {
+            if let Some(func) = parse_method_node(&child, source, path, class_name) {
+                result.functions.push(func);
+            }
+        } else if child.kind() == "constructor_declaration" {
+            if let Some(func) = parse_constructor_node(&child, source, path, class_name) {
+                result.functions.push(func);
+            }
+        }
+    }
+}
+
+/// Extract methods from an interface body
+fn extract_interface_methods(
+    iface_node: &Node,
+    source: &[u8],
+    path: &Path,
+    result: &mut ParseResult,
+    iface_name: &str,
+) {
+    let body = iface_node.child_by_field_name("body");
+    let body_node = body.as_ref().unwrap_or(iface_node);
+
+    for child in body_node.children(&mut body_node.walk()) {
+        if child.kind() == "method_declaration" {
+            if let Some(func) = parse_method_node(&child, source, path, iface_name) {
+                result.functions.push(func);
+            }
+        }
+    }
+}
+
+/// Parse a method declaration into a Function struct
+fn parse_method_node(node: &Node, source: &[u8], path: &Path, class_name: &str) -> Option<Function> {
+    let name_node = node.child_by_field_name("name")?;
+    let name = name_node.utf8_text(source).ok()?.to_string();
+
+    let params_node = node.child_by_field_name("parameters");
+    let parameters = extract_parameters(params_node, source);
+
+    let return_type = node
+        .child_by_field_name("type")
+        .and_then(|n| n.utf8_text(source).ok())
+        .map(|s| s.to_string());
+
+    let line_start = node.start_position().row as u32 + 1;
+    let line_end = node.end_position().row as u32 + 1;
+    let qualified_name = format!("{}::{}.{}:{}", path.display(), class_name, name, line_start);
+
+    Some(Function {
+        name,
+        qualified_name,
+        file_path: path.to_path_buf(),
+        line_start,
+        line_end,
+        parameters,
+        return_type,
+        is_async: false,
+        complexity: Some(calculate_complexity(node, source)),
+    })
+}
+
+/// Parse a constructor declaration into a Function struct
+fn parse_constructor_node(node: &Node, source: &[u8], path: &Path, class_name: &str) -> Option<Function> {
+    let name_node = node.child_by_field_name("name")?;
+    let name = name_node.utf8_text(source).ok()?.to_string();
+
+    let params_node = node.child_by_field_name("parameters");
+    let parameters = extract_parameters(params_node, source);
+
+    let line_start = node.start_position().row as u32 + 1;
+    let line_end = node.end_position().row as u32 + 1;
+    let qualified_name = format!("{}::{}.<init>:{}", path.display(), class_name, line_start);
+
+    Some(Function {
+        name: format!("<init>:{}", name),
+        qualified_name,
+        file_path: path.to_path_buf(),
+        line_start,
+        line_end,
+        parameters,
+        return_type: Some(class_name.to_string()),
+        is_async: false,
+        complexity: Some(calculate_complexity(node, source)),
+    })
+}
+
+/// Extract parameter names from a formal parameters node
+fn extract_parameters(params_node: Option<Node>, source: &[u8]) -> Vec<String> {
+    let Some(node) = params_node else {
+        return vec![];
+    };
+
+    let mut params = Vec::new();
+
+    for child in node.children(&mut node.walk()) {
+        if child.kind() == "formal_parameter" || child.kind() == "spread_parameter" {
+            if let Some(name_node) = child.child_by_field_name("name") {
+                if let Ok(text) = name_node.utf8_text(source) {
+                    params.push(text.to_string());
+                }
+            }
+        }
+    }
+
+    params
+}
+
+/// Extract import statements from the AST
+fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Result<()> {
+    let query_str = r#"
+        (import_declaration
+            (scoped_identifier) @import_path
+        )
+        (import_declaration
+            (identifier) @import_path
+        )
+    "#;
+
+    let language = tree_sitter_java::LANGUAGE;
+    let query = Query::new(&language.into(), query_str).context("Failed to create import query")?;
+
+    let mut cursor = QueryCursor::new();
+    let mut matches = cursor.matches(&query, *root, source);
+
+    while let Some(m) = matches.next() {
+        for capture in m.captures.iter() {
+            if let Ok(text) = capture.node.utf8_text(source) {
+                result.imports.push(text.to_string());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Extract method calls from the AST
+fn extract_calls(
+    root: &Node,
+    source: &[u8],
+    path: &Path,
+    result: &mut ParseResult,
+) -> Result<()> {
+    let mut scope_map: HashMap<(u32, u32), String> = HashMap::new();
+
+    for func in &result.functions {
+        scope_map.insert(
+            (func.line_start, func.line_end),
+            func.qualified_name.clone(),
+        );
+    }
+
+    extract_calls_recursive(root, source, path, &scope_map, result);
+
+    Ok(())
+}
+
+/// Recursively extract calls from the AST
+fn extract_calls_recursive(
+    node: &Node,
+    source: &[u8],
+    path: &Path,
+    scope_map: &HashMap<(u32, u32), String>,
+    result: &mut ParseResult,
+) {
+    if node.kind() == "method_invocation" {
+        let call_line = node.start_position().row as u32 + 1;
+        let caller = find_containing_scope(call_line, scope_map);
+
+        if let Some(name_node) = node.child_by_field_name("name") {
+            if let Ok(callee) = name_node.utf8_text(source) {
+                // Also try to get the object being called on
+                let full_callee = if let Some(obj_node) = node.child_by_field_name("object") {
+                    if let Ok(obj) = obj_node.utf8_text(source) {
+                        format!("{}.{}", obj, callee)
+                    } else {
+                        callee.to_string()
+                    }
+                } else {
+                    callee.to_string()
+                };
+
+                if let Some(caller) = caller {
+                    result.calls.push((caller, full_callee));
+                }
+            }
+        }
+    }
+
+    // Handle object creation expressions
+    if node.kind() == "object_creation_expression" {
+        let call_line = node.start_position().row as u32 + 1;
+        let caller = find_containing_scope(call_line, scope_map);
+
+        if let Some(type_node) = node.child_by_field_name("type") {
+            if let Ok(callee) = type_node.utf8_text(source) {
+                if let Some(caller) = caller {
+                    result.calls.push((caller, format!("new {}", callee)));
+                }
+            }
+        }
+    }
+
+    for child in node.children(&mut node.walk()) {
+        extract_calls_recursive(&child, source, path, scope_map, result);
+    }
+}
+
+/// Find which scope contains a given line
+fn find_containing_scope(line: u32, scope_map: &HashMap<(u32, u32), String>) -> Option<String> {
+    let mut best_match: Option<(&(u32, u32), &String)> = None;
+
+    for (range, name) in scope_map {
+        if line >= range.0 && line <= range.1 {
+            match best_match {
+                None => best_match = Some((range, name)),
+                Some((best_range, _)) => {
+                    if (range.1 - range.0) < (best_range.1 - best_range.0) {
+                        best_match = Some((range, name));
+                    }
+                }
+            }
+        }
+    }
+
+    best_match.map(|(_, name)| name.clone())
+}
+
+/// Calculate cyclomatic complexity of a method
+fn calculate_complexity(node: &Node, _source: &[u8]) -> u32 {
+    let mut complexity = 1;
+
+    fn count_branches(node: &Node, complexity: &mut u32) {
+        match node.kind() {
+            "if_statement" | "while_statement" | "for_statement" | "enhanced_for_statement" | "do_statement" => {
+                *complexity += 1;
+            }
+            "catch_clause" => {
+                *complexity += 1;
+            }
+            "switch_expression_arm" | "switch_block_statement_group" => {
+                *complexity += 1;
+            }
+            "ternary_expression" => {
+                *complexity += 1;
+            }
+            "binary_expression" => {
+                for child in node.children(&mut node.walk()) {
+                    if child.kind() == "&&" || child.kind() == "||" {
+                        *complexity += 1;
+                    }
+                }
+            }
+            "lambda_expression" => {
+                *complexity += 1;
+            }
+            _ => {}
+        }
+
+        for child in node.children(&mut node.walk()) {
+            count_branches(&child, complexity);
+        }
+    }
+
+    count_branches(node, &mut complexity);
+    complexity
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_parse_simple_class() {
+        let source = r#"
+public class HelloWorld {
+    public static void main(String[] args) {
+        System.out.println("Hello, World!");
+    }
+}
+"#;
+        let path = PathBuf::from("HelloWorld.java");
+        let result = parse_source(source, &path).unwrap();
+
+        assert_eq!(result.classes.len(), 1);
+        let class = &result.classes[0];
+        assert_eq!(class.name, "HelloWorld");
+        assert!(class.methods.contains(&"main".to_string()));
+    }
+
+    #[test]
+    fn test_parse_class_with_inheritance() {
+        let source = r#"
+public class Child extends Parent implements Runnable, Serializable {
+    @Override
+    public void run() {}
+}
+"#;
+        let path = PathBuf::from("Child.java");
+        let result = parse_source(source, &path).unwrap();
+
+        assert_eq!(result.classes.len(), 1);
+        let class = &result.classes[0];
+        assert_eq!(class.name, "Child");
+        assert!(class.bases.iter().any(|b| b.contains("Parent")));
+    }
+
+    #[test]
+    fn test_parse_interface() {
+        let source = r#"
+public interface MyInterface {
+    void doSomething();
+    default void doDefault() {}
+}
+"#;
+        let path = PathBuf::from("MyInterface.java");
+        let result = parse_source(source, &path).unwrap();
+
+        assert_eq!(result.classes.len(), 1);
+        let iface = &result.classes[0];
+        assert_eq!(iface.name, "MyInterface");
+    }
+
+    #[test]
+    fn test_parse_imports() {
+        let source = r#"
+import java.util.List;
+import java.util.Map;
+import static java.lang.Math.PI;
+
+public class Test {}
+"#;
+        let path = PathBuf::from("Test.java");
+        let result = parse_source(source, &path).unwrap();
+
+        assert!(result.imports.iter().any(|i| i.contains("java.util.List")));
+        assert!(result.imports.iter().any(|i| i.contains("java.util.Map")));
+    }
+
+    #[test]
+    fn test_parse_methods() {
+        let source = r#"
+public class Calculator {
+    public int add(int a, int b) {
+        return a + b;
+    }
+
+    public int subtract(int a, int b) {
+        return a - b;
+    }
+}
+"#;
+        let path = PathBuf::from("Calculator.java");
+        let result = parse_source(source, &path).unwrap();
+
+        assert_eq!(result.functions.len(), 2);
+        assert!(result.functions.iter().any(|f| f.name == "add"));
+        assert!(result.functions.iter().any(|f| f.name == "subtract"));
+    }
+}

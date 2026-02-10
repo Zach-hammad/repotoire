@@ -1,0 +1,12 @@
+# Pre-commit hooks for Repotoire
+# See https://pre-commit.com for more information
+
+- id: repotoire-check
+  name: Repotoire Code Quality Check
+  description: Run Repotoire analysis on staged files and block commits with critical issues
+  entry: repotoire-pre-commit
+  language: system
+  pass_filenames: true
+  types: [python]
+  require_serial: true
+  stages: [commit]

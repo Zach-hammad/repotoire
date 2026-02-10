@@ -1,0 +1,129 @@
+# Repotoire Test Environment
+#
+# Isolated test infrastructure for running E2E and integration tests.
+# Uses tmpfs for ephemeral data - nothing persists between runs.
+#
+# Usage:
+#   docker compose -f docker-compose.test.yml up -d      # Start test services
+#   pytest tests/integration                              # Run integration tests
+#   docker compose -f docker-compose.test.yml down        # Stop and cleanup
+#
+# Environment variables:
+#   TEST_DATABASE_URL=postgresql+asyncpg://test:test@localhost:5433/repotoire_test
+#   TEST_REDIS_URL=redis://localhost:6380/0
+#   TEST_FALKORDB_URI=bolt://localhost:6381
+
+services:
+  # =============================================================================
+  # PostgreSQL - Test database (ephemeral)
+  # =============================================================================
+  test-postgres:
+    image: postgres:16-alpine
+    container_name: repotoire-test-postgres
+    environment:
+      POSTGRES_DB: repotoire_test
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d repotoire_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - repotoire-test-net
+
+  # =============================================================================
+  # Redis - Test message broker for Celery (ephemeral)
+  # =============================================================================
+  test-redis:
+    image: redis:7-alpine
+    container_name: repotoire-test-redis
+    command: redis-server --appendonly no --maxmemory 64mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6380:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - repotoire-test-net
+
+  # =============================================================================
+  # FalkorDB - Test graph database (ephemeral)
+  # =============================================================================
+  test-falkordb:
+    image: falkordb/falkordb:latest
+    container_name: repotoire-test-falkordb
+    environment:
+      REDIS_ARGS: "--maxmemory 256mb --maxmemory-policy noeviction --appendonly no"
+    ports:
+      # Redis protocol
+      - "6381:6379"
+      # Bolt protocol (Neo4j-compatible)
+      - "7689:7687"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - repotoire-test-net
+
+  # =============================================================================
+  # Celery Worker - Test worker (minimal concurrency)
+  # =============================================================================
+  test-celery-worker:
+    build:
+      context: .
+      dockerfile: docker/celery/Dockerfile
+    container_name: repotoire-test-celery-worker
+    command: >
+      celery -A repotoire.workers.celery_app worker
+      --loglevel=info
+      -Q default,analysis,webhooks,notifications
+      --concurrency=2
+    environment:
+      # Redis broker (internal port 6379)
+      CELERY_BROKER_URL: redis://test-redis:6379/0
+      CELERY_RESULT_BACKEND: redis://test-redis:6379/1
+      # Database connection
+      DATABASE_URL: postgresql://test:test@test-postgres:5432/repotoire_test
+      # Graph database
+      REPOTOIRE_NEO4J_URI: bolt://test-falkordb:7687
+      REPOTOIRE_NEO4J_PASSWORD: ""
+      # Test mode flag
+      REPOTOIRE_TEST_MODE: "true"
+      # Disable external services in tests
+      STRIPE_SECRET_KEY: "sk_test_fake"
+      CLERK_SECRET_KEY: "sk_test_fake"
+      GITHUB_APP_ID: ""
+      GITHUB_APP_PRIVATE_KEY: ""
+      RESEND_API_KEY: ""
+    depends_on:
+      test-postgres:
+        condition: service_healthy
+      test-redis:
+        condition: service_healthy
+      test-falkordb:
+        condition: service_healthy
+    networks:
+      - repotoire-test-net
+    profiles:
+      - worker  # Only start with --profile worker
+
+# =============================================================================
+# Network Configuration
+# =============================================================================
+networks:
+  repotoire-test-net:
+    driver: bridge

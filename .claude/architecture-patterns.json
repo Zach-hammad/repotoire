@@ -1,0 +1,515 @@
+{
+  "multi-tenant-isolation": {
+    "description": "Two-layer defense-in-depth isolation: graph-level (physical) + node-level (logical)",
+    "implemented_via": [
+      "GraphClientFactory - separate FalkorDB graph per organization (Layer 1)",
+      "TenantMiddleware - sets TenantContext from ClerkUser",
+      "TenantContext - async-safe ContextVar propagation",
+      "QueryBuilder.with_tenant() - automatic tenant filtering in Cypher",
+      "BaseDetector._get_isolation_filter() - combined tenant_id + repo_id filtering (Layer 2)",
+      "GraphAlgorithms._get_isolation_filter() - tenant filtering in graph algorithms",
+      "TimescaleClient - tenant_id column in all metrics tables",
+      "MCP server - REPOTOIRE_ORG_ID env var for tenant context"
+    ],
+    "key_files": [
+      "repotoire/graph/tenant_factory.py",
+      "repotoire/api/shared/middleware/tenant.py",
+      "repotoire/tenant/context.py",
+      "repotoire/graph/queries/builders.py",
+      "repotoire/detectors/base.py",
+      "repotoire/detectors/graph_algorithms.py",
+      "repotoire/historical/timescale_client.py",
+      "mcp_server/repotoire_mcp_server.py"
+    ],
+    "property_names": ["tenant_id", "tenantId", "org_id", "repo_id", "repoId"],
+    "patterns": ["graph-level-isolation", "middleware-context", "factory-pattern", "contextvar-propagation", "defense-in-depth"],
+    "notes": "Primary isolation is at graph level (each org has separate FalkorDB graph). Node-level tenantId/repoId is defense-in-depth. Use _get_isolation_filter() NOT _get_repo_filter() for all detectors."
+  },
+  "authentication": {
+    "description": "Clerk-based authentication with JWT and API key support",
+    "implemented_via": [
+      "ClerkMiddleware - JWT validation",
+      "get_current_user_or_api_key - flexible auth dependency",
+      "enforce_feature_for_api - feature gating + org lookup"
+    ],
+    "key_files": [
+      "repotoire/api/shared/auth/clerk.py",
+      "repotoire/api/shared/middleware/usage.py"
+    ],
+    "patterns": ["middleware-stack", "dependency-injection", "api-key-auth"]
+  },
+  "input-validation": {
+    "description": "Pydantic models + FastAPI automatic validation",
+    "implemented_via": [
+      "Pydantic BaseModel schemas",
+      "FastAPI automatic request validation",
+      "Path/Query parameter validation"
+    ],
+    "key_files": [
+      "repotoire/api/schemas/",
+      "repotoire/models.py"
+    ],
+    "patterns": ["pydantic-validation", "fastapi-automatic"]
+  },
+  "vector-search": {
+    "description": "Hybrid vector + graph search with multiple backends",
+    "implemented_via": [
+      "GraphRAGRetriever - hybrid search orchestration",
+      "VectorStore abstraction - LanceDB/graph backends",
+      "CodeEmbedder - OpenAI/DeepInfra/local backends"
+    ],
+    "key_files": [
+      "repotoire/ai/retrieval.py",
+      "repotoire/ai/vector_store.py",
+      "repotoire/ai/embeddings.py"
+    ],
+    "property_names": ["embedding", "vector", "similarity_score"],
+    "patterns": ["abstract-factory", "strategy-pattern", "hybrid-search"]
+  },
+  "git-history-queries": {
+    "description": "Natural language queries over git commit history using RAG",
+    "implemented_via": [
+      "GitHistoryRAG - vector + BM25 hybrid search over commits",
+      "CommitEntity nodes in FalkorDB with embeddings",
+      "Claude Haiku for answer generation",
+      "NLQ API endpoints: /nlq, /nlq/search, /nlq/status/{repository_id}",
+      "CLI commands: repotoire historical ask/search/ingest/status"
+    ],
+    "key_files": [
+      "repotoire/historical/git_rag.py",
+      "repotoire/cli/historical.py",
+      "repotoire/historical/git_extractor.py",
+      "repotoire/api/v1/routes/historical.py"
+    ],
+    "patterns": ["rag-retrieval", "hybrid-search", "local-embeddings"],
+    "notes": "Graphiti was REMOVED in Jan 2026 - too expensive ($10-20/1000 commits vs FREE). GitHistoryRAG uses local embeddings for FREE ingestion + $0.001/query with Claude Haiku. All Graphiti code, tests, and dependencies were deleted.",
+    "removed_in_cleanup": {
+      "date": "2026-01-27",
+      "reason": "Cost prohibitive - Graphiti required LLM calls per commit ($10-20/1000 commits)",
+      "files_deleted": [
+        "repotoire/historical/git_graphiti.py",
+        "tests/unit/test_git_graphiti.py",
+        "tests/integration/test_mcp_git_graphiti.py",
+        "tests/integration/test_historical_routes.py",
+        "repotoire/web/tests/e2e/historical-api.spec.ts"
+      ],
+      "dependencies_removed": ["graphiti-core", "neo4j", "posthog"],
+      "endpoints_removed": ["/ingest-git", "/ingest-commits", "/query", "/timeline", "/issue-origin", "/status/{repo_id}", "/commits", "/backfill", "/correct"]
+    }
+  },
+  "timescale-metrics": {
+    "description": "Historical code health metrics tracking with TimescaleDB",
+    "implemented_via": [
+      "TimescaleClient - connection and query management",
+      "MetricsCollector - extract metrics from CodebaseHealth",
+      "Hypertables with tenant_id partitioning"
+    ],
+    "key_files": [
+      "repotoire/historical/timescale_client.py",
+      "repotoire/historical/metrics_collector.py",
+      "repotoire/historical/schema.sql"
+    ],
+    "property_names": ["tenant_id", "repository", "branch"],
+    "patterns": ["time-series", "tenant-isolation", "continuous-aggregates"],
+    "notes": "All TimescaleDB queries MUST include tenant_id filter. Primary key is (time, tenant_id, repository, branch). All queries use %s parameterized placeholders - NO SQL injection vulnerabilities."
+  },
+  "rate-limiting": {
+    "description": "Tiered rate limiting with Redis backend and standard headers",
+    "implemented_via": [
+      "slowapi.Limiter - core rate limiting engine with Redis/memory storage",
+      "RateLimitMiddleware - adds X-RateLimit-* headers to all responses",
+      "RateLimitTier enum - FREE (60/min), PRO (300/min), ENTERPRISE (1000/min)",
+      "Category-based limits - api, analysis, webhook, sensitive, api_key_validation, account, search",
+      "rate_limit_exceeded_handler - 429 responses with Retry-After header"
+    ],
+    "key_files": [
+      "repotoire/api/shared/middleware/rate_limit.py",
+      "repotoire/api/app.py"
+    ],
+    "patterns": ["middleware-stack", "redis-backend", "tiered-limits"],
+    "notes": "Rate limiting is FULLY IMPLEMENTED. Check app.py:399 for middleware registration, app.py:101-104 for Limiter init. Headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After."
+  },
+  "security-headers": {
+    "description": "Comprehensive security headers via middleware",
+    "implemented_via": [
+      "SecurityHeadersMiddleware - adds all security headers",
+      "X-Content-Type-Options: nosniff",
+      "X-Frame-Options: DENY",
+      "X-XSS-Protection: 1; mode=block",
+      "Strict-Transport-Security (HSTS) - production only",
+      "Content-Security-Policy (CSP) - restrictive default-src 'none'",
+      "Permissions-Policy - disables camera, microphone, geolocation, etc.",
+      "Referrer-Policy: strict-origin-when-cross-origin",
+      "Cache-Control: no-store for API responses"
+    ],
+    "key_files": [
+      "repotoire/api/shared/middleware/security_headers.py",
+      "repotoire/api/app.py"
+    ],
+    "patterns": ["middleware-stack", "defense-in-depth"],
+    "notes": "Security headers middleware registered at app.py:408. HSTS only in production (ENVIRONMENT=production). CSP_REPORT_URI env var supported for violation reports."
+  },
+  "cors-configuration": {
+    "description": "Explicit CORS origins - NOT wildcards",
+    "implemented_via": [
+      "CORSMiddleware from Starlette",
+      "CORS_ORIGINS env var - comma-separated list",
+      "Explicit allow_methods - GET, POST, PUT, DELETE, PATCH, OPTIONS",
+      "Explicit allow_headers - Authorization, Content-Type, X-API-Key, X-Request-ID"
+    ],
+    "key_files": [
+      "repotoire/api/app.py"
+    ],
+    "patterns": ["explicit-allowlist", "no-wildcards"],
+    "notes": "CORS does NOT use wildcards. Default origins: http://localhost:3000,http://localhost:3001. See app.py:93-96 for CORS_ORIGINS, app.py:413-419 for middleware config."
+  },
+  "webhook-security": {
+    "description": "HMAC signature verification for all webhooks with atomic event deduplication",
+    "implemented_via": [
+      "github.verify_webhook_signature() - HMAC-SHA256 verification",
+      "Svix Webhook class for Clerk webhook verification (svix.webhooks.Webhook)",
+      "StripeService.construct_webhook_event() - Stripe signature verification",
+      "try_claim_event() - atomic INSERT ON CONFLICT for race condition prevention",
+      "ProcessedWebhookEvent table - deduplication tracking",
+      "401 Unauthorized for invalid signatures",
+      "Rate limiting via @webhook_limiter.limit()"
+    ],
+    "key_files": [
+      "repotoire/api/shared/services/github.py",
+      "repotoire/api/v1/routes/github.py",
+      "repotoire/api/v1/routes/webhooks.py",
+      "repotoire/api/v1/routes/customer_webhooks.py"
+    ],
+    "patterns": ["hmac-verification", "constant-time-comparison", "atomic-deduplication", "rate-limiting"],
+    "verification_code": {
+      "stripe": "event = StripeService.construct_webhook_event(payload, signature, WEBHOOK_SECRET)",
+      "clerk": "wh = Webhook(CLERK_WEBHOOK_SECRET); event = wh.verify(payload, headers)",
+      "github": "if not github.verify_webhook_signature(body, signature): raise HTTPException(401)"
+    },
+    "race_condition_prevention": {
+      "function": "try_claim_event(db, event_id, source, event_type)",
+      "implementation": "INSERT ... ON CONFLICT DO NOTHING - returns True if inserted (process), False if exists (skip)",
+      "location": "webhooks.py:74-112"
+    },
+    "notes": "ALL webhook endpoints have HMAC verification. Race conditions prevented via atomic PostgreSQL INSERT. The deprecated is_event_processed() has TOCTOU issues - always use try_claim_event() instead."
+  },
+  "api-key-validation": {
+    "description": "Secure API key validation via Clerk SDK",
+    "implemented_via": [
+      "clerk.api_keys.verify_api_key() - Clerk SDK method",
+      "No direct string comparison - SDK handles timing-safe validation",
+      "Rate limited: 10/minute for validation endpoint",
+      "Scoped keys with org-level permissions"
+    ],
+    "key_files": [
+      "repotoire/api/shared/auth/clerk.py",
+      "repotoire/api/v1/routes/cli_auth.py"
+    ],
+    "patterns": ["sdk-delegation", "timing-safe"],
+    "notes": "API key validation uses Clerk SDK, NOT custom string comparison. See clerk.py:234 for verify_api_key call. No timing attack vulnerability."
+  },
+  "sql-injection-prevention": {
+    "description": "All SQL queries use parameterized placeholders",
+    "implemented_via": [
+      "psycopg2 %s placeholders for all TimescaleDB queries",
+      "SQLAlchemy ORM for PostgreSQL queries",
+      "No f-string interpolation of user input in SQL"
+    ],
+    "key_files": [
+      "repotoire/historical/timescale_client.py",
+      "repotoire/db/"
+    ],
+    "patterns": ["parameterized-queries", "orm"],
+    "notes": "TimescaleClient uses cur.execute('...WHERE x = %s...', (param,)) pattern throughout. No SQL injection vulnerabilities."
+  },
+  "command-injection-prevention": {
+    "description": "All subprocess calls use list arguments, not shell=True",
+    "implemented_via": [
+      "run_external_tool() - shared utility for all external tools",
+      "subprocess.run(cmd_list, ...) - list argument, shell=False default",
+      "No shell interpretation of user input"
+    ],
+    "key_files": [
+      "repotoire/detectors/external_tool_runner.py",
+      "repotoire/cli/repo_utils.py"
+    ],
+    "patterns": ["subprocess-list", "no-shell"],
+    "notes": "All subprocess calls use list for cmd argument. shell=False is default. See external_tool_runner.py:232 for subprocess.run pattern."
+  },
+  "sandbox-secret-filtering": {
+    "description": "E2B sandbox excludes sensitive files before upload",
+    "implemented_via": [
+      "DEFAULT_SENSITIVE_PATTERNS - 50+ file patterns (.env, credentials, keys, etc.)",
+      "SECRET_CONTENT_PATTERNS - regex patterns for API keys in file contents",
+      "SecretFileFilter class - pattern + content scanning",
+      "SANDBOX_EXCLUDE_PATTERNS env var for custom patterns"
+    ],
+    "key_files": [
+      "repotoire/sandbox/tool_executor.py"
+    ],
+    "patterns": ["pattern-matching", "content-scanning", "defense-in-depth"],
+    "notes": "E2B sandbox filters: .env*, .aws/, .ssh/, credentials.json, *.pem, *password*, etc. Also scans file CONTENTS for API key patterns (AKIA*, ghp_*, sk_live_*, etc.)."
+  },
+  "csrf-protection": {
+    "description": "CSRF protection via Origin header validation",
+    "implemented_via": [
+      "CSRFProtectionMiddleware - validates Origin on state-changing requests",
+      "Registered in middleware stack before route handlers"
+    ],
+    "key_files": [
+      "repotoire/api/shared/middleware/csrf.py",
+      "repotoire/api/app.py"
+    ],
+    "patterns": ["origin-validation", "middleware"],
+    "notes": "CSRF middleware registered at app.py:396. Validates Origin header matches allowed origins for POST/PUT/DELETE requests."
+  },
+  "idempotency-keys": {
+    "description": "Safe request retries via Idempotency-Key header for POST/PUT/PATCH",
+    "implemented_via": [
+      "IdempotencyMiddleware - caches responses by Idempotency-Key header",
+      "IdempotencyStore - TTL-based cache with LRU eviction (24h default, 10k max)",
+      "User/org isolation - cache keys scoped per user_id or org_id",
+      "X-Idempotency-Replayed header on cache hits"
+    ],
+    "key_files": [
+      "repotoire/api/shared/middleware/idempotency.py",
+      "repotoire/api/app.py"
+    ],
+    "patterns": ["middleware-stack", "cache-aside", "user-isolation"],
+    "notes": "Idempotency middleware registered at app.py:395. Only caches 2xx responses. Max key length 64 chars. CORS allows Idempotency-Key header."
+  },
+  "cursor-pagination": {
+    "description": "Cursor-based pagination for search endpoints",
+    "implemented_via": [
+      "CodeSearchRequest.cursor - opaque pagination cursor input",
+      "CodeSearchResponse.next_cursor, has_more - pagination state output",
+      "_encode_cursor/_decode_cursor - base64 JSON encoding",
+      "Fetch N+1 results to determine has_more without COUNT query"
+    ],
+    "key_files": [
+      "repotoire/api/models.py",
+      "repotoire/api/v1/routes/code.py"
+    ],
+    "patterns": ["cursor-pagination", "opaque-cursor", "fetch-plus-one"],
+    "notes": "Cursor format is base64-encoded JSON with offset. Max cursor length 100 chars. Decoding errors return offset 0 (graceful fallback)."
+  },
+  "async-blocking-prevention": {
+    "description": "Prevent event loop blocking with asyncio.to_thread for sync operations",
+    "implemented_via": [
+      "asyncio.to_thread() wrapper for sync retriever.retrieve() calls",
+      "Allows concurrent request handling during I/O operations",
+      "Applied to GraphRAGRetriever which uses sync FalkorDB driver"
+    ],
+    "key_files": [
+      "repotoire/api/v1/routes/code.py"
+    ],
+    "patterns": ["thread-pool-offload", "async-sync-bridge"],
+    "notes": "Any sync I/O in async endpoints MUST use asyncio.to_thread(). The FalkorDB driver is synchronous, so all retriever calls are wrapped."
+  },
+  "response-caching": {
+    "description": "Query result caching via RAGCache",
+    "implemented_via": [
+      "RAGCache - LRU cache for retrieval results",
+      "Cache key includes query, top_k, entity_types, include_related",
+      "TTL-based expiration"
+    ],
+    "key_files": [
+      "repotoire/ai/retrieval.py"
+    ],
+    "patterns": ["lru-cache", "query-caching"],
+    "notes": "RAGCache handles query-level caching. HTTP caching headers (Cache-Control, ETag) not yet implemented."
+  },
+  "pydantic-validation": {
+    "description": "Request/response validation via Pydantic models with Field constraints",
+    "implemented_via": [
+      "Pydantic BaseModel with Field() validators",
+      "ge/le for numeric bounds (e.g., top_k: ge=1, le=50)",
+      "min_length/max_length for strings",
+      "FastAPI automatic 422 responses for validation errors"
+    ],
+    "key_files": [
+      "repotoire/api/models.py",
+      "repotoire/api/schemas/"
+    ],
+    "patterns": ["declarative-validation", "automatic-422"],
+    "notes": "Input validation is AUTOMATIC via Pydantic. Check models.py for Field() constraints. No manual validation needed in route handlers."
+  },
+  "billing-enforcement": {
+    "description": "Multi-layer billing enforcement across backend API and frontend UI",
+    "implemented_via": {
+      "backend": [
+        "enforce_feature() - FastAPI dependency for feature gating",
+        "enforce_feature_for_api() - API key auth variant with org lookup",
+        "check_usage_limit() - Check limit without incrementing",
+        "enforce_repo_limit - Dependency for repo creation endpoints",
+        "enforce_analysis_limit - Dependency for analysis endpoints",
+        "increment_usage() - Increment counter after successful operation"
+      ],
+      "frontend": [
+        "useSubscription() hook - SWR-based subscription/usage fetching",
+        "isBillingError() - Detect billing errors from API responses",
+        "showBillingErrorToast() - Toast with upgrade action button",
+        "Proactive limit checks - Check before API call to avoid unnecessary requests",
+        "Reactive error handling - Catch billing errors from API responses"
+      ]
+    },
+    "key_files": {
+      "backend": [
+        "repotoire/api/shared/middleware/usage.py",
+        "repotoire/api/shared/services/billing.py",
+        "repotoire/api/v1/routes/github.py",
+        "repotoire/api/v1/routes/analysis.py"
+      ],
+      "frontend": [
+        "repotoire/web/src/lib/hooks.ts",
+        "repotoire/web/src/lib/error-utils.ts",
+        "repotoire/web/src/lib/error-codes.ts",
+        "repotoire/web/src/app/dashboard/repos/connect/page.tsx",
+        "repotoire/web/src/components/repos/repo-card.tsx"
+      ]
+    },
+    "patterns": {
+      "backend": {
+        "feature_gating": "org: Organization = Depends(enforce_feature('feature_name'))",
+        "feature_gating_api": "org: Organization = Depends(enforce_feature_for_api('feature_name'))",
+        "usage_limit_check": "await check_usage_limit(db, org, 'resource_type')",
+        "usage_limit_dependency": "Depends(enforce_analysis_limit)",
+        "batch_limit_check": "if len(repo_ids) > remaining: raise HTTPException(402, detail={...})"
+      },
+      "frontend": {
+        "proactive_check": "if (limitStatus.atLimit) { toast.warning(...); return; }",
+        "reactive_catch": "if (isBillingError(error)) { showBillingErrorToast(error, onUpgrade); return; }",
+        "limit_status_memo": "useMemo(() => ({ current, limit, remaining, atLimit, nearLimit, canConnect }), [usage])",
+        "disabled_ui": "disabled={limitStatus.atLimit} with tooltip explaining limit"
+      }
+    },
+    "resource_types": ["repos", "analyses"],
+    "feature_names": ["api_access", "auto_fix", "sso"],
+    "plan_limits": {
+      "FREE": { "repos": 1, "analyses": 10 },
+      "PRO": { "repos": "5/seat", "analyses": -1 },
+      "ENTERPRISE": { "repos": -1, "analyses": -1 }
+    },
+    "error_codes": {
+      "backend": {
+        "limit_exceeded": "USAGE_LIMIT_EXCEEDED",
+        "feature_unavailable": "FEATURE_NOT_AVAILABLE"
+      },
+      "frontend": {
+        "ERR_BILLING_001": "Limit exceeded",
+        "ERR_BILLING_002": "Feature unavailable",
+        "ERR_BILLING_003": "Repo limit",
+        "ERR_BILLING_004": "Analysis limit"
+      }
+    },
+    "notes": [
+      "Use check_usage_limit() directly in function body when endpoint uses API key auth (enforce_feature_for_api already returns org)",
+      "Use Depends(enforce_*_limit) for JWT-only endpoints",
+      "Informational endpoints (viewing stats/quotas) don't need feature gating",
+      "Frontend must pass error details to ApiError for isBillingError() detection to work",
+      "Always check limits proactively in UI before making API calls",
+      "Show upgrade path in all billing error toasts with action button",
+      "Use useMemo for limit status calculations to avoid recalculation on every render"
+    ]
+  },
+  "_agent_guidelines": {
+    "description": "Guidelines for analysis agents to avoid false positives",
+    "verification_requirements": [
+      "ALWAYS read the actual implementation file before claiming something is 'missing' or 'not implemented'",
+      "Check this architecture-patterns.json file FIRST before reporting security/billing issues",
+      "Search for alternative implementations (factory patterns, middleware, decorators) before claiming feature is missing",
+      "For billing: check enforce_feature_for_api, enforce_repo_limit, check_usage_limit usage patterns",
+      "For webhooks: check for Svix, Stripe SDK, and verify_webhook_signature calls",
+      "For race conditions: check for atomic INSERT ON CONFLICT patterns, not just is_processed() checks"
+    ],
+    "common_false_positives": {
+      "check_usage_limit ignores limit_type": "FALSE - function has if/elif branches for 'repos' and 'analyses' at billing.py:328-394",
+      "webhook lacks HMAC verification": "FALSE - uses Svix (Clerk), Stripe SDK, and verify_webhook_signature (GitHub)",
+      "race condition in webhook processing": "FALSE - try_claim_event() uses atomic INSERT ON CONFLICT DO NOTHING",
+      "missing feature enforcement on API": "FALSE - enforce_feature_for_api() is used on all Pro feature endpoints",
+      "CLI bypasses API limits": "FALSE - CLI fetches limits from /api/v1/usage endpoint, doesn't access DB directly"
+    },
+    "terminology_mapping": {
+      "tenant isolation": ["tenant_id", "tenantId", "org_id", "repoId", "GraphClientFactory", "_get_isolation_filter"],
+      "billing limits": ["check_usage_limit", "enforce_repo_limit", "enforce_analysis_limit", "enforce_feature_for_api"],
+      "feature gating": ["has_feature", "enforce_feature", "PLAN_LIMITS", "features list"],
+      "webhook security": ["verify_webhook_signature", "Svix", "construct_webhook_event", "try_claim_event"]
+    }
+  },
+  "fly-deployment": {
+    "description": "Multi-service deployment to Fly.io with shared images and parallel deploys",
+    "services": {
+      "repotoire-api": {
+        "config": "fly.toml",
+        "dockerfile": "Dockerfile.api",
+        "purpose": "FastAPI backend API",
+        "vm": "2gb RAM, shared CPU"
+      },
+      "repotoire-worker": {
+        "config": "fly.worker.toml",
+        "dockerfile": "Dockerfile.api (shared with API)",
+        "purpose": "Celery workers for async jobs",
+        "vm": "8gb RAM, performance CPU"
+      },
+      "repotoire-marketplace-mcp": {
+        "config": "deploy/marketplace-mcp/fly.toml",
+        "dockerfile": "deploy/marketplace-mcp/Dockerfile",
+        "purpose": "MCP server for Claude integration",
+        "vm": "512mb RAM, shared CPU"
+      },
+      "repotoire-falkor": {
+        "config": "deploy/falkordb/fly.toml",
+        "purpose": "FalkorDB graph database",
+        "notes": "Database - rarely needs redeployment"
+      }
+    },
+    "key_files": [
+      "fly.toml",
+      "fly.worker.toml",
+      "deploy/marketplace-mcp/fly.toml",
+      "Dockerfile.api",
+      "deploy/marketplace-mcp/Dockerfile",
+      ".github/workflows/deploy-fly.yml",
+      "scripts/deploy.sh"
+    ],
+    "patterns": ["shared-image", "parallel-deploy", "github-actions", "manual-script"],
+    "deployment_methods": {
+      "automatic": {
+        "trigger": "Push to main branch with changes to repotoire/, repotoire-fast/, Dockerfile.api, fly.toml, etc.",
+        "workflow": ".github/workflows/deploy-fly.yml",
+        "features": [
+          "Builds shared image once for API + Worker",
+          "Deploys API, Worker, Marketplace in parallel",
+          "Manual trigger with service selection",
+          "Deployment summary in GitHub Actions"
+        ]
+      },
+      "manual": {
+        "script": "./scripts/deploy.sh [all|api|worker|marketplace|status]",
+        "features": [
+          "Auth check with auto-login",
+          "Colored output",
+          "Status check after deploy"
+        ]
+      }
+    },
+    "known_issues": {
+      "auth_token_expiration": {
+        "symptom": "unauthorized errors during lease refresh/smoke checks",
+        "impact": "Warnings only - deployment usually succeeds",
+        "workaround": "Run 'fly auth login' before deployment if persistent"
+      },
+      "duplicate_builds": {
+        "symptom": "API and Worker build same Dockerfile.api separately in manual deploys",
+        "solution": "CI workflow builds once and deploys image to both apps"
+      }
+    },
+    "notes": [
+      "API and Worker share Dockerfile.api - changes affect both",
+      "Marketplace MCP has separate Dockerfile - deploy independently if only MCP changes",
+      "FalkorDB rarely needs redeploy - it's just the database",
+      "Always check 'fly status -a <app>' after deploy to verify health",
+      "Use 'fly logs -a <app>' to debug startup issues"
+    ]
+  }
+}

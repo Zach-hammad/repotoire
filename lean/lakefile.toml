@@ -1,0 +1,15 @@
+name = "Repotoire"
+version = "0.1.0"
+defaultTargets = ["repotoire"]
+
+# Batteries provides String.all_iff and other useful lemmas
+[[require]]
+name = "batteries"
+scope = "leanprover-community"
+
+[[lean_lib]]
+name = "Repotoire"
+
+[[lean_exe]]
+name = "repotoire"
+root = "Main"

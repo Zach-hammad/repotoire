@@ -1,0 +1,5 @@
+# Ignore build artifacts
+target/
+
+# Ignore test fixtures
+tests/fixtures/

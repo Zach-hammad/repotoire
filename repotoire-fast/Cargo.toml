@@ -1,0 +1,103 @@
+[package]
+name = "repotoire_fast"
+version = "0.1.0"
+edition = "2021"  # Rust edition (like Python version)
+
+# This tells Rust we're building a shared library (.so on Linux, .dylib on Mac)
+# that Python can load, plus a regular lib for testing/benchmarking
+[lib]
+name = "repotoire_fast"
+crate-type = ["cdylib", "rlib"]  # cdylib for Python, rlib for Rust tests/benches
+
+[dependencies]
+# PyO3 - Rust bindings for Python (lets us write Python extensions in Rust)
+# Requires Rust 1.74+
+pyo3 = { version = "0.27", features = ["extension-module"] }
+
+# walkdir - Fast recursive directory traversal
+walkdir = "2.5"
+
+# globset - Compiled glob pattern matching (much faster than regex for globs)
+globset = "0.4"
+
+# rayon - Parallelism library ("fearless concurrency")
+# Requires Rust 1.80+ - this is what makes our scanner 10-25x faster!
+rayon = "1.11"
+
+md5 = "0.7"
+
+rustpython-parser = "0.4"
+
+numpy = "0.27"
+
+# line-numbers - Convert byte offsets to line numbers
+line-numbers = "0.3"
+
+# petgraph - Graph data structures and algorithms (SCC, traversals)
+petgraph = "0.6"
+
+# indexmap - Ordered hash maps (preserves insertion order)
+indexmap = "2.0"
+
+# thiserror - Derive macro for Error trait (REPO-227)
+thiserror = "1.0"
+
+# rustc-hash - Fast hash map for performance-critical code
+rustc-hash = "2.0"
+
+# git2 - Rust bindings for libgit2 (REPO-246)
+# Used for parallel commit processing in bug extraction
+# Much faster than subprocess git calls for bulk operations
+git2 = "0.19"
+
+# rand + rand_chacha - Random number generation (REPO-247)
+# Used for Node2Vec biased random walks with reproducible seeding
+rand = "0.8"
+rand_chacha = "0.3"
+
+# regex + lazy_static - SATD comment scanning (REPO-410)
+# regex for pattern matching, lazy_static for compile-once patterns
+regex = "1.11"
+lazy_static = "1.5"
+malachite-bigint = "0.2.3"
+
+# tree-sitter - Multi-language AST parsing (Phase 2 performance)
+# Provides unified API for parsing Python, TypeScript, JavaScript, etc.
+# Much faster than Python AST parsing when combined with Rayon parallelism
+tree-sitter = "0.24"
+tree-sitter-python = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-rust = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-go = "0.23"
+tree-sitter-c = "0.23"
+tree-sitter-cpp = "0.23"
+tree-sitter-c-sharp = "0.23"
+tree-sitter-kotlin-ng = "1.1"
+
+# serde - Serialization for parsed entities
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Note: regex crate was evaluated but manual parsing proved faster for diff parsing
+
+[dev-dependencies]
+# criterion - Benchmarking framework (REPO-167)
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "duplicate_bench"
+harness = false
+
+[[bench]]
+name = "graph_bench"
+harness = false
+
+[[bench]]
+name = "word2vec_bench"
+harness = false
+
+[[bench]]
+name = "node2vec_bench"
+harness = false
