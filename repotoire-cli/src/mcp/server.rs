@@ -34,6 +34,16 @@ impl McpServer {
         let mut stdout = std::io::stdout();
         let reader = BufReader::new(stdin.lock());
 
+        // Print startup message to stderr (visible to users)
+        if self.state.is_pro() {
+            eprintln!("🎼 Repotoire MCP server started (PRO mode)");
+        } else {
+            eprintln!("🎼 Repotoire MCP server started (FREE mode)");
+            eprintln!("   PRO features disabled. Set REPOTOIRE_API_KEY for: search_code, ask, generate_fix");
+            eprintln!("   Get your key: https://repotoire.com/settings/api");
+        }
+        eprintln!();
+
         info!(
             "Repotoire MCP server started ({} mode)",
             if self.state.is_pro() { "PRO" } else { "FREE" }
