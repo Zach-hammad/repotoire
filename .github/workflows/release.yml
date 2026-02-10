@@ -14,65 +14,96 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
-
+      - uses: dtolnay/rust-toolchain@stable
       - name: Build
-        run: |
-          cd repotoire-cli
-          cargo build --release
-
+        run: cd repotoire-cli && cargo build --release
       - name: Package
         run: |
           cd repotoire-cli/target/release
           tar czf ../../repotoire-linux-x86_64.tar.gz repotoire
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: repotoire-linux-x86_64
           path: repotoire-cli/repotoire-linux-x86_64.tar.gz
 
+  build-macos-intel:
+    name: Build macOS x86_64
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cd repotoire-cli && cargo build --release
+      - name: Package
+        run: |
+          cd repotoire-cli/target/release
+          tar czf ../../repotoire-macos-x86_64.tar.gz repotoire
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repotoire-macos-x86_64
+          path: repotoire-cli/repotoire-macos-x86_64.tar.gz
+
+  build-macos-arm:
+    name: Build macOS ARM64
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cd repotoire-cli && cargo build --release
+      - name: Package
+        run: |
+          cd repotoire-cli/target/release
+          tar czf ../../repotoire-macos-aarch64.tar.gz repotoire
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repotoire-macos-aarch64
+          path: repotoire-cli/repotoire-macos-aarch64.tar.gz
+
   release:
     name: Create Release
-    needs: build-linux
+    needs: [build-linux, build-macos-intel, build-macos-arm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
-
       - name: List artifacts
         run: find artifacts -type f
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v1
         with:
           files: artifacts/**/*
           generate_release_notes: true
           body: |
             ## Installation
             
-            ### Cargo (recommended)
+            ### npm (easiest)
+            ```bash
+            npx repotoire analyze .
+            ```
+            
+            ### Homebrew (macOS)
+            ```bash
+            brew install zach-hammad/tap/repotoire
+            ```
+            
+            ### Cargo
             ```bash
             cargo install repotoire
             ```
             
-            ### Binary download (Linux x86_64)
+            ### Binary download
             ```bash
+            # Linux
             curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-linux-x86_64.tar.gz | tar xz
-            sudo mv repotoire /usr/local/bin/
-            ```
             
-            ### Build from source
-            Requires cmake and a C++ compiler.
-            ```bash
-            cargo install --git https://github.com/Zach-hammad/repotoire
+            # macOS Apple Silicon
+            curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-macos-aarch64.tar.gz | tar xz
+            
+            # macOS Intel
+            curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-macos-x86_64.tar.gz | tar xz
+            
+            sudo mv repotoire /usr/local/bin/
             ```

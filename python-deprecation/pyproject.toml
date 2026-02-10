@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "repotoire"
+version = "0.2.0"
+description = "⚠️ DEPRECATED - Use 'cargo install repotoire' instead. Graph-powered code analysis."
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Zacharia Hammad"}]
+classifiers = [
+    "Development Status :: 7 - Inactive",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+]
+
+[project.scripts]
+repotoire = "repotoire:main"
+
+[project.urls]
+Homepage = "https://github.com/Zach-hammad/repotoire"

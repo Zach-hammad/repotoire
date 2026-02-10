@@ -1,0 +1,26 @@
+{
+  "name": "repotoire",
+  "version": "0.3.1",
+  "description": "Graph-powered code analysis - 81 detectors for security, architecture, and code quality",
+  "keywords": ["code-analysis", "security", "linter", "static-analysis", "code-quality"],
+  "author": "Zacharia Hammad",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Zach-hammad/repotoire"
+  },
+  "homepage": "https://github.com/Zach-hammad/repotoire",
+  "bin": {
+    "repotoire": "bin/repotoire"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "files": [
+    "bin",
+    "install.js"
+  ],
+  "engines": {
+    "node": ">=14"
+  }
+}
