@@ -512,11 +512,21 @@ fn calculate_health_scores(
             Severity::Info => 0.0,
         };
 
-        // Categorize by detector type
-        match finding.detector.as_str() {
-            "CircularDependencyDetector" => structure_score -= deduction,
-            "GodClassDetector" | "LongParameterListDetector" => quality_score -= deduction,
-            _ => architecture_score -= deduction,
+        // Categorize by finding category - scale down deductions
+        let category = finding.category.as_deref().unwrap_or("");
+        let scaled = deduction * 0.05; // 5% - prevents zeroing with many findings
+        
+        if category.contains("security") || category.contains("inject") {
+            quality_score -= scaled;
+        } else if category.contains("architect") || category.contains("bottleneck") || category.contains("circular") {
+            architecture_score -= scaled;
+        } else if category.contains("complex") || category.contains("naming") || category.contains("readab") {
+            structure_score -= scaled;
+        } else {
+            // Distribute evenly among all three
+            quality_score -= scaled / 3.0;
+            structure_score -= scaled / 3.0;
+            architecture_score -= scaled / 3.0;
         }
     }
 
