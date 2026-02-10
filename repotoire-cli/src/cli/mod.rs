@@ -70,6 +70,10 @@ pub enum Commands {
         /// Relaxed mode: only show high/critical findings (less noise)
         #[arg(long)]
         relaxed: bool,
+
+        /// Skip git history enrichment (faster for large repos)
+        #[arg(long)]
+        no_git: bool,
     },
 
     /// View findings from last analysis
@@ -135,6 +139,7 @@ pub fn run(cli: Cli) -> Result<()> {
             skip_detector,
             thorough,
             relaxed,
+            no_git,
         }) => {
             // In relaxed mode, default to high severity unless explicitly specified
             let effective_severity = if relaxed && severity.is_none() {
@@ -142,7 +147,7 @@ pub fn run(cli: Cli) -> Result<()> {
             } else {
                 severity
             };
-            analyze::run(&cli.path, &format, output.as_deref(), effective_severity, top, skip_detector, thorough, cli.workers)
+            analyze::run(&cli.path, &format, output.as_deref(), effective_severity, top, skip_detector, thorough, no_git, cli.workers)
         }
 
         Some(Commands::Findings { index, json }) => findings::run(&cli.path, index, json),
@@ -166,7 +171,7 @@ pub fn run(cli: Cli) -> Result<()> {
 
         None => {
             // Default: run analyze
-            analyze::run(&cli.path, "text", None, None, None, vec![], false, cli.workers)
+            analyze::run(&cli.path, "text", None, None, None, vec![], false, false, cli.workers)
         }
     }
 }

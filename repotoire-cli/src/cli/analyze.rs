@@ -53,6 +53,7 @@ pub fn run(
     top: Option<usize>,
     skip_detector: Vec<String>,
     thorough: bool,
+    no_git: bool,
     workers: usize,
 ) -> Result<()> {
     let start_time = Instant::now();
@@ -239,36 +240,39 @@ pub fn run(
 
     graph_bar.finish_with_message(format!("{}Built code graph", style("✓ ").green(),));
 
-    // Step 4: Enrich with git history
-    let git_spinner = multi.add(ProgressBar::new_spinner());
-    git_spinner.set_style(spinner_style.clone());
-    git_spinner.set_message("Enriching with git history...");
-    git_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+    // Step 4: Enrich with git history (skip with --no-git)
+    if !no_git {
+        let git_spinner = multi.add(ProgressBar::new_spinner());
+        git_spinner.set_style(spinner_style.clone());
+        git_spinner.set_message("Enriching with git history...");
+        git_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
 
-    match git::enrichment::enrich_graph_with_git(&repo_path, &graph, None) {
-        Ok(stats) => {
-            if stats.functions_enriched > 0 || stats.classes_enriched > 0 {
+        match git::enrichment::enrich_graph_with_git(&repo_path, &graph, None) {
+            Ok(stats) => {
+                if stats.functions_enriched > 0 || stats.classes_enriched > 0 {
+                    git_spinner.finish_with_message(format!(
+                        "{}Enriched {} functions, {} classes with git data",
+                        style("✓ ").green(),
+                        style(stats.functions_enriched).cyan(),
+                        style(stats.classes_enriched).cyan(),
+                    ));
+                } else {
+                    git_spinner.finish_with_message(format!(
+                        "{}No git history to enrich (or not a git repo)",
+                        style("- ").dim(),
+                    ));
+                }
+            }
+            Err(e) => {
                 git_spinner.finish_with_message(format!(
-                    "{}Enriched {} functions, {} classes with git data ({} commits)",
-                    style("✓ ").green(),
-                    style(stats.functions_enriched).cyan(),
-                    style(stats.classes_enriched).cyan(),
-                    style(stats.commits_created).cyan(),
-                ));
-            } else {
-                git_spinner.finish_with_message(format!(
-                    "{}No git history to enrich (or not a git repo)",
-                    style("- ").dim(),
+                    "{}Git enrichment skipped: {}",
+                    style("⚠ ").yellow(),
+                    e
                 ));
             }
         }
-        Err(e) => {
-            git_spinner.finish_with_message(format!(
-                "{}Git enrichment skipped: {}",
-                style("⚠ ").yellow(),
-                e
-            ));
-        }
+    } else {
+        println!("{}Skipping git enrichment (--no-git)", style("⏭ ").dim());
     }
 
     // Step 5: Run detectors

@@ -96,7 +96,7 @@ impl<'a> GitEnricher<'a> {
         debug!("Found {} functions to enrich", total);
 
         for (i, func) in functions_to_enrich.into_iter().enumerate() {
-            if i > 0 && i % 100 == 0 {
+            if i > 0 && i % 500 == 0 {
                 debug!("Enriched {}/{} functions", i, total);
             }
 
@@ -113,7 +113,7 @@ impl<'a> GitEnricher<'a> {
                     if let (Some(last_modified), Some(author)) =
                         (&blame_info.last_modified, &blame_info.last_author)
                     {
-                        // Update function with git data
+                        // Update function with git data (skip Commit nodes for speed)
                         self.graph.update_node_properties(
                             &func.qualified_name,
                             &[
@@ -123,16 +123,7 @@ impl<'a> GitEnricher<'a> {
                             ],
                         );
                         stats.functions_enriched += 1;
-
-                        // Create commit nodes and edges
-                        for entry in &blame_info.blame_entries {
-                            if self.create_commit_if_needed(&entry.commit_hash, &entry.author, &entry.timestamp) {
-                                stats.commits_created += 1;
-                            }
-                            if self.create_modified_in_edge(&func.qualified_name, &entry.commit_hash) {
-                                stats.edges_created += 1;
-                            }
-                        }
+                        // Skip creating Commit nodes and edges - too slow for large repos
                     }
                 }
                 Err(e) => {
@@ -177,7 +168,7 @@ impl<'a> GitEnricher<'a> {
                     if let (Some(last_modified), Some(author)) =
                         (&blame_info.last_modified, &blame_info.last_author)
                     {
-                        // Update class with git data
+                        // Update class with git data (skip Commit nodes for speed)
                         self.graph.update_node_properties(
                             &class.qualified_name,
                             &[
@@ -187,16 +178,7 @@ impl<'a> GitEnricher<'a> {
                             ],
                         );
                         stats.classes_enriched += 1;
-
-                        // Create commit nodes and edges
-                        for entry in &blame_info.blame_entries {
-                            if self.create_commit_if_needed(&entry.commit_hash, &entry.author, &entry.timestamp) {
-                                stats.commits_created += 1;
-                            }
-                            if self.create_modified_in_edge(&class.qualified_name, &entry.commit_hash) {
-                                stats.edges_created += 1;
-                            }
-                        }
+                        // Skip creating Commit nodes and edges - too slow for large repos
                     }
                 }
                 Err(e) => {
