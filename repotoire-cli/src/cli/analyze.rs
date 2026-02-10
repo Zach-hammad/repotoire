@@ -57,6 +57,8 @@ pub fn run(
     thorough: bool,
     no_git: bool,
     workers: usize,
+    fail_on: Option<String>,
+    no_emoji: bool,
 ) -> Result<()> {
     let start_time = Instant::now();
 
@@ -69,10 +71,14 @@ pub fn run(
         anyhow::bail!("Path is not a directory: {}", repo_path.display());
     }
 
-    println!("\n{}Repotoire Analysis\n", style("🎼 ").bold());
+    // Header with optional emoji
+    let icon_analyze = if no_emoji { "" } else { "🎼 " };
+    let icon_search = if no_emoji { "" } else { "🔍 " };
+    
+    println!("\n{}Repotoire Analysis\n", style(icon_analyze).bold());
     println!(
         "{}Analyzing: {}\n",
-        style("🔍 ").bold(),
+        style(icon_search).bold(),
         style(repo_path.display()).cyan()
     );
 
@@ -82,7 +88,8 @@ pub fn run(
 
     // Initialize graph database
     let db_path = repotoire_dir.join("graph_db");
-    println!("{}Initializing graph database...", style("🕸️  ").bold());
+    let icon_graph = if no_emoji { "" } else { "🕸️  " };
+    println!("{}Initializing graph database...", style(icon_graph).bold());
     let graph = Arc::new(GraphStore::new(&db_path).with_context(|| "Failed to initialize Kuzu database")?);
     let graph_ref = &graph; // For local usage
 
@@ -242,6 +249,9 @@ pub fn run(
 
     graph_bar.finish_with_message(format!("{}Built code graph", style("✓ ").green(),));
 
+    // Persist graph to disk so other commands (stats, graph, findings) can access it
+    graph.save().with_context(|| "Failed to save graph database")?;
+
     // Step 4 & 5: Run git enrichment and detectors IN PARALLEL
     // Git enrichment updates graph properties while detectors read graph structure
     // Both are safe due to RwLock on GraphStore
@@ -341,7 +351,13 @@ pub fn run(
         }
     }
 
-    // Step 6: Filter findings by severity and top N
+    // Calculate health score from ALL findings (before any filtering)
+    // This ensures consistent grading regardless of --top or severity filters
+    let all_findings_summary = FindingsSummary::from_findings(&findings);
+    let (overall_score, structure_score, quality_score, architecture_score) =
+        calculate_health_scores(&findings, files.len(), total_functions, total_classes);
+
+    // Step 6: Filter findings by severity and top N (for display only)
     if let Some(min_severity) = &severity {
         let min = parse_severity(min_severity);
         findings.retain(|f| f.severity >= min);
@@ -354,31 +370,26 @@ pub fn run(
         findings.truncate(n);
     }
 
-    // Calculate totals before pagination for accurate summary
-    let total_findings = findings.len();
-    let findings_summary = FindingsSummary::from_findings(&findings);
+    // Track displayed findings count for pagination
+    let displayed_findings = findings.len();
 
     // Apply pagination (per_page = 0 means all)
     let (paginated_findings, pagination_info) = if per_page > 0 {
-        let total_pages = (total_findings + per_page - 1) / per_page;
+        let total_pages = (displayed_findings + per_page - 1) / per_page;
         let page = page.max(1).min(total_pages.max(1));
         let start = (page - 1) * per_page;
-        let end = (start + per_page).min(total_findings);
+        let end = (start + per_page).min(displayed_findings);
         let paginated: Vec<_> = findings.drain(start..end).collect();
         (
             paginated,
-            Some((page, total_pages, per_page, total_findings)),
+            Some((page, total_pages, per_page, displayed_findings)),
         )
     } else {
         (findings, None)
     };
-
-    // Step 6: Calculate health score (use full findings for accurate score)
-    let (overall_score, structure_score, quality_score, architecture_score) =
-        calculate_health_scores(&paginated_findings, files.len(), total_functions, total_classes);
     let grade = HealthReport::grade_from_score(overall_score);
 
-    // Build report with paginated findings but full summary
+    // Build report with paginated findings but full summary from all findings
     let report = HealthReport {
         overall_score,
         grade: grade.clone(),
@@ -386,7 +397,7 @@ pub fn run(
         quality_score,
         architecture_score: Some(architecture_score),
         findings: paginated_findings,
-        findings_summary,
+        findings_summary: all_findings_summary,
         total_files: files.len(),
         total_functions,
         total_classes,
@@ -451,15 +462,35 @@ pub fn run(
 
     // Final summary
     let elapsed = start_time.elapsed();
+    let icon_done = if no_emoji { "" } else { "✨ " };
     println!(
         "\n{}Analysis complete in {:.2}s",
-        style("✨ ").bold(),
+        style(icon_done).bold(),
         elapsed.as_secs_f64()
     );
 
-    // Exit with code 2 if critical findings exist (for CI/CD)
-    if report.findings_summary.critical > 0 {
-        std::process::exit(2);
+    // Exit with code 1 if --fail-on threshold is met (for CI/CD)
+    if let Some(ref threshold) = fail_on {
+        let should_fail = match threshold.to_lowercase().as_str() {
+            "critical" => report.findings_summary.critical > 0,
+            "high" => report.findings_summary.critical > 0 || report.findings_summary.high > 0,
+            "medium" => {
+                report.findings_summary.critical > 0
+                    || report.findings_summary.high > 0
+                    || report.findings_summary.medium > 0
+            }
+            "low" => {
+                report.findings_summary.critical > 0
+                    || report.findings_summary.high > 0
+                    || report.findings_summary.medium > 0
+                    || report.findings_summary.low > 0
+            }
+            _ => false,
+        };
+        if should_fail {
+            eprintln!("Failing due to --fail-on={} threshold", threshold);
+            std::process::exit(1);
+        }
     }
 
     Ok(())

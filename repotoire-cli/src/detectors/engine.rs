@@ -267,7 +267,6 @@ impl DetectorEngine {
         let start = Instant::now();
 
         debug!("Running detector: {}", name);
-        eprintln!("[DEBUG] Starting detector: {}", name);
 
         // Wrap in catch_unwind to handle panics from Kuzu
         let detect_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

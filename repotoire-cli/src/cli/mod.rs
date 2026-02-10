@@ -84,6 +84,15 @@ pub enum Commands {
         /// Skip git history enrichment (faster for large repos)
         #[arg(long)]
         no_git: bool,
+
+        /// Exit with code 1 if findings at this severity or higher exist
+        /// Values: critical, high, medium, low (default: none - always exit 0)
+        #[arg(long)]
+        fail_on: Option<String>,
+
+        /// Disable emoji in output (cleaner for CI logs)
+        #[arg(long)]
+        no_emoji: bool,
     },
 
     /// View findings from last analysis
@@ -171,6 +180,8 @@ pub fn run(cli: Cli) -> Result<()> {
             thorough,
             relaxed,
             no_git,
+            fail_on,
+            no_emoji,
         }) => {
             // In relaxed mode, default to high severity unless explicitly specified
             let effective_severity = if relaxed && severity.is_none() {
@@ -178,7 +189,7 @@ pub fn run(cli: Cli) -> Result<()> {
             } else {
                 severity
             };
-            analyze::run(&cli.path, &format, output.as_deref(), effective_severity, top, page, per_page, skip_detector, thorough, no_git, cli.workers)
+            analyze::run(&cli.path, &format, output.as_deref(), effective_severity, top, page, per_page, skip_detector, thorough, no_git, cli.workers, fail_on, no_emoji)
         }
 
         Some(Commands::Findings { index, json, page, per_page, interactive }) => {
@@ -210,7 +221,7 @@ pub fn run(cli: Cli) -> Result<()> {
 
         None => {
             // Default: run analyze with pagination (page 1, 20 per page)
-            analyze::run(&cli.path, "text", None, None, None, 1, 20, vec![], false, false, cli.workers)
+            analyze::run(&cli.path, "text", None, None, None, 1, 20, vec![], false, false, cli.workers, None, false)
         }
     }
 }
