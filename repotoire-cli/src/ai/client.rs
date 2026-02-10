@@ -188,10 +188,34 @@ impl AiClient {
         Ok(Self::new(config, api_key))
     }
     
-    /// Check if Ollama is available locally
+    /// Check if Ollama is available locally and has a model we can use
     pub fn ollama_available() -> bool {
-        // Quick check if Ollama is running
-        std::net::TcpStream::connect("127.0.0.1:11434").is_ok()
+        // Check if Ollama is running
+        if std::net::TcpStream::connect("127.0.0.1:11434").is_err() {
+            return false;
+        }
+        
+        // Try to list models - this validates Ollama is responding
+        match std::process::Command::new("ollama")
+            .args(["list"])
+            .output() 
+        {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                // Check if any model is available
+                stdout.lines().skip(1).next().is_some()
+            }
+            Err(_) => false
+        }
+    }
+    
+    /// Get a message about available Ollama models
+    pub fn ollama_models() -> Option<String> {
+        std::process::Command::new("ollama")
+            .args(["list"])
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
     }
 
     /// Get the backend being used
