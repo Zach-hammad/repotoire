@@ -183,6 +183,20 @@ mod missing_await;
 mod unhandled_promise;
 mod callback_hell;
 mod test_in_production;
+mod insecure_cookie;
+mod jwt_weak;
+mod prototype_pollution;
+mod nosql_injection;
+mod log_injection;
+mod broad_exception;
+mod boolean_trap;
+mod inconsistent_returns;
+mod dead_store;
+mod hardcoded_timeout;
+mod regex_in_loop;
+mod react_hooks;
+mod django_security;
+mod express_security;
 
 // Re-export base types
 pub use base::{
@@ -309,6 +323,20 @@ pub use missing_await::MissingAwaitDetector;
 pub use unhandled_promise::UnhandledPromiseDetector;
 pub use callback_hell::CallbackHellDetector;
 pub use test_in_production::TestInProductionDetector;
+pub use insecure_cookie::InsecureCookieDetector;
+pub use jwt_weak::JwtWeakDetector;
+pub use prototype_pollution::PrototypePollutionDetector;
+pub use nosql_injection::NosqlInjectionDetector;
+pub use log_injection::LogInjectionDetector;
+pub use broad_exception::BroadExceptionDetector;
+pub use boolean_trap::BooleanTrapDetector;
+pub use inconsistent_returns::InconsistentReturnsDetector;
+pub use dead_store::DeadStoreDetector;
+pub use hardcoded_timeout::HardcodedTimeoutDetector;
+pub use regex_in_loop::RegexInLoopDetector;
+pub use react_hooks::ReactHooksDetector;
+pub use django_security::DjangoSecurityDetector;
+pub use express_security::ExpressSecurityDetector;
 
 // Re-export external tool utilities
 pub use external_tool::{
@@ -416,6 +444,24 @@ pub fn default_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
         Arc::new(CallbackHellDetector::new(repository_path)),
         // Testing
         Arc::new(TestInProductionDetector::new(repository_path)),
+        // More security
+        Arc::new(InsecureCookieDetector::new(repository_path)),
+        Arc::new(JwtWeakDetector::new(repository_path)),
+        Arc::new(PrototypePollutionDetector::new(repository_path)),
+        Arc::new(NosqlInjectionDetector::new(repository_path)),
+        Arc::new(LogInjectionDetector::new(repository_path)),
+        // More quality
+        Arc::new(BroadExceptionDetector::new(repository_path)),
+        Arc::new(BooleanTrapDetector::new(repository_path)),
+        Arc::new(InconsistentReturnsDetector::new(repository_path)),
+        Arc::new(DeadStoreDetector::new(repository_path)),
+        Arc::new(HardcodedTimeoutDetector::new(repository_path)),
+        // Performance
+        Arc::new(RegexInLoopDetector::new(repository_path)),
+        // Framework-specific
+        Arc::new(ReactHooksDetector::new(repository_path)),
+        Arc::new(DjangoSecurityDetector::new(repository_path)),
+        Arc::new(ExpressSecurityDetector::new(repository_path)),
     ]
 }
 
