@@ -267,9 +267,15 @@ impl DetectorEngine {
         let start = Instant::now();
 
         debug!("Running detector: {}", name);
+        eprintln!("[DEBUG] Starting detector: {}", name);
 
-        match detector.detect(graph) {
-            Ok(mut findings) => {
+        // Wrap in catch_unwind to handle panics from Kuzu
+        let detect_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            detector.detect(graph)
+        }));
+
+        match detect_result {
+            Ok(Ok(mut findings)) => {
                 let duration = start.elapsed().as_millis() as u64;
                 
                 // Apply per-detector finding limit if configured
@@ -290,11 +296,23 @@ impl DetectorEngine {
 
                 DetectorResult::success(name, findings, duration)
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 let duration = start.elapsed().as_millis() as u64;
                 // Downgrade to debug - many detectors fail due to missing graph properties
                 debug!("Detector {} skipped (query error): {}", name, e);
                 DetectorResult::failure(name, e.to_string(), duration)
+            }
+            Err(panic_info) => {
+                let duration = start.elapsed().as_millis() as u64;
+                let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "Unknown panic".to_string()
+                };
+                error!("Detector {} panicked: {}", name, panic_msg);
+                DetectorResult::failure(name, format!("Panic: {}", panic_msg), duration)
             }
         }
     }
