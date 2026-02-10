@@ -56,14 +56,38 @@ impl<'a> GitEnricher<'a> {
     pub fn enrich_all(&mut self) -> Result<EnrichmentStats> {
         let mut stats = EnrichmentStats::default();
 
-        // Enrich Functions
+        // Collect all unique files from functions and classes
+        let functions = self.graph.get_functions();
+        let classes = self.graph.get_classes();
+        
+        let mut unique_files: HashSet<String> = HashSet::new();
+        for f in &functions {
+            if f.get_str("last_modified").is_none() {
+                unique_files.insert(f.file_path.clone());
+            }
+        }
+        for c in &classes {
+            if c.get_str("last_modified").is_none() {
+                unique_files.insert(c.file_path.clone());
+            }
+        }
+        
+        // Pre-warm blame cache in parallel
+        let file_list: Vec<String> = unique_files.into_iter().collect();
+        if !file_list.is_empty() {
+            info!("Pre-warming git blame cache for {} files (parallel)...", file_list.len());
+            let warmed = self.blame.prewarm_cache(&file_list);
+            debug!("Warmed {} file blames", warmed);
+        }
+
+        // Enrich Functions (now just cache lookups)
         info!("Enriching Function nodes with git history...");
         let func_stats = self.enrich_functions()?;
         stats.functions_enriched = func_stats.functions_enriched;
         stats.commits_created += func_stats.commits_created;
         stats.edges_created += func_stats.edges_created;
 
-        // Enrich Classes
+        // Enrich Classes (now just cache lookups)
         info!("Enriching Class nodes with git history...");
         let class_stats = self.enrich_classes()?;
         stats.classes_enriched = class_stats.classes_enriched;

@@ -7,8 +7,9 @@ use anyhow::{Context, Result};
 use chrono::{TimeZone, Utc};
 use dashmap::DashMap;
 use git2::{BlameOptions, Repository};
+use rayon::prelude::*;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::debug;
 
@@ -57,6 +58,7 @@ pub struct BlameInfo {
 /// Git blame analyzer with file-level caching.
 pub struct GitBlame {
     repo: Repository,
+    repo_path: PathBuf,
     /// Cache of file blame results: file_path -> blame entries
     file_cache: Arc<DashMap<String, Vec<LineBlame>>>,
 }
@@ -66,10 +68,40 @@ impl GitBlame {
     pub fn open(path: &Path) -> Result<Self> {
         let repo = Repository::discover(path)
             .with_context(|| format!("Failed to open git repository at {:?}", path))?;
+        let repo_path = repo.workdir()
+            .unwrap_or(repo.path())
+            .to_path_buf();
         Ok(Self { 
             repo,
+            repo_path,
             file_cache: Arc::new(DashMap::new()),
         })
+    }
+
+    /// Pre-warm the blame cache in parallel for the given files.
+    /// Each thread opens its own Repository instance.
+    pub fn prewarm_cache(&self, file_paths: &[String]) -> usize {
+        let cache = Arc::clone(&self.file_cache);
+        let repo_path = self.repo_path.clone();
+        
+        let warmed = std::sync::atomic::AtomicUsize::new(0);
+        
+        file_paths.par_iter().for_each(|file_path| {
+            // Skip if already cached
+            if cache.contains_key(file_path) {
+                return;
+            }
+            
+            // Open thread-local repo and compute blame
+            if let Ok(repo) = Repository::discover(&repo_path) {
+                if let Ok(entries) = blame_file_with_repo(&repo, file_path) {
+                    cache.insert(file_path.clone(), entries);
+                    warmed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+        });
+        
+        warmed.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get blame information for a specific line range.
@@ -301,6 +333,70 @@ impl GitBlame {
 
         Ok(ownership)
     }
+}
+
+/// Blame a file using a provided repository (for parallel pre-warming).
+fn blame_file_with_repo(repo: &Repository, file_path: &str) -> Result<Vec<LineBlame>> {
+    let blame = repo
+        .blame_file(Path::new(file_path), None)
+        .with_context(|| format!("Failed to blame {}", file_path))?;
+
+    let mut entries = Vec::new();
+    let mut current_hash: Option<String> = None;
+    let mut current_entry: Option<LineBlame> = None;
+
+    for hunk in blame.iter() {
+        let commit_id = hunk.final_commit_id();
+        let hash = commit_id.to_string();
+        let short_hash = hash[..hash.len().min(12)].to_string();
+
+        let sig = hunk.final_signature();
+        let author = sig.name().unwrap_or("Unknown").to_string();
+        let email = sig.email().unwrap_or("").to_string();
+
+        let timestamp = if let Ok(commit) = repo.find_commit(commit_id) {
+            format_git_time(&commit.time())
+        } else {
+            "1970-01-01T00:00:00Z".to_string()
+        };
+
+        let line_no = hunk.final_start_line() as u32;
+        let line_count = hunk.lines_in_hunk() as u32;
+
+        // Merge consecutive hunks from same commit
+        if current_hash.as_ref() == Some(&hash) {
+            if let Some(ref mut entry) = current_entry {
+                entry.line_end = line_no + line_count - 1;
+                entry.line_count = entry.line_end - entry.line_start + 1;
+                continue;
+            }
+        }
+
+        // Save previous entry
+        if let Some(entry) = current_entry.take() {
+            entries.push(entry);
+        }
+
+        // Start new entry
+        current_hash = Some(hash.clone());
+        current_entry = Some(LineBlame {
+            commit_hash: short_hash,
+            full_hash: hash,
+            author,
+            author_email: email,
+            timestamp,
+            line_start: line_no,
+            line_end: line_no + line_count - 1,
+            line_count,
+        });
+    }
+
+    // Don't forget the last entry
+    if let Some(entry) = current_entry {
+        entries.push(entry);
+    }
+
+    Ok(entries)
 }
 
 /// Format a git timestamp as ISO 8601.
