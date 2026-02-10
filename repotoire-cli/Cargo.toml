@@ -88,6 +88,8 @@ chrono = "0.4"
 uuid = { version = "1", features = ["v4"] }
 lazy_static = "1.5"
 md5 = "0.7"
+ratatui = "0.30.0"
+crossterm = "0.29.0"
 [profile.release]
 lto = true
 codegen-units = 1

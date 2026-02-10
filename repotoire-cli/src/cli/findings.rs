@@ -6,9 +6,20 @@ use std::fs;
 use std::path::Path;
 
 use crate::models::{Finding, Severity};
+use super::tui;
 
-pub fn run(path: &Path, index: Option<usize>, json: bool, page: usize, per_page: usize) -> Result<()> {
-    // Load findings from last analysis
+/// Run interactive TUI mode
+pub fn run_interactive(path: &Path) -> Result<()> {
+    let findings = load_findings(path)?;
+    if findings.is_empty() {
+        println!("No findings! Your code looks clean.");
+        return Ok(());
+    }
+    tui::run(findings)
+}
+
+/// Load findings from last analysis
+fn load_findings(path: &Path) -> Result<Vec<Finding>> {
     let findings_path = path.join(".repotoire/last_findings.json");
     if !findings_path.exists() {
         anyhow::bail!(
@@ -21,12 +32,17 @@ pub fn run(path: &Path, index: Option<usize>, json: bool, page: usize, per_page:
     let findings_json = fs::read_to_string(&findings_path)
         .context("Failed to read findings file")?;
     
-    // Parse the wrapped format { "findings": [...] }
     let parsed: serde_json::Value = serde_json::from_str(&findings_json)
         .context("Failed to parse findings file")?;
     let findings: Vec<Finding> = serde_json::from_value(
         parsed.get("findings").cloned().unwrap_or(serde_json::json!([]))
     ).context("Failed to parse findings array")?;
+
+    Ok(findings)
+}
+
+pub fn run(path: &Path, index: Option<usize>, json: bool, page: usize, per_page: usize) -> Result<()> {
+    let findings = load_findings(path)?;
 
     if findings.is_empty() {
         println!("{}", style("No findings! Your code looks clean.").green());

@@ -8,6 +8,7 @@ mod graph;
 mod init;
 mod serve;
 mod status;
+mod tui;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -100,6 +101,10 @@ pub enum Commands {
         /// Findings per page (default: 20, 0 = all)
         #[arg(long, default_value = "20")]
         per_page: usize,
+
+        /// Interactive TUI mode
+        #[arg(long, short = 'i')]
+        interactive: bool,
     },
 
     /// Generate AI-powered fix for a finding
@@ -168,7 +173,13 @@ pub fn run(cli: Cli) -> Result<()> {
             analyze::run(&cli.path, &format, output.as_deref(), effective_severity, top, page, per_page, skip_detector, thorough, no_git, cli.workers)
         }
 
-        Some(Commands::Findings { index, json, page, per_page }) => findings::run(&cli.path, index, json, page, per_page),
+        Some(Commands::Findings { index, json, page, per_page, interactive }) => {
+            if interactive {
+                findings::run_interactive(&cli.path)
+            } else {
+                findings::run(&cli.path, index, json, page, per_page)
+            }
+        }
 
         Some(Commands::Fix { index, apply }) => fix::run(&cli.path, index, apply),
 
