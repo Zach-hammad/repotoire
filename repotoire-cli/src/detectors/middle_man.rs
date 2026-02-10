@@ -185,11 +185,55 @@ impl Detector for MiddleManDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
-        Ok(vec![])
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        
+        for class in graph.get_classes() {
+            let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
+            if method_count == 0 {
+                continue;
+            }
+            
+            // Get methods of this class
+            let methods: Vec<_> = graph.get_functions()
+                .into_iter()
+                .filter(|f| f.qualified_name.starts_with(&class.qualified_name))
+                .collect();
+            
+            // Check how many methods just delegate
+            let mut delegating = 0;
+            for method in &methods {
+                let callees = graph.get_callees(&method.qualified_name);
+                // Simple delegation: 1 callee, low complexity
+                if callees.len() == 1 && method.complexity().unwrap_or(1) <= 2 {
+                    delegating += 1;
+                }
+            }
+            
+            // Middle man: most methods just delegate
+            if methods.len() >= 3 && delegating as f64 / methods.len() as f64 > 0.7 {
+                findings.push(Finding {
+                    id: Uuid::new_v4().to_string(),
+                    detector: "MiddleManDetector".to_string(),
+                    severity: Severity::Medium,
+                    title: format!("Middle Man: {}", class.name),
+                    description: format!(
+                        "Class '{}' delegates {} of {} methods. Consider removing the middle man.",
+                        class.name, delegating, methods.len()
+                    ),
+                    affected_files: vec![class.file_path.clone().into()],
+                    line_start: Some(class.line_start),
+                    line_end: Some(class.line_end),
+                    suggested_fix: Some("Remove the middle man by having clients call the delegate directly".to_string()),
+                    estimated_effort: Some("Medium (1-2 hours)".to_string()),
+                    category: Some("structure".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some("Middle man classes add indirection without value".to_string()),
+                });
+            }
+        }
+        
+        Ok(findings)
     }
 }
 

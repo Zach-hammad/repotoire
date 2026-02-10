@@ -322,11 +322,43 @@ impl Detector for LongParameterListDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
-        Ok(vec![])
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        
+        for func in graph.get_functions() {
+            let param_count = func.param_count().unwrap_or(0) as usize;
+            
+            if param_count > 5 {
+                let severity = if param_count > 10 {
+                    Severity::High
+                } else if param_count > 7 {
+                    Severity::Medium
+                } else {
+                    Severity::Low
+                };
+                
+                findings.push(Finding {
+                    id: Uuid::new_v4().to_string(),
+                    detector: "LongParameterListDetector".to_string(),
+                    severity,
+                    title: format!("Long parameter list: {}", func.name),
+                    description: format!(
+                        "Function '{}' has {} parameters. Consider using a config object.",
+                        func.name, param_count
+                    ),
+                    affected_files: vec![func.file_path.clone().into()],
+                    line_start: Some(func.line_start),
+                    line_end: Some(func.line_end),
+                    suggested_fix: Some("Group related parameters into a configuration object or class".to_string()),
+                    estimated_effort: Some("Small (30 min)".to_string()),
+                    category: Some("quality".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some("Long parameter lists make functions hard to call and understand".to_string()),
+                });
+            }
+        }
+        
+        Ok(findings)
     }
 }
 

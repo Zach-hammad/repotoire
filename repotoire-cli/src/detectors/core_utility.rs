@@ -298,11 +298,37 @@ impl Detector for CoreUtilityDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
-        Ok(vec![])
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        
+        for func in graph.get_functions() {
+            let fan_in = graph.call_fan_in(&func.qualified_name);
+            let fan_out = graph.call_fan_out(&func.qualified_name);
+            
+            // Core utility: high fan-in, low fan-out (many depend on it, it depends on few)
+            if fan_in >= 10 && fan_out <= 2 {
+                findings.push(Finding {
+                    id: Uuid::new_v4().to_string(),
+                    detector: "CoreUtilityDetector".to_string(),
+                    severity: Severity::Info,
+                    title: format!("Core Utility: {}", func.name),
+                    description: format!(
+                        "Function '{}' is used by {} callers. This is a core utility - ensure it's well-tested.",
+                        func.name, fan_in
+                    ),
+                    affected_files: vec![func.file_path.clone().into()],
+                    line_start: Some(func.line_start),
+                    line_end: Some(func.line_end),
+                    suggested_fix: Some("Ensure comprehensive test coverage for this core function".to_string()),
+                    estimated_effort: Some("Small (1 hour)".to_string()),
+                    category: Some("architecture".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some("Core utilities need extra attention as bugs affect many callers".to_string()),
+                });
+            }
+        }
+        
+        Ok(findings)
     }
 }
 

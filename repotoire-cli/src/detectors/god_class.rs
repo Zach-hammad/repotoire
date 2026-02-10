@@ -339,11 +339,46 @@ impl Detector for GodClassDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
-        Ok(vec![])
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        
+        for class in graph.get_classes() {
+            let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
+            let complexity = class.complexity().unwrap_or(1) as usize;
+            let loc = class.loc() as usize;
+            
+            // Thresholds: >20 methods OR >500 LOC OR >50 complexity
+            if method_count > 20 || loc > 500 || complexity > 50 {
+                let severity = if method_count > 30 || complexity > 100 {
+                    Severity::Critical
+                } else if method_count > 25 || complexity > 75 {
+                    Severity::High
+                } else {
+                    Severity::Medium
+                };
+                
+                findings.push(Finding {
+                    id: Uuid::new_v4().to_string(),
+                    detector: "GodClassDetector".to_string(),
+                    severity,
+                    title: format!("God Class: {}", class.name),
+                    description: format!(
+                        "Class '{}' is too large: {} methods, {} LOC, complexity {}",
+                        class.name, method_count, loc, complexity
+                    ),
+                    affected_files: vec![class.file_path.clone().into()],
+                    line_start: Some(class.line_start),
+                    line_end: Some(class.line_end),
+                    suggested_fix: Some("Split into smaller, focused classes".to_string()),
+                    estimated_effort: Some("Large (4-8 hours)".to_string()),
+                    category: Some("structure".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some("God classes are hard to understand, test, and maintain".to_string()),
+                });
+            }
+        }
+        
+        Ok(findings)
     }
 }
 

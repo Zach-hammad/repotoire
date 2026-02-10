@@ -436,11 +436,40 @@ impl Detector for AINamingPatternDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
-        Ok(vec![])
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        
+        let generic_names = ["temp", "data", "result", "value", "item", "obj", "x", "y", "val", "tmp", "ret"];
+        
+        for func in graph.get_functions() {
+            // Check function name
+            let name_lower = func.name.to_lowercase();
+            let is_generic = generic_names.iter().any(|g| name_lower == *g || name_lower.starts_with(&format!("{}_", g)));
+            
+            if is_generic && func.loc() > 10 {
+                findings.push(Finding {
+                    id: Uuid::new_v4().to_string(),
+                    detector: "AINamingPatternDetector".to_string(),
+                    severity: Severity::Low,
+                    title: format!("Generic Naming: {}", func.name),
+                    description: format!(
+                        "Function '{}' has a generic name. Consider a more descriptive name.",
+                        func.name
+                    ),
+                    affected_files: vec![func.file_path.clone().into()],
+                    line_start: Some(func.line_start),
+                    line_end: Some(func.line_end),
+                    suggested_fix: Some("Rename to describe what the function does".to_string()),
+                    estimated_effort: Some("Small (15 min)".to_string()),
+                    category: Some("ai_watchdog".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some("Generic names reduce code readability".to_string()),
+                });
+            }
+        }
+        
+        findings.truncate(30);
+        Ok(findings)
     }
 }
 

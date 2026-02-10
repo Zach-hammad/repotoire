@@ -209,11 +209,57 @@ impl Detector for InappropriateIntimacyDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
-        Ok(vec![])
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        use std::collections::HashMap;
+        
+        // Count calls between files
+        let mut file_coupling: HashMap<(String, String), usize> = HashMap::new();
+        
+        for (caller, callee) in graph.get_calls() {
+            if let (Some(caller_node), Some(callee_node)) = (graph.get_node(&caller), graph.get_node(&callee)) {
+                if caller_node.file_path != callee_node.file_path {
+                    let key = if caller_node.file_path < callee_node.file_path {
+                        (caller_node.file_path.clone(), callee_node.file_path.clone())
+                    } else {
+                        (callee_node.file_path.clone(), caller_node.file_path.clone())
+                    };
+                    *file_coupling.entry(key).or_insert(0) += 1;
+                }
+            }
+        }
+        
+        // Flag highly coupled file pairs
+        for ((file_a, file_b), count) in file_coupling {
+            if count >= 15 {
+                let severity = if count >= 30 {
+                    Severity::High
+                } else {
+                    Severity::Medium
+                };
+                
+                findings.push(Finding {
+                    id: Uuid::new_v4().to_string(),
+                    detector: "InappropriateIntimacyDetector".to_string(),
+                    severity,
+                    title: format!("Inappropriate Intimacy"),
+                    description: format!(
+                        "Files '{}' and '{}' have {} calls between them. Consider merging or reducing coupling.",
+                        file_a, file_b, count
+                    ),
+                    affected_files: vec![file_a.into(), file_b.into()],
+                    line_start: None,
+                    line_end: None,
+                    suggested_fix: Some("Extract shared functionality into a separate module or merge files".to_string()),
+                    estimated_effort: Some("Medium (2-4 hours)".to_string()),
+                    category: Some("coupling".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some("Excessive coupling between files makes code harder to modify independently".to_string()),
+                });
+            }
+        }
+        
+        Ok(findings)
     }
 }
 

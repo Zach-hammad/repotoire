@@ -189,11 +189,43 @@ impl Detector for LazyClassDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
-        Ok(vec![])
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        
+        for class in graph.get_classes() {
+            let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
+            let loc = class.loc() as usize;
+            
+            // Lazy class: very few methods and small size
+            if method_count <= 2 && loc < 50 && loc > 5 {
+                // Skip common patterns
+                if class.name.ends_with("Error") || class.name.ends_with("Exception") 
+                    || class.name.contains("Mixin") || class.name.starts_with("Base") {
+                    continue;
+                }
+                
+                findings.push(Finding {
+                    id: Uuid::new_v4().to_string(),
+                    detector: "LazyClassDetector".to_string(),
+                    severity: Severity::Low,
+                    title: format!("Lazy Class: {}", class.name),
+                    description: format!(
+                        "Class '{}' has only {} methods and {} LOC. Consider inlining or merging.",
+                        class.name, method_count, loc
+                    ),
+                    affected_files: vec![class.file_path.clone().into()],
+                    line_start: Some(class.line_start),
+                    line_end: Some(class.line_end),
+                    suggested_fix: Some("Consider merging with another class or converting to functions".to_string()),
+                    estimated_effort: Some("Small (30 min)".to_string()),
+                    category: Some("structure".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some("Lazy classes add complexity without providing value".to_string()),
+                });
+            }
+        }
+        
+        Ok(findings)
     }
 }
 

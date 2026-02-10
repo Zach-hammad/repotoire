@@ -210,11 +210,53 @@ impl Detector for RefusedBequestDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
-        Ok(vec![])
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        
+        for (child_qn, parent_qn) in graph.get_inheritance() {
+            // Skip common patterns
+            if parent_qn.contains("Base") || parent_qn.contains("Abstract") || parent_qn.contains("Mixin") {
+                continue;
+            }
+            
+            if let Some(child) = graph.get_node(&child_qn) {
+                // Check if child overrides many methods without calling super
+                let child_methods: Vec<_> = graph.get_functions()
+                    .into_iter()
+                    .filter(|f| f.qualified_name.starts_with(&child_qn))
+                    .collect();
+                
+                if child_methods.len() >= 3 {
+                    // Count methods that might be refusing bequest (low complexity overrides)
+                    let potential_refusals: Vec<_> = child_methods.iter()
+                        .filter(|m| m.complexity().unwrap_or(1) <= 2 && m.loc() <= 5)
+                        .collect();
+                    
+                    if potential_refusals.len() >= 2 {
+                        findings.push(Finding {
+                            id: Uuid::new_v4().to_string(),
+                            detector: "RefusedBequestDetector".to_string(),
+                            severity: Severity::Low,
+                            title: format!("Refused Bequest: {}", child.name),
+                            description: format!(
+                                "Class '{}' inherits from '{}' but may not use inherited behavior properly.",
+                                child.name, parent_qn
+                            ),
+                            affected_files: vec![child.file_path.clone().into()],
+                            line_start: Some(child.line_start),
+                            line_end: Some(child.line_end),
+                            suggested_fix: Some("Consider composition over inheritance if not using parent behavior".to_string()),
+                            estimated_effort: Some("Medium (1-2 hours)".to_string()),
+                            category: Some("structure".to_string()),
+                            cwe_id: None,
+                            why_it_matters: Some("Refused bequest indicates improper use of inheritance".to_string()),
+                        });
+                    }
+                }
+            }
+        }
+        
+        Ok(findings)
     }
 }
 

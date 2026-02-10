@@ -313,11 +313,45 @@ impl Detector for InfluentialCodeDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
-        Ok(vec![])
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        
+        // Find functions with high influence (many transitive dependents)
+        for func in graph.get_functions() {
+            let fan_in = graph.call_fan_in(&func.qualified_name);
+            let complexity = func.complexity().unwrap_or(1) as usize;
+            let loc = func.loc() as usize;
+            
+            // Influential: high fan-in and large
+            if fan_in >= 8 && (complexity >= 15 || loc >= 100) {
+                let severity = if fan_in >= 15 && complexity >= 20 {
+                    Severity::High
+                } else {
+                    Severity::Medium
+                };
+                
+                findings.push(Finding {
+                    id: Uuid::new_v4().to_string(),
+                    detector: "InfluentialCodeDetector".to_string(),
+                    severity,
+                    title: format!("Influential Code: {}", func.name),
+                    description: format!(
+                        "Function '{}' influences {} dependents with complexity {} and {} LOC. High-impact code.",
+                        func.name, fan_in, complexity, loc
+                    ),
+                    affected_files: vec![func.file_path.clone().into()],
+                    line_start: Some(func.line_start),
+                    line_end: Some(func.line_end),
+                    suggested_fix: Some("Consider refactoring to reduce complexity while maintaining interface".to_string()),
+                    estimated_effort: Some("Large (4+ hours)".to_string()),
+                    category: Some("architecture".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some("Changes to influential code have wide-reaching effects".to_string()),
+                });
+            }
+        }
+        
+        Ok(findings)
     }
 }
 

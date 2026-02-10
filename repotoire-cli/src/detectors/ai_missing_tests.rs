@@ -322,11 +322,67 @@ impl Detector for AIMissingTestsDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
-        Ok(vec![])
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        use std::collections::HashSet;
+        
+        // Get all test functions
+        let test_funcs: HashSet<String> = graph.get_functions()
+            .iter()
+            .filter(|f| f.name.starts_with("test_") || f.file_path.contains("test"))
+            .map(|f| f.name.clone())
+            .collect();
+        
+        // Find complex public functions without tests
+        for func in graph.get_functions() {
+            // Skip test files, private functions, simple functions
+            if func.file_path.contains("test") || func.name.starts_with("_") {
+                continue;
+            }
+            
+            let complexity = func.complexity().unwrap_or(1);
+            let loc = func.loc();
+            
+            // Only flag complex/large functions
+            if complexity < 5 && loc < 20 {
+                continue;
+            }
+            
+            // Check if there's a test for this function
+            let test_name = format!("test_{}", func.name);
+            if !test_funcs.contains(&test_name) && !test_funcs.iter().any(|t| t.contains(&func.name)) {
+                let severity = if complexity > 15 {
+                    Severity::High
+                } else if complexity > 10 {
+                    Severity::Medium
+                } else {
+                    Severity::Low
+                };
+                
+                findings.push(Finding {
+                    id: Uuid::new_v4().to_string(),
+                    detector: "AIMissingTestsDetector".to_string(),
+                    severity,
+                    title: format!("Missing Test: {}", func.name),
+                    description: format!(
+                        "Function '{}' (complexity: {}, {} LOC) has no test coverage.",
+                        func.name, complexity, loc
+                    ),
+                    affected_files: vec![func.file_path.clone().into()],
+                    line_start: Some(func.line_start),
+                    line_end: Some(func.line_end),
+                    suggested_fix: Some(format!("Add test function: test_{}", func.name)),
+                    estimated_effort: Some("Small (30 min)".to_string()),
+                    category: Some("ai_watchdog".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some("Complex untested code is a maintenance risk".to_string()),
+                });
+            }
+        }
+        
+        // Limit findings
+        findings.truncate(50);
+        Ok(findings)
     }
 }
 

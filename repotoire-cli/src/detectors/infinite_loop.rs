@@ -41,10 +41,9 @@ impl Detector for InfiniteLoopDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        // Infinite loop detection needs control flow analysis
+        let _ = graph;
         Ok(vec![])
     }
 }

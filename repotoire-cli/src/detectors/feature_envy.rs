@@ -223,11 +223,61 @@ impl Detector for FeatureEnvyDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
-        Ok(vec![])
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        
+        for func in graph.get_functions() {
+            let callees = graph.get_callees(&func.qualified_name);
+            if callees.is_empty() {
+                continue;
+            }
+            
+            // Count calls to own file vs other files
+            let own_file = &func.file_path;
+            let mut internal_calls = 0;
+            let mut external_calls = 0;
+            
+            for callee in &callees {
+                if callee.file_path == *own_file {
+                    internal_calls += 1;
+                } else {
+                    external_calls += 1;
+                }
+            }
+            
+            // Feature envy: more external than internal calls
+            if external_calls > internal_calls && external_calls >= 3 {
+                let ratio = external_calls as f64 / (internal_calls + 1) as f64;
+                let severity = if ratio > 5.0 {
+                    Severity::High
+                } else if ratio > 3.0 {
+                    Severity::Medium
+                } else {
+                    Severity::Low
+                };
+                
+                findings.push(Finding {
+                    id: Uuid::new_v4().to_string(),
+                    detector: "FeatureEnvyDetector".to_string(),
+                    severity,
+                    title: format!("Feature Envy: {}", func.name),
+                    description: format!(
+                        "Function '{}' calls {} external functions but only {} internal. It may belong elsewhere.",
+                        func.name, external_calls, internal_calls
+                    ),
+                    affected_files: vec![func.file_path.clone().into()],
+                    line_start: Some(func.line_start),
+                    line_end: Some(func.line_end),
+                    suggested_fix: Some("Consider moving this function to the class it uses most".to_string()),
+                    estimated_effort: Some("Medium (1-2 hours)".to_string()),
+                    category: Some("coupling".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some("Feature envy indicates misplaced functionality".to_string()),
+                });
+            }
+        }
+        
+        Ok(findings)
     }
 }
 

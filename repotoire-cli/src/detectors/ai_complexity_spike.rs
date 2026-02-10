@@ -335,11 +335,62 @@ impl Detector for AIComplexitySpikeDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
-        Ok(vec![])
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        
+        // Calculate baseline complexity
+        let functions = graph.get_functions();
+        let complexities: Vec<i64> = functions.iter()
+            .filter_map(|f| f.complexity())
+            .collect();
+        
+        if complexities.is_empty() {
+            return Ok(vec![]);
+        }
+        
+        let avg: f64 = complexities.iter().sum::<i64>() as f64 / complexities.len() as f64;
+        let variance: f64 = complexities.iter()
+            .map(|&c| (c as f64 - avg).powi(2))
+            .sum::<f64>() / complexities.len() as f64;
+        let std_dev = variance.sqrt();
+        
+        // Find outliers (>2 standard deviations above mean)
+        let threshold = avg + 2.0 * std_dev;
+        
+        for func in functions {
+            if let Some(complexity) = func.complexity() {
+                if complexity as f64 > threshold && complexity > 20 {
+                    let z_score = (complexity as f64 - avg) / std_dev;
+                    
+                    let severity = if z_score > 3.0 {
+                        Severity::High
+                    } else {
+                        Severity::Medium
+                    };
+                    
+                    findings.push(Finding {
+                        id: Uuid::new_v4().to_string(),
+                        detector: "AIComplexitySpikeDetector".to_string(),
+                        severity,
+                        title: format!("Complexity Spike: {}", func.name),
+                        description: format!(
+                            "Function '{}' has complexity {} (avg: {:.1}, z-score: {:.1}). Possible AI-generated code.",
+                            func.name, complexity, avg, z_score
+                        ),
+                        affected_files: vec![func.file_path.clone().into()],
+                        line_start: Some(func.line_start),
+                        line_end: Some(func.line_end),
+                        suggested_fix: Some("Review and refactor - consider breaking into smaller functions".to_string()),
+                        estimated_effort: Some("Medium (1-2 hours)".to_string()),
+                        category: Some("ai_watchdog".to_string()),
+                        cwe_id: None,
+                        why_it_matters: Some("Complexity spikes often indicate code that needs review".to_string()),
+                    });
+                }
+            }
+        }
+        
+        Ok(findings)
     }
 }
 

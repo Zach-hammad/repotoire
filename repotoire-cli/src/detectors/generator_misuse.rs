@@ -41,10 +41,9 @@ impl Detector for GeneratorMisuseDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        // Generator misuse needs AST analysis to detect yield patterns
+        let _ = graph;
         Ok(vec![])
     }
 }

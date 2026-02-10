@@ -366,10 +366,10 @@ impl Detector for DataClumpsDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        // Data clumps need parameter analysis which we don't have yet
+        // Return empty for now - would need parser to extract parameter names
+        let _ = graph;
         Ok(vec![])
     }
 }

@@ -479,11 +479,56 @@ impl Detector for ModuleCohesionDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
-        Ok(vec![])
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        use std::collections::HashMap;
+        
+        // Group functions by file and check internal vs external calls
+        let mut file_internal: HashMap<String, usize> = HashMap::new();
+        let mut file_external: HashMap<String, usize> = HashMap::new();
+        
+        for (caller, callee) in graph.get_calls() {
+            if let (Some(caller_node), Some(callee_node)) = (graph.get_node(&caller), graph.get_node(&callee)) {
+                if caller_node.file_path == callee_node.file_path {
+                    *file_internal.entry(caller_node.file_path.clone()).or_insert(0) += 1;
+                } else {
+                    *file_external.entry(caller_node.file_path.clone()).or_insert(0) += 1;
+                }
+            }
+        }
+        
+        // Flag files with low cohesion (more external than internal calls)
+        for file in graph.get_files() {
+            let internal = *file_internal.get(&file.file_path).unwrap_or(&0);
+            let external = *file_external.get(&file.file_path).unwrap_or(&0);
+            
+            if external > 0 && internal > 0 {
+                let cohesion = internal as f64 / (internal + external) as f64;
+                
+                if cohesion < 0.3 && (internal + external) >= 5 {
+                    findings.push(Finding {
+                        id: Uuid::new_v4().to_string(),
+                        detector: "ModuleCohesionDetector".to_string(),
+                        severity: Severity::Medium,
+                        title: format!("Low Module Cohesion"),
+                        description: format!(
+                            "File '{}' has low cohesion: {} internal calls vs {} external calls ({:.0}% cohesion).",
+                            file.file_path, internal, external, cohesion * 100.0
+                        ),
+                        affected_files: vec![file.file_path.clone().into()],
+                        line_start: None,
+                        line_end: None,
+                        suggested_fix: Some("Consider reorganizing functions into more cohesive modules".to_string()),
+                        estimated_effort: Some("Large (2-4 hours)".to_string()),
+                        category: Some("architecture".to_string()),
+                        cwe_id: None,
+                        why_it_matters: Some("Low cohesion makes modules harder to understand and maintain".to_string()),
+                    });
+                }
+            }
+        }
+        
+        Ok(findings)
     }
 }
 

@@ -336,11 +336,46 @@ impl Detector for DegreeCentralityDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
-        Ok(vec![])
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        
+        for func in graph.get_functions() {
+            let fan_in = graph.call_fan_in(&func.qualified_name);
+            let fan_out = graph.call_fan_out(&func.qualified_name);
+            let total_degree = fan_in + fan_out;
+            
+            // High degree centrality
+            if total_degree >= 15 {
+                let severity = if total_degree >= 30 {
+                    Severity::High
+                } else if total_degree >= 20 {
+                    Severity::Medium
+                } else {
+                    Severity::Low
+                };
+                
+                findings.push(Finding {
+                    id: Uuid::new_v4().to_string(),
+                    detector: "DegreeCentralityDetector".to_string(),
+                    severity,
+                    title: format!("High Coupling: {}", func.name),
+                    description: format!(
+                        "Function '{}' has {} connections ({} callers, {} callees). High coupling increases change risk.",
+                        func.name, total_degree, fan_in, fan_out
+                    ),
+                    affected_files: vec![func.file_path.clone().into()],
+                    line_start: Some(func.line_start),
+                    line_end: Some(func.line_end),
+                    suggested_fix: Some("Consider breaking into smaller functions or using dependency injection".to_string()),
+                    estimated_effort: Some("Medium (2-4 hours)".to_string()),
+                    category: Some("coupling".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some("Highly coupled code is harder to change and test".to_string()),
+                });
+            }
+        }
+        
+        Ok(findings)
     }
 }
 

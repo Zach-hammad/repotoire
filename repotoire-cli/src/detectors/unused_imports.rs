@@ -41,10 +41,9 @@ impl Detector for UnusedImportsDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        // Unused imports needs detailed import/usage tracking
+        let _ = graph;
         Ok(vec![])
     }
 }

@@ -193,10 +193,10 @@ impl Detector for MessageChainDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        // Message chains need AST analysis to detect a.b.c.d patterns
+        // Return empty for now - would need source code scanning
+        let _ = graph;
         Ok(vec![])
     }
 }

@@ -252,11 +252,46 @@ impl Detector for ArchitecturalBottleneckDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }
-
-        fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        // TODO: Migrate to GraphStore API
-        Ok(vec![])
+    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        
+        for func in graph.get_functions() {
+            let fan_in = graph.call_fan_in(&func.qualified_name);
+            let fan_out = graph.call_fan_out(&func.qualified_name);
+            let complexity = func.complexity().unwrap_or(1) as usize;
+            
+            // Bottleneck: high fan-in AND high complexity
+            if fan_in >= 10 && complexity >= 10 {
+                let severity = if fan_in >= 20 && complexity >= 20 {
+                    Severity::Critical
+                } else if fan_in >= 15 || complexity >= 15 {
+                    Severity::High
+                } else {
+                    Severity::Medium
+                };
+                
+                findings.push(Finding {
+                    id: Uuid::new_v4().to_string(),
+                    detector: "ArchitecturalBottleneckDetector".to_string(),
+                    severity,
+                    title: format!("Architectural Bottleneck: {}", func.name),
+                    description: format!(
+                        "Function '{}' is called by {} functions and has complexity {}. Changes here are high-risk.",
+                        func.name, fan_in, complexity
+                    ),
+                    affected_files: vec![func.file_path.clone().into()],
+                    line_start: Some(func.line_start),
+                    line_end: Some(func.line_end),
+                    suggested_fix: Some("Reduce complexity or create a facade to isolate changes".to_string()),
+                    estimated_effort: Some("Large (4-8 hours)".to_string()),
+                    category: Some("architecture".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some("Bottlenecks are single points of failure that amplify bugs".to_string()),
+                });
+            }
+        }
+        
+        Ok(findings)
     }
 }
 
