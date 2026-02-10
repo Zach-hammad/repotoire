@@ -800,4 +800,67 @@ function greet(name) {
         let func = &result.functions[0];
         assert_eq!(func.name, "greet");
     }
+    
+    #[test]
+    fn test_complexity_simple() {
+        let source = r#"
+function simple(): number {
+    return 42;
+}
+"#;
+        let path = PathBuf::from("test.ts");
+        let result = parse_source(source, &path, "ts").unwrap();
+        
+        let func = &result.functions[0];
+        assert_eq!(func.name, "simple");
+        // Simple function should have complexity 1
+        assert_eq!(func.complexity, Some(1));
+    }
+    
+    #[test]
+    fn test_complexity_with_branches() {
+        let source = r#"
+function complex(x: number): string {
+    if (x > 10) {
+        return "big";
+    } else if (x > 5) {
+        return "medium";
+    } else if (x > 0) {
+        return "small";
+    }
+    return "zero";
+}
+"#;
+        let path = PathBuf::from("test.ts");
+        let result = parse_source(source, &path, "ts").unwrap();
+        
+        let func = &result.functions[0];
+        assert_eq!(func.name, "complex");
+        // if + else if + else if = 3 branches, base 1 = 4 total
+        assert!(func.complexity.unwrap_or(0) >= 4, 
+            "Expected complexity >= 4, got {:?}", func.complexity);
+    }
+    
+    #[test]
+    fn test_complexity_with_loops_and_ternary() {
+        let source = r#"
+function loopy(items: string[]): number {
+    let count = 0;
+    for (const item of items) {
+        if (item.length > 5) {
+            count++;
+        }
+    }
+    return count > 0 ? count : -1;
+}
+"#;
+        let path = PathBuf::from("test.ts");
+        let result = parse_source(source, &path, "ts").unwrap();
+        
+        let func = &result.functions[0];
+        assert_eq!(func.name, "loopy");
+        // for + if + ternary = 3 branches + base 1 = 4
+        assert!(func.complexity.unwrap_or(0) >= 4,
+            "Expected complexity >= 4, got {:?}", func.complexity);
+    }
 }

@@ -172,6 +172,8 @@ mod tests {
             commits_created: 20,
             edges_created: 50,
             files_skipped: 2,
+            cache_hits: 0,
+            cache_misses: 0,
         });
 
         assert!(stats.has_git_enrichment());
