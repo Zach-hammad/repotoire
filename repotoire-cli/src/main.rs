@@ -4,6 +4,7 @@
 //! to detect code smells, architectural issues, and technical debt.
 
 pub mod ai;
+pub mod cache;
 mod cli;
 mod detectors;
 pub mod git;

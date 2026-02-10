@@ -42,7 +42,7 @@ impl Detector for XssDetector {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "js"|"ts"|"jsx"|"tsx"|"vue"|"html"|"php") { continue; }
 
-            if let Ok(content) = std::fs::read_to_string(path) {
+            if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
                     if xss_pattern().is_match(line) {
                         let has_user_input = line.contains("req.") || line.contains("props.") ||

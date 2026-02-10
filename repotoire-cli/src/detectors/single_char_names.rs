@@ -42,7 +42,7 @@ impl Detector for SingleCharNamesDetector {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py"|"js"|"ts"|"java"|"go"|"rs"|"cs") { continue; }
 
-            if let Ok(content) = std::fs::read_to_string(path) {
+            if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
                     // Skip loop variables (for i in, for (int i, etc)
                     if line.contains("for ") || line.contains("for(") { continue; }

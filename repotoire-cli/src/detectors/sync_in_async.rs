@@ -47,7 +47,7 @@ impl Detector for SyncInAsyncDetector {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py"|"js"|"ts"|"jsx"|"tsx"|"rs") { continue; }
 
-            if let Ok(content) = std::fs::read_to_string(path) {
+            if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let mut in_async = false;
                 for (i, line) in content.lines().enumerate() {
                     if async_func().is_match(line) { in_async = true; }

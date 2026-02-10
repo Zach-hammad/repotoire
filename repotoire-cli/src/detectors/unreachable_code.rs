@@ -42,7 +42,7 @@ impl Detector for UnreachableCodeDetector {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py"|"js"|"ts"|"jsx"|"tsx"|"java"|"go"|"rs"|"rb"|"php"|"c"|"cpp") { continue; }
 
-            if let Ok(content) = std::fs::read_to_string(path) {
+            if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 
                 for i in 0..lines.len().saturating_sub(1) {

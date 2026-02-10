@@ -43,7 +43,7 @@ impl Detector for DeadStoreDetector {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py"|"js"|"ts"|"go"|"rs") { continue; }
 
-            if let Ok(content) = std::fs::read_to_string(path) {
+            if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let mut assignments: HashMap<String, usize> = HashMap::new();
                 

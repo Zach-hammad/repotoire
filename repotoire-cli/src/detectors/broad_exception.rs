@@ -42,7 +42,7 @@ impl Detector for BroadExceptionDetector {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py"|"js"|"ts"|"java"|"cs"|"rb"|"go") { continue; }
 
-            if let Ok(content) = std::fs::read_to_string(path) {
+            if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
                     if broad_except().is_match(line) {
                         // Skip if it's re-raising

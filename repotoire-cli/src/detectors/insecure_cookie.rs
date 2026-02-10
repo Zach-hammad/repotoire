@@ -42,7 +42,7 @@ impl Detector for InsecureCookieDetector {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py"|"js"|"ts"|"php"|"rb"|"java") { continue; }
 
-            if let Ok(content) = std::fs::read_to_string(path) {
+            if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
                     if cookie_pattern().is_match(line) {
                         let has_httponly = content.lines().skip(i).take(3).any(|l| l.to_lowercase().contains("httponly"));

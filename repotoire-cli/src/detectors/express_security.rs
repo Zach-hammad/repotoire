@@ -42,7 +42,7 @@ impl Detector for ExpressSecurityDetector {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "js"|"ts") { continue; }
 
-            if let Ok(content) = std::fs::read_to_string(path) {
+            if let Some(content) = crate::cache::global_cache().get_content(path) {
                 // Check if this is an Express app
                 if !express_app().is_match(&content) { continue; }
                 

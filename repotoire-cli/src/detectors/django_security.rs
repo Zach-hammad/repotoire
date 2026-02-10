@@ -52,7 +52,7 @@ impl Detector for DjangoSecurityDetector {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if ext != "py" { continue; }
 
-            if let Ok(content) = std::fs::read_to_string(path) {
+            if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
                     if csrf_exempt().is_match(line) {
                         findings.push(Finding {

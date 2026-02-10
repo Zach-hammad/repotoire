@@ -283,6 +283,9 @@ pub fn run(
 
     // Step 5: Run detectors
     println!("\n{}Running detectors...", style("🕵️  ").bold());
+    
+    // Pre-warm file cache for faster detector execution
+    crate::cache::warm_global_cache(&repo_path, SUPPORTED_EXTENSIONS);
 
     let mut engine = DetectorEngine::new(workers);
 

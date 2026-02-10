@@ -47,7 +47,7 @@ impl Detector for ReactHooksDetector {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "js"|"jsx"|"ts"|"tsx") { continue; }
 
-            if let Ok(content) = std::fs::read_to_string(path) {
+            if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let mut in_conditional = false;
                 let mut cond_depth = 0;
                 

@@ -42,7 +42,7 @@ impl Detector for XxeDetector {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py"|"js"|"ts"|"java"|"php"|"cs"|"rb") { continue; }
 
-            if let Ok(content) = std::fs::read_to_string(path) {
+            if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
                     if xxe_pattern().is_match(line) {
                         let has_protection = content.contains("resolve_entities=False") ||

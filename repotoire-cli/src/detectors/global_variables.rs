@@ -42,7 +42,7 @@ impl Detector for GlobalVariablesDetector {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py"|"js"|"ts") { continue; }
 
-            if let Ok(content) = std::fs::read_to_string(path) {
+            if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let mut in_function = false;
                 let mut brace_depth = 0;
                 

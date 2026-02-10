@@ -105,9 +105,10 @@ impl SecretDetector {
     fn scan_file(&self, path: &Path) -> Vec<Finding> {
         let mut findings = vec![];
         
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(_) => return findings,
+        // Use global cache for file content
+        let content = match crate::cache::global_cache().get_content(path) {
+            Some(c) => c,
+            None => return findings,
         };
 
         // Skip binary files
