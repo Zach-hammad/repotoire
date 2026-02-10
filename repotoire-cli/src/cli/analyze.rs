@@ -51,6 +51,8 @@ pub fn run(
     output_path: Option<&Path>,
     severity: Option<String>,
     top: Option<usize>,
+    page: usize,
+    per_page: usize,
     skip_detector: Vec<String>,
     thorough: bool,
     no_git: bool,
@@ -325,20 +327,38 @@ pub fn run(
         findings.truncate(n);
     }
 
-    // Step 6: Calculate health score
+    // Calculate totals before pagination for accurate summary
+    let total_findings = findings.len();
+    let findings_summary = FindingsSummary::from_findings(&findings);
+
+    // Apply pagination (per_page = 0 means all)
+    let (paginated_findings, pagination_info) = if per_page > 0 {
+        let total_pages = (total_findings + per_page - 1) / per_page;
+        let page = page.max(1).min(total_pages.max(1));
+        let start = (page - 1) * per_page;
+        let end = (start + per_page).min(total_findings);
+        let paginated: Vec<_> = findings.drain(start..end).collect();
+        (
+            paginated,
+            Some((page, total_pages, per_page, total_findings)),
+        )
+    } else {
+        (findings, None)
+    };
+
+    // Step 6: Calculate health score (use full findings for accurate score)
     let (overall_score, structure_score, quality_score, architecture_score) =
-        calculate_health_scores(&findings, files.len(), total_functions, total_classes);
+        calculate_health_scores(&paginated_findings, files.len(), total_functions, total_classes);
     let grade = HealthReport::grade_from_score(overall_score);
 
-    // Build report
-    let findings_summary = FindingsSummary::from_findings(&findings);
+    // Build report with paginated findings but full summary
     let report = HealthReport {
         overall_score,
         grade: grade.clone(),
         structure_score,
         quality_score,
         architecture_score: Some(architecture_score),
-        findings,
+        findings: paginated_findings,
         findings_summary,
         total_files: files.len(),
         total_functions,
@@ -383,6 +403,24 @@ pub fn run(
 
     // Cache results for later commands
     cache_results(&repotoire_dir, &report)?;
+
+    // Show pagination info if applicable
+    if let Some((current_page, total_pages, per_page, total)) = pagination_info {
+        println!(
+            "\n{}Showing page {} of {} ({} findings per page, {} total)",
+            style("📑 ").bold(),
+            style(current_page).cyan(),
+            style(total_pages).cyan(),
+            style(per_page).dim(),
+            style(total).cyan(),
+        );
+        if current_page < total_pages {
+            println!(
+                "   Use {} to see more",
+                style(format!("--page {}", current_page + 1)).yellow()
+            );
+        }
+    }
 
     // Final summary
     let elapsed = start_time.elapsed();

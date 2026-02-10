@@ -59,6 +59,14 @@ pub enum Commands {
         #[arg(long)]
         top: Option<usize>,
 
+        /// Page number (1-indexed) for paginated output
+        #[arg(long, default_value = "1")]
+        page: usize,
+
+        /// Findings per page (default: 20, 0 = all)
+        #[arg(long, default_value = "20")]
+        per_page: usize,
+
         /// Skip specific detectors
         #[arg(long)]
         skip_detector: Vec<String>,
@@ -136,6 +144,8 @@ pub fn run(cli: Cli) -> Result<()> {
             output,
             severity,
             top,
+            page,
+            per_page,
             skip_detector,
             thorough,
             relaxed,
@@ -147,7 +157,7 @@ pub fn run(cli: Cli) -> Result<()> {
             } else {
                 severity
             };
-            analyze::run(&cli.path, &format, output.as_deref(), effective_severity, top, skip_detector, thorough, no_git, cli.workers)
+            analyze::run(&cli.path, &format, output.as_deref(), effective_severity, top, page, per_page, skip_detector, thorough, no_git, cli.workers)
         }
 
         Some(Commands::Findings { index, json }) => findings::run(&cli.path, index, json),
@@ -170,8 +180,8 @@ pub fn run(cli: Cli) -> Result<()> {
         Some(Commands::Serve { local }) => serve::run(&cli.path, local),
 
         None => {
-            // Default: run analyze
-            analyze::run(&cli.path, "text", None, None, None, vec![], false, false, cli.workers)
+            // Default: run analyze with pagination (page 1, 20 per page)
+            analyze::run(&cli.path, "text", None, None, None, 1, 20, vec![], false, false, cli.workers)
         }
     }
 }
