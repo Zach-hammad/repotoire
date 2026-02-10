@@ -50,7 +50,21 @@ impl Detector for InsecureCryptoDetector {
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
                     let trimmed = line.trim();
-                    if trimmed.starts_with("//") || trimmed.starts_with("#") { continue; }
+                    // Skip comments
+                    if trimmed.starts_with("//") || trimmed.starts_with("#") || trimmed.starts_with("*") { continue; }
+                    
+                    // Skip TypeScript type definitions (interface, type alias, generic constraints)
+                    // These are compile-time only and don't represent actual crypto usage
+                    if trimmed.starts_with("interface ") || trimmed.starts_with("type ") ||
+                       trimmed.starts_with("export interface ") || trimmed.starts_with("export type ") ||
+                       trimmed.contains(": ") && !trimmed.contains("(") { // type annotation, not function call
+                        continue;
+                    }
+                    
+                    // Skip enum declarations
+                    if trimmed.starts_with("enum ") || trimmed.starts_with("export enum ") {
+                        continue;
+                    }
 
                     if weak_hash().is_match(line) {
                         findings.push(Finding {

@@ -25,6 +25,29 @@ static ENTRY_POINTS: &[&str] = &[
     "tearDown",
 ];
 
+/// Framework-specific files where default exports are auto-loaded
+/// (Next.js, React Native Navigation, Fastify, Remix, etc.)
+static FRAMEWORK_AUTO_LOAD_PATTERNS: &[&str] = &[
+    // Next.js App Router
+    "/page.tsx", "/page.ts", "/page.jsx", "/page.js",
+    "/layout.tsx", "/layout.ts", "/layout.jsx", "/layout.js",
+    "/loading.tsx", "/loading.ts",
+    "/error.tsx", "/error.ts",
+    "/not-found.tsx", "/not-found.ts",
+    "/template.tsx", "/template.ts",
+    "/route.tsx", "/route.ts",
+    // Next.js Pages Router
+    "/pages/",
+    // Fastify AutoLoad
+    "/routes/",
+    "/plugins/",
+    // Remix
+    "/routes.",
+    // Expo Router
+    "/app/",
+    // React Navigation screens typically end in Screen
+];
+
 /// Special methods that are called implicitly
 static MAGIC_METHODS: &[&str] = &[
     "__str__",
@@ -116,6 +139,40 @@ impl DeadCodeDetector {
     /// Check if a function name is an entry point
     fn is_entry_point(&self, name: &str) -> bool {
         self.entry_points.contains(name) || name.starts_with("test_")
+    }
+    
+    /// Check if file is in a framework auto-load location
+    /// These files have their exports auto-registered by the framework
+    fn is_framework_auto_load(&self, file_path: &str) -> bool {
+        FRAMEWORK_AUTO_LOAD_PATTERNS.iter().any(|pattern| file_path.contains(pattern))
+    }
+    
+    /// Check if this is likely a framework-registered component/route
+    fn is_framework_export(&self, name: &str, file_path: &str) -> bool {
+        // Default exports from framework files are auto-loaded
+        if self.is_framework_auto_load(file_path) && name == "default" {
+            return true;
+        }
+        
+        // React Native / Expo screens
+        if name.ends_with("Screen") || name.ends_with("Page") {
+            return true;
+        }
+        
+        // Next.js/Remix conventions
+        if matches!(name, "loader" | "action" | "meta" | "links" | "headers" | 
+                        "generateStaticParams" | "generateMetadata" | "revalidate" |
+                        "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS") {
+            return true;
+        }
+        
+        // Fastify route handlers
+        if file_path.contains("/routes/") && 
+           matches!(name, "default" | "handler" | "preHandler" | "onRequest" | "onResponse") {
+            return true;
+        }
+        
+        false
     }
 
     /// Check if a function name is a magic method
@@ -333,9 +390,15 @@ impl DeadCodeDetector {
         
         for func in functions {
             let name = &func.name;
+            let file_path = &func.file_path;
             
             // Skip test functions and entry points
             if name.starts_with("test_") || self.is_entry_point(name) {
+                continue;
+            }
+            
+            // Skip framework auto-loaded exports (Next.js pages, Fastify routes, etc.)
+            if self.is_framework_export(name, file_path) {
                 continue;
             }
             
@@ -348,6 +411,12 @@ impl DeadCodeDetector {
             // Check additional properties
             let is_method = func.get_bool("is_method").unwrap_or(false);
             let has_decorators = func.get_bool("has_decorators").unwrap_or(false);
+            let is_exported = func.get_bool("is_exported").unwrap_or(false);
+            
+            // Skip exported functions from framework files - they're likely used externally
+            if is_exported && self.is_framework_auto_load(file_path) {
+                continue;
+            }
             
             // Apply filters
             if self.should_filter(name, is_method, has_decorators) {
@@ -388,6 +457,7 @@ impl DeadCodeDetector {
         
         for class in classes {
             let name = &class.name;
+            let file_path = &class.file_path;
             
             // Skip common patterns
             if name.ends_with("Error")
@@ -401,6 +471,19 @@ impl DeadCodeDetector {
                 || name == "Exception"
                 || name == "BaseException"
             {
+                continue;
+            }
+            
+            // Skip React/RN components (Screen, Page, Layout, etc.)
+            if name.ends_with("Screen") || name.ends_with("Page") || 
+               name.ends_with("Layout") || name.ends_with("Component") ||
+               name.ends_with("Provider") || name.ends_with("Context") {
+                continue;
+            }
+            
+            // Skip exports from framework auto-load files
+            let is_exported = class.get_bool("is_exported").unwrap_or(false);
+            if is_exported && self.is_framework_auto_load(file_path) {
                 continue;
             }
             

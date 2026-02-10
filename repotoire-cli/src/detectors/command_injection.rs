@@ -12,7 +12,13 @@ use uuid::Uuid;
 static SHELL_EXEC: OnceLock<Regex> = OnceLock::new();
 
 fn shell_exec() -> &'static Regex {
-    SHELL_EXEC.get_or_init(|| Regex::new(r"(?i)(os\.system|os\.popen|subprocess\.(call|run|Popen)|exec|execSync|spawn|child_process|shell_exec|system|popen)").unwrap())
+    // Be specific about shell execution patterns - avoid matching RegExp.exec(), String.prototype.exec(), etc.
+    // Pattern must match actual shell execution APIs:
+    // - Python: os.system, os.popen, subprocess.*
+    // - Node.js: child_process.exec, child_process.spawn, execSync, require('child_process')
+    // - PHP: shell_exec, system, popen, exec (standalone function)
+    // - Ruby: system, exec, backticks
+    SHELL_EXEC.get_or_init(|| Regex::new(r#"(?i)(os\.system|os\.popen|subprocess\.(call|run|Popen)|child_process\.(exec|spawn|fork)|execSync|spawnSync|require\(['"]child_process['"]\)|shell_exec|proc_open)"#).unwrap())
 }
 
 pub struct CommandInjectionDetector {
@@ -45,12 +51,25 @@ impl Detector for CommandInjectionDetector {
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
                     if shell_exec().is_match(line) {
+                        // Check for user input sources
                         let has_user_input = line.contains("req.") || line.contains("request.") ||
+                            line.contains("params.") || line.contains("params[") ||
+                            line.contains("query.") || line.contains("body.") ||
                             line.contains("input") || line.contains("argv") || line.contains("args");
-                        let has_interpolation = line.contains("f\"") || line.contains("${") || line.contains("+ ");
+                        
+                        // Check for string interpolation/concatenation (command building)
+                        let has_interpolation = line.contains("f\"") || line.contains("${") || 
+                            line.contains("`") || line.contains("+ ") || line.contains(".format(");
+                        
+                        // Python subprocess shell=True is always dangerous
                         let has_shell_true = line.contains("shell=True") || line.contains("shell: true");
                         
-                        if has_user_input || has_shell_true {
+                        // Combination of shell exec + interpolation is high risk even without explicit user input
+                        // (the interpolated value might come from user input elsewhere)
+                        let is_risky = has_shell_true || (has_user_input && has_interpolation) || 
+                            (shell_exec().is_match(line) && line.contains("`") && line.contains("${"));
+                        
+                        if is_risky {
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "CommandInjectionDetector".to_string(),
