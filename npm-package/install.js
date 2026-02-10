@@ -9,7 +9,7 @@ const REPO = 'Zach-hammad/repotoire';
 
 const PLATFORMS = {
   'linux-x64': { file: 'repotoire-linux-x86_64.tar.gz', ext: 'tar.gz' },
-  'darwin-x64': { file: 'repotoire-macos-x86_64.tar.gz', ext: 'tar.gz' },
+  'darwin-x64': { file: 'repotoire-macos-aarch64.tar.gz', ext: 'tar.gz' }, // Rosetta 2
   'darwin-arm64': { file: 'repotoire-macos-aarch64.tar.gz', ext: 'tar.gz' },
   'win32-x64': { file: 'repotoire-windows-x86_64.zip', ext: 'zip' },
 };

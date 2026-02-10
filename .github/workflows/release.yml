@@ -10,27 +10,24 @@ env:
 
 jobs:
   build:
-    name: Build ${{ matrix.target }}
+    name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - name: Linux x86_64
+            os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: repotoire-linux-x86_64.tar.gz
-            cmd: tar czf
-          - os: macos-latest
+          - name: macOS ARM64
+            os: macos-latest
             target: aarch64-apple-darwin
             artifact: repotoire-macos-aarch64.tar.gz
-            cmd: tar czf
-          - os: macos-12
-            target: x86_64-apple-darwin
-            artifact: repotoire-macos-x86_64.tar.gz
-            cmd: tar czf
-          - os: windows-latest
+          - name: Windows x86_64
+            os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: repotoire-windows-x86_64.zip
-            cmd: 7z a
     steps:
       - uses: actions/checkout@v4
       
@@ -79,16 +76,9 @@ jobs:
           body: |
             ## Installation
             
-            ### npm (all platforms)
+            ### npm (Linux/macOS)
             ```bash
             npx repotoire analyze .
-            # or
-            npm install -g repotoire
-            ```
-            
-            ### Homebrew (macOS/Linux)
-            ```bash
-            brew install zach-hammad/tap/repotoire
             ```
             
             ### Cargo (all platforms)
@@ -98,7 +88,7 @@ jobs:
             
             ### Binary download
             
-            **Linux:**
+            **Linux x86_64:**
             ```bash
             curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-linux-x86_64.tar.gz | tar xz
             sudo mv repotoire /usr/local/bin/
@@ -110,11 +100,9 @@ jobs:
             sudo mv repotoire /usr/local/bin/
             ```
             
-            **macOS (Intel):**
-            ```bash
-            curl -L https://github.com/Zach-hammad/repotoire/releases/latest/download/repotoire-macos-x86_64.tar.gz | tar xz
-            sudo mv repotoire /usr/local/bin/
-            ```
-            
             **Windows:**
             Download `repotoire-windows-x86_64.zip`, extract, and add to PATH.
+            
+            ---
+            
+            *macOS Intel users: use `cargo install repotoire` or Rosetta 2*
