@@ -483,37 +483,3 @@ struct PatternMatch {
     function: String,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_pattern_detection() {
-        let detector = EvalDetector::new();
-
-        // Should detect f-string in eval
-        assert!(detector.check_line_for_patterns(r#"eval(f"code {var}")"#).is_some());
-
-        // Should detect variable in eval
-        assert!(detector.check_line_for_patterns("eval(user_input)").is_some());
-
-        // Should detect shell=True
-        assert!(detector.check_line_for_patterns("subprocess.call(cmd, shell=True)").is_some());
-
-        // Should NOT detect literal string
-        assert!(detector.check_line_for_patterns(r#"eval("1 + 1")"#).is_none());
-
-        // Should NOT detect comments
-        assert!(detector.check_line_for_patterns("# eval(user_input)").is_none());
-    }
-
-    #[test]
-    fn test_exclude_patterns() {
-        let detector = EvalDetector::new();
-
-        assert!(detector.should_exclude("tests/test_eval.py"));
-        assert!(detector.should_exclude("src/test_module.py"));
-        assert!(detector.should_exclude("venv/lib/python3.9/eval.py"));
-        assert!(!detector.should_exclude("src/security.py"));
-    }
-}

@@ -463,16 +463,18 @@ mod tests {
         config.set_str("user.email", "test@example.com")?;
 
         // Create initial commit
-        let sig = repo.signature()?;
-        let tree_id = {
-            let mut index = repo.index()?;
-            std::fs::write(dir.path().join("test.txt"), "hello")?;
-            index.add_path(Path::new("test.txt"))?;
-            index.write()?;
-            index.write_tree()?
-        };
-        let tree = repo.find_tree(tree_id)?;
-        repo.commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])?;
+        {
+            let sig = repo.signature()?;
+            let tree_id = {
+                let mut index = repo.index()?;
+                std::fs::write(dir.path().join("test.txt"), "hello")?;
+                index.add_path(Path::new("test.txt"))?;
+                index.write()?;
+                index.write_tree()?
+            };
+            let tree = repo.find_tree(tree_id)?;
+            repo.commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])?;
+        }
 
         Ok((dir, repo))
     }

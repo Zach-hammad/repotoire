@@ -305,15 +305,17 @@ mod tests {
         fs::write(dir.path().join("test.py"), content)?;
 
         // Commit
-        let sig = repo.signature()?;
-        let tree_id = {
-            let mut index = repo.index()?;
-            index.add_path(Path::new("test.py"))?;
-            index.write()?;
-            index.write_tree()?
-        };
-        let tree = repo.find_tree(tree_id)?;
-        repo.commit(Some("HEAD"), &sig, &sig, "Add test file", &tree, &[])?;
+        {
+            let sig = repo.signature()?;
+            let tree_id = {
+                let mut index = repo.index()?;
+                index.add_path(Path::new("test.py"))?;
+                index.write()?;
+                index.write_tree()?
+            };
+            let tree = repo.find_tree(tree_id)?;
+            repo.commit(Some("HEAD"), &sig, &sig, "Add test file", &tree, &[])?;
+        }
 
         Ok((dir, repo))
     }
