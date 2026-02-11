@@ -1,6 +1,7 @@
 //! XSS Detection
 
 use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
+use crate::detectors::taint::{TaintAnalyzer, TaintAnalysisResult, TaintCategory};
 use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
@@ -18,11 +19,16 @@ fn xss_pattern() -> &'static Regex {
 pub struct XssDetector {
     repository_path: PathBuf,
     max_findings: usize,
+    taint_analyzer: TaintAnalyzer,
 }
 
 impl XssDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self { 
+            repository_path: repository_path.into(), 
+            max_findings: 50,
+            taint_analyzer: TaintAnalyzer::new(),
+        }
     }
 }
 

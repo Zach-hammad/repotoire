@@ -186,9 +186,19 @@ impl TaintAnalyzer {
 
     /// Initialize default taint source/sink/sanitizer patterns
     fn init_default_patterns(&mut self) {
-        // ========== TAINT SOURCES (User Input Entry Points) ==========
+        self.add_common_sources();
+        self.add_sql_patterns();
+        self.add_command_patterns();
+        self.add_xss_patterns();
+        self.add_ssrf_patterns();
+        self.add_path_patterns();
+        self.add_code_patterns();
+        self.add_log_patterns();
+        self.add_generic_sanitizers();
+    }
 
-        // These are functions/patterns that introduce untrusted data into the system
+    /// Add common taint sources (user input entry points) for all categories
+    fn add_common_sources(&mut self) {
         let mut all_sources = HashSet::new();
 
         // Express.js (Node.js)
@@ -275,11 +285,11 @@ impl TaintAnalyzer {
         ] {
             self.sources.insert(*category, all_sources.clone());
         }
+    }
 
-        // ========== TAINT SINKS (Dangerous Operations) ==========
-
-        // SQL Injection Sinks
-        let mut sql_sinks = HashSet::new();
+    /// Add SQL injection sinks and sanitizers
+    fn add_sql_patterns(&mut self) {
+        let mut sinks = HashSet::new();
         for pattern in &[
             // Python
             "cursor.execute",
@@ -312,12 +322,36 @@ impl TaintAnalyzer {
             "tx.Query",
             "tx.Exec",
         ] {
-            sql_sinks.insert(pattern.to_string());
+            sinks.insert(pattern.to_string());
         }
-        self.sinks.insert(TaintCategory::SqlInjection, sql_sinks);
+        self.sinks.insert(TaintCategory::SqlInjection, sinks);
 
-        // Command Injection Sinks
-        let mut cmd_sinks = HashSet::new();
+        let mut sanitizers = HashSet::new();
+        for pattern in &[
+            // Parameterized queries (these patterns in the call chain suggest safe usage)
+            "parameterize",
+            "prepare",
+            "bind",
+            // ORMs (proper ORM usage is safe)
+            "filter(",
+            "where(",
+            "findOne",
+            "findById",
+            "findByPk",
+            // Escaping
+            "escape(",
+            "quote(",
+            "mogrify",
+        ] {
+            sanitizers.insert(pattern.to_string());
+        }
+        self.sanitizers
+            .insert(TaintCategory::SqlInjection, sanitizers);
+    }
+
+    /// Add command injection sinks and sanitizers
+    fn add_command_patterns(&mut self) {
+        let mut sinks = HashSet::new();
         for pattern in &[
             // Python
             "os.system",
@@ -343,12 +377,28 @@ impl TaintAnalyzer {
             "passthru",
             "proc_open",
         ] {
-            cmd_sinks.insert(pattern.to_string());
+            sinks.insert(pattern.to_string());
         }
-        self.sinks.insert(TaintCategory::CommandInjection, cmd_sinks);
+        self.sinks.insert(TaintCategory::CommandInjection, sinks);
 
-        // XSS Sinks
-        let mut xss_sinks = HashSet::new();
+        let mut sanitizers = HashSet::new();
+        for pattern in &[
+            "shlex.quote",
+            "shlex.split",
+            "pipes.quote",
+            "shell=False", // subprocess flag
+            "escapeshellarg",
+            "escapeshellcmd",
+        ] {
+            sanitizers.insert(pattern.to_string());
+        }
+        self.sanitizers
+            .insert(TaintCategory::CommandInjection, sanitizers);
+    }
+
+    /// Add XSS sinks and sanitizers
+    fn add_xss_patterns(&mut self) {
+        let mut sinks = HashSet::new();
         for pattern in &[
             // JavaScript
             "innerHTML",
@@ -367,12 +417,31 @@ impl TaintAnalyzer {
             "Markup(",
             "|safe",
         ] {
-            xss_sinks.insert(pattern.to_string());
+            sinks.insert(pattern.to_string());
         }
-        self.sinks.insert(TaintCategory::Xss, xss_sinks);
+        self.sinks.insert(TaintCategory::Xss, sinks);
 
-        // SSRF Sinks
-        let mut ssrf_sinks = HashSet::new();
+        let mut sanitizers = HashSet::new();
+        for pattern in &[
+            "escapeHtml",
+            "escape(",
+            "encode(",
+            "htmlspecialchars",
+            "sanitize",
+            "DOMPurify",
+            "xss(",
+            "textContent", // safe alternative to innerHTML
+            "innerText",
+            "createTextNode",
+        ] {
+            sanitizers.insert(pattern.to_string());
+        }
+        self.sanitizers.insert(TaintCategory::Xss, sanitizers);
+    }
+
+    /// Add SSRF sinks and sanitizers
+    fn add_ssrf_patterns(&mut self) {
+        let mut sinks = HashSet::new();
         for pattern in &[
             // Python
             "requests.get",
@@ -400,12 +469,27 @@ impl TaintAnalyzer {
             "client.Get",
             "client.Do",
         ] {
-            ssrf_sinks.insert(pattern.to_string());
+            sinks.insert(pattern.to_string());
         }
-        self.sinks.insert(TaintCategory::Ssrf, ssrf_sinks);
+        self.sinks.insert(TaintCategory::Ssrf, sinks);
 
-        // Path Traversal Sinks
-        let mut path_sinks = HashSet::new();
+        let mut sanitizers = HashSet::new();
+        for pattern in &[
+            "validate_url",
+            "is_safe_url",
+            "url_validator",
+            "allowlist",
+            "whitelist",
+            "check_host",
+        ] {
+            sanitizers.insert(pattern.to_string());
+        }
+        self.sanitizers.insert(TaintCategory::Ssrf, sanitizers);
+    }
+
+    /// Add path traversal sinks and sanitizers
+    fn add_path_patterns(&mut self) {
+        let mut sinks = HashSet::new();
         for pattern in &[
             // Python
             "open(",
@@ -429,12 +513,30 @@ impl TaintAnalyzer {
             "ioutil.WriteFile",
             "filepath.Join",
         ] {
-            path_sinks.insert(pattern.to_string());
+            sinks.insert(pattern.to_string());
         }
-        self.sinks.insert(TaintCategory::PathTraversal, path_sinks);
+        self.sinks.insert(TaintCategory::PathTraversal, sinks);
 
-        // Code Injection Sinks
-        let mut code_sinks = HashSet::new();
+        let mut sanitizers = HashSet::new();
+        for pattern in &[
+            "basename",
+            "os.path.basename",
+            "path.basename",
+            "filepath.Base",
+            "realpath",
+            "abspath",
+            "secure_filename",
+            "sanitize_path",
+        ] {
+            sanitizers.insert(pattern.to_string());
+        }
+        self.sanitizers
+            .insert(TaintCategory::PathTraversal, sanitizers);
+    }
+
+    /// Add code injection sinks and sanitizers
+    fn add_code_patterns(&mut self) {
+        let mut sinks = HashSet::new();
         for pattern in &[
             // Python
             "eval(",
@@ -450,12 +552,25 @@ impl TaintAnalyzer {
             // (Go doesn't have direct eval, but template injection is similar)
             "template.HTML",
         ] {
-            code_sinks.insert(pattern.to_string());
+            sinks.insert(pattern.to_string());
         }
-        self.sinks.insert(TaintCategory::CodeInjection, code_sinks);
+        self.sinks.insert(TaintCategory::CodeInjection, sinks);
 
-        // Log Injection Sinks
-        let mut log_sinks = HashSet::new();
+        let mut sanitizers = HashSet::new();
+        for pattern in &[
+            "ast.literal_eval",
+            "json.loads",
+            "JSON.parse",
+        ] {
+            sanitizers.insert(pattern.to_string());
+        }
+        self.sanitizers
+            .insert(TaintCategory::CodeInjection, sanitizers);
+    }
+
+    /// Add log injection sinks and sanitizers
+    fn add_log_patterns(&mut self) {
+        let mut sinks = HashSet::new();
         for pattern in &[
             // Python
             "logging.info",
@@ -482,124 +597,24 @@ impl TaintAnalyzer {
             "log.Println",
             "log.Fatal",
         ] {
-            log_sinks.insert(pattern.to_string());
+            sinks.insert(pattern.to_string());
         }
-        self.sinks.insert(TaintCategory::LogInjection, log_sinks);
+        self.sinks.insert(TaintCategory::LogInjection, sinks);
 
-        // ========== SANITIZERS (Functions that neutralize taint) ==========
-
-        // SQL Injection Sanitizers
-        let mut sql_sanitizers = HashSet::new();
-        for pattern in &[
-            // Parameterized queries (these patterns in the call chain suggest safe usage)
-            "parameterize",
-            "prepare",
-            "bind",
-            // ORMs (proper ORM usage is safe)
-            "filter(",
-            "where(",
-            "findOne",
-            "findById",
-            "findByPk",
-            // Escaping
-            "escape(",
-            "quote(",
-            "mogrify",
-        ] {
-            sql_sanitizers.insert(pattern.to_string());
-        }
-        self.sanitizers
-            .insert(TaintCategory::SqlInjection, sql_sanitizers);
-
-        // Command Injection Sanitizers
-        let mut cmd_sanitizers = HashSet::new();
-        for pattern in &[
-            "shlex.quote",
-            "shlex.split",
-            "pipes.quote",
-            "shell=False", // subprocess flag
-            "escapeshellarg",
-            "escapeshellcmd",
-        ] {
-            cmd_sanitizers.insert(pattern.to_string());
-        }
-        self.sanitizers
-            .insert(TaintCategory::CommandInjection, cmd_sanitizers);
-
-        // XSS Sanitizers
-        let mut xss_sanitizers = HashSet::new();
-        for pattern in &[
-            "escapeHtml",
-            "escape(",
-            "encode(",
-            "htmlspecialchars",
-            "sanitize",
-            "DOMPurify",
-            "xss(",
-            "textContent", // safe alternative to innerHTML
-            "innerText",
-            "createTextNode",
-        ] {
-            xss_sanitizers.insert(pattern.to_string());
-        }
-        self.sanitizers.insert(TaintCategory::Xss, xss_sanitizers);
-
-        // SSRF Sanitizers
-        let mut ssrf_sanitizers = HashSet::new();
-        for pattern in &[
-            "validate_url",
-            "is_safe_url",
-            "url_validator",
-            "allowlist",
-            "whitelist",
-            "check_host",
-        ] {
-            ssrf_sanitizers.insert(pattern.to_string());
-        }
-        self.sanitizers.insert(TaintCategory::Ssrf, ssrf_sanitizers);
-
-        // Path Traversal Sanitizers
-        let mut path_sanitizers = HashSet::new();
-        for pattern in &[
-            "basename",
-            "os.path.basename",
-            "path.basename",
-            "filepath.Base",
-            "realpath",
-            "abspath",
-            "secure_filename",
-            "sanitize_path",
-        ] {
-            path_sanitizers.insert(pattern.to_string());
-        }
-        self.sanitizers
-            .insert(TaintCategory::PathTraversal, path_sanitizers);
-
-        // Code Injection Sanitizers
-        let mut code_sanitizers = HashSet::new();
-        for pattern in &[
-            "ast.literal_eval",
-            "json.loads",
-            "JSON.parse",
-        ] {
-            code_sanitizers.insert(pattern.to_string());
-        }
-        self.sanitizers
-            .insert(TaintCategory::CodeInjection, code_sanitizers);
-
-        // Log Injection Sanitizers
-        let mut log_sanitizers = HashSet::new();
+        let mut sanitizers = HashSet::new();
         for pattern in &[
             "strip(",
             "replace(",
             "sanitize_log",
         ] {
-            log_sanitizers.insert(pattern.to_string());
+            sanitizers.insert(pattern.to_string());
         }
         self.sanitizers
-            .insert(TaintCategory::LogInjection, log_sanitizers);
+            .insert(TaintCategory::LogInjection, sanitizers);
+    }
 
-        // Generic sanitizers that apply to all categories
+    /// Add generic sanitizers that apply to all categories
+    fn add_generic_sanitizers(&mut self) {
         for pattern in &[
             "validate",
             "sanitize",

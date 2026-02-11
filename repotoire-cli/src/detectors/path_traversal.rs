@@ -1,6 +1,7 @@
 //! Path Traversal Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::taint::{TaintAnalyzer, TaintAnalysisResult, TaintCategory};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -39,11 +40,16 @@ fn path_resolve() -> &'static Regex {
 pub struct PathTraversalDetector {
     repository_path: PathBuf,
     max_findings: usize,
+    taint_analyzer: TaintAnalyzer,
 }
 
 impl PathTraversalDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self { 
+            repository_path: repository_path.into(), 
+            max_findings: 50,
+            taint_analyzer: TaintAnalyzer::new(),
+        }
     }
 }
 

@@ -269,6 +269,29 @@ The following formats are all equivalent:
 - `god_class`
 - `GodClassDetector`
 
+### Inline Suppression
+
+Suppress individual findings with comments:
+
+```python
+# repotoire: ignore
+def legacy_function():  # This line won't trigger findings
+    pass
+```
+
+```javascript
+// repotoire: ignore
+const sqlQuery = `SELECT * FROM ${table}`;  // Suppressed
+```
+
+```go
+// repotoire: ignore
+exec.Command(userInput)  // Suppressed
+```
+
+The comment must be on the line before or on the same line as the finding.
+Works with `#`, `//`, `/* */`, and `--` comment styles.
+
 ## How It Works
 
 ```
