@@ -317,8 +317,9 @@ impl DeadCodeDetector {
 
     /// Check if this is likely a framework-registered component/route
     fn is_framework_export(&self, name: &str, file_path: &str) -> bool {
-        // Default exports from framework files are auto-loaded
-        if self.is_framework_auto_load(file_path) && name == "default" {
+        // Any export from framework auto-load files is considered used
+        // (Fastify plugins, Next.js pages, CLI commands, etc. are auto-discovered)
+        if self.is_framework_auto_load(file_path) {
             return true;
         }
 

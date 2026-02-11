@@ -1,6 +1,7 @@
 //! Log Injection Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::taint::{TaintAnalyzer, TaintCategory};
 use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
@@ -18,11 +19,16 @@ fn log_pattern() -> &'static Regex {
 pub struct LogInjectionDetector {
     repository_path: PathBuf,
     max_findings: usize,
+    taint_analyzer: TaintAnalyzer,
 }
 
 impl LogInjectionDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 50 }
+        Self { 
+            repository_path: repository_path.into(), 
+            max_findings: 50,
+            taint_analyzer: TaintAnalyzer::new(),
+        }
     }
 }
 
@@ -30,7 +36,7 @@ impl Detector for LogInjectionDetector {
     fn name(&self) -> &'static str { "log-injection" }
     fn description(&self) -> &'static str { "Detects user input in logs" }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
 
@@ -69,6 +75,38 @@ impl Detector for LogInjectionDetector {
                 }
             }
         }
+        
+        // Run taint analysis to adjust severity based on data flow
+        let taint_results = self.taint_analyzer.trace_taint(graph, TaintCategory::LogInjection);
+        
+        // Adjust severity based on taint analysis
+        for finding in &mut findings {
+            let file_path = finding.affected_files.first()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let line = finding.line_start.unwrap_or(0);
+            
+            for taint in &taint_results {
+                if taint.sink_file == file_path && taint.sink_line as u32 == line {
+                    if taint.is_sanitized {
+                        finding.severity = Severity::Low;
+                    } else {
+                        finding.severity = Severity::High;
+                        finding.description = format!(
+                            "{}\n\n**Taint Analysis:** Unsanitized data flow from {} (line {}).",
+                            finding.description,
+                            taint.source_function,
+                            taint.source_line
+                        );
+                    }
+                    break;
+                }
+            }
+        }
+        
+        // Filter out Low severity (sanitized) findings
+        findings.retain(|f| f.severity != Severity::Low);
+        
         Ok(findings)
     }
 }

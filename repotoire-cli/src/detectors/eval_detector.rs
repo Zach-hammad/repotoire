@@ -12,6 +12,7 @@
 //! CWE-78: OS Command Injection
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::taint::{TaintAnalyzer, TaintCategory};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -68,6 +69,7 @@ pub struct EvalDetector {
     repository_path: PathBuf,
     max_findings: usize,
     exclude_patterns: Vec<String>,
+    taint_analyzer: TaintAnalyzer,
     // Compiled regex patterns
     variable_arg_pattern: Regex,
     fstring_arg_pattern: Regex,
@@ -147,6 +149,7 @@ impl EvalDetector {
             repository_path,
             max_findings,
             exclude_patterns,
+            taint_analyzer: TaintAnalyzer::new(),
             variable_arg_pattern,
             fstring_arg_pattern,
             concat_arg_pattern,
@@ -498,11 +501,45 @@ impl Detector for EvalDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         debug!("Starting eval/exec detection");
 
         // Primary detection is via source scanning
-        let findings = self.scan_source_files();
+        let mut findings = self.scan_source_files();
+
+        // Run taint analysis to adjust severity based on data flow
+        let taint_results = self.taint_analyzer.trace_taint(graph, TaintCategory::CodeInjection);
+        
+        // Adjust severity based on taint analysis
+        for finding in &mut findings {
+            let file_path = finding.affected_files.first()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let line = finding.line_start.unwrap_or(0);
+            
+            // Check if this finding has a confirmed taint path
+            for taint in &taint_results {
+                if taint.sink_file == file_path && taint.sink_line as u32 == line {
+                    if taint.is_sanitized {
+                        // Sanitized path - downgrade to Low
+                        finding.severity = Severity::Low;
+                    } else {
+                        // Confirmed unsanitized path from user input - Critical
+                        finding.severity = Severity::Critical;
+                        finding.description = format!(
+                            "{}\n\n**Taint Analysis:** Unsanitized data flow from {} (line {}) to sink.",
+                            finding.description,
+                            taint.source_function,
+                            taint.source_line
+                        );
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Filter out Low severity (sanitized) findings
+        findings.retain(|f| f.severity != Severity::Low);
 
         info!("EvalDetector found {} potential vulnerabilities", findings.len());
 

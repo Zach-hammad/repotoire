@@ -196,7 +196,7 @@ fn is_cipher_mention_not_usage(line: &str) -> bool {
         // .NET / C#
         "descryptoserviceprovider",
         "rc2cryptoserviceprovider",
-        "rijndaelmanaged", // when used with ECB
+        "rijndaelmanaged", // flagged when combined with electronic codebook mode
     ];
     
     for pattern in usage_patterns {
