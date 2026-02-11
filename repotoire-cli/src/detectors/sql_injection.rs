@@ -127,8 +127,11 @@ impl SQLInjectionDetector {
 
         // Pattern 6: Go fmt.Sprintf with SQL keywords
         // Matches: fmt.Sprintf("SELECT * FROM users WHERE id = %s", id)
+        // Pattern 6: Go fmt.Sprintf with SQL keywords
+        // Matches: fmt.Sprintf("SELECT * FROM users WHERE id = %s", id)
+        // Also matches: fmt.Sprintf("SELECT * FROM users WHERE name = '%s'", name) with quoted placeholder
         let go_sprintf_sql_pattern = Regex::new(
-            r#"(?i)fmt\.Sprintf\s*\(\s*["'`][^"'`]*\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b[^"'`]*%[svdqxXfFeEgGtTpbcoU][^"'`]*["'`]"#
+            r#"(?i)fmt\.Sprintf\s*\(\s*["'`].*\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*%[svdqxXfFeEgGtTpbcoU].*["'`]"#
         ).unwrap();
 
         Self {
@@ -319,9 +322,13 @@ impl SQLInjectionDetector {
                 }
 
                 if let Some(pattern_type) = self.check_line_for_patterns(line) {
+                    // go_sprintf and js_template patterns already contain SQL keywords in the regex,
+                    // so they're self-evidently SQL context (building a SQL string, even if assigned to variable)
+                    let is_self_evident_sql = pattern_type == "go_sprintf" || pattern_type == "js_template";
+                    
                     // Require SQL context to reduce false positives
                     // "create directory" with f-string is not SQL injection
-                    if !self.is_sql_context(line) {
+                    if !is_self_evident_sql && !self.is_sql_context(line) {
                         // Check surrounding lines for context
                         let has_sql_context = (line_no > 0 && self.is_sql_context(lines[line_no - 1]))
                             || (line_no + 1 < lines.len() && self.is_sql_context(lines[line_no + 1]));
