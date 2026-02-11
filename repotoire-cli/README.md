@@ -202,20 +202,72 @@ No API key and no Ollama? No problem. All analysis works offline.
 
 ## Configuration
 
-Create `.repotoirerc` or `repotoire.toml`:
+Create `repotoire.toml` in your repository root for project-specific settings:
 
 ```toml
-[analysis]
-patterns = ["**/*.py", "**/*.ts", "**/*.go", "**/*.java", "**/*.rs", "**/*.c", "**/*.cpp", "**/*.cs", "**/*.kt"]
-exclude = ["**/node_modules/**", "**/venv/**", "**/target/**", "**/bin/**", "**/obj/**"]
+# repotoire.toml - Project Configuration
 
-[detectors.god_class]
-threshold_methods = 20
-threshold_lines = 500
-
-[detectors.circular_dependency]
+# Detector-specific overrides
+[detectors.god-class]
 enabled = true
+thresholds = { method_count = 30, loc = 600 }
+
+[detectors.sql-injection]
+severity = "high"  # Downgrade from critical for this project
+enabled = true
+
+[detectors.long-parameter-list]
+thresholds = { max_params = 8 }  # More lenient than default (6)
+
+[detectors.magic-numbers]
+enabled = false  # Disable this detector entirely
+
+# Scoring customization
+[scoring]
+security_multiplier = 5.0  # Weight security findings more heavily (default: 3.0)
+
+[scoring.pillar_weights]
+structure = 0.3      # Code structure/complexity (default: 0.4)
+quality = 0.4        # Code quality/smells (default: 0.3)
+architecture = 0.3   # Architectural health (default: 0.3)
+
+# Path exclusions (in addition to .gitignore)
+[exclude]
+paths = [
+    "generated/",
+    "vendor/",
+    "**/migrations/**",
+    "**/*.generated.ts",
+]
+
+# Default CLI flags (can still be overridden via command line)
+[defaults]
+format = "text"           # Default output format
+severity = "low"          # Minimum severity to report
+workers = 8               # Parallel workers
+per_page = 20             # Findings per page
+thorough = false          # Don't run external tools by default
+no_git = false            # Include git enrichment
+no_emoji = false          # Use emoji in output
+fail_on = "critical"      # CI failure threshold
+skip_detectors = []       # Always skip these detectors
 ```
+
+### Alternative Config Formats
+
+Repotoire also supports:
+- `.repotoirerc.json` (JSON format)
+- `.repotoire.yaml` or `.repotoire.yml` (YAML format)
+
+The search order is: `repotoire.toml` → `.repotoirerc.json` → `.repotoire.yaml`
+
+### Detector Names
+
+Use kebab-case for detector names in config (e.g., `god-class`, `sql-injection`).
+The following formats are all equivalent:
+- `god-class`
+- `god_class`
+- `GodClassDetector`
 
 ## How It Works
 

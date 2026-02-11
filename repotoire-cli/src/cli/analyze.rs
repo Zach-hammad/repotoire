@@ -9,8 +9,10 @@
 //! 6. Calculate health score and grade
 //! 7. Output results (text, json, sarif)
 
+use crate::config::{load_project_config, ProjectConfig};
 use crate::detectors::{
-    default_detectors, DetectorEngine, Detector,
+    default_detectors, DetectorEngine, Detector, IncrementalCache,
+    VotingEngine, VotingStrategy, ConfidenceMethod, SeverityResolution,
 };
 use crate::git;
 use crate::graph::{GraphStore, CodeNode, CodeEdge, NodeKind};
@@ -23,7 +25,8 @@ use console::style;
 use ignore::WalkBuilder;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -59,6 +62,8 @@ pub fn run(
     workers: usize,
     fail_on: Option<String>,
     no_emoji: bool,
+    incremental: bool,
+    since: Option<String>,
 ) -> Result<()> {
     let start_time = Instant::now();
 
@@ -70,6 +75,25 @@ pub fn run(
     if !repo_path.is_dir() {
         anyhow::bail!("Path is not a directory: {}", repo_path.display());
     }
+
+    // Load project configuration (repotoire.toml, .repotoirerc.json, etc.)
+    let project_config = load_project_config(&repo_path);
+    
+    // Apply CLI defaults from project config (CLI args override config)
+    let no_emoji = no_emoji || project_config.defaults.no_emoji.unwrap_or(false);
+    let thorough = thorough || project_config.defaults.thorough.unwrap_or(false);
+    let no_git = no_git || project_config.defaults.no_git.unwrap_or(false);
+    let workers = if workers == 8 { // 8 is the CLI default
+        project_config.defaults.workers.unwrap_or(workers)
+    } else {
+        workers
+    };
+    let per_page = if per_page == 20 { // 20 is the CLI default
+        project_config.defaults.per_page.unwrap_or(per_page)
+    } else {
+        per_page
+    };
+    let fail_on = fail_on.or_else(|| project_config.defaults.fail_on.clone());
 
     // Header with optional emoji
     let icon_analyze = if no_emoji { "" } else { "🎼 " };
@@ -85,6 +109,11 @@ pub fn run(
     // Create cache directory (~/.cache/repotoire/<repo-hash>/)
     let repotoire_dir = crate::cache::ensure_cache_dir(&repo_path)
         .with_context(|| "Failed to create cache directory")?;
+
+    // Initialize incremental cache for file fingerprinting
+    let incremental_cache_dir = repotoire_dir.join("incremental");
+    let mut incremental_cache = IncrementalCache::new(&incremental_cache_dir);
+    let is_incremental_mode = incremental || since.is_some();
 
     // Initialize graph database
     let db_path = repotoire_dir.join("graph_db");
@@ -107,25 +136,100 @@ pub fn run(
     // Step 1: Walk repository and collect files
     let walk_spinner = multi.add(ProgressBar::new_spinner());
     walk_spinner.set_style(spinner_style.clone());
-    walk_spinner.set_message("Discovering source files...");
-    walk_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+    
+    // Determine which files to analyze based on incremental mode
+    let (all_files, files_to_parse, cached_findings) = if let Some(ref commit) = since {
+        // --since mode: only analyze files changed since specified commit
+        walk_spinner.set_message(format!("Finding files changed since {}...", commit));
+        walk_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+        
+        let changed = get_changed_files_since(&repo_path, commit)?;
+        let all = collect_source_files(&repo_path)?;
+        
+        walk_spinner.finish_with_message(format!(
+            "{}Found {} changed files (since {}) out of {} total",
+            style("✓ ").green(),
+            style(changed.len()).cyan(),
+            style(commit).yellow(),
+            style(all.len()).dim()
+        ));
+        
+        // Get cached findings for unchanged files
+        let unchanged: Vec<_> = all.iter()
+            .filter(|f| !changed.contains(f))
+            .cloned()
+            .collect();
+        let mut cached: Vec<Finding> = Vec::new();
+        for file in &unchanged {
+            cached.extend(incremental_cache.get_cached_findings(file));
+        }
+        
+        (all, changed, cached)
+    } else if incremental {
+        // --incremental mode: only analyze files changed since last run
+        walk_spinner.set_message("Discovering source files (incremental mode)...");
+        walk_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+        
+        let all = collect_source_files(&repo_path)?;
+        let changed = incremental_cache.get_changed_files(&all);
+        let cache_stats = incremental_cache.get_stats();
+        
+        walk_spinner.finish_with_message(format!(
+            "{}Found {} changed files out of {} total ({} cached)",
+            style("✓ ").green(),
+            style(changed.len()).cyan(),
+            style(all.len()).dim(),
+            style(cache_stats.cached_files).dim()
+        ));
+        
+        // Get cached findings for unchanged files
+        let unchanged: Vec<_> = all.iter()
+            .filter(|f| !changed.contains(f))
+            .cloned()
+            .collect();
+        let mut cached: Vec<Finding> = Vec::new();
+        for file in &unchanged {
+            cached.extend(incremental_cache.get_cached_findings(file));
+        }
+        
+        (all, changed, cached)
+    } else {
+        // Full mode: analyze all files
+        walk_spinner.set_message("Discovering source files...");
+        walk_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+        
+        let files = collect_source_files(&repo_path)?;
+        walk_spinner.finish_with_message(format!(
+            "{}Found {} source files",
+            style("✓ ").green(),
+            style(files.len()).cyan()
+        ));
+        
+        (files.clone(), files, Vec::new())
+    };
 
-    let files = collect_source_files(&repo_path)?;
-    walk_spinner.finish_with_message(format!(
-        "{}Found {} source files",
-        style("✓ ").green(),
-        style(files.len()).cyan()
-    ));
+    // Use all_files for total count, files_to_parse for actual parsing
+    let files = files_to_parse;
 
-    if files.is_empty() {
+    if all_files.is_empty() {
         println!("\n{}No source files found to analyze.", style("⚠️  ").yellow());
         return Ok(());
+    }
+
+    if files.is_empty() && is_incremental_mode {
+        println!("\n{}No files changed since last run. Using cached results.", style("✓ ").green());
+        // Still need to output cached findings - continue with empty parse results
     }
 
     // Step 2: Parse files in parallel using rayon
     let parse_bar = multi.add(ProgressBar::new(files.len() as u64));
     parse_bar.set_style(bar_style.clone());
-    parse_bar.set_message("Parsing files (parallel)...");
+    let parse_msg = if is_incremental_mode {
+        "Parsing changed files (parallel)..."
+    } else {
+        "Parsing files (parallel)..."
+    };
+    parse_bar.set_message(parse_msg);
 
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -423,10 +527,68 @@ pub fn run(
     let mut findings = engine.run(&graph)?;
 
     detector_bar.finish_with_message(format!(
-        "{}Ran {} detectors, found {} issues",
+        "{}Ran {} detectors, found {} raw issues",
         style("✓ ").green(),
         style(engine.detector_count()).cyan(),
         style(findings.len()).cyan(),
+    ));
+
+    // Step 5.5: Run voting engine to consolidate findings from multiple detectors
+    let voting_spinner = multi.add(ProgressBar::new_spinner());
+    voting_spinner.set_style(spinner_style.clone());
+    voting_spinner.set_message("Consolidating findings with voting engine...");
+    voting_spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+
+    let voting_engine = VotingEngine::with_config(
+        VotingStrategy::Weighted,
+        ConfidenceMethod::Bayesian,
+        SeverityResolution::Highest,
+        0.5, // confidence threshold - allow findings with 50%+ confidence
+        2,   // min detectors for consensus boost
+    );
+    let (consolidated_findings, voting_stats) = voting_engine.vote(findings);
+    let mut findings = consolidated_findings;
+
+    // In incremental mode, merge with cached findings from unchanged files
+    let cached_findings_count = cached_findings.len();
+    if is_incremental_mode && !cached_findings.is_empty() {
+        findings.extend(cached_findings);
+        tracing::debug!(
+            "Merged {} cached findings with {} new findings",
+            cached_findings_count,
+            voting_stats.total_output
+        );
+    }
+
+    // Update incremental cache with findings for parsed files
+    if is_incremental_mode {
+        // Group findings by file and cache them
+        for file_path in &files {
+            let file_findings: Vec<_> = findings
+                .iter()
+                .filter(|f| f.affected_files.iter().any(|af| af == file_path))
+                .cloned()
+                .collect();
+            incremental_cache.cache_findings(file_path, &file_findings);
+        }
+        // Save cache for next run
+        if let Err(e) = incremental_cache.save_cache() {
+            tracing::warn!("Failed to save incremental cache: {}", e);
+        }
+    }
+
+    voting_spinner.finish_with_message(format!(
+        "{}Consolidated {} -> {} findings ({} merged, {} rejected{})",
+        style("✓ ").green(),
+        style(voting_stats.total_input).cyan(),
+        style(voting_stats.total_output).cyan(),
+        style(voting_stats.boosted_by_consensus).dim(),
+        style(voting_stats.rejected_low_confidence).dim(),
+        if cached_findings_count > 0 {
+            format!(", {} from cache", style(cached_findings_count).dim())
+        } else {
+            String::new()
+        }
     ));
 
     // Wait for git enrichment to complete (if running)
@@ -473,7 +635,7 @@ pub fn run(
     // This ensures consistent grading regardless of --top or severity filters
     let all_findings_summary = FindingsSummary::from_findings(&findings);
     let (overall_score, structure_score, quality_score, architecture_score) =
-        calculate_health_scores(&findings, files.len(), total_functions, total_classes);
+        calculate_health_scores(&findings, files.len(), total_functions, total_classes, &project_config);
 
     // Step 6: Filter findings by severity and top N (for display only)
     if let Some(min_severity) = &severity {
@@ -734,6 +896,7 @@ fn calculate_health_scores(
     total_files: usize,
     total_functions: usize,
     _total_classes: usize,
+    project_config: &ProjectConfig,
 ) -> (f64, f64, f64, f64) {
     // Base score starts at 100
     let mut structure_score: f64 = 100.0;
@@ -744,6 +907,9 @@ fn calculate_health_scores(
     // Use sqrt to dampen the effect of very large codebases
     // Floor of 5.0 for small projects so vulns still hurt
     let size_factor = ((total_files + total_functions) as f64).sqrt().max(5.0);
+    
+    // Get security multiplier from project config (default: 3.0)
+    let config_security_multiplier = project_config.scoring.security_multiplier;
     
     // Deduct points based on findings, normalized by size
     for finding in findings {
@@ -762,7 +928,7 @@ fn calculate_health_scores(
         let category = finding.category.as_deref().unwrap_or("");
         let detector = finding.detector.to_lowercase();
         
-        // Security findings get 3x weight - injection vulns and secrets are serious
+        // Security findings get configurable weight - injection vulns and secrets are serious
         let is_security = category.contains("security") 
             || category.contains("inject")
             || detector.contains("sql")
@@ -774,7 +940,7 @@ fn calculate_health_scores(
             || detector.contains("ssrf")
             || finding.cwe_id.is_some();
         
-        let security_multiplier = if is_security { 3.0 } else { 1.0 };
+        let security_multiplier = if is_security { config_security_multiplier } else { 1.0 };
         let effective_deduction = scaled * security_multiplier;
         
         if is_security {
@@ -796,10 +962,13 @@ fn calculate_health_scores(
     quality_score = quality_score.max(25.0_f64).min(100.0);
     architecture_score = architecture_score.max(25.0_f64).min(100.0);
 
-    // Weighted average: Structure 40%, Quality 30%, Architecture 30%
-    let overall = structure_score * 0.4 + quality_score * 0.3 + architecture_score * 0.3;
+    // Use pillar weights from project config (default: 0.4, 0.3, 0.3)
+    let weights = &project_config.scoring.pillar_weights;
+    let overall = structure_score * weights.structure 
+        + quality_score * weights.quality 
+        + architecture_score * weights.architecture;
     
-    // Floor at 5.0 to allow F grade gradation (pillar scores already penalize security 3x)
+    // Floor at 5.0 to allow F grade gradation (pillar scores already penalize security)
     let overall = overall.max(5.0);
 
     (overall, structure_score, quality_score, architecture_score)
@@ -860,6 +1029,7 @@ fn cache_results(repotoire_dir: &Path, report: &HealthReport, all_findings: &[Fi
                 "category": f.category,
                 "cwe_id": f.cwe_id,
                 "why_it_matters": f.why_it_matters,
+                "confidence": f.confidence,
             })
         }).collect::<Vec<_>>()
     });
@@ -867,4 +1037,143 @@ fn cache_results(repotoire_dir: &Path, report: &HealthReport, all_findings: &[Fi
 
     tracing::debug!("Cached analysis results to {}", repotoire_dir.display());
     Ok(())
+}
+
+/// Normalize detector name for config matching
+/// Converts various formats to kebab-case: GodClassDetector -> god-class
+fn normalize_detector_name_for_config(name: &str) -> String {
+    let mut result = String::new();
+    let chars: Vec<char> = name.chars().collect();
+    
+    for (i, c) in chars.iter().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 && !chars[i - 1].is_uppercase() {
+                result.push('-');
+            }
+            result.push(c.to_lowercase().next().unwrap());
+        } else if *c == '_' {
+            result.push('-');
+        } else {
+            result.push(*c);
+        }
+    }
+    
+    // Remove common suffixes
+    result
+        .trim_end_matches("-detector")
+        .to_string()
+}
+
+/// Get files changed since a specific git commit
+/// 
+/// Uses `git diff --name-only <since> HEAD` to find changed files.
+/// Also includes untracked files via `git ls-files --others --exclude-standard`.
+fn get_changed_files_since(repo_path: &Path, since: &str) -> Result<Vec<PathBuf>> {
+    // Get tracked files that changed
+    let output = Command::new("git")
+        .args(["diff", "--name-only", since, "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .with_context(|| format!("Failed to run git diff since '{}'", since))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("git diff failed: {}", stderr.trim());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut files: Vec<PathBuf> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| repo_path.join(l))
+        .filter(|p| p.exists()) // Only include files that still exist
+        .collect();
+
+    // Also get untracked files (new files not yet committed)
+    let untracked = Command::new("git")
+        .args(["ls-files", "--others", "--exclude-standard"])
+        .current_dir(repo_path)
+        .output();
+
+    if let Ok(out) = untracked {
+        if out.status.success() {
+            let new_files = String::from_utf8_lossy(&out.stdout);
+            for line in new_files.lines().filter(|l| !l.is_empty()) {
+                let path = repo_path.join(line);
+                if path.exists() && !files.contains(&path) {
+                    files.push(path);
+                }
+            }
+        }
+    }
+
+    // Filter to only supported file extensions
+    files.retain(|p| {
+        p.extension()
+            .and_then(|e| e.to_str())
+            .map(|ext| SUPPORTED_EXTENSIONS.contains(&ext))
+            .unwrap_or(false)
+    });
+
+    Ok(files)
+}
+
+/// Get files that have been staged or modified (uncommitted changes)
+fn get_uncommitted_files(repo_path: &Path) -> Result<Vec<PathBuf>> {
+    // Get staged and modified tracked files
+    let output = Command::new("git")
+        .args(["diff", "--name-only", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .with_context(|| "Failed to run git diff HEAD")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut files: Vec<PathBuf> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| repo_path.join(l))
+        .filter(|p| p.exists())
+        .collect();
+
+    // Also get staged files
+    let staged = Command::new("git")
+        .args(["diff", "--name-only", "--cached"])
+        .current_dir(repo_path)
+        .output();
+
+    if let Ok(out) = staged {
+        let staged_files = String::from_utf8_lossy(&out.stdout);
+        for line in staged_files.lines().filter(|l| !l.is_empty()) {
+            let path = repo_path.join(line);
+            if path.exists() && !files.contains(&path) {
+                files.push(path);
+            }
+        }
+    }
+
+    // Get untracked files
+    let untracked = Command::new("git")
+        .args(["ls-files", "--others", "--exclude-standard"])
+        .current_dir(repo_path)
+        .output();
+
+    if let Ok(out) = untracked {
+        let new_files = String::from_utf8_lossy(&out.stdout);
+        for line in new_files.lines().filter(|l| !l.is_empty()) {
+            let path = repo_path.join(line);
+            if path.exists() && !files.contains(&path) {
+                files.push(path);
+            }
+        }
+    }
+
+    // Filter to supported extensions
+    files.retain(|p| {
+        p.extension()
+            .and_then(|e| e.to_str())
+            .map(|ext| SUPPORTED_EXTENSIONS.contains(&ext))
+            .unwrap_or(false)
+    });
+
+    Ok(files)
 }

@@ -10,6 +10,7 @@
 pub mod ai;
 pub mod cache;
 mod cli;
+pub mod config;
 mod detectors;
 pub mod git;
 mod graph;
