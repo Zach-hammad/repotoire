@@ -3,7 +3,7 @@
 //! Extracts functions, classes, methods, structs, namespaces, imports, and call relationships from C++ source code.
 
 use crate::models::{Class, Function};
-use crate::parsers::ParseResult;
+use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -341,7 +341,7 @@ fn extract_includes(root: &Node, source: &[u8], result: &mut ParseResult) -> Res
                 .trim_matches('<')
                 .trim_matches('>')
                 .to_string();
-            result.imports.push(import_path);
+            result.imports.push(ImportInfo::runtime(import_path));
         }
     }
 
@@ -532,9 +532,9 @@ int main() {
         let path = PathBuf::from("test.cpp");
         let result = parse_source(source, &path).unwrap();
 
-        assert!(result.imports.contains(&"iostream".to_string()));
-        assert!(result.imports.contains(&"vector".to_string()));
-        assert!(result.imports.contains(&"myheader.h".to_string()));
+        assert!(result.imports.iter().any(|i| i.path == "iostream"));
+        assert!(result.imports.iter().any(|i| i.path == "vector"));
+        assert!(result.imports.iter().any(|i| i.path == "myheader.h"));
     }
 
     #[test]

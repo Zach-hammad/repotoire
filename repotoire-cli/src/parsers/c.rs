@@ -3,7 +3,7 @@
 //! Extracts functions, structs, typedefs, imports, and call relationships from C source code.
 
 use crate::models::{Class, Function};
-use crate::parsers::ParseResult;
+use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -275,7 +275,7 @@ fn extract_includes(root: &Node, source: &[u8], result: &mut ParseResult) -> Res
                     .trim_end_matches(|c| c == '"' || c == '>')
                     .to_string();
                 if !import.is_empty() {
-                    result.imports.push(import);
+                    result.imports.push(ImportInfo::runtime(import));
                 }
             }
         }
@@ -491,9 +491,9 @@ int main() {
         let path = PathBuf::from("test.c");
         let result = parse_source(source, &path).unwrap();
 
-        assert!(result.imports.contains(&"stdio.h".to_string()));
-        assert!(result.imports.contains(&"stdlib.h".to_string()));
-        assert!(result.imports.contains(&"myheader.h".to_string()));
+        assert!(result.imports.iter().any(|i| i.path == "stdio.h"));
+        assert!(result.imports.iter().any(|i| i.path == "stdlib.h"));
+        assert!(result.imports.iter().any(|i| i.path == "myheader.h"));
     }
 
     #[test]

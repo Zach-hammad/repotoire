@@ -580,14 +580,7 @@ fn parse_method_node(node: &Node, source: &[u8], path: &Path, class_name: &str) 
 /// Extract import statements from the AST
 fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult, language: &Language) -> Result<()> {
     let query_str = r#"
-        (import_statement
-            source: (string) @import_source
-        )
-        (import_statement
-            source: (string
-                (string_fragment) @import_source
-            )
-        )
+        (import_statement) @import_stmt
         (export_statement
             source: (string) @export_source
         )
@@ -600,14 +593,38 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult, languag
 
     while let Some(m) = matches.next() {
         for capture in m.captures.iter() {
-            if let Ok(text) = capture.node.utf8_text(source) {
-                // Remove quotes
-                let import = text
-                    .trim_start_matches(|c| c == '"' || c == '\'')
-                    .trim_end_matches(|c| c == '"' || c == '\'')
-                    .to_string();
-                if !import.is_empty() && !result.imports.contains(&import) {
-                    result.imports.push(import);
+            let capture_name = query.capture_names()[capture.index as usize];
+            
+            if capture_name == "import_stmt" {
+                // Get the full import statement text to check for "import type"
+                let stmt_text = capture.node.utf8_text(source).unwrap_or("");
+                let is_type_only = stmt_text.trim_start().starts_with("import type ");
+                
+                // Find the source string within this import statement
+                if let Some(source_node) = capture.node.child_by_field_name("source") {
+                    if let Ok(text) = source_node.utf8_text(source) {
+                        let import = text
+                            .trim_start_matches(|c| c == '"' || c == '\'')
+                            .trim_end_matches(|c| c == '"' || c == '\'')
+                            .to_string();
+                        if !import.is_empty() && !result.imports.iter().any(|i| i.path == import) {
+                            result.imports.push(if is_type_only {
+                                super::ImportInfo::type_only(import)
+                            } else {
+                                super::ImportInfo::runtime(import)
+                            });
+                        }
+                    }
+                }
+            } else if capture_name == "export_source" {
+                if let Ok(text) = capture.node.utf8_text(source) {
+                    let import = text
+                        .trim_start_matches(|c| c == '"' || c == '\'')
+                        .trim_end_matches(|c| c == '"' || c == '\'')
+                        .to_string();
+                    if !import.is_empty() && !result.imports.iter().any(|i| i.path == import) {
+                        result.imports.push(super::ImportInfo::runtime(import));
+                    }
                 }
             }
         }
@@ -852,8 +869,8 @@ export function main() {}
         let path = PathBuf::from("test.ts");
         let result = parse_source(source, &path, "ts").unwrap();
 
-        assert!(result.imports.iter().any(|i| i == "react"));
-        assert!(result.imports.iter().any(|i| i == "axios"));
+        assert!(result.imports.iter().any(|i| i.path == "react"));
+        assert!(result.imports.iter().any(|i| i.path == "axios"));
     }
 
     #[test]

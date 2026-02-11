@@ -3,7 +3,7 @@
 //! Extracts functions, classes, imports, and call relationships from Python source code.
 
 use crate::models::{Class, Function};
-use crate::parsers::ParseResult;
+use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -398,13 +398,13 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Resu
                 for child in node.children(&mut node.walk()) {
                     if child.kind() == "dotted_name" {
                         if let Ok(text) = child.utf8_text(source) {
-                            result.imports.push(text.to_string());
+                            result.imports.push(ImportInfo::runtime(text.to_string()));
                         }
                     } else if child.kind() == "aliased_import" {
                         // import module as alias
                         if let Some(name_node) = child.child_by_field_name("name") {
                             if let Ok(text) = name_node.utf8_text(source) {
-                                result.imports.push(text.to_string());
+                                result.imports.push(ImportInfo::runtime(text.to_string()));
                             }
                         }
                     }
@@ -415,14 +415,14 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Resu
                 // Get the module name
                 if let Some(module_node) = node.child_by_field_name("module_name") {
                     if let Ok(module) = module_node.utf8_text(source) {
-                        result.imports.push(module.to_string());
+                        result.imports.push(ImportInfo::runtime(module.to_string()));
                     }
                 } else {
                     // Try to find dotted_name directly
                     for child in node.children(&mut node.walk()) {
                         if child.kind() == "dotted_name" || child.kind() == "relative_import" {
                             if let Ok(text) = child.utf8_text(source) {
-                                result.imports.push(text.to_string());
+                                result.imports.push(ImportInfo::runtime(text.to_string()));
                             }
                             break;
                         }
@@ -750,10 +750,10 @@ from typing import List, Optional
         let path = PathBuf::from("test.py");
         let result = parse_source(source, &path).unwrap();
 
-        assert!(result.imports.contains(&"os".to_string()));
-        assert!(result.imports.contains(&"sys".to_string()));
-        assert!(result.imports.contains(&"pathlib".to_string()));
-        assert!(result.imports.contains(&"typing".to_string()));
+        assert!(result.imports.iter().any(|i| i.path == "os"));
+        assert!(result.imports.iter().any(|i| i.path == "sys"));
+        assert!(result.imports.iter().any(|i| i.path == "pathlib"));
+        assert!(result.imports.iter().any(|i| i.path == "typing"));
     }
 
     #[test]

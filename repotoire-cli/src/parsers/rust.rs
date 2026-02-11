@@ -3,7 +3,7 @@
 //! Extracts functions, structs, impls, traits, imports, and call relationships from Rust source code.
 
 use crate::models::{Class, Function};
-use crate::parsers::ParseResult;
+use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -419,7 +419,7 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Resu
                 // Clean up the import path
                 let import = text.trim().to_string();
                 if !import.is_empty() {
-                    result.imports.push(import);
+                    result.imports.push(ImportInfo::runtime(import));
                 }
             }
         }
@@ -641,7 +641,7 @@ impl MyStruct {
         let source = r#"
 use std::collections::HashMap;
 use crate::models::Function;
-use super::ParseResult;
+use super::{ImportInfo, ParseResult};
 "#;
         let path = PathBuf::from("test.rs");
         let result = parse_source(source, &path).unwrap();

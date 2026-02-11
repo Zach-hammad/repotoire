@@ -3,7 +3,7 @@
 //! Extracts classes, interfaces, structs, methods, imports, and call relationships from C# source code.
 
 use crate::models::{Class, Function};
-use crate::parsers::ParseResult;
+use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -514,7 +514,7 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Resu
     while let Some(m) = matches.next() {
         for capture in m.captures.iter() {
             if let Ok(text) = capture.node.utf8_text(source) {
-                result.imports.push(text.to_string());
+                result.imports.push(ImportInfo::runtime(text.to_string()));
             }
         }
     }
@@ -748,8 +748,8 @@ public class Test { }
         let path = PathBuf::from("Test.cs");
         let result = parse_source(source, &path).unwrap();
 
-        assert!(result.imports.iter().any(|i| i == "System"));
-        assert!(result.imports.iter().any(|i| i == "System.Collections.Generic"));
+        assert!(result.imports.iter().any(|i| i.path == "System"));
+        assert!(result.imports.iter().any(|i| i.path == "System.Collections.Generic"));
     }
 
     #[test]

@@ -3,7 +3,7 @@
 //! Extracts functions, structs, interfaces, methods, imports, and call relationships from Go source code.
 
 use crate::models::{Class, Function};
-use crate::parsers::ParseResult;
+use crate::parsers::{ImportInfo, ParseResult};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -375,7 +375,7 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Resu
                 // Remove quotes from import path
                 let import = text.trim_matches('"').to_string();
                 if !import.is_empty() {
-                    result.imports.push(import);
+                    result.imports.push(ImportInfo::runtime(import));
                 }
             }
         }
@@ -598,8 +598,8 @@ import (
         let path = PathBuf::from("test.go");
         let result = parse_source(source, &path).unwrap();
 
-        assert!(result.imports.contains(&"fmt".to_string()));
-        assert!(result.imports.contains(&"os".to_string()));
+        assert!(result.imports.iter().any(|i| i.path == "fmt"));
+        assert!(result.imports.iter().any(|i| i.path == "os"));
     }
 
     #[test]

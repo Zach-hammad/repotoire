@@ -90,6 +90,27 @@ pub fn supported_extensions() -> &'static [&'static str] {
     ]
 }
 
+/// Import information including whether it's type-only
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ImportInfo {
+    /// The import path/module
+    pub path: String,
+    /// Whether this is a type-only import (e.g., TypeScript's `import type`)
+    pub is_type_only: bool,
+}
+
+impl ImportInfo {
+    /// Create a runtime import (not type-only)
+    pub fn runtime(path: impl Into<String>) -> Self {
+        Self { path: path.into(), is_type_only: false }
+    }
+    
+    /// Create a type-only import
+    pub fn type_only(path: impl Into<String>) -> Self {
+        Self { path: path.into(), is_type_only: true }
+    }
+}
+
 /// Result of parsing a source file
 #[derive(Debug, Default, Clone)]
 pub struct ParseResult {
@@ -100,7 +121,7 @@ pub struct ParseResult {
     pub classes: Vec<crate::models::Class>,
 
     /// Module/package imports
-    pub imports: Vec<String>,
+    pub imports: Vec<ImportInfo>,
 
     /// Function calls as (caller_qualified_name, callee_name) pairs
     pub calls: Vec<(String, String)>,
@@ -170,7 +191,7 @@ mod tests {
                 complexity: None,
             }],
             classes: vec![],
-            imports: vec!["os".to_string()],
+            imports: vec![ImportInfo::runtime("os")],
             calls: vec![],
         };
 
@@ -195,7 +216,7 @@ mod tests {
                 methods: vec![],
                 bases: vec![],
             }],
-            imports: vec!["sys".to_string()],
+            imports: vec![ImportInfo::runtime("sys")],
             calls: vec![("test::func1:1".to_string(), "func2".to_string())],
         };
 

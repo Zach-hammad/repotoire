@@ -16,6 +16,62 @@ fn weak_hash() -> &'static Regex {
     WEAK_HASH.get_or_init(|| Regex::new(r#"(?i)(md5|sha1|sha-1)\s*\(|hashlib\.(md5|sha1)|Digest::(MD5|SHA1)|MessageDigest\.getInstance"#).unwrap())
 }
 
+/// Check if a line is merely mentioning a weak hash (in comments, strings, etc.)
+/// rather than actually using it. Returns true if the line should be SKIPPED.
+fn is_hash_mention_not_usage(line: &str) -> bool {
+    let lower = line.to_lowercase();
+    
+    // Skip comments
+    let trimmed = line.trim();
+    if trimmed.starts_with("//") || trimmed.starts_with("#") || trimmed.starts_with("*") || trimmed.starts_with("/*") {
+        return true;
+    }
+    
+    // Skip regex pattern definitions
+    if line.contains("Regex::new") || line.contains("regex::Regex") || line.contains("r\"") || line.contains("r#\"") {
+        return true;
+    }
+    
+    // Skip test files and test functions
+    if lower.contains("test") && (lower.contains("fn ") || lower.contains("def ") || lower.contains("function ")) {
+        return true;
+    }
+    
+    // Skip error messages, warnings, documentation
+    if lower.contains("deprecated") || lower.contains("insecure") || lower.contains("weak") ||
+       lower.contains("broken") || lower.contains("unsafe") || lower.contains("vulnerable") ||
+       lower.contains("warning") || lower.contains("error") {
+        return true;
+    }
+    
+    // Skip string comparisons and config checks
+    if line.contains("==") || line.contains("!=") || line.contains("match") || line.contains("case ") {
+        return true;
+    }
+    
+    // Skip logging/print statements
+    if lower.contains("print") || lower.contains("log") || lower.contains("console.") || lower.contains("logger") {
+        return true;
+    }
+    
+    // Skip SCREAMING_CASE constants
+    if line.contains("const ") || line.contains("static ") {
+        let parts: Vec<&str> = line.split('=').collect();
+        if parts.len() >= 2 {
+            let before_eq = parts[0];
+            if before_eq.split_whitespace()
+                .any(|word| word.chars().all(|c| c.is_uppercase() || c == '_' || c == ':') 
+                    && word.contains('_') 
+                    && word.len() > 2) 
+            {
+                return true;
+            }
+        }
+    }
+    
+    false
+}
+
 fn weak_cipher() -> &'static Regex {
     // Use \b on both sides to prevent matching 'nodes', 'description', etc.
     WEAK_CIPHER.get_or_init(|| Regex::new(r"(?i)\b(DES|RC4|RC2|Blowfish|ECB)\b").unwrap())
@@ -202,7 +258,7 @@ impl Detector for InsecureCryptoDetector {
                         continue;
                     }
 
-                    if weak_hash().is_match(line) {
+                    if weak_hash().is_match(line) && !is_hash_mention_not_usage(line) {
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "InsecureCryptoDetector".to_string(),

@@ -383,11 +383,11 @@ pub fn run(
 
         // Import edges - resolve imports to actual file paths
         // Type-only imports are marked separately for coupling analysis
-        for import_path in &result.imports {
+        for import_info in &result.imports {
             // Handle different import styles:
             // - TypeScript/JS: './utils', '../lib/helper'
             // - Rust: 'crate::module::item', 'super::sibling'
-            let clean_import = import_path
+            let clean_import = import_info.path
                 .trim_start_matches("./")
                 .trim_start_matches("../")
                 .trim_start_matches("crate::")
@@ -434,9 +434,9 @@ pub fn run(
                     other_str.ends_with(&format!("{}/__init__.py", python_path));
                 
                 if matches {
-                    // TODO: Add is_type_only property when parsers support it
                     // Type-only imports (e.g., TypeScript's `import type`) don't create runtime dependencies
-                    let import_edge = CodeEdge::imports();
+                    let import_edge = CodeEdge::imports()
+                        .with_property("is_type_only", import_info.is_type_only);
                     edges.push((relative_str.clone(), other_str, import_edge));
                     break;
                 }
