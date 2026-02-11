@@ -11,13 +11,12 @@
 
 use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
 use crate::graph::GraphStore;
-use crate::models::{Finding, Severity};
+use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// SQL-related function patterns to look for
 const SQL_SINK_FUNCTIONS: &[&str] = &[
@@ -88,12 +87,7 @@ impl SQLInjectionDetector {
         let max_findings = config.get_option_or("max_findings", 100);
         let exclude_dirs = config
             .get_option::<Vec<String>>("exclude_dirs")
-            .unwrap_or_else(|| {
-                DEFAULT_EXCLUDE_DIRS
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect()
-            });
+            .unwrap_or_else(|| DEFAULT_EXCLUDE_DIRS.iter().map(|s| s.to_string()).collect());
 
         // Compile regex patterns
         // Pattern 1: f-string with SQL keywords (allow internal quotes)
@@ -151,7 +145,7 @@ impl SQLInjectionDetector {
         if is_test_file(path) {
             return true;
         }
-        
+
         // Check excluded directories
         let path_str = path.to_string_lossy();
         for dir in &self.exclude_dirs {
@@ -160,7 +154,7 @@ impl SQLInjectionDetector {
                 return true;
             }
         }
-        
+
         false
     }
 
@@ -170,7 +164,7 @@ impl SQLInjectionDetector {
         if stripped.starts_with('#') {
             return None;
         }
-        
+
         // Skip obvious non-SQL contexts that might contain SQL keywords coincidentally
         let line_lower = line.to_lowercase();
         if line_lower.contains("console.log") 
@@ -273,16 +267,23 @@ impl SQLInjectionDetector {
             return true;
         }
         // Common JS database libraries - require SQL-specific method calls
-        if line_lower.contains("mysql.") || line_lower.contains("pg.") 
-            || line_lower.contains("sequelize") || line_lower.contains("knex") {
+        if line_lower.contains("mysql.")
+            || line_lower.contains("pg.")
+            || line_lower.contains("sequelize")
+            || line_lower.contains("knex")
+        {
             return true;
         }
         // pool.* and client.* only count as SQL context with SQL-specific methods
         if (line_lower.contains("pool.") || line_lower.contains("client."))
-            && (line_lower.contains(".query") || line_lower.contains(".execute")
-                || line_lower.contains(".prepare") || line_lower.contains(".run")
-                || line_lower.contains(".all(") || line_lower.contains(".get(")
-                || line_lower.contains(".connect")) {
+            && (line_lower.contains(".query")
+                || line_lower.contains(".execute")
+                || line_lower.contains(".prepare")
+                || line_lower.contains(".run")
+                || line_lower.contains(".all(")
+                || line_lower.contains(".get(")
+                || line_lower.contains(".connect"))
+        {
             return true;
         }
 
@@ -290,15 +291,19 @@ impl SQLInjectionDetector {
         if line_lower.contains(".queryrow(") || line_lower.contains(".queryrowcontext(") {
             return true;
         }
-        if line_lower.contains("sql.open") || line_lower.contains("db.query")
-            || line_lower.contains("db.exec") || line_lower.contains("db.prepare") {
+        if line_lower.contains("sql.open")
+            || line_lower.contains("db.query")
+            || line_lower.contains("db.exec")
+            || line_lower.contains("db.prepare")
+        {
             return true;
         }
         // Go fmt.Sprintf with SQL keywords is always SQL context
-        if line_lower.contains("fmt.sprintf") 
+        if line_lower.contains("fmt.sprintf")
             && ["select", "insert", "update", "delete"]
                 .iter()
-                .any(|kw| line_lower.contains(kw)) {
+                .any(|kw| line_lower.contains(kw))
+        {
             return true;
         }
 
@@ -308,7 +313,7 @@ impl SQLInjectionDetector {
     /// Scan source files for dangerous SQL patterns
     fn scan_source_files(&self) -> Vec<Finding> {
         use crate::detectors::walk_source_files;
-        
+
         let mut findings = Vec::new();
         let mut seen_locations: HashSet<(String, u32)> = HashSet::new();
 
@@ -316,16 +321,19 @@ impl SQLInjectionDetector {
             debug!("Repository path does not exist: {:?}", self.repository_path);
             return findings;
         }
-        
+
         debug!("Scanning for SQL injection in: {:?}", self.repository_path);
 
         // Walk through Python, JavaScript, TypeScript, and Go files (respects .gitignore and .repotoireignore)
-        for path in walk_source_files(&self.repository_path, Some(&["py", "js", "ts", "go", "java"])) {
+        for path in walk_source_files(
+            &self.repository_path,
+            Some(&["py", "js", "ts", "go", "java"]),
+        ) {
             if self.should_exclude(&path) {
                 debug!("Excluding file: {:?}", path);
                 continue;
             }
-            
+
             let rel_path = path
                 .strip_prefix(&self.repository_path)
                 .unwrap_or(&path)
@@ -345,9 +353,13 @@ impl SQLInjectionDetector {
             let lines: Vec<&str> = content.lines().collect();
             for (line_no, line) in lines.iter().enumerate() {
                 let line_num = (line_no + 1) as u32;
-                
+
                 // Check for suppression comments
-                let prev_line = if line_no > 0 { Some(lines[line_no - 1]) } else { None };
+                let prev_line = if line_no > 0 {
+                    Some(lines[line_no - 1])
+                } else {
+                    None
+                };
                 if crate::detectors::is_line_suppressed(line, prev_line) {
                     continue;
                 }
@@ -355,22 +367,25 @@ impl SQLInjectionDetector {
                 if let Some(pattern_type) = self.check_line_for_patterns(line) {
                     // go_sprintf and js_template patterns already contain SQL keywords in the regex,
                     // so they're self-evidently SQL context (building a SQL string, even if assigned to variable)
-                    let is_self_evident_sql = pattern_type == "go_sprintf" || pattern_type == "js_template";
-                    
+                    let is_self_evident_sql =
+                        pattern_type == "go_sprintf" || pattern_type == "js_template";
+
                     // Check if this line directly contains SQL context
                     let has_direct_sql_context = is_self_evident_sql || self.is_sql_context(line);
-                    
+
                     // Require SQL context to reduce false positives
                     // "create directory" with f-string is not SQL injection
                     if !has_direct_sql_context {
                         // Check surrounding lines for context
-                        let has_surrounding_sql_context = (line_no > 0 && self.is_sql_context(lines[line_no - 1]))
-                            || (line_no + 1 < lines.len() && self.is_sql_context(lines[line_no + 1]));
+                        let has_surrounding_sql_context = (line_no > 0
+                            && self.is_sql_context(lines[line_no - 1]))
+                            || (line_no + 1 < lines.len()
+                                && self.is_sql_context(lines[line_no + 1]));
                         if !has_surrounding_sql_context {
                             continue;
                         }
                     }
-                    
+
                     let loc = (rel_path.clone(), line_num);
                     if seen_locations.contains(&loc) {
                         continue;
@@ -399,7 +414,11 @@ impl SQLInjectionDetector {
     fn detect_language(file_path: &str) -> &'static str {
         if file_path.ends_with(".py") {
             "python"
-        } else if file_path.ends_with(".js") || file_path.ends_with(".ts") || file_path.ends_with(".jsx") || file_path.ends_with(".tsx") {
+        } else if file_path.ends_with(".js")
+            || file_path.ends_with(".ts")
+            || file_path.ends_with(".jsx")
+            || file_path.ends_with(".tsx")
+        {
             "javascript"
         } else if file_path.ends_with(".go") {
             "go"
@@ -514,12 +533,21 @@ impl SQLInjectionDetector {
         has_direct_sql_context: bool,
     ) -> Finding {
         let pattern_descriptions = [
-            ("f-string", "f-string with variable interpolation in SQL query"),
+            (
+                "f-string",
+                "f-string with variable interpolation in SQL query",
+            ),
             ("concatenation", "string concatenation in SQL query"),
             ("format", ".format() string interpolation in SQL query"),
             ("percent_format", "% string formatting in SQL query"),
-            ("js_template", "JavaScript template literal with interpolation in SQL query"),
-            ("go_sprintf", "Go fmt.Sprintf with string interpolation in SQL query"),
+            (
+                "js_template",
+                "JavaScript template literal with interpolation in SQL query",
+            ),
+            (
+                "go_sprintf",
+                "Go fmt.Sprintf with string interpolation in SQL query",
+            ),
         ];
 
         let pattern_desc = pattern_descriptions
@@ -568,7 +596,7 @@ impl SQLInjectionDetector {
         };
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: deterministic_finding_id("SQLInjectionDetector", &path.to_string_lossy(), 0, "Unknown"),
             detector: "SQLInjectionDetector".to_string(),
             severity,
             title,
@@ -617,7 +645,10 @@ impl Detector for SQLInjectionDetector {
 
         let findings = self.scan_source_files();
 
-        info!("SQLInjectionDetector found {} potential vulnerabilities", findings.len());
+        info!(
+            "SQLInjectionDetector found {} potential vulnerabilities",
+            findings.len()
+        );
 
         Ok(findings)
     }
@@ -633,12 +664,16 @@ mod tests {
 
         // Should detect f-string SQL injection
         assert_eq!(
-            detector.check_line_for_patterns(r#"cursor.execute(f"SELECT * FROM users WHERE id={user_id}")"#),
+            detector.check_line_for_patterns(
+                r#"cursor.execute(f"SELECT * FROM users WHERE id={user_id}")"#
+            ),
             Some("f-string")
         );
 
         // Should NOT detect static SQL
-        assert!(detector.check_line_for_patterns(r#"cursor.execute("SELECT * FROM users")"#).is_none());
+        assert!(detector
+            .check_line_for_patterns(r#"cursor.execute("SELECT * FROM users")"#)
+            .is_none());
     }
 
     #[test]
@@ -647,7 +682,9 @@ mod tests {
 
         // Should detect concatenation SQL injection
         assert_eq!(
-            detector.check_line_for_patterns(r#"cursor.execute("SELECT * FROM users WHERE id=" + user_id)"#),
+            detector.check_line_for_patterns(
+                r#"cursor.execute("SELECT * FROM users WHERE id=" + user_id)"#
+            ),
             Some("concatenation")
         );
     }
@@ -658,7 +695,9 @@ mod tests {
 
         // Should detect .format() SQL injection
         assert_eq!(
-            detector.check_line_for_patterns(r#"cursor.execute("SELECT * FROM users WHERE id={}".format(user_id))"#),
+            detector.check_line_for_patterns(
+                r#"cursor.execute("SELECT * FROM users WHERE id={}".format(user_id))"#
+            ),
             Some("format")
         );
     }
@@ -669,7 +708,9 @@ mod tests {
 
         // Should detect % formatting SQL injection
         assert_eq!(
-            detector.check_line_for_patterns(r#"cursor.execute("SELECT * FROM users WHERE id=%s" % user_id)"#),
+            detector.check_line_for_patterns(
+                r#"cursor.execute("SELECT * FROM users WHERE id=%s" % user_id)"#
+            ),
             Some("percent_format")
         );
     }
@@ -691,18 +732,23 @@ mod tests {
 
         // Should detect JavaScript template literal SQL injection
         assert_eq!(
-            detector.check_line_for_patterns(r#"db.query(`SELECT * FROM users WHERE id = ${userId}`)"#),
+            detector
+                .check_line_for_patterns(r#"db.query(`SELECT * FROM users WHERE id = ${userId}`)"#),
             Some("js_template")
         );
 
         // Should detect with INSERT
         assert_eq!(
-            detector.check_line_for_patterns(r#"pool.execute(`INSERT INTO logs (msg) VALUES ('${message}')`)"#),
+            detector.check_line_for_patterns(
+                r#"pool.execute(`INSERT INTO logs (msg) VALUES ('${message}')`)"#
+            ),
             Some("js_template")
         );
 
         // Should NOT detect static template literal
-        assert!(detector.check_line_for_patterns(r#"db.query(`SELECT * FROM users`)"#).is_none());
+        assert!(detector
+            .check_line_for_patterns(r#"db.query(`SELECT * FROM users`)"#)
+            .is_none());
     }
 
     #[test]
@@ -711,18 +757,24 @@ mod tests {
 
         // Should detect Go fmt.Sprintf SQL injection
         assert_eq!(
-            detector.check_line_for_patterns(r#"query := fmt.Sprintf("SELECT * FROM users WHERE id = %s", id)"#),
+            detector.check_line_for_patterns(
+                r#"query := fmt.Sprintf("SELECT * FROM users WHERE id = %s", id)"#
+            ),
             Some("go_sprintf")
         );
 
         // Should detect with %v
         assert_eq!(
-            detector.check_line_for_patterns(r#"sql := fmt.Sprintf("DELETE FROM users WHERE id = %v", userId)"#),
+            detector.check_line_for_patterns(
+                r#"sql := fmt.Sprintf("DELETE FROM users WHERE id = %v", userId)"#
+            ),
             Some("go_sprintf")
         );
 
         // Should NOT detect non-SQL sprintf
-        assert!(detector.check_line_for_patterns(r#"msg := fmt.Sprintf("Hello %s", name)"#).is_none());
+        assert!(detector
+            .check_line_for_patterns(r#"msg := fmt.Sprintf("Hello %s", name)"#)
+            .is_none());
     }
 
     #[test]
