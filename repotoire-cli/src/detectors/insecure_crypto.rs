@@ -21,6 +21,126 @@ fn weak_cipher() -> &'static Regex {
     WEAK_CIPHER.get_or_init(|| Regex::new(r"(?i)\b(DES|RC4|RC2|Blowfish|ECB)\b").unwrap())
 }
 
+/// Check if a line is merely mentioning a weak cipher (in definitions, error messages, etc.)
+/// rather than actually using it. Returns true if the line should be SKIPPED.
+fn is_cipher_mention_not_usage(line: &str) -> bool {
+    let lower = line.to_lowercase();
+    
+    // Skip regex pattern definitions (like this detector's own source!)
+    if line.contains("Regex::new") || line.contains("regex::Regex") {
+        return true;
+    }
+    
+    // Skip raw string literals (Rust r"..." or r#"..."#)
+    if line.contains("r\"") || line.contains("r#\"") || line.contains("r##\"") {
+        return true;
+    }
+    
+    // Skip string assignments to SCREAMING_CASE constants
+    // Pattern: const/static FOO_BAR = "..." or let FOO_BAR = "..."
+    if line.contains("const ") || line.contains("static ") || line.contains("let ") {
+        // Check if there's a SCREAMING_CASE identifier before an =
+        let parts: Vec<&str> = line.split('=').collect();
+        if parts.len() >= 2 {
+            let before_eq = parts[0];
+            // Look for SCREAMING_CASE pattern (uppercase + underscores)
+            if before_eq.split_whitespace()
+                .any(|word| word.chars().all(|c| c.is_uppercase() || c == '_' || c == ':') 
+                    && word.contains('_') 
+                    && word.len() > 2) 
+            {
+                return true;
+            }
+        }
+    }
+    
+    // Skip lines that are rejecting/warning about weak ciphers
+    let rejection_patterns = [
+        "reject", "deny", "error", "warn", "throw", "panic",
+        "not allowed", "not supported", "forbidden", "invalid",
+        "disallow", "prohibit", "refuse", "fail",
+    ];
+    for pattern in rejection_patterns {
+        if lower.contains(pattern) {
+            return true;
+        }
+    }
+    
+    // Skip exclusion checks: != "DES" or !== "DES"
+    if line.contains("!=") && (line.contains("\"DES\"") || line.contains("'DES'") ||
+        line.contains("\"RC4\"") || line.contains("'RC4'") ||
+        line.contains("\"RC2\"") || line.contains("'RC2'") ||
+        line.contains("\"Blowfish\"") || line.contains("'Blowfish'") ||
+        line.contains("\"ECB\"") || line.contains("'ECB'")) {
+        return true;
+    }
+    
+    // Skip test assertions about weak ciphers
+    if lower.contains("assert") || lower.contains("expect") || lower.contains("should") {
+        return true;
+    }
+    
+    // Skip documentation strings and string literals that describe ciphers
+    if lower.contains("deprecated") || lower.contains("insecure") || 
+       lower.contains("vulnerable") || lower.contains("weak") ||
+       lower.contains("broken") || lower.contains("unsafe") {
+        return true;
+    }
+    
+    // Now check for ACTUAL usage patterns (positive signals)
+    let usage_patterns = [
+        // Java
+        "cipher.getinstance",
+        "secretkeyspec",
+        "keygenerator.getinstance",
+        // Node.js / JavaScript
+        "createcipher",
+        "createcipheriv",
+        "createdecipheriv", 
+        "crypto.cipher",
+        // Python
+        "cipher.new",
+        "des.new",
+        "arc4.new",
+        "blowfish.new",
+        // Go
+        "cipher.newecb",
+        "des.newcipher",
+        // Ruby
+        "openssl::cipher",
+        // PHP
+        "openssl_encrypt",
+        "mcrypt_encrypt",
+        // .NET / C#
+        "descryptoserviceprovider",
+        "rc2cryptoserviceprovider",
+        "rijndaelmanaged", // when used with ECB
+    ];
+    
+    for pattern in usage_patterns {
+        if lower.contains(pattern) {
+            return false; // This IS a usage, don't skip
+        }
+    }
+    
+    // If we have a cipher name in quotes followed by common crypto function patterns,
+    // it's likely a usage
+    if (line.contains("\"DES") || line.contains("'DES") || 
+        line.contains("\"RC4") || line.contains("'RC4") ||
+        line.contains("\"ECB") || line.contains("'ECB") ||
+        line.contains("\"des") || line.contains("'des") ||
+        line.contains("\"rc4") || line.contains("'rc4") ||
+        line.contains("\"ecb") || line.contains("'ecb")) &&
+       (line.contains("(") || line.contains("getInstance") || 
+        line.contains("cipher") || line.contains("Cipher")) {
+        return false; // Looks like actual usage
+    }
+    
+    // Default: if none of the usage patterns matched, skip it
+    // This catches incidental mentions
+    true
+}
+
 pub struct InsecureCryptoDetector {
     repository_path: PathBuf,
     max_findings: usize,
@@ -99,7 +219,8 @@ impl Detector for InsecureCryptoDetector {
                             why_it_matters: Some("Weak hashes can be cracked or collided.".to_string()),
                         });
                     }
-                    if weak_cipher().is_match(line) {
+                    // Check for weak cipher usage, but skip mere mentions
+                    if weak_cipher().is_match(line) && !is_cipher_mention_not_usage(line) {
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "InsecureCryptoDetector".to_string(),
