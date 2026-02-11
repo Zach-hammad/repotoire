@@ -9,17 +9,17 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphStore;
-use crate::models::{Finding, Severity};
+use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
+use serde_json;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 /// Entry points that should not be flagged as dead code
 static ENTRY_POINTS: &[&str] = &[
     "main",
-    "init",          // Go init functions run automatically
+    "init", // Go init functions run automatically
     "__main__",
     "__init__",
     "setUp",
@@ -51,23 +51,70 @@ static ENTRY_POINTS: &[&str] = &[
 /// Note: patterns without leading / also match at start of relative paths
 static FRAMEWORK_AUTO_LOAD_PATTERNS: &[&str] = &[
     // Next.js App Router
-    "/page.tsx", "/page.ts", "/page.jsx", "/page.js",
-    "/layout.tsx", "/layout.ts", "/layout.jsx", "/layout.js",
-    "/loading.tsx", "/loading.ts",
-    "/error.tsx", "/error.ts",
-    "/not-found.tsx", "/not-found.ts",
-    "/template.tsx", "/template.ts",
-    "/route.tsx", "/route.ts",
+    "/page.tsx",
+    "/page.ts",
+    "/page.jsx",
+    "/page.js",
+    "/layout.tsx",
+    "/layout.ts",
+    "/layout.jsx",
+    "/layout.js",
+    "/loading.tsx",
+    "/loading.ts",
+    "/error.tsx",
+    "/error.ts",
+    "/not-found.tsx",
+    "/not-found.ts",
+    "/template.tsx",
+    "/template.ts",
+    "/route.tsx",
+    "/route.ts",
     // Next.js Pages Router
-    "/pages/", "pages/",
+    "/pages/",
+    "pages/",
     // Fastify AutoLoad
-    "/routes/", "routes/",
-    "/plugins/", "plugins/",
+    "/routes/",
+    "routes/",
+    "/plugins/",
+    "plugins/",
     // Remix
-    "/routes.", "routes.",
+    "/routes.",
+    "routes.",
     // Expo Router
-    "/app/", "app/",
+    "/app/",
+    "app/",
     // React Navigation screens typically end in Screen
+    // Additional framework auto-discovery patterns (Issue #15)
+    "/handlers/",
+    "handlers/", // Event handlers directory
+    "/commands/",
+    "commands/", // CLI commands directory
+    "/migrations/",
+    "migrations/", // Database migrations
+    "/seeds/",
+    "seeds/", // Database seeds
+    "/tasks/",
+    "tasks/", // Background tasks (Celery, etc.)
+    "/jobs/",
+    "jobs/", // Job workers
+    "/controllers/",
+    "controllers/", // MVC controllers
+    "/middleware/",
+    "middleware/", // Express/Koa middleware
+    "/hooks/",
+    "hooks/", // React hooks, Git hooks
+    "/subscribers/",
+    "subscribers/", // Event subscribers
+    "/listeners/",
+    "listeners/", // Event listeners
+];
+
+/// Callback/handler function name patterns that are called dynamically
+static CALLBACK_PATTERNS: &[&str] = &[
+    "on",     // onClick, onSubmit, onLoad, etc.
+    "handle", // handleClick, handleSubmit, etc.
+    "cb",     // Common callback abbreviation
+    "callback", "listener", "handler",
 ];
 
 /// Special methods that are called implicitly
@@ -162,38 +209,152 @@ impl DeadCodeDetector {
     fn is_entry_point(&self, name: &str) -> bool {
         self.entry_points.contains(name) || name.starts_with("test_")
     }
-    
+
+    /// Check if function has decorators (Issue #15)
+    /// Decorators like @app.route, @Controller, @Route register functions at runtime
+    fn has_decorator(&self, func: &crate::graph::CodeNode) -> bool {
+        func.get_bool("has_decorators").unwrap_or(false)
+    }
+
+    /// Check if function name matches callback/handler patterns (Issue #15)
+    /// These are typically called dynamically via .on(), .addEventListener(), etc.
+    fn is_callback_pattern(&self, name: &str) -> bool {
+        let name_lower = name.to_lowercase();
+
+        // Check for on* patterns (onClick, onSubmit, onLoad)
+        if name_lower.starts_with("on") && name.len() > 2 {
+            // Ensure the character after "on" is uppercase (camelCase convention)
+            if let Some(c) = name.chars().nth(2) {
+                if c.is_uppercase() {
+                    return true;
+                }
+            }
+        }
+
+        // Check for handle* patterns (handleClick, handleSubmit)
+        if name_lower.starts_with("handle") && name.len() > 6 {
+            if let Some(c) = name.chars().nth(6) {
+                if c.is_uppercase() {
+                    return true;
+                }
+            }
+        }
+
+        // Check for other callback patterns
+        for pattern in CALLBACK_PATTERNS {
+            if name_lower == *pattern || name_lower.ends_with(&format!("_{}", pattern)) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if file is a CLI entry point defined in package.json bin field (Issue #15)
+    fn is_cli_entry_point(&self, file_path: &str) -> bool {
+        // Find package.json in parent directories
+        let path = std::path::Path::new(file_path);
+        let mut current = path.parent();
+
+        while let Some(dir) = current {
+            let package_json = dir.join("package.json");
+            if package_json.exists() {
+                if let Ok(content) = std::fs::read_to_string(&package_json) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        // Check "bin" field
+                        if let Some(bin) = json.get("bin") {
+                            let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+                            let relative_path = path
+                                .strip_prefix(dir)
+                                .ok()
+                                .and_then(|p| p.to_str())
+                                .unwrap_or("");
+
+                            // bin can be a string or object
+                            match bin {
+                                serde_json::Value::String(s) => {
+                                    if s.contains(file_name) || s.ends_with(relative_path) {
+                                        return true;
+                                    }
+                                }
+                                serde_json::Value::Object(map) => {
+                                    for (_, v) in map {
+                                        if let serde_json::Value::String(s) = v {
+                                            if s.contains(file_name) || s.ends_with(relative_path) {
+                                                return true;
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        // Also check "main" field for library entry points
+                        if let Some(serde_json::Value::String(main)) = json.get("main") {
+                            let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+                            if main.contains(file_name) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                break; // Found package.json, stop searching
+            }
+            current = dir.parent();
+        }
+
+        false
+    }
+
     /// Check if file is in a framework auto-load location
     /// These files have their exports auto-registered by the framework
     fn is_framework_auto_load(&self, file_path: &str) -> bool {
-        FRAMEWORK_AUTO_LOAD_PATTERNS.iter().any(|pattern| file_path.contains(pattern))
+        FRAMEWORK_AUTO_LOAD_PATTERNS
+            .iter()
+            .any(|pattern| file_path.contains(pattern))
     }
-    
+
     /// Check if this is likely a framework-registered component/route
     fn is_framework_export(&self, name: &str, file_path: &str) -> bool {
         // Default exports from framework files are auto-loaded
         if self.is_framework_auto_load(file_path) && name == "default" {
             return true;
         }
-        
+
         // React Native / Expo screens
         if name.ends_with("Screen") || name.ends_with("Page") {
             return true;
         }
-        
+
         // Next.js/Remix conventions
-        if matches!(name, "loader" | "action" | "meta" | "links" | "headers" | 
-                        "generateStaticParams" | "generateMetadata" | "revalidate" |
-                        "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS") {
+        if matches!(
+            name,
+            "loader"
+                | "action"
+                | "meta"
+                | "links"
+                | "headers"
+                | "generateStaticParams"
+                | "generateMetadata"
+                | "revalidate"
+                | "GET"
+                | "POST"
+                | "PUT"
+                | "DELETE"
+                | "PATCH"
+                | "HEAD"
+                | "OPTIONS"
+        ) {
             return true;
         }
-        
+
         // Fastify route handlers - any function in /routes/ is likely auto-loaded
         if file_path.contains("/routes/") || file_path.starts_with("routes/") {
             // Fastify AutoLoad registers all exports from route files
             return true;
         }
-        
+
         false
     }
 
@@ -201,33 +362,40 @@ impl DeadCodeDetector {
     /// This is a fallback when the graph doesn't have is_exported set
     fn is_exported_in_source(&self, file_path: &str, line_start: u32) -> bool {
         use tracing::debug;
-        
+
         // Only check JS/TS files
-        let is_js_ts = file_path.ends_with(".js") || file_path.ends_with(".ts") 
-            || file_path.ends_with(".jsx") || file_path.ends_with(".tsx") 
+        let is_js_ts = file_path.ends_with(".js")
+            || file_path.ends_with(".ts")
+            || file_path.ends_with(".jsx")
+            || file_path.ends_with(".tsx")
             || file_path.ends_with(".mjs");
-        
+
         if !is_js_ts {
             return false;
         }
-        
+
         // Read the relevant lines from the source
         match std::fs::read_to_string(file_path) {
             Ok(content) => {
                 let lines: Vec<&str> = content.lines().collect();
                 let line_idx = (line_start as usize).saturating_sub(1);
-                
+
                 // Check the function's line and the line before for export keyword
                 for offset in 0..=1 {
                     if line_idx >= offset {
                         if let Some(line) = lines.get(line_idx - offset) {
                             let trimmed = line.trim();
-                            debug!("Checking line {} for export: '{}'", line_idx - offset + 1, trimmed);
+                            debug!(
+                                "Checking line {} for export: '{}'",
+                                line_idx - offset + 1,
+                                trimmed
+                            );
                             // Check for various export patterns
-                            if trimmed.starts_with("export ") 
+                            if trimmed.starts_with("export ")
                                 || trimmed.starts_with("export{")
                                 || trimmed.contains("module.exports")
-                                || trimmed.contains("exports.") {
+                                || trimmed.contains("exports.")
+                            {
                                 debug!("Found export pattern in {}", file_path);
                                 return true;
                             }
@@ -304,7 +472,7 @@ impl DeadCodeDetector {
             "_set_",
             "_check_",
             // Rust trait implementation patterns
-            "with_",  // builder pattern
+            "with_", // builder pattern
             "into_",
             "as_",
             "is_",
@@ -365,7 +533,12 @@ impl DeadCodeDetector {
         let confidence = self.thresholds.base_confidence;
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: deterministic_finding_id(
+                "DeadCodeDetector",
+                &file_path,
+                0,
+                &format!("Unused function: {}", name),
+            ),
             detector: "DeadCodeDetector".to_string(),
             severity,
             title: format!("Unused function: {}", name),
@@ -398,6 +571,7 @@ impl DeadCodeDetector {
                  and reduces the codebase size."
                     .to_string(),
             ),
+            confidence: Some(confidence),
         }
     }
 
@@ -422,7 +596,12 @@ impl DeadCodeDetector {
         };
 
         Finding {
-            id: Uuid::new_v4().to_string(),
+            id: deterministic_finding_id(
+                "DeadCodeDetector",
+                &file_path,
+                0,
+                &format!("Unused class: {}", name),
+            ),
             detector: "DeadCodeDetector".to_string(),
             severity,
             title: format!("Unused class: {}", name),
@@ -455,68 +634,91 @@ impl DeadCodeDetector {
                  They may also cause confusion about the system's actual behavior."
                     .to_string(),
             ),
+            confidence: Some(confidence),
         }
     }
 
     /// Find dead functions using GraphStore API
     fn find_dead_functions(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
+
         // Get all functions
         let functions = graph.get_functions();
-        
+
         // Sort by complexity (descending) for prioritization
         let mut functions: Vec<_> = functions.into_iter().collect();
         functions.sort_by(|a, b| {
-            b.complexity().unwrap_or(0).cmp(&a.complexity().unwrap_or(0))
+            b.complexity()
+                .unwrap_or(0)
+                .cmp(&a.complexity().unwrap_or(0))
         });
-        
+
         for func in functions {
             let name = &func.name;
             let file_path = &func.file_path;
-            
+
             // Skip test functions and entry points
             if name.starts_with("test_") || self.is_entry_point(name) {
                 continue;
             }
-            
+
             // Skip framework auto-loaded exports (Next.js pages, Fastify routes, etc.)
             if self.is_framework_export(name, file_path) {
                 continue;
             }
-            
+
+            // Skip CLI entry points defined in package.json bin field (Issue #15)
+            if self.is_cli_entry_point(file_path) {
+                debug!("Skipping CLI entry point: {} in {}", name, file_path);
+                continue;
+            }
+
+            // Skip callback/handler patterns (Issue #15)
+            // These are called dynamically via .on(), .addEventListener(), etc.
+            if self.is_callback_pattern(name) {
+                debug!("Skipping callback pattern: {}", name);
+                continue;
+            }
+
             // Check if function has any callers
             let callers = graph.get_callers(&func.qualified_name);
             if !callers.is_empty() {
                 continue; // Function is called, not dead
             }
-            
+
             // Check additional properties
             let is_method = func.get_bool("is_method").unwrap_or(false);
-            let has_decorators = func.get_bool("has_decorators").unwrap_or(false);
+            let has_decorators = self.has_decorator(&func);
             let is_exported = func.get_bool("is_exported").unwrap_or(false);
-            
+
+            // Skip decorated functions - they're registered at runtime (Issue #15)
+            // Decorators like @Route, @Controller, @app.route register functions dynamically
+            if has_decorators {
+                debug!("Skipping decorated function: {}", name);
+                continue;
+            }
+
             // Skip exported functions - they're likely used by external modules
             // Export means the author intended external use, so not "dead" even if uncalled internally
             if is_exported {
                 continue;
             }
-            
+
             // Check source for JS/TS export keyword (graph may not have is_exported set)
             // Use qualified_name to get full path since file_path may be relative
             let full_path = func.qualified_name.split("::").next().unwrap_or(file_path);
             if self.is_exported_in_source(full_path, func.line_start) {
                 continue;
             }
-            
+
             // Apply filters
             if self.should_filter(name, is_method, has_decorators) {
                 continue;
             }
-            
+
             let complexity = func.complexity().unwrap_or(1) as usize;
             let line_start = Some(func.line_start);
-            
+
             findings.push(self.create_function_finding(
                 func.qualified_name.clone(),
                 name.clone(),
@@ -524,32 +726,34 @@ impl DeadCodeDetector {
                 line_start,
                 complexity,
             ));
-            
+
             if findings.len() >= self.thresholds.max_results {
                 break;
             }
         }
-        
+
         Ok(findings)
     }
 
     /// Find dead classes using GraphStore API
     fn find_dead_classes(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
+
         // Get all classes
         let classes = graph.get_classes();
-        
+
         // Sort by complexity (descending)
         let mut classes: Vec<_> = classes.into_iter().collect();
         classes.sort_by(|a, b| {
-            b.complexity().unwrap_or(0).cmp(&a.complexity().unwrap_or(0))
+            b.complexity()
+                .unwrap_or(0)
+                .cmp(&a.complexity().unwrap_or(0))
         });
-        
+
         for class in classes {
             let name = &class.name;
             let file_path = &class.file_path;
-            
+
             // Skip common patterns
             if name.ends_with("Error")
                 || name.ends_with("Exception")
@@ -564,32 +768,36 @@ impl DeadCodeDetector {
             {
                 continue;
             }
-            
+
             // Skip React/RN components (Screen, Page, Layout, etc.)
-            if name.ends_with("Screen") || name.ends_with("Page") || 
-               name.ends_with("Layout") || name.ends_with("Component") ||
-               name.ends_with("Provider") || name.ends_with("Context") {
+            if name.ends_with("Screen")
+                || name.ends_with("Page")
+                || name.ends_with("Layout")
+                || name.ends_with("Component")
+                || name.ends_with("Provider")
+                || name.ends_with("Context")
+            {
                 continue;
             }
-            
+
             // Skip exports from framework auto-load files
             let is_exported = class.get_bool("is_exported").unwrap_or(false);
             if is_exported && self.is_framework_auto_load(file_path) {
                 continue;
             }
-            
+
             // Check if class has any callers (instantiation)
             let callers = graph.get_callers(&class.qualified_name);
             if !callers.is_empty() {
                 continue;
             }
-            
+
             // Check if class has any child classes
             let children = graph.get_child_classes(&class.qualified_name);
             if !children.is_empty() {
                 continue;
             }
-            
+
             // Check if class's file is imported by other files
             // This catches Python "from module import Class" patterns
             let class_file = class.file_path.to_lowercase();
@@ -597,30 +805,31 @@ impl DeadCodeDetector {
             let file_is_imported = imports.iter().any(|(_, target)| {
                 let target_lower = target.to_lowercase();
                 // Match if the import target contains the class's file path
-                class_file.ends_with(&target_lower) || 
-                target_lower.ends_with(&class_file.replace("/tmp/", "").replace("/home/", "")) ||
-                // Also check just the filename
-                class_file.split('/').last() == target_lower.split('/').last()
+                class_file.ends_with(&target_lower)
+                    || target_lower
+                        .ends_with(&class_file.replace("/tmp/", "").replace("/home/", ""))
+                    // Also check just the filename
+                    || class_file.split('/').last() == target_lower.split('/').last()
             });
             if file_is_imported {
                 continue;
             }
-            
+
             // Skip public classes (uppercase, no underscore prefix) in non-test files
             // These are likely exported and used elsewhere
-            let is_public = !name.starts_with('_') && 
-                           name.chars().next().map_or(false, |c| c.is_uppercase());
+            let is_public =
+                !name.starts_with('_') && name.chars().next().map_or(false, |c| c.is_uppercase());
             let is_test_file = class_file.contains("/test") || class_file.contains("_test.");
             if is_public && !is_test_file {
                 continue;
             }
-            
+
             // Skip decorated classes
             let has_decorators = class.get_bool("has_decorators").unwrap_or(false);
             if has_decorators {
                 continue;
             }
-            
+
             let complexity = class.complexity().unwrap_or(1) as usize;
             let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
 
@@ -631,7 +840,7 @@ impl DeadCodeDetector {
                 method_count,
                 complexity,
             ));
-            
+
             if findings.len() >= 50 {
                 break;
             }
@@ -743,5 +952,58 @@ mod tests {
         assert_eq!(detector.calculate_class_severity(3, 10), Severity::Low);
         assert_eq!(detector.calculate_class_severity(5, 10), Severity::Medium);
         assert_eq!(detector.calculate_class_severity(10, 10), Severity::High);
+    }
+
+    #[test]
+    fn test_callback_patterns() {
+        let detector = DeadCodeDetector::new();
+
+        // on* handlers (camelCase)
+        assert!(detector.is_callback_pattern("onClick"));
+        assert!(detector.is_callback_pattern("onSubmit"));
+        assert!(detector.is_callback_pattern("onLoad"));
+        assert!(detector.is_callback_pattern("onMouseOver"));
+
+        // handle* functions (camelCase)
+        assert!(detector.is_callback_pattern("handleClick"));
+        assert!(detector.is_callback_pattern("handleSubmit"));
+        assert!(detector.is_callback_pattern("handleChange"));
+
+        // Should NOT match non-callback patterns
+        assert!(!detector.is_callback_pattern("online")); // "on" but not camelCase callback
+        assert!(!detector.is_callback_pattern("only"));
+        assert!(!detector.is_callback_pattern("handler_setup")); // not camelCase handle*
+        assert!(!detector.is_callback_pattern("regular_function"));
+
+        // Should match explicit callback names
+        assert!(detector.is_callback_pattern("my_callback"));
+        assert!(detector.is_callback_pattern("event_handler"));
+        assert!(detector.is_callback_pattern("click_listener"));
+    }
+
+    #[test]
+    fn test_framework_auto_load_patterns() {
+        let detector = DeadCodeDetector::new();
+
+        // Fastify autoload
+        assert!(detector.is_framework_auto_load("src/plugins/auth.ts"));
+        assert!(detector.is_framework_auto_load("plugins/db.js"));
+        assert!(detector.is_framework_auto_load("/app/routes/api/users.ts"));
+
+        // Event handlers directory
+        assert!(detector.is_framework_auto_load("src/handlers/user-created.ts"));
+        assert!(detector.is_framework_auto_load("handlers/order.js"));
+
+        // CLI commands
+        assert!(detector.is_framework_auto_load("src/commands/deploy.ts"));
+        assert!(detector.is_framework_auto_load("commands/init.js"));
+
+        // Migrations/seeds
+        assert!(detector.is_framework_auto_load("db/migrations/001_create_users.ts"));
+        assert!(detector.is_framework_auto_load("seeds/users.js"));
+
+        // Should NOT match regular files
+        assert!(!detector.is_framework_auto_load("src/utils/helpers.ts"));
+        assert!(!detector.is_framework_auto_load("lib/core.js"));
     }
 }
