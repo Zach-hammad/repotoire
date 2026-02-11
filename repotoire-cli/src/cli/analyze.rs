@@ -277,12 +277,21 @@ pub fn run(
             edges.push((caller.clone(), callee_qn, CodeEdge::calls()));
         }
 
-        // Import edges - resolve relative imports to actual file paths
+        // Import edges - resolve imports to actual file paths
         for import in &result.imports {
-            // Clean up import path: remove ./ and handle relative paths
+            // Handle different import styles:
+            // - TypeScript/JS: './utils', '../lib/helper'
+            // - Rust: 'crate::module::item', 'super::sibling'
             let clean_import = import
                 .trim_start_matches("./")
-                .trim_start_matches("../");
+                .trim_start_matches("../")
+                .trim_start_matches("crate::")
+                .trim_start_matches("super::");
+            
+            // For Rust, extract the module path (first component after crate/super)
+            // e.g., "crate::detectors::base" -> "detectors"
+            let module_parts: Vec<&str> = clean_import.split("::").collect();
+            let first_module = module_parts.first().copied().unwrap_or("");
             
             for (other_file, _) in &parse_results {
                 let other_relative = other_file.strip_prefix(&repo_path).unwrap_or(other_file);
@@ -291,18 +300,28 @@ pub fn run(
                     continue; // Skip self
                 }
                 
-                // Check if the import matches this file (with or without extension)
                 let other_name = other_relative.file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("");
                 
-                // Match: import './utils' should match 'utils.ts', 'utils/index.ts', etc.
-                if other_str.contains(clean_import) || 
-                   (clean_import == other_name) ||
-                   (other_str.ends_with(&format!("{}.ts", clean_import))) ||
-                   (other_str.ends_with(&format!("{}.tsx", clean_import))) ||
-                   (other_str.ends_with(&format!("{}.js", clean_import))) ||
-                   (other_str.ends_with(&format!("{}/index.ts", clean_import))) {
+                // Match strategies:
+                // 1. Direct path match: './utils' -> 'utils.ts'
+                // 2. Rust module: 'crate::detectors::base' -> 'src/detectors/base.rs'
+                // 3. Rust mod.rs: 'crate::detectors' -> 'src/detectors/mod.rs'
+                let matches = 
+                    other_str.contains(clean_import) ||
+                    (clean_import == other_name) ||
+                    // TypeScript patterns
+                    other_str.ends_with(&format!("{}.ts", clean_import)) ||
+                    other_str.ends_with(&format!("{}.tsx", clean_import)) ||
+                    other_str.ends_with(&format!("{}.js", clean_import)) ||
+                    other_str.ends_with(&format!("{}/index.ts", clean_import)) ||
+                    // Rust patterns: convert :: to /
+                    other_str.ends_with(&format!("{}.rs", clean_import.replace("::", "/"))) ||
+                    other_str.ends_with(&format!("{}/mod.rs", first_module)) ||
+                    (other_name == first_module && other_str.ends_with(".rs"));
+                
+                if matches {
                     edges.push((relative_str.clone(), other_str, CodeEdge::imports()));
                     break;
                 }
