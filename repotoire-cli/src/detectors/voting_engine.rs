@@ -506,9 +506,18 @@ impl VotingEngine {
     }
 
     /// Get confidence score for a finding
-    fn get_finding_confidence(&self, _finding: &Finding) -> f64 {
-        // TODO: Read from finding metadata when available
-        0.7 // Default confidence
+    fn get_finding_confidence(&self, finding: &Finding) -> f64 {
+        // Read from finding if available, otherwise use detector accuracy as proxy
+        if let Some(conf) = finding.confidence {
+            return conf.clamp(0.0, 1.0);
+        }
+        
+        // Fall back to detector's accuracy rating as confidence proxy
+        self.detector_weights
+            .get(&finding.detector)
+            .or_else(|| self.detector_weights.get("default"))
+            .map(|w| w.accuracy)
+            .unwrap_or(0.7)
     }
 
     /// Get weight for a detector
@@ -573,6 +582,7 @@ impl VotingEngine {
             category: base.category.clone(),
             cwe_id: base.cwe_id.clone(),
             why_it_matters: base.why_it_matters.clone(),
+            confidence: Some(consensus.confidence),
         }
     }
 

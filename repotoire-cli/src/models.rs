@@ -30,9 +30,10 @@ pub fn deterministic_finding_id(detector: &str, file: &str, line: u32, title: &s
 }
 
 /// Severity levels for findings
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
+    #[default]
     Info,
     Low,
     Medium,
@@ -53,21 +54,37 @@ impl std::fmt::Display for Severity {
 }
 
 /// A code smell or issue finding
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Finding {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub detector: String,
+    #[serde(default)]
     pub severity: Severity,
+    #[serde(default)]
     pub title: String,
+    #[serde(default)]
     pub description: String,
+    #[serde(default)]
     pub affected_files: Vec<PathBuf>,
+    #[serde(default)]
     pub line_start: Option<u32>,
+    #[serde(default)]
     pub line_end: Option<u32>,
+    #[serde(default)]
     pub suggested_fix: Option<String>,
+    #[serde(default)]
     pub estimated_effort: Option<String>,
+    #[serde(default)]
     pub category: Option<String>,
+    #[serde(default)]
     pub cwe_id: Option<String>,
+    #[serde(default)]
     pub why_it_matters: Option<String>,
+    /// Confidence score from 0.0 to 1.0 (set by voting engine or detector)
+    #[serde(default)]
+    pub confidence: Option<f64>,
 }
 
 /// Summary of findings by severity
