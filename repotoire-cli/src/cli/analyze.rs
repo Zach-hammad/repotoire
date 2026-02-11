@@ -720,13 +720,14 @@ fn calculate_health_scores(
 
     // Normalize by codebase size to prevent large projects from always scoring 0
     // Use sqrt to dampen the effect of very large codebases
-    let size_factor = ((total_files + total_functions) as f64).sqrt().max(10.0);
+    // Floor of 5.0 for small projects so vulns still hurt
+    let size_factor = ((total_files + total_functions) as f64).sqrt().max(5.0);
     
     // Deduct points based on findings, normalized by size
     for finding in findings {
         let base_deduction: f64 = match finding.severity {
-            Severity::Critical => 8.0,
-            Severity::High => 4.0,
+            Severity::Critical => 10.0,
+            Severity::High => 5.0,
             Severity::Medium => 1.5,
             Severity::Low => 0.3,
             Severity::Info => 0.0,
