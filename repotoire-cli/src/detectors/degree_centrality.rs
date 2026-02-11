@@ -339,16 +339,29 @@ impl Detector for DegreeCentralityDetector {
     }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         
+        // Skip common utility function names - these are expected to be highly connected
+        const SKIP_NAMES: &[&str] = &[
+            "new", "default", "from", "into", "clone", "drop", "fmt", "eq", "hash",
+            "run", "main", "init", "setup", "build", "create", "get", "set",
+            "read", "write", "parse", "format", "render", "display",
+        ];
+        
         for func in graph.get_functions() {
+            // Skip common utility functions
+            let name_lower = func.name.to_lowercase();
+            if SKIP_NAMES.iter().any(|&skip| name_lower == skip) {
+                continue;
+            }
+            
             let fan_in = graph.call_fan_in(&func.qualified_name);
             let fan_out = graph.call_fan_out(&func.qualified_name);
             let total_degree = fan_in + fan_out;
             
-            // High degree centrality
-            if total_degree >= 15 {
-                let severity = if total_degree >= 30 {
+            // High degree centrality (threshold increased from 15 to 25)
+            if total_degree >= 25 {
+                let severity = if total_degree >= 50 {
                     Severity::High
-                } else if total_degree >= 20 {
+                } else if total_degree >= 35 {
                     Severity::Medium
                 } else {
                     Severity::Low

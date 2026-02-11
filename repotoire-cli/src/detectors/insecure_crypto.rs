@@ -17,7 +17,8 @@ fn weak_hash() -> &'static Regex {
 }
 
 fn weak_cipher() -> &'static Regex {
-    WEAK_CIPHER.get_or_init(|| Regex::new(r"(?i)(DES|RC4|RC2|Blowfish|ECB)\b").unwrap())
+    // Use \b on both sides to prevent matching 'nodes', 'description', etc.
+    WEAK_CIPHER.get_or_init(|| Regex::new(r"(?i)\b(DES|RC4|RC2|Blowfish|ECB)\b").unwrap())
 }
 
 pub struct InsecureCryptoDetector {
