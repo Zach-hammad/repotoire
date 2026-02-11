@@ -246,11 +246,12 @@ impl Detector for FeatureEnvyDetector {
             }
             
             // Feature envy: more external than internal calls
-            if external_calls > internal_calls && external_calls >= 3 {
+            // Threshold: at least 10 external calls to avoid noise on small utility functions
+            if external_calls > internal_calls && external_calls >= 10 {
                 let ratio = external_calls as f64 / (internal_calls + 1) as f64;
-                let severity = if ratio > 5.0 {
+                let severity = if ratio > 8.0 && external_calls >= 25 {
                     Severity::High
-                } else if ratio > 3.0 {
+                } else if ratio > 5.0 && external_calls >= 15 {
                     Severity::Medium
                 } else {
                     Severity::Low
