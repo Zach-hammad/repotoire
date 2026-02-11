@@ -17,4 +17,5 @@ pub use project_config::{
     ScoringConfig,
     ThresholdValue,
     load_project_config,
+    normalize_detector_name,
 };

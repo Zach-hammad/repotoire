@@ -405,7 +405,7 @@ impl ProjectConfig {
 
 /// Normalize detector name for config lookup
 /// Converts various formats to kebab-case for matching
-fn normalize_detector_name(name: &str) -> String {
+pub fn normalize_detector_name(name: &str) -> String {
     // GodClassDetector -> god-class
     // SQLInjectionDetector -> sql-injection
     // god_class -> god-class

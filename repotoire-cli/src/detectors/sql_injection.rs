@@ -10,6 +10,7 @@
 //! CWE-89: Improper Neutralization of Special Elements used in an SQL Command
 
 use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
+use crate::detectors::framework_detection::detect_frameworks;
 use crate::detectors::taint::{TaintAnalyzer, TaintAnalysisResult, TaintCategory};
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
@@ -326,6 +327,15 @@ impl SQLInjectionDetector {
             return findings;
         }
 
+        // Detect ORMs/frameworks to skip safe parameterized patterns
+        let detected_frameworks = detect_frameworks(&self.repository_path);
+        let safe_patterns: Vec<&str> = detected_frameworks
+            .iter()
+            .flat_map(|f| f.safe_patterns())
+            .copied()
+            .collect();
+        debug!("Detected {} frameworks with {} safe patterns", detected_frameworks.len(), safe_patterns.len());
+
         debug!("Scanning for SQL injection in: {:?}", self.repository_path);
 
         // Walk through Python, JavaScript, TypeScript, and Go files (respects .gitignore and .repotoireignore)
@@ -369,6 +379,12 @@ impl SQLInjectionDetector {
                 }
 
                 if let Some(pattern_type) = self.check_line_for_patterns(line) {
+                    // Skip if line contains a safe ORM pattern (e.g., Prisma, Drizzle parameterized queries)
+                    if safe_patterns.iter().any(|p| line.contains(p)) {
+                        debug!("Skipping safe ORM pattern at {}:{}", rel_path, line_num);
+                        continue;
+                    }
+
                     // go_sprintf and js_template patterns already contain SQL keywords in the regex,
                     // so they're self-evidently SQL context (building a SQL string, even if assigned to variable)
                     let is_self_evident_sql =

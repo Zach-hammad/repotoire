@@ -635,6 +635,32 @@ pub fn run(
         }
     }
 
+    // Apply detector config overrides from repotoire.toml (enabled/disabled, severity)
+    if !project_config.detectors.is_empty() {
+        let detector_configs = &project_config.detectors;
+        
+        // Filter out disabled detectors
+        findings.retain(|f| {
+            let detector_name = crate::config::normalize_detector_name(&f.detector);
+            if let Some(config) = detector_configs.get(&detector_name) {
+                if let Some(false) = config.enabled {
+                    return false;
+                }
+            }
+            true
+        });
+        
+        // Apply severity overrides
+        for finding in &mut findings {
+            let detector_name = crate::config::normalize_detector_name(&finding.detector);
+            if let Some(config) = detector_configs.get(&detector_name) {
+                if let Some(ref sev) = config.severity {
+                    finding.severity = parse_severity(sev);
+                }
+            }
+        }
+    }
+
     // Calculate health score from ALL findings (before any filtering)
     // This ensures consistent grading regardless of --top or severity filters
     let all_findings_summary = FindingsSummary::from_findings(&findings);
