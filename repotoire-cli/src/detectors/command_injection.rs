@@ -15,10 +15,11 @@ fn shell_exec() -> &'static Regex {
     // Be specific about shell execution patterns - avoid matching RegExp.exec(), String.prototype.exec(), etc.
     // Pattern must match actual shell execution APIs:
     // - Python: os.system, os.popen, subprocess.*
-    // - Node.js: child_process.exec, child_process.spawn, execSync, require('child_process')
+    // - Node.js: child_process.exec, child_process.spawn, execSync, execAsync (promisified), require('child_process')
     // - PHP: shell_exec, system, popen, exec (standalone function)
     // - Ruby: system, exec, backticks
-    SHELL_EXEC.get_or_init(|| Regex::new(r#"(?i)(os\.system|os\.popen|subprocess\.(call|run|Popen)|child_process\.(exec|spawn|fork)|execSync|spawnSync|require\(['"]child_process['"]\)|shell_exec|proc_open)"#).unwrap())
+    // Note: execAsync is a common promisified wrapper for child_process.exec
+    SHELL_EXEC.get_or_init(|| Regex::new(r#"(?i)(os\.system|os\.popen|subprocess\.(call|run|Popen)|child_process\.(exec|spawn|fork)|execSync|execAsync|spawnSync|require\(['"]child_process['"]\)|shell_exec|proc_open)"#).unwrap())
 }
 
 pub struct CommandInjectionDetector {
@@ -58,19 +59,35 @@ impl Detector for CommandInjectionDetector {
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
                 
-                // First pass: find template literals with interpolation stored in variables
-                // e.g., const cmd = `echo ${userInput}`;
+                // First pass: find template literals with RISKY interpolation stored in variables
+                // e.g., const cmd = `echo ${userId}`;  // userId could be user input
+                // But NOT: const cmd = `echo ${CONSTANT}`;  // All-caps likely safe
                 let mut dangerous_vars: Vec<String> = vec![];
                 for line in &lines {
                     // Match: const/let/var VARNAME = `...${...}...`
                     if (line.contains("const ") || line.contains("let ") || line.contains("var "))
                         && line.contains("`") && line.contains("${") {
-                        // Extract variable name
-                        if let Some(eq_pos) = line.find('=') {
-                            let before_eq = &line[..eq_pos];
-                            let var_name = before_eq.split_whitespace().last().unwrap_or("");
-                            if !var_name.is_empty() {
-                                dangerous_vars.push(var_name.to_string());
+                        // Check if the interpolated content looks like user input
+                        // Look for: params, req, request, body, query, input, userId, id, args, etc.
+                        let lower = line.to_lowercase();
+                        let has_risky_interpolation = 
+                            (lower.contains("${") && (
+                                lower.contains("id}") || lower.contains("id,") ||
+                                lower.contains("param") || lower.contains("input") ||
+                                lower.contains("user") || lower.contains("name}") ||
+                                lower.contains("args") || lower.contains("arg}") ||
+                                lower.contains("req.") || lower.contains("body") ||
+                                lower.contains("query")
+                            ));
+                        
+                        if has_risky_interpolation {
+                            // Extract variable name
+                            if let Some(eq_pos) = line.find('=') {
+                                let before_eq = &line[..eq_pos];
+                                let var_name = before_eq.split_whitespace().last().unwrap_or("");
+                                if !var_name.is_empty() {
+                                    dangerous_vars.push(var_name.to_string());
+                                }
                             }
                         }
                     }
@@ -137,10 +154,9 @@ impl Detector for CommandInjectionDetector {
                         }
                     }
                     
-                    // Also flag template literals with ${} passed directly to exec-like functions
-                    // even if they're not in our strict shell_exec pattern
-                    // e.g., exec(`command ${var}`)
-                    if line.contains("exec(") || line.contains("execSync(") || line.contains("execAsync(") {
+                    // Fallback: Also flag template literals with ${} passed directly to exec-like functions
+                    // but ONLY if shell_exec() didn't already match (avoid duplicates)
+                    else if line.contains("exec(") || line.contains("execSync(") || line.contains("execAsync(") {
                         if line.contains("`") && line.contains("${") {
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
@@ -156,6 +172,24 @@ impl Detector for CommandInjectionDetector {
                                 category: Some("security".to_string()),
                                 cwe_id: Some("CWE-78".to_string()),
                                 why_it_matters: Some("An attacker can inject shell commands by providing input like '; rm -rf /' or '$(malicious_command)'".to_string()),
+                            });
+                        }
+                        // Also check if it's using a variable we identified as dangerous (built from template literal)
+                        else if dangerous_vars.iter().any(|v| line.contains(&format!("({})", v)) || line.contains(&format!("({},", v))) {
+                            findings.push(Finding {
+                                id: Uuid::new_v4().to_string(),
+                                detector: "CommandInjectionDetector".to_string(),
+                                severity: Severity::Critical,
+                                title: "Command injection via interpolated variable".to_string(),
+                                description: "Shell execution using a command string that was built with template literal interpolation. User input may flow into the shell command.".to_string(),
+                                affected_files: vec![self.relative_path(path)],
+                                line_start: Some((i + 1) as u32),
+                                line_end: Some((i + 1) as u32),
+                                suggested_fix: Some("Use spawn() with array arguments instead of building command strings. Never interpolate user input.".to_string()),
+                                estimated_effort: Some("45 minutes".to_string()),
+                                category: Some("security".to_string()),
+                                cwe_id: Some("CWE-78".to_string()),
+                                why_it_matters: Some("The command variable was built using ${} interpolation, allowing shell injection.".to_string()),
                             });
                         }
                     }
