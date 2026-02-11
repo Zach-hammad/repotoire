@@ -15,13 +15,15 @@
 //! - JavaScript/TypeScript: *.test.js, *.spec.ts, __tests__/*
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::function_context::{FunctionContextMap, FunctionRole};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use tracing::{debug, info};
+use std::sync::Arc;
+use tracing::debug;
 use uuid::Uuid;
 
 /// Default configuration
@@ -94,6 +96,48 @@ impl AIMissingTestsDetector {
         self.test_file_patterns
             .iter()
             .any(|p| p.is_match(&file_lower))
+    }
+
+    /// Check if a function is a test function or fixture
+    /// This is a static method for use in detect() without &self
+    fn is_test_function(name: &str, file_path: &str) -> bool {
+        let name_lower = name.to_lowercase();
+        let path_lower = file_path.to_lowercase();
+        
+        // Check function name patterns
+        if name_lower.starts_with("test_") 
+            || name_lower.starts_with("test")  // testSomething (camelCase)
+            || name_lower.ends_with("_test")
+            || name_lower == "setup"
+            || name_lower == "teardown"
+            || name_lower == "setup_module"
+            || name_lower == "teardown_module"
+            || name_lower == "setup_class"
+            || name_lower == "teardown_class"
+            || name_lower == "setuptestdata"  // Django
+            || name_lower.starts_with("fixture_")
+        {
+            return true;
+        }
+        
+        // Check if in test file/directory
+        if path_lower.contains("/test/")
+            || path_lower.contains("/tests/")
+            || path_lower.contains("/__tests__/")
+            || path_lower.contains("/spec/")
+            || path_lower.contains("_test.py")
+            || path_lower.contains("_test.go")
+            || path_lower.contains("_test.rs")
+            || path_lower.contains(".test.ts")
+            || path_lower.contains(".test.js")
+            || path_lower.contains(".spec.ts")
+            || path_lower.contains(".spec.js")
+            || path_lower.starts_with("test_")
+        {
+            return true;
+        }
+        
+        false
     }
 
     /// Check if function should be skipped
@@ -330,14 +374,24 @@ impl Detector for AIMissingTestsDetector {
         // Get all test functions
         let test_funcs: HashSet<String> = graph.get_functions()
             .iter()
-            .filter(|f| f.name.starts_with("test_") || f.file_path.contains("test"))
+            .filter(|f| Self::is_test_function(&f.name, &f.file_path))
             .map(|f| f.name.clone())
             .collect();
         
         // Find complex public functions without tests
         for func in graph.get_functions() {
-            // Skip test files, private functions, simple functions
-            if func.file_path.contains("test") || func.name.starts_with("_") {
+            // Skip test functions, fixtures, and test files
+            if Self::is_test_function(&func.name, &func.file_path) {
+                continue;
+            }
+            
+            // Skip private functions
+            if func.name.starts_with('_') && !func.name.starts_with("__") {
+                continue;
+            }
+            
+            // Skip dunder methods
+            if func.name.starts_with("__") && func.name.ends_with("__") {
                 continue;
             }
             
@@ -384,6 +438,112 @@ impl Detector for AIMissingTestsDetector {
         
         // Limit findings
         findings.truncate(50);
+        Ok(findings)
+    }
+
+    fn uses_context(&self) -> bool {
+        true
+    }
+
+    fn detect_with_context(
+        &self,
+        graph: &GraphStore,
+        contexts: &Arc<FunctionContextMap>,
+    ) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        
+        // Get all test functions (from context or name/path patterns)
+        let test_funcs: HashSet<String> = graph.get_functions()
+            .iter()
+            .filter(|f| {
+                // Check context first
+                if let Some(ctx) = contexts.get(&f.qualified_name) {
+                    if ctx.is_test || ctx.role == FunctionRole::Test {
+                        return true;
+                    }
+                }
+                // Fall back to name/path patterns
+                Self::is_test_function(&f.name, &f.file_path)
+            })
+            .map(|f| f.name.clone())
+            .collect();
+        
+        debug!("AIMissingTestsDetector: found {} test functions", test_funcs.len());
+        
+        // Find complex public functions without tests
+        for func in graph.get_functions() {
+            // Check context first for test detection
+            if let Some(ctx) = contexts.get(&func.qualified_name) {
+                if ctx.is_test || ctx.role == FunctionRole::Test {
+                    continue;
+                }
+            }
+            
+            // Fall back to name/path pattern check
+            if Self::is_test_function(&func.name, &func.file_path) {
+                continue;
+            }
+            
+            // Skip private functions
+            if func.name.starts_with('_') && !func.name.starts_with("__") {
+                continue;
+            }
+            
+            // Skip dunder methods
+            if func.name.starts_with("__") && func.name.ends_with("__") {
+                continue;
+            }
+            
+            // Get complexity from context or graph
+            let complexity = if let Some(ctx) = contexts.get(&func.qualified_name) {
+                ctx.complexity.unwrap_or(1) as i64
+            } else {
+                func.complexity().unwrap_or(1)
+            };
+            
+            let loc = func.loc();
+            
+            // Only flag complex/large functions
+            if complexity < 5 && loc < 20 {
+                continue;
+            }
+            
+            // Check if there's a test for this function
+            let test_name = format!("test_{}", func.name);
+            if !test_funcs.contains(&test_name) && !test_funcs.iter().any(|t| t.contains(&func.name)) {
+                let severity = if complexity > 15 {
+                    Severity::High
+                } else if complexity > 10 {
+                    Severity::Medium
+                } else {
+                    Severity::Low
+                };
+                
+                findings.push(Finding {
+                    id: Uuid::new_v4().to_string(),
+                    detector: "AIMissingTestsDetector".to_string(),
+                    severity,
+                    title: format!("Missing Test: {}", func.name),
+                    description: format!(
+                        "Function '{}' (complexity: {}, {} LOC) has no test coverage.",
+                        func.name, complexity, loc
+                    ),
+                    affected_files: vec![func.file_path.clone().into()],
+                    line_start: Some(func.line_start),
+                    line_end: Some(func.line_end),
+                    suggested_fix: Some(format!("Add test function: test_{}", func.name)),
+                    estimated_effort: Some("Small (30 min)".to_string()),
+                    category: Some("ai_watchdog".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some("Complex untested code is a maintenance risk".to_string()),
+                    ..Default::default()
+                });
+            }
+        }
+        
+        // Limit findings
+        findings.truncate(50);
+        debug!("AIMissingTestsDetector: found {} missing test findings", findings.len());
         Ok(findings)
     }
 }
