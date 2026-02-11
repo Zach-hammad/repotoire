@@ -269,7 +269,7 @@ fn extract_structs_and_interfaces(
     while let Some(m) = matches.next() {
         let mut decl_node = None;
         let mut name = String::new();
-        let mut is_struct = false;
+        let mut _is_struct = false;
         let mut is_interface = false;
         let mut body_node = None;
 
@@ -278,7 +278,7 @@ fn extract_structs_and_interfaces(
             match capture_name {
                 "struct_decl" => {
                     decl_node = Some(capture.node);
-                    is_struct = true;
+                    _is_struct = true;
                 }
                 "iface_decl" => {
                     decl_node = Some(capture.node);

@@ -98,7 +98,7 @@ impl GHActionsInjectionDetector {
 
         let mut in_run_block = false;
         let mut run_block_indent = 0;
-        let mut run_block_start_line = 0;
+        let mut _run_block_start_line = 0;
 
         for (line_no, line) in lines.iter().enumerate() {
             let line_num = (line_no + 1) as u32;
@@ -109,7 +109,7 @@ impl GHActionsInjectionDetector {
             if run_block.is_match(line) {
                 in_run_block = true;
                 run_block_indent = current_indent;
-                run_block_start_line = line_num;
+                _run_block_start_line = line_num;
 
                 // Check if run: has dangerous pattern on same line
                 if let Some(caps) = dangerous.captures(line) {
