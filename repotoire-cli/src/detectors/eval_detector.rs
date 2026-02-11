@@ -204,7 +204,9 @@ impl EvalDetector {
            lower.contains("regex.compile") ||           // Regex compilation
            lower.contains("pattern.compile") ||         // Pattern compilation
            lower.contains("compiler.compile") ||        // Generic compilers
-           lower.contains("model.compile") {            // Keras model.compile
+           lower.contains("model.compile") ||           // Keras model.compile
+           lower.contains("literal_eval") ||            // ast.literal_eval is SAFE (only parses literals)
+           lower.contains("importlib.import_module") {  // Standard library import (safer than __import__)
             return None;
         }
 
@@ -402,10 +404,33 @@ impl EvalDetector {
 
         let suggested_fix = self.get_recommendation(cwe, callee_name);
 
+        // Determine severity based on context
+        let file_lower = file_path.to_lowercase();
+        let severity = if ["__import__", "import_module"].contains(&callee_name) {
+            // Dynamic imports in framework internals (Flask, Django, etc.) are expected
+            // and typically used for extension loading, not user input
+            if file_lower.contains("/flask/") 
+                || file_lower.contains("/django/")
+                || file_lower.contains("/werkzeug/")
+                || file_lower.contains("/celery/")
+                || file_lower.contains("/fastapi/")
+                || file_lower.contains("helpers.py")
+                || file_lower.contains("loader")
+                || file_lower.contains("importer")
+                || file_lower.contains("plugin")
+            {
+                Severity::Low  // Framework internal - expected usage
+            } else {
+                Severity::High  // Still concerning but not critical for imports
+            }
+        } else {
+            Severity::Critical  // eval/exec are always critical
+        };
+
         Finding {
             id: Uuid::new_v4().to_string(),
             detector: "EvalDetector".to_string(),
-            severity: Severity::Critical,
+            severity,
             title,
             description,
             affected_files: vec![PathBuf::from(file_path)],

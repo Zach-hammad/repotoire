@@ -13,7 +13,10 @@ static LOG_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn log_pattern() -> &'static Regex {
     // Match logging statements that include actual credential variable names
-    LOG_PATTERN.get_or_init(|| Regex::new(r"(?i)(log|print|console|logger|debug|info|warn|error)\s*[\.(]\s*[^)]*\b(password|passwd|secret|api_key|apikey|auth_token|access_token|private_key|credentials?)\b").unwrap())
+    // Specifically target logging functions, NOT Error/Exception classes
+    LOG_PATTERN.get_or_init(|| Regex::new(
+        r"(?i)\b(console\.(log|warn|error|info|debug)|print[fl]?n?|logger\.(log|warn|error|info|debug|trace)|logging\.(log|warn|error|info|debug)|log\.(debug|info|warn|error|trace)|System\.out\.print|fmt\.Print|puts|p\s)\s*[\.(]\s*[^;\n]*\b(password|passwd|secret|api_key|apikey|auth_token|access_token|private_key|credentials?)\b"
+    ).unwrap())
 }
 
 fn is_false_positive(line: &str) -> bool {

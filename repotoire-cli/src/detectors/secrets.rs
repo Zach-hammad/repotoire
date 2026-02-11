@@ -261,14 +261,21 @@ impl SecretDetector {
                     else if matched.contains("localhost") || matched.contains("127.0.0.1") {
                         effective_severity = Severity::Low;
                     }
-                    // Check file path for seed/script/test patterns
+                    // Check file path for seed/script/test/example patterns
                     else if let Some(rel_path) = path.to_str() {
                         let rel_lower = rel_path.to_lowercase();
                         if rel_lower.contains("/seed") 
                             || rel_lower.contains("/script")
                             || rel_lower.contains("/fixture")
+                            || rel_lower.contains("/examples/")
+                            || rel_lower.contains("/example/")
+                            || rel_lower.contains("/demo/")
+                            || rel_lower.contains("/samples/")
+                            || rel_lower.contains("/sample/")
                             || rel_lower.contains(".seed.")
                             || rel_lower.contains(".script.")
+                            || rel_lower.contains(".example.")
+                            || rel_lower.contains(".sample.")
                         {
                             effective_severity = Severity::Low;
                         }
