@@ -4,9 +4,9 @@
 
 Repotoire builds a knowledge graph of your codebase to detect architectural issues, code smells, and security vulnerabilities that traditional linters miss.
 
-[![PyPI](https://img.shields.io/pypi/v/repotoire.svg)](https://pypi.org/project/repotoire/)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Crates.io](https://img.shields.io/crates/v/repotoire.svg)](https://crates.io/crates/repotoire)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 
 ## Why Repotoire?
 
@@ -49,40 +49,14 @@ cargo binstall repotoire
 
 ### Option 3: Cargo Install
 ```bash
-# Requires cmake (see Build Dependencies below)
 cargo install repotoire
-```
-
-### Option 3: pip
-```bash
-pip install repotoire
 ```
 
 That's it. No API keys required. No Docker. No cloud account.
 
-> **Upgrading from Python version?** Delete the old database first: `rm -rf .repotoire`
-
-### Build Dependencies (for cargo install)
-
-Building from source requires **cmake**:
-
-```bash
-# macOS
-brew install cmake
-
-# Ubuntu/Debian
-sudo apt install cmake build-essential
-
-# Fedora
-sudo dnf install cmake gcc-c++
-
-# Windows
-winget install cmake
-```
-
 ## ⚡ Performance
 
-Rust-accelerated parsing. 3,000 files in under a minute.
+Pure Rust. No external dependencies. Blazing fast.
 
 | Codebase | Files | Time | Speed |
 |----------|-------|------|-------|
