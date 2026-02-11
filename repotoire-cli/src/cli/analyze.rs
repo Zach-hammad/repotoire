@@ -308,6 +308,9 @@ pub fn run(
                 // 1. Direct path match: './utils' -> 'utils.ts'
                 // 2. Rust module: 'crate::detectors::base' -> 'src/detectors/base.rs'
                 // 3. Rust mod.rs: 'crate::detectors' -> 'src/detectors/mod.rs'
+                // Python: convert dots to slashes (nanochat.gpt -> nanochat/gpt)
+                let python_path = clean_import.replace('.', "/");
+                
                 let matches = 
                     other_str.contains(clean_import) ||
                     (clean_import == other_name) ||
@@ -319,7 +322,11 @@ pub fn run(
                     // Rust patterns: convert :: to /
                     other_str.ends_with(&format!("{}.rs", clean_import.replace("::", "/"))) ||
                     other_str.ends_with(&format!("{}/mod.rs", first_module)) ||
-                    (other_name == first_module && other_str.ends_with(".rs"));
+                    (other_name == first_module && other_str.ends_with(".rs")) ||
+                    // Python patterns: convert dots to slashes
+                    other_str.ends_with(&format!("{}.py", python_path)) ||
+                    other_str.contains(&format!("{}/", python_path)) ||
+                    other_str.ends_with(&format!("{}/__init__.py", python_path));
                 
                 if matches {
                     edges.push((relative_str.clone(), other_str, CodeEdge::imports()));

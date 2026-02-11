@@ -535,21 +535,29 @@ impl DeadCodeDetector {
                 continue;
             }
             
-            // Skip classes in core/lib files that are likely imported by other files
-            // These patterns indicate the class is meant to be exported
-            let file_str = class.file_path.to_lowercase();
-            if file_str.contains("/nanochat/") ||  // Package internals
-               file_str.contains("/src/") ||
-               file_str.contains("/lib/") ||
-               file_str.contains("/core/") ||
-               file_str.contains("/models/") ||
-               file_str.contains("/utils/") ||
-               file_str.ends_with("/__init__.py") ||
-               !file_str.contains("/tests/") && !file_str.contains("/scripts/") {
-                // Only skip if it looks like a public class (starts with uppercase, not underscore)
-                if !name.starts_with('_') && name.chars().next().map_or(false, |c| c.is_uppercase()) {
-                    continue;
-                }
+            // Check if class's file is imported by other files
+            // This catches Python "from module import Class" patterns
+            let class_file = class.file_path.to_lowercase();
+            let imports = graph.get_imports();
+            let file_is_imported = imports.iter().any(|(_, target)| {
+                let target_lower = target.to_lowercase();
+                // Match if the import target contains the class's file path
+                class_file.ends_with(&target_lower) || 
+                target_lower.ends_with(&class_file.replace("/tmp/", "").replace("/home/", "")) ||
+                // Also check just the filename
+                class_file.split('/').last() == target_lower.split('/').last()
+            });
+            if file_is_imported {
+                continue;
+            }
+            
+            // Skip public classes (uppercase, no underscore prefix) in non-test files
+            // These are likely exported and used elsewhere
+            let is_public = !name.starts_with('_') && 
+                           name.chars().next().map_or(false, |c| c.is_uppercase());
+            let is_test_file = class_file.contains("/test") || class_file.contains("_test.");
+            if is_public && !is_test_file {
+                continue;
             }
             
             // Skip decorated classes
