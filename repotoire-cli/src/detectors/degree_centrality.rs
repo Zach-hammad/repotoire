@@ -339,17 +339,36 @@ impl Detector for DegreeCentralityDetector {
     }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         
-        // Skip common utility function names - these are expected to be highly connected
+        // Skip common utility/factory/accessor function names - high connectivity is expected
         const SKIP_NAMES: &[&str] = &[
-            "new", "default", "from", "into", "clone", "drop", "fmt", "eq", "hash",
-            "run", "main", "init", "setup", "build", "create", "get", "set",
-            "read", "write", "parse", "format", "render", "display",
+            // Constructors & factories
+            "new", "default", "from", "into", "create", "build", "make", "with",
+            // Trait implementations
+            "clone", "drop", "fmt", "eq", "hash", "cmp", "partial_cmp",
+            // Accessors & singletons  
+            "get", "set", "instance", "global", "shared", "current",
+            // Entry points & orchestration
+            "run", "main", "init", "setup", "start", "execute", "dispatch", "handle",
+            // Common operations
+            "read", "write", "parse", "format", "render", "display", "detect", "analyze",
+            // Iteration
+            "iter", "next", "map", "filter", "fold",
+        ];
+        
+        // Skip files that are naturally high-connectivity hubs
+        const SKIP_PATHS: &[&str] = &[
+            "/mod.rs", "/lib.rs", "/main.rs", "/cli/", "/handlers/",
         ];
         
         for func in graph.get_functions() {
             // Skip common utility functions
             let name_lower = func.name.to_lowercase();
-            if SKIP_NAMES.iter().any(|&skip| name_lower == skip) {
+            if SKIP_NAMES.iter().any(|&skip| name_lower == skip || name_lower.starts_with(&format!("{}_", skip))) {
+                continue;
+            }
+            
+            // Skip hub files
+            if SKIP_PATHS.iter().any(|&pat| func.file_path.contains(pat)) {
                 continue;
             }
             
@@ -357,11 +376,21 @@ impl Detector for DegreeCentralityDetector {
             let fan_out = graph.call_fan_out(&func.qualified_name);
             let total_degree = fan_in + fan_out;
             
-            // High degree centrality (threshold increased from 15 to 25)
-            if total_degree >= 25 {
-                let severity = if total_degree >= 50 {
+            // High fan-in with low fan-out = accessor/utility (expected, skip)
+            // High fan-out with low fan-in = orchestrator (expected, skip)
+            // Both high = actual coupling problem
+            if fan_in > 20 && fan_out < 5 {
+                continue; // Utility function - many callers, few dependencies
+            }
+            if fan_out > 20 && fan_in < 5 {
+                continue; // Orchestrator - few callers, many dependencies
+            }
+            
+            // Only flag when BOTH fan-in and fan-out are elevated (true coupling hub)
+            if total_degree >= 30 && fan_in >= 8 && fan_out >= 8 {
+                let severity = if total_degree >= 60 && fan_in >= 15 && fan_out >= 15 {
                     Severity::High
-                } else if total_degree >= 35 {
+                } else if total_degree >= 40 {
                     Severity::Medium
                 } else {
                     Severity::Low

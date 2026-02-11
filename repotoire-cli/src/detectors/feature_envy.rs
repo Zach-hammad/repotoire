@@ -226,7 +226,30 @@ impl Detector for FeatureEnvyDetector {
     }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         
+        // Skip orchestrator/dispatch function names - these are EXPECTED to call many external functions
+        const ORCHESTRATOR_NAMES: &[&str] = &[
+            "run", "main", "execute", "dispatch", "process", "handle",
+            "build", "create", "new", "init", "setup", "configure",
+            "detect", "analyze", "parse", "render", "format", "report",
+        ];
+        
+        // Skip files that are naturally orchestration points
+        const ORCHESTRATOR_PATHS: &[&str] = &[
+            "/cli/", "/handlers/", "/main.rs", "/mod.rs", "/lib.rs",
+        ];
+        
         for func in graph.get_functions() {
+            // Skip orchestrator functions by name
+            let name_lower = func.name.to_lowercase();
+            if ORCHESTRATOR_NAMES.iter().any(|&pat| name_lower == pat || name_lower.starts_with(&format!("{}_", pat))) {
+                continue;
+            }
+            
+            // Skip orchestrator files
+            if ORCHESTRATOR_PATHS.iter().any(|&pat| func.file_path.contains(pat)) {
+                continue;
+            }
+            
             let callees = graph.get_callees(&func.qualified_name);
             if callees.is_empty() {
                 continue;
@@ -246,8 +269,9 @@ impl Detector for FeatureEnvyDetector {
             }
             
             // Feature envy: more external than internal calls
-            // Threshold: at least 10 external calls to avoid noise on small utility functions
-            if external_calls > internal_calls && external_calls >= 10 {
+            // Require at least SOME internal calls - 0 internal often means utility/orchestrator
+            // Threshold: at least 15 external calls to avoid noise
+            if external_calls > internal_calls * 3 && external_calls >= 15 && internal_calls > 0 {
                 let ratio = external_calls as f64 / (internal_calls + 1) as f64;
                 let severity = if ratio > 8.0 && external_calls >= 25 {
                     Severity::High

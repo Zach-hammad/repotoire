@@ -213,29 +213,61 @@ impl Detector for InappropriateIntimacyDetector {
         let mut findings = Vec::new();
         use std::collections::HashMap;
         
-        // Count calls between files
-        let mut file_coupling: HashMap<(String, String), usize> = HashMap::new();
+        // Expected architectural layers - these calling down is normal, not intimacy
+        // Only flag when the dependency goes BOTH ways
+        fn is_expected_layer_dependency(from: &str, to: &str) -> bool {
+            // CLI can call anything
+            if from.contains("/cli/") { return true; }
+            // Handlers can call core modules
+            if from.contains("/handlers/") || from.contains("/mcp/") { return true; }
+            // Tests can call anything
+            if from.contains("/tests/") || from.contains("_test.rs") { return true; }
+            // mod.rs files often re-export or orchestrate
+            if from.ends_with("/mod.rs") { return true; }
+            false
+        }
+        
+        // Count DIRECTIONAL calls between files
+        let mut a_to_b: HashMap<(String, String), usize> = HashMap::new();
+        let mut b_to_a: HashMap<(String, String), usize> = HashMap::new();
         
         for (caller, callee) in graph.get_calls() {
             if let (Some(caller_node), Some(callee_node)) = (graph.get_node(&caller), graph.get_node(&callee)) {
                 if caller_node.file_path != callee_node.file_path {
+                    // Skip expected layered architecture dependencies
+                    if is_expected_layer_dependency(&caller_node.file_path, &callee_node.file_path) {
+                        continue;
+                    }
+                    
                     let key = if caller_node.file_path < callee_node.file_path {
                         (caller_node.file_path.clone(), callee_node.file_path.clone())
                     } else {
                         (callee_node.file_path.clone(), caller_node.file_path.clone())
                     };
-                    *file_coupling.entry(key).or_insert(0) += 1;
+                    
+                    // Track direction
+                    if caller_node.file_path < callee_node.file_path {
+                        *a_to_b.entry(key).or_insert(0) += 1;
+                    } else {
+                        *b_to_a.entry(key).or_insert(0) += 1;
+                    }
                 }
             }
         }
         
-        // Flag highly coupled file pairs
-        for ((file_a, file_b), count) in file_coupling {
-            if count >= 15 {
-                let severity = if count >= 30 {
+        // Flag only BIDIRECTIONAL coupling (true intimacy, not layered dependency)
+        for ((file_a, file_b), count_a_to_b) in &a_to_b {
+            let count_b_to_a = b_to_a.get(&(file_a.clone(), file_b.clone())).copied().unwrap_or(0);
+            
+            // Must have significant calls in BOTH directions to be "intimacy"
+            if count_a_to_b >= &8 && count_b_to_a >= 8 {
+                let total = count_a_to_b + count_b_to_a;
+                let severity = if total >= 50 && count_b_to_a >= 15 && *count_a_to_b >= 15 {
                     Severity::High
-                } else {
+                } else if total >= 30 {
                     Severity::Medium
+                } else {
+                    Severity::Low
                 };
                 
                 findings.push(Finding {
@@ -244,17 +276,18 @@ impl Detector for InappropriateIntimacyDetector {
                     severity,
                     title: format!("Inappropriate Intimacy"),
                     description: format!(
-                        "Files '{}' and '{}' have {} calls between them. Consider merging or reducing coupling.",
-                        file_a, file_b, count
+                        "Files have bidirectional coupling: {} → {} ({} calls) and {} → {} ({} calls). \
+                         Consider merging or extracting shared logic.",
+                        file_a, file_b, count_a_to_b, file_b, file_a, count_b_to_a
                     ),
-                    affected_files: vec![file_a.into(), file_b.into()],
+                    affected_files: vec![file_a.clone().into(), file_b.clone().into()],
                     line_start: None,
                     line_end: None,
-                    suggested_fix: Some("Extract shared functionality into a separate module or merge files".to_string()),
+                    suggested_fix: Some("Extract shared functionality into a separate module, or merge these files if they're truly one concept".to_string()),
                     estimated_effort: Some("Medium (2-4 hours)".to_string()),
                     category: Some("coupling".to_string()),
                     cwe_id: None,
-                    why_it_matters: Some("Excessive coupling between files makes code harder to modify independently".to_string()),
+                    why_it_matters: Some("Bidirectional coupling makes both files hard to change independently - a change in one often requires changes in the other".to_string()),
                 });
             }
         }

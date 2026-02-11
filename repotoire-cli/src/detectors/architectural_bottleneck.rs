@@ -255,16 +255,34 @@ impl Detector for ArchitecturalBottleneckDetector {
     }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         
+        // Skip common function names that are expected to be widely called
+        const SKIP_NAMES: &[&str] = &[
+            "run", "new", "default", "create", "build", "init", "setup",
+            "get", "set", "parse", "format", "render", "display", "detect",
+            "analyze", "execute", "process", "handle", "dispatch",
+        ];
+        
         for func in graph.get_functions() {
+            // Skip common utility functions
+            let name_lower = func.name.to_lowercase();
+            if SKIP_NAMES.iter().any(|&skip| name_lower == skip || name_lower.starts_with(&format!("{}_", skip))) {
+                continue;
+            }
+            
+            // Skip test functions
+            if func.file_path.contains("/tests/") || func.name.starts_with("test_") {
+                continue;
+            }
+            
             let fan_in = graph.call_fan_in(&func.qualified_name);
-            let fan_out = graph.call_fan_out(&func.qualified_name);
+            let _fan_out = graph.call_fan_out(&func.qualified_name);
             let complexity = func.complexity().unwrap_or(1) as usize;
             
-            // Bottleneck: high fan-in AND high complexity
-            if fan_in >= 10 && complexity >= 10 {
-                let severity = if fan_in >= 20 && complexity >= 20 {
+            // Bottleneck: high fan-in AND high complexity (increased thresholds)
+            if fan_in >= 15 && complexity >= 15 {
+                let severity = if fan_in >= 30 && complexity >= 25 {
                     Severity::Critical
-                } else if fan_in >= 15 || complexity >= 15 {
+                } else if fan_in >= 20 && complexity >= 20 {
                     Severity::High
                 } else {
                     Severity::Medium
