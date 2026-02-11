@@ -264,8 +264,17 @@ impl SQLInjectionDetector {
                 }
 
                 if let Some(pattern_type) = self.check_line_for_patterns(line) {
-                    // Report all SQL patterns - even if not in obvious SQL context
-                    // Building a SQL string is dangerous regardless of where it's called
+                    // Require SQL context to reduce false positives
+                    // "create directory" with f-string is not SQL injection
+                    if !self.is_sql_context(line) {
+                        // Check surrounding lines for context
+                        let has_sql_context = (line_no > 0 && self.is_sql_context(lines[line_no - 1]))
+                            || (line_no + 1 < lines.len() && self.is_sql_context(lines[line_no + 1]));
+                        if !has_sql_context {
+                            continue;
+                        }
+                    }
+                    
                     let loc = (rel_path.clone(), line_num);
                     if seen_locations.contains(&loc) {
                         continue;
