@@ -529,6 +529,26 @@ impl VotingEngine {
             .unwrap_or(1.0)
     }
 
+    /// Check if a function name is a utility/helper pattern that should cap severity at High
+    fn is_utility_function_name(title: &str) -> bool {
+        // Extract function name from title like "Architectural Bottleneck: is_sql_context"
+        let func_name = title
+            .split(':')
+            .last()
+            .unwrap_or("")
+            .trim()
+            .to_lowercase();
+        
+        // Utility function prefixes - high connectivity is expected
+        const UTILITY_PREFIXES: &[&str] = &[
+            "is_", "has_", "check_", "validate_", "should_", "can_", "find_",
+            "calculate_", "compute_", "scan_", "extract_", "normalize_",
+            "get_", "set_", "parse_", "format_",
+        ];
+        
+        UTILITY_PREFIXES.iter().any(|p| func_name.starts_with(p))
+    }
+    
     /// Create merged finding from consensus
     fn create_consensus_finding(
         &self,
@@ -539,6 +559,12 @@ impl VotingEngine {
         let mut sorted_findings = findings.to_vec();
         sorted_findings.sort_by(|a, b| b.severity.cmp(&a.severity));
         let base = &sorted_findings[0];
+        
+        // Cap severity at High for utility functions (they're expected to be widely used)
+        let mut final_severity = consensus.severity;
+        if final_severity == Severity::Critical && Self::is_utility_function_name(&base.title) {
+            final_severity = Severity::High;
+        }
 
         // Create descriptive detector name
         let detector_names: Vec<&str> = consensus
@@ -571,7 +597,7 @@ impl VotingEngine {
         Finding {
             id: base.id.clone(),
             detector: detector_str,
-            severity: consensus.severity,
+            severity: final_severity,
             title: format!("{} [{} detectors]", base.title, consensus.vote_count),
             description: format!("{}{}", base.description, consensus_note),
             affected_files: base.affected_files.clone(),
@@ -609,3 +635,27 @@ impl VotingEngine {
     }
 }
 
+
+#[cfg(test)]
+mod utility_tests {
+    use super::*;
+    
+    #[test]
+    fn test_utility_function_detection() {
+        let test_cases = vec![
+            ("Architectural Bottleneck: is_sql_context", true),
+            ("Architectural Bottleneck: is_hash_mention_not_usage", true),
+            ("Architectural Bottleneck: scan_file", true),
+            ("Architectural Bottleneck: find_dead_classes", true),
+            ("Architectural Bottleneck: check_line_for_patterns", true),
+            ("Architectural Bottleneck: calculate_health_scores", true),
+            ("Architectural Bottleneck: remove_finding_impact", false),  // doesn't start with utility prefix
+            ("Some Other Finding", false),
+        ];
+        
+        for (title, expected) in test_cases {
+            let result = VotingEngine::is_utility_function_name(title);
+            assert_eq!(result, expected, "Title '{}' expected {} but got {}", title, expected, result);
+        }
+    }
+}

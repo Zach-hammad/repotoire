@@ -318,8 +318,28 @@ impl Detector for InfluentialCodeDetector {
     }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         
+        // Skip common utility/helper function names - high influence is expected
+        const SKIP_NAMES: &[&str] = &[
+            "new", "default", "from", "into", "create", "build", "make", "with",
+            "get", "set", "run", "main", "init", "setup", "start", "execute",
+            "handle", "process", "parse", "format", "render", "display", "detect",
+            // Helper/utility function prefixes
+            "is_", "has_", "check_", "validate_", "should_", "can_", "find_",
+            "calculate_", "compute_", "scan_", "extract_", "normalize_",
+        ];
+        
         // Find functions with high influence (many transitive dependents)
         for func in graph.get_functions() {
+            // Skip common utility functions
+            let name_lower = func.name.to_lowercase();
+            if SKIP_NAMES.iter().any(|&skip| {
+                name_lower == skip 
+                    || name_lower.starts_with(&format!("{}_", skip))
+                    || name_lower.starts_with(skip)
+            }) {
+                continue;
+            }
+            
             let fan_in = graph.call_fan_in(&func.qualified_name);
             let complexity = func.complexity().unwrap_or(1) as usize;
             let loc = func.loc() as usize;

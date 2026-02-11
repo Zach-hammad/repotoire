@@ -261,12 +261,19 @@ impl Detector for ArchitecturalBottleneckDetector {
             "run", "new", "default", "create", "build", "init", "setup",
             "get", "set", "parse", "format", "render", "display", "detect",
             "analyze", "execute", "process", "handle", "dispatch",
+            // Helper/utility function prefixes
+            "is_", "has_", "check_", "validate_", "should_", "can_", "find_",
+            "calculate_", "compute_", "scan_", "extract_", "normalize_",
         ];
         
         for func in graph.get_functions() {
             // Skip common utility functions
             let name_lower = func.name.to_lowercase();
-            if SKIP_NAMES.iter().any(|&skip| name_lower == skip || name_lower.starts_with(&format!("{}_", skip))) {
+            if SKIP_NAMES.iter().any(|&skip| {
+                name_lower == skip 
+                    || name_lower.starts_with(&format!("{}_", skip))
+                    || name_lower.starts_with(skip)  // For prefixes like "is_", "has_", etc.
+            }) {
                 continue;
             }
             
@@ -373,4 +380,51 @@ mod tests {
         // Low percentile, low complexity = Low
         assert_eq!(detector.calculate_severity(50.0, 100.0, 5), Severity::Low);
     }
+}
+
+#[test]
+fn test_skip_patterns() {
+    let skip_names = &[
+        "run", "new", "is_", "has_", "check_", "find_", "scan_", "calculate_",
+    ];
+    
+    let test_names = vec![
+        ("is_sql_context", true),
+        ("is_hash_mention", true),
+        ("scan_file", true),
+        ("find_dead_functions", true),
+        ("check_line_for_patterns", true),
+        ("calculate_health_scores", true),
+        ("remove_finding_impact", false),  // Not in skip list
+    ];
+    
+    for (name, should_skip) in test_names {
+        let name_lower = name.to_lowercase();
+        let matches = skip_names.iter().any(|&skip| {
+            name_lower == skip 
+                || name_lower.starts_with(&format!("{}_", skip))
+                || name_lower.starts_with(skip)
+        });
+        assert_eq!(matches, should_skip, "Function '{}' skip mismatch", name);
+    }
+}
+
+#[test]
+fn test_specific_skip() {
+    // Test exact patterns from the actual SKIP_NAMES
+    let skip = "is_";
+    let name = "is_sql_context";
+    let name_lower = name.to_lowercase();
+    
+    // Check each condition
+    let exact = name_lower == skip;
+    let prefix_underscore = name_lower.starts_with(&format!("{}_", skip));
+    let prefix_direct = name_lower.starts_with(skip);
+    
+    println!("Testing '{}' against skip '{}':", name, skip);
+    println!("  exact match: {}", exact);
+    println!("  prefix with underscore ({}): {}", format!("{}_", skip), prefix_underscore);
+    println!("  direct prefix: {}", prefix_direct);
+    
+    assert!(prefix_direct, "is_sql_context should match is_ prefix");
 }

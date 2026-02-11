@@ -356,6 +356,9 @@ impl Detector for DegreeCentralityDetector {
             "read", "write", "parse", "format", "render", "display", "detect", "analyze",
             // Iteration
             "iter", "next", "map", "filter", "fold",
+            // Helper/utility function prefixes (high connectivity expected)
+            "is_", "has_", "check_", "validate_", "should_", "can_", "find_",
+            "calculate_", "compute_", "scan_", "extract_", "normalize_",
         ];
         
         // Skip files that are naturally high-connectivity hubs
@@ -366,7 +369,11 @@ impl Detector for DegreeCentralityDetector {
         for func in graph.get_functions() {
             // Skip common utility functions
             let name_lower = func.name.to_lowercase();
-            if SKIP_NAMES.iter().any(|&skip| name_lower == skip || name_lower.starts_with(&format!("{}_", skip))) {
+            if SKIP_NAMES.iter().any(|&skip| {
+                name_lower == skip 
+                    || name_lower.starts_with(&format!("{}_", skip))
+                    || name_lower.starts_with(skip)  // For prefixes like "is_", "has_", etc.
+            }) {
                 continue;
             }
             
