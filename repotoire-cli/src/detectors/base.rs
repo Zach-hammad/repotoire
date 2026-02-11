@@ -5,10 +5,12 @@
 //! - `DetectorResult` for capturing execution results
 //! - Helper types for detector configuration
 
+use crate::detectors::function_context::FunctionContextMap;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Result from running a single detector
 #[derive(Debug, Clone)]
@@ -219,6 +221,37 @@ pub trait Detector: Send + Sync {
     /// # Returns
     /// A list of findings, or an error if detection fails
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>>;
+
+    /// Run detection with function context
+    ///
+    /// Enhanced version of detect() that receives pre-computed function contexts.
+    /// Detectors that benefit from knowing function roles (utility, hub, etc.)
+    /// should override this method.
+    ///
+    /// Default implementation just calls detect() and ignores contexts.
+    ///
+    /// # Arguments
+    /// * `graph` - Graph store for querying code structure
+    /// * `contexts` - Pre-computed function contexts with roles and metrics
+    ///
+    /// # Returns
+    /// A list of findings, or an error if detection fails
+    fn detect_with_context(
+        &self,
+        graph: &GraphStore,
+        _contexts: &Arc<FunctionContextMap>,
+    ) -> Result<Vec<Finding>> {
+        // Default: ignore context, just call regular detect
+        self.detect(graph)
+    }
+
+    /// Whether this detector uses function context
+    ///
+    /// If true, the engine will call detect_with_context instead of detect.
+    /// Override this to return true if your detector benefits from context.
+    fn uses_context(&self) -> bool {
+        false
+    }
 
     /// Whether this detector depends on results from other detectors
     ///

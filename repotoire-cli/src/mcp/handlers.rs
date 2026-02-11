@@ -112,7 +112,7 @@ pub fn handle_analyze(state: &mut HandlerState, args: &Value) -> Result<Value> {
     let graph = state.get_graph()?;
 
     // Build detector engine
-    let engine = DetectorEngineBuilder::new()
+    let mut engine = DetectorEngineBuilder::new()
         .workers(4)
         .detectors(default_detectors(&repo_path))
         .build();
@@ -246,7 +246,7 @@ pub fn handle_get_findings(state: &mut HandlerState, args: &Value) -> Result<Val
 
     // Fall back to running analysis
     let graph = state.get_graph()?;
-    let engine = DetectorEngineBuilder::new()
+    let mut engine = DetectorEngineBuilder::new()
         .workers(4)
         .detectors(default_detectors(&state.repo_path))
         .build();

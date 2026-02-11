@@ -121,6 +121,9 @@ mod unsafe_template;
 // Taint analysis module (graph-based data flow tracking)
 pub mod taint;
 
+// Function context and role inference
+pub mod function_context;
+
 // Framework/ORM detection for reducing false positives
 pub mod framework_detection;
 
@@ -343,6 +346,14 @@ pub use regex_in_loop::RegexInLoopDetector;
 pub use react_hooks::ReactHooksDetector;
 pub use django_security::DjangoSecurityDetector;
 pub use express_security::ExpressSecurityDetector;
+
+// Re-export function context types
+pub use function_context::{
+    FunctionContext,
+    FunctionContextBuilder,
+    FunctionContextMap,
+    FunctionRole,
+};
 
 // Re-export external tool utilities
 pub use external_tool::{

@@ -3,26 +3,35 @@
 //! Identifies functions that sit on many execution paths (high betweenness),
 //! indicating architectural bottlenecks that are critical points of failure.
 //!
-//! Uses Brandes algorithm for betweenness centrality calculation.
+//! Now enhanced with function context for smarter role-based detection.
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::function_context::{FunctionContextMap, FunctionRole};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
-use rayon::prelude::*;
-use std::collections::{HashMap, VecDeque};
-use tracing::{debug, info};
+use std::sync::Arc;
+use tracing::debug;
 use uuid::Uuid;
 
-/// Detects architectural bottlenecks using betweenness centrality.
+/// Detects architectural bottlenecks using graph metrics and function context.
 ///
 /// Functions with high betweenness centrality appear on many shortest paths
 /// between other functions, making them critical architectural components.
 /// Changes to these functions have high blast radius.
+///
+/// Now uses FunctionContext to make smarter decisions:
+/// - Utility functions are expected to have high fan-in → reduced severity
+/// - Hub functions are flagged with higher priority
+/// - Test functions are skipped entirely
 pub struct ArchitecturalBottleneckDetector {
     config: DetectorConfig,
     /// Complexity threshold for severity escalation
     high_complexity_threshold: u32,
+    /// Minimum fan-in to consider a bottleneck
+    min_fan_in: usize,
+    /// Minimum complexity to consider a bottleneck
+    min_complexity: usize,
 }
 
 impl ArchitecturalBottleneckDetector {
@@ -31,181 +40,148 @@ impl ArchitecturalBottleneckDetector {
         Self {
             config: DetectorConfig::new(),
             high_complexity_threshold: 20,
+            min_fan_in: 15,
+            min_complexity: 15,
         }
     }
 
     /// Create with custom config
     pub fn with_config(config: DetectorConfig) -> Self {
         let high_complexity_threshold = config.get_option_or("high_complexity_threshold", 20);
+        let min_fan_in = config.get_option_or("min_fan_in", 15);
+        let min_complexity = config.get_option_or("min_complexity", 15);
         Self {
             config,
             high_complexity_threshold,
+            min_fan_in,
+            min_complexity,
         }
     }
 
-    /// Calculate betweenness centrality using Brandes algorithm (parallelized)
-    fn calculate_betweenness(&self, adj: &[Vec<usize>], num_nodes: usize) -> Vec<f64> {
-        if num_nodes == 0 {
-            return vec![];
-        }
-
-        // Run BFS from each source node in parallel
-        let partial_scores: Vec<Vec<f64>> = (0..num_nodes)
-            .into_par_iter()
-            .map(|source| {
-                let mut partial = vec![0.0; num_nodes];
-                let mut stack = Vec::new();
-                let mut predecessors: Vec<Vec<usize>> = vec![vec![]; num_nodes];
-                let mut num_paths = vec![0.0; num_nodes];
-                num_paths[source] = 1.0;
-                let mut distance: Vec<i32> = vec![-1; num_nodes];
-                distance[source] = 0;
-
-                let mut queue = VecDeque::new();
-                queue.push_back(source);
-
-                // BFS
-                while let Some(v) = queue.pop_front() {
-                    stack.push(v);
-                    for &w in &adj[v] {
-                        if distance[w] < 0 {
-                            distance[w] = distance[v] + 1;
-                            queue.push_back(w);
-                        }
-                        if distance[w] == distance[v] + 1 {
-                            num_paths[w] += num_paths[v];
-                            predecessors[w].push(v);
-                        }
-                    }
-                }
-
-                // Backtrack to accumulate dependencies
-                let mut dependency = vec![0.0; num_nodes];
-                while let Some(w) = stack.pop() {
-                    for &v in &predecessors[w] {
-                        let contrib = (num_paths[v] / num_paths[w]) * (1.0 + dependency[w]);
-                        dependency[v] += contrib;
-                    }
-                    if w != source {
-                        partial[w] += dependency[w];
-                    }
-                }
-
-                partial
-            })
-            .collect();
-
-        // Combine partial scores
-        let mut betweenness = vec![0.0; num_nodes];
-        for partial in partial_scores {
-            for (i, score) in partial.into_iter().enumerate() {
-                betweenness[i] += score;
-            }
-        }
-
-        betweenness
-    }
-
-    /// Calculate severity based on betweenness percentile and complexity
+    /// Calculate severity based on metrics and function role
     fn calculate_severity(
         &self,
-        betweenness: f64,
-        max_betweenness: f64,
-        complexity: u32,
+        fan_in: usize,
+        complexity: usize,
+        role: FunctionRole,
     ) -> Severity {
-        let percentile = if max_betweenness > 0.0 {
-            (betweenness / max_betweenness) * 100.0
+        // Base severity from raw metrics
+        let base_severity = if fan_in >= 30 && complexity >= 25 {
+            Severity::Critical
+        } else if fan_in >= 20 && complexity >= 20 {
+            Severity::High
         } else {
-            0.0
+            Severity::Medium
         };
 
-        if percentile >= 99.0 && complexity > self.high_complexity_threshold {
-            Severity::Critical
-        } else if percentile >= 99.0
-            || (percentile >= 95.0 && complexity > self.high_complexity_threshold)
-        {
-            Severity::High
-        } else if percentile >= 95.0 || complexity > self.high_complexity_threshold {
-            Severity::Medium
-        } else {
-            Severity::Low
+        // Adjust based on function role
+        match role {
+            FunctionRole::Utility => {
+                // Utilities are expected to be called a lot - cap at Medium
+                base_severity.min(Severity::Medium)
+            }
+            FunctionRole::Leaf => {
+                // Leaf functions are low impact - cap at Medium
+                base_severity.min(Severity::Medium)
+            }
+            FunctionRole::Test => {
+                // Should have been filtered, but just in case
+                Severity::Low
+            }
+            FunctionRole::Hub => {
+                // Hubs are genuinely critical - keep severity
+                base_severity
+            }
+            FunctionRole::Orchestrator => {
+                // Orchestrators coordinate work - keep severity
+                base_severity
+            }
+            FunctionRole::EntryPoint => {
+                // Entry points are important - keep severity
+                base_severity
+            }
+            FunctionRole::Unknown => {
+                // Unknown - use base metrics
+                base_severity
+            }
         }
+    }
+
+    /// Legacy name-based skip check (fallback when no context available)
+    fn should_skip_by_name(&self, name: &str) -> bool {
+        const SKIP_NAMES: &[&str] = &[
+            "run", "new", "default", "create", "build", "init", "setup",
+            "get", "set", "parse", "format", "render", "display", "detect",
+            "analyze", "execute", "process", "handle", "dispatch",
+            "is_", "has_", "check_", "validate_", "should_", "can_", "find_",
+            "calculate_", "compute_", "scan_", "extract_", "normalize_",
+        ];
+
+        let name_lower = name.to_lowercase();
+        SKIP_NAMES.iter().any(|&skip| {
+            name_lower == skip
+                || name_lower.starts_with(&format!("{}_", skip))
+                || name_lower.starts_with(skip)
+        })
     }
 
     /// Create a finding from a bottleneck
     fn create_finding(
         &self,
         name: &str,
-        qualified_name: &str,
         file_path: &str,
-        line_number: Option<u32>,
-        betweenness: f64,
-        max_betweenness: f64,
-        avg_betweenness: f64,
-        complexity: u32,
+        line_start: u32,
+        line_end: u32,
+        fan_in: usize,
+        complexity: usize,
+        role: FunctionRole,
+        betweenness: Option<f64>,
     ) -> Finding {
-        let severity = self.calculate_severity(betweenness, max_betweenness, complexity);
-        let percentile = if max_betweenness > 0.0 {
-            (betweenness / max_betweenness) * 100.0
-        } else {
-            0.0
+        let severity = self.calculate_severity(fan_in, complexity, role);
+        
+        let role_note = match role {
+            FunctionRole::Utility => " (utility function - expected high fan-in)",
+            FunctionRole::Hub => " (architectural hub)",
+            FunctionRole::Orchestrator => " (orchestrator)",
+            _ => "",
         };
 
-        let title = if severity == Severity::Critical || severity == Severity::High {
-            if complexity > self.high_complexity_threshold {
-                format!(
-                    "Critical architectural bottleneck with high complexity: {}",
-                    name
-                )
-            } else {
-                format!("Critical architectural bottleneck: {}", name)
-            }
-        } else if complexity > self.high_complexity_threshold {
-            format!("Architectural bottleneck with high complexity: {}", name)
-        } else {
-            format!("Architectural bottleneck: {}", name)
-        };
+        let title = format!("Architectural Bottleneck: {}{}", name, role_note);
 
         let mut description = format!(
-            "Function `{}` has high betweenness centrality \
-            (score: {:.4}, {:.1}th percentile). \
-            This indicates it sits on many execution paths between other functions, \
-            making it a critical architectural component.\n\n\
-            **Risk factors:**\n\
-            - High blast radius: Changes here affect many code paths\n\
-            - Single point of failure: If this breaks, cascading failures likely\n\
-            - Refactoring risk: Difficult to change safely",
-            name, betweenness, percentile
+            "Function '{}' is called by {} functions and has complexity {}. \
+            Changes here are high-risk.",
+            name, fan_in, complexity
         );
 
-        if complexity > self.high_complexity_threshold {
+        if let Some(b) = betweenness {
             description.push_str(&format!(
-                "\n\n**Additional concern:** High complexity ({}) makes this bottleneck especially risky.",
-                complexity
+                "\n\nBetweenness centrality: {:.4} - this function sits on many \
+                execution paths between other functions.",
+                b
             ));
         }
 
-        let suggested_fix = format!(
-            "**Immediate actions:**\n\
-            1. Ensure comprehensive test coverage for `{}`\n\
-            2. Add defensive error handling and logging\n\
-            3. Consider circuit breaker pattern for failure isolation\n\n\
-            **Long-term refactoring:**\n\
-            1. Analyze why so many paths flow through this function\n\
-            2. Consider splitting into multiple specialized functions\n\
-            3. Introduce abstraction layers to reduce coupling\n\
-            4. Evaluate if functionality can be distributed\n\n\
-            **Monitoring:**\n\
-            - Add performance monitoring (this is a hot path)\n\
-            - Track error rates (failures here cascade)\n\
-            - Alert on anomalies",
-            name
-        );
+        if matches!(role, FunctionRole::Utility) {
+            description.push_str(
+                "\n\n**Note:** This function was identified as a utility. High fan-in \
+                is expected, but the high complexity may still warrant attention."
+            );
+        }
 
-        let estimated_effort = match severity {
-            Severity::Critical => "Large (1-2 days)",
-            Severity::High => "Large (4-8 hours)",
-            _ => "Medium (2-4 hours)",
+        let suggested_fix = match role {
+            FunctionRole::Utility => {
+                "Consider splitting this utility into smaller, focused helpers. \
+                High complexity in shared utilities is risky.".to_string()
+            }
+            FunctionRole::Hub => {
+                "This is a critical hub. Ensure comprehensive test coverage, \
+                add defensive error handling, and consider circuit breaker pattern.".to_string()
+            }
+            _ => {
+                "Reduce complexity or create a facade to isolate changes. \
+                Add comprehensive tests before refactoring.".to_string()
+            }
         };
 
         Finding {
@@ -215,16 +191,15 @@ impl ArchitecturalBottleneckDetector {
             title,
             description,
             affected_files: vec![file_path.into()],
-            line_start: line_number,
-            line_end: None,
+            line_start: Some(line_start),
+            line_end: Some(line_end),
             suggested_fix: Some(suggested_fix),
-            estimated_effort: Some(estimated_effort.to_string()),
+            estimated_effort: Some("Large (4-8 hours)".to_string()),
             category: Some("architecture".to_string()),
             cwe_id: None,
             why_it_matters: Some(
-                "Architectural bottlenecks are critical points where failures cascade. \
-                High betweenness means many code paths depend on this function, \
-                making it risky to change and a potential performance hotspot."
+                "Bottlenecks are single points of failure that amplify bugs. \
+                High fan-in with high complexity means many callers depend on risky code."
                     .to_string(),
             ),
             ..Default::default()
@@ -244,7 +219,7 @@ impl Detector for ArchitecturalBottleneckDetector {
     }
 
     fn description(&self) -> &'static str {
-        "Detects architectural bottlenecks using betweenness centrality"
+        "Detects architectural bottlenecks using betweenness centrality and function context"
     }
 
     fn category(&self) -> &'static str {
@@ -253,74 +228,120 @@ impl Detector for ArchitecturalBottleneckDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    }
+
+    /// Legacy detection without context (fallback)
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
-        // Skip common function names that are expected to be widely called
-        const SKIP_NAMES: &[&str] = &[
-            "run", "new", "default", "create", "build", "init", "setup",
-            "get", "set", "parse", "format", "render", "display", "detect",
-            "analyze", "execute", "process", "handle", "dispatch",
-            // Helper/utility function prefixes
-            "is_", "has_", "check_", "validate_", "should_", "can_", "find_",
-            "calculate_", "compute_", "scan_", "extract_", "normalize_",
-            // Service/business logic prefixes (expected high fan-in)
-            "resolve_", "schedule_", "add_", "update_", "delete_", "remove_",
-            "apply_", "use", "fetch_", "load_", "save_", "send_", "notify_",
-        ];
-        
+
         for func in graph.get_functions() {
-            // Skip common utility functions
-            let name_lower = func.name.to_lowercase();
-            if SKIP_NAMES.iter().any(|&skip| {
-                name_lower == skip 
-                    || name_lower.starts_with(&format!("{}_", skip))
-                    || name_lower.starts_with(skip)  // For prefixes like "is_", "has_", etc.
-            }) {
+            // Skip by name pattern
+            if self.should_skip_by_name(&func.name) {
                 continue;
             }
-            
+
             // Skip test functions
             if func.file_path.contains("/tests/") || func.name.starts_with("test_") {
                 continue;
             }
-            
+
             let fan_in = graph.call_fan_in(&func.qualified_name);
-            let _fan_out = graph.call_fan_out(&func.qualified_name);
             let complexity = func.complexity().unwrap_or(1) as usize;
-            
-            // Bottleneck: high fan-in AND high complexity (increased thresholds)
-            if fan_in >= 15 && complexity >= 15 {
-                let severity = if fan_in >= 30 && complexity >= 25 {
-                    Severity::Critical
-                } else if fan_in >= 20 && complexity >= 20 {
-                    Severity::High
-                } else {
-                    Severity::Medium
-                };
-                
-                findings.push(Finding {
-                    id: Uuid::new_v4().to_string(),
-                    detector: "ArchitecturalBottleneckDetector".to_string(),
-                    severity,
-                    title: format!("Architectural Bottleneck: {}", func.name),
-                    description: format!(
-                        "Function '{}' is called by {} functions and has complexity {}. Changes here are high-risk.",
-                        func.name, fan_in, complexity
-                    ),
-                    affected_files: vec![func.file_path.clone().into()],
-                    line_start: Some(func.line_start),
-                    line_end: Some(func.line_end),
-                    suggested_fix: Some("Reduce complexity or create a facade to isolate changes".to_string()),
-                    estimated_effort: Some("Large (4-8 hours)".to_string()),
-                    category: Some("architecture".to_string()),
-                    cwe_id: None,
-                    why_it_matters: Some("Bottlenecks are single points of failure that amplify bugs".to_string()),
-                    ..Default::default()
-                });
+
+            // Bottleneck: high fan-in AND high complexity
+            if fan_in >= self.min_fan_in && complexity >= self.min_complexity {
+                findings.push(self.create_finding(
+                    &func.name,
+                    &func.file_path,
+                    func.line_start,
+                    func.line_end,
+                    fan_in,
+                    complexity,
+                    FunctionRole::Unknown, // No context available
+                    None,
+                ));
             }
         }
-        
+
+        Ok(findings)
+    }
+
+    /// Whether this detector uses function context
+    fn uses_context(&self) -> bool {
+        true
+    }
+
+    /// Enhanced detection with function context
+    fn detect_with_context(
+        &self,
+        graph: &GraphStore,
+        contexts: &Arc<FunctionContextMap>,
+    ) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        let funcs = graph.get_functions();
+
+        debug!(
+            "ArchitecturalBottleneckDetector: analyzing {} functions with context",
+            funcs.len()
+        );
+
+        for func in funcs {
+            // Get context for this function
+            let ctx = contexts.get(&func.qualified_name);
+
+            // Skip test functions (from context or path)
+            if let Some(c) = ctx {
+                if c.is_test || c.role == FunctionRole::Test {
+                    continue;
+                }
+            } else if func.file_path.contains("/tests/") || func.name.starts_with("test_") {
+                continue;
+            }
+
+            let (fan_in, complexity, role, betweenness) = if let Some(c) = ctx {
+                (
+                    c.in_degree,
+                    c.complexity.unwrap_or(1) as usize,
+                    c.role,
+                    Some(c.betweenness),
+                )
+            } else {
+                // Fall back to graph queries
+                let fan_in = graph.call_fan_in(&func.qualified_name);
+                let complexity = func.complexity().unwrap_or(1) as usize;
+                (fan_in, complexity, FunctionRole::Unknown, None)
+            };
+
+            // Bottleneck: high fan-in AND high complexity
+            // For utilities, we still flag them but with reduced severity
+            if fan_in >= self.min_fan_in && complexity >= self.min_complexity {
+                // Skip pure utilities with only moderately high metrics
+                // (they're expected to be called a lot)
+                if role == FunctionRole::Utility && fan_in < 30 && complexity < 20 {
+                    debug!(
+                        "Skipping utility {} (fan_in={}, complexity={})",
+                        func.name, fan_in, complexity
+                    );
+                    continue;
+                }
+
+                findings.push(self.create_finding(
+                    &func.name,
+                    &func.file_path,
+                    func.line_start,
+                    func.line_end,
+                    fan_in,
+                    complexity,
+                    role,
+                    betweenness,
+                ));
+            }
+        }
+
+        debug!(
+            "ArchitecturalBottleneckDetector: found {} findings",
+            findings.len()
+        );
         Ok(findings)
     }
 }
@@ -330,104 +351,57 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_betweenness_simple_chain() {
-        let detector = ArchitecturalBottleneckDetector::new();
-        // Chain: 0 -> 1 -> 2 -> 3
-        let adj = vec![
-            vec![1], // 0
-            vec![2], // 1
-            vec![3], // 2
-            vec![],  // 3
-        ];
-        let betweenness = detector.calculate_betweenness(&adj, 4);
-
-        // Node 1 and 2 should have highest betweenness (they're in the middle)
-        assert!(betweenness[1] > betweenness[0]);
-        assert!(betweenness[2] > betweenness[3]);
-    }
-
-    #[test]
-    fn test_betweenness_star() {
-        let detector = ArchitecturalBottleneckDetector::new();
-        // Star: 0 is center, connects to 1, 2, 3
-        let adj = vec![
-            vec![1, 2, 3], // 0 (center)
-            vec![0],       // 1
-            vec![0],       // 2
-            vec![0],       // 3
-        ];
-        let betweenness = detector.calculate_betweenness(&adj, 4);
-
-        // Center should have highest betweenness
-        assert!(betweenness[0] >= betweenness[1]);
-        assert!(betweenness[0] >= betweenness[2]);
-        assert!(betweenness[0] >= betweenness[3]);
-    }
-
-    #[test]
     fn test_severity_calculation() {
         let detector = ArchitecturalBottleneckDetector::new();
 
-        // Very high percentile + high complexity = Critical
+        // High metrics + Hub = Critical
         assert_eq!(
-            detector.calculate_severity(99.0, 100.0, 25),
+            detector.calculate_severity(35, 30, FunctionRole::Hub),
             Severity::Critical
         );
 
-        // High percentile alone = High
-        assert_eq!(detector.calculate_severity(99.0, 100.0, 10), Severity::High);
+        // High metrics + Utility = Medium (capped)
+        assert_eq!(
+            detector.calculate_severity(35, 30, FunctionRole::Utility),
+            Severity::Medium
+        );
 
-        // Moderate percentile + high complexity = Medium
-        assert_eq!(detector.calculate_severity(96.0, 100.0, 25), Severity::High);
-
-        // Low percentile, low complexity = Low
-        assert_eq!(detector.calculate_severity(50.0, 100.0, 5), Severity::Low);
+        // Moderate metrics + Unknown = Medium
+        assert_eq!(
+            detector.calculate_severity(18, 18, FunctionRole::Unknown),
+            Severity::Medium
+        );
     }
-}
 
-#[test]
-fn test_skip_patterns() {
-    let skip_names = &[
-        "run", "new", "is_", "has_", "check_", "find_", "scan_", "calculate_",
-    ];
-    
-    let test_names = vec![
-        ("is_sql_context", true),
-        ("is_hash_mention", true),
-        ("scan_file", true),
-        ("find_dead_functions", true),
-        ("check_line_for_patterns", true),
-        ("calculate_health_scores", true),
-        ("remove_finding_impact", false),  // Not in skip list
-    ];
-    
-    for (name, should_skip) in test_names {
-        let name_lower = name.to_lowercase();
-        let matches = skip_names.iter().any(|&skip| {
-            name_lower == skip 
-                || name_lower.starts_with(&format!("{}_", skip))
-                || name_lower.starts_with(skip)
-        });
-        assert_eq!(matches, should_skip, "Function '{}' skip mismatch", name);
+    #[test]
+    fn test_skip_by_name() {
+        let detector = ArchitecturalBottleneckDetector::new();
+
+        // These should be skipped (match patterns)
+        assert!(detector.should_skip_by_name("is_valid"));
+        assert!(detector.should_skip_by_name("is_sql_context"));
+        assert!(detector.should_skip_by_name("check_pattern"));
+        assert!(detector.should_skip_by_name("find_dead_code"));
+        assert!(detector.should_skip_by_name("process")); // exact match
+        assert!(detector.should_skip_by_name("process_orders")); // starts with "process"
+        assert!(detector.should_skip_by_name("calculate_totals")); // starts with "calculate_"
+        
+        // These should NOT be skipped (don't match patterns)
+        assert!(!detector.should_skip_by_name("order_processor")); // "process" in middle, not prefix
+        assert!(!detector.should_skip_by_name("my_function"));
+        assert!(!detector.should_skip_by_name("transform_data")); // doesn't match any pattern
     }
-}
 
-#[test]
-fn test_specific_skip() {
-    // Test exact patterns from the actual SKIP_NAMES
-    let skip = "is_";
-    let name = "is_sql_context";
-    let name_lower = name.to_lowercase();
-    
-    // Check each condition
-    let exact = name_lower == skip;
-    let prefix_underscore = name_lower.starts_with(&format!("{}_", skip));
-    let prefix_direct = name_lower.starts_with(skip);
-    
-    println!("Testing '{}' against skip '{}':", name, skip);
-    println!("  exact match: {}", exact);
-    println!("  prefix with underscore ({}): {}", format!("{}_", skip), prefix_underscore);
-    println!("  direct prefix: {}", prefix_direct);
-    
-    assert!(prefix_direct, "is_sql_context should match is_ prefix");
+    #[test]
+    fn test_role_based_severity_cap() {
+        let detector = ArchitecturalBottleneckDetector::new();
+
+        // Utility role should cap severity at Medium
+        let utility_severity = detector.calculate_severity(50, 50, FunctionRole::Utility);
+        assert!(utility_severity <= Severity::Medium);
+
+        // Hub role should not cap severity
+        let hub_severity = detector.calculate_severity(50, 50, FunctionRole::Hub);
+        assert_eq!(hub_severity, Severity::Critical);
+    }
 }

@@ -1,16 +1,15 @@
 //! Degree centrality detector
 //!
-//! Uses in-degree and out-degree to detect:
-//! - God Classes: High in-degree (many dependents) + high complexity
-//! - Feature Envy: High out-degree (reaching into many modules)
-//! - Coupling hotspots: Both high in and out degree
+//! Uses in-degree and out-degree to detect coupling issues.
+//! Now enhanced with function context for smarter role-based detection.
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::function_context::{FunctionContextMap, FunctionRole};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
-use std::collections::{HashMap, HashSet};
-use tracing::{debug, info};
+use std::sync::Arc;
+use tracing::debug;
 use uuid::Uuid;
 
 /// Detects coupling issues using degree centrality.
@@ -19,20 +18,20 @@ use uuid::Uuid;
 /// - In-degree: How many functions call this function
 /// - Out-degree: How many functions this function calls
 ///
-/// Detects:
-/// - God Classes: High in-degree + complexity (many depend on complex code)
-/// - Feature Envy: High out-degree (reaching into too many modules)
-/// - Coupling Hotspots: Both high in and out degree
+/// Now uses FunctionContext to make smarter decisions:
+/// - Utility functions: High fan-in expected, only flag if also high fan-out
+/// - Orchestrators: High fan-out expected, only flag if also high fan-in
+/// - Hubs: Both high fan-in and fan-out - genuine coupling problems
 pub struct DegreeCentralityDetector {
     config: DetectorConfig,
-    /// Complexity threshold for God Class detection
+    /// Complexity threshold for severity escalation
     high_complexity_threshold: u32,
-    /// Percentile for "high" degree
-    high_percentile: f64,
-    /// Minimum in-degree threshold
-    min_indegree: usize,
-    /// Minimum out-degree threshold
-    min_outdegree: usize,
+    /// Minimum total degree for coupling hotspot
+    min_total_degree: usize,
+    /// Minimum fan-in to be considered elevated
+    min_elevated_fanin: usize,
+    /// Minimum fan-out to be considered elevated
+    min_elevated_fanout: usize,
 }
 
 impl DegreeCentralityDetector {
@@ -41,9 +40,9 @@ impl DegreeCentralityDetector {
         Self {
             config: DetectorConfig::new(),
             high_complexity_threshold: 15,
-            high_percentile: 95.0,
-            min_indegree: 5,
-            min_outdegree: 21, // Raised from 10 - orchestrator/parser functions legitimately call many helpers
+            min_total_degree: 30,
+            min_elevated_fanin: 8,
+            min_elevated_fanout: 8,
         }
     }
 
@@ -51,266 +50,165 @@ impl DegreeCentralityDetector {
     pub fn with_config(config: DetectorConfig) -> Self {
         Self {
             high_complexity_threshold: config.get_option_or("high_complexity_threshold", 15),
-            high_percentile: config.get_option_or("high_percentile", 95.0),
-            min_indegree: config.get_option_or("min_indegree", 5),
-            min_outdegree: config.get_option_or("min_outdegree", 21),
+            min_total_degree: config.get_option_or("min_total_degree", 30),
+            min_elevated_fanin: config.get_option_or("min_elevated_fanin", 8),
+            min_elevated_fanout: config.get_option_or("min_elevated_fanout", 8),
             config,
         }
     }
 
-    /// Create God Class finding
-    fn create_god_class_finding(
+    /// Calculate severity based on metrics and function role
+    fn calculate_severity(
         &self,
-        name: &str,
-        qualified_name: &str,
-        file_path: &str,
-        in_degree: usize,
-        out_degree: usize,
-        complexity: u32,
-        loc: u32,
-        max_in_degree: usize,
-        threshold: usize,
-    ) -> Finding {
-        let percentile = if max_in_degree > 0 {
-            (in_degree as f64 / max_in_degree as f64) * 100.0
-        } else {
-            0.0
-        };
+        fan_in: usize,
+        fan_out: usize,
+        role: FunctionRole,
+    ) -> Severity {
+        let total = fan_in + fan_out;
 
-        let severity = if complexity >= self.high_complexity_threshold * 2 || percentile >= 99.0 {
-            Severity::Critical
-        } else if complexity >= (self.high_complexity_threshold * 3 / 2) || percentile >= 97.0 {
+        // Base severity from raw metrics
+        let base_severity = if total >= 60 && fan_in >= 15 && fan_out >= 15 {
             Severity::High
-        } else {
-            Severity::Medium
-        };
-
-        let description = format!(
-            "File `{}` is a potential **God Class**: high in-degree \
-            ({} dependents) combined with high complexity ({}).\n\n\
-            **What this means:**\n\
-            - Many functions depend on this code ({} callers)\n\
-            - The code itself is complex (complexity: {})\n\
-            - Changes are high-risk with wide blast radius\n\
-            - This is a maintainability bottleneck\n\n\
-            **Metrics:**\n\
-            - In-degree: {} (threshold: {})\n\
-            - Complexity: {}\n\
-            - Lines of code: {}\n\
-            - Out-degree: {}",
-            name,
-            in_degree,
-            complexity,
-            in_degree,
-            complexity,
-            in_degree,
-            threshold,
-            complexity,
-            loc,
-            out_degree
-        );
-
-        let suggested_fix = "\
-            **For God Classes:**\n\n\
-            1. **Extract interfaces**: Define contracts to reduce coupling\n\n\
-            2. **Split responsibilities**: Break into focused modules using SRP\n\n\
-            3. **Use dependency injection**: Reduce direct imports\n\n\
-            4. **Add abstraction layers**: Shield dependents from changes\n\n\
-            5. **Prioritize test coverage**: High-risk code needs safety net"
-            .to_string();
-
-        let estimated_effort = match severity {
-            Severity::Critical => "Large (1-2 days)",
-            Severity::High => "Large (4-8 hours)",
-            _ => "Medium (2-4 hours)",
-        };
-
-        Finding {
-            id: Uuid::new_v4().to_string(),
-            detector: "DegreeCentralityDetector".to_string(),
-            severity,
-            title: format!("God Class: {}", name),
-            description,
-            affected_files: vec![file_path.into()],
-            line_start: None,
-            line_end: None,
-            suggested_fix: Some(suggested_fix),
-            estimated_effort: Some(estimated_effort.to_string()),
-            category: Some("architecture".to_string()),
-            cwe_id: None,
-            why_it_matters: Some(
-                "God Classes violate the Single Responsibility Principle. \
-                They accumulate too many responsibilities, making them hard to \
-                understand, test, and maintain."
-                    .to_string(),
-            ),
-            ..Default::default()
-        }
-    }
-
-    /// Create Feature Envy finding
-    fn create_feature_envy_finding(
-        &self,
-        name: &str,
-        qualified_name: &str,
-        file_path: &str,
-        in_degree: usize,
-        out_degree: usize,
-        complexity: u32,
-        loc: u32,
-        max_out_degree: usize,
-        threshold: usize,
-    ) -> Finding {
-        let percentile = if max_out_degree > 0 {
-            (out_degree as f64 / max_out_degree as f64) * 100.0
-        } else {
-            0.0
-        };
-
-        let severity = if percentile >= 99.0 {
-            Severity::High
-        } else if percentile >= 97.0 {
+        } else if total >= 40 {
             Severity::Medium
         } else {
             Severity::Low
         };
 
-        let description = format!(
-            "Function `{}` shows **Feature Envy**: calls {} other functions, \
-            suggesting it reaches into too many modules.\n\n\
-            **What this means:**\n\
-            - This function depends on {} other functions\n\
-            - May be handling responsibilities that belong elsewhere\n\
-            - Tight coupling makes changes cascade\n\
-            - Could be a 'God Module' orchestrating everything\n\n\
-            **Metrics:**\n\
-            - Out-degree: {} (threshold: {})\n\
-            - In-degree: {}\n\
-            - Complexity: {}\n\
-            - Lines of code: {}",
-            name, out_degree, out_degree, out_degree, threshold, in_degree, complexity, loc
-        );
-
-        let suggested_fix = "\
-            **For Feature Envy:**\n\n\
-            1. **Move logic to data**: Put behavior where data lives\n\n\
-            2. **Extract classes**: Group related functionality\n\n\
-            3. **Use delegation**: Have other modules handle their own logic\n\n\
-            4. **Review module boundaries**: This may be misplaced code\n\n\
-            5. **Apply facade pattern**: If orchestration is needed, make it explicit"
-            .to_string();
-
-        let estimated_effort = match severity {
-            Severity::High => "Medium (2-4 hours)",
-            Severity::Medium => "Medium (1-2 hours)",
-            _ => "Small (30-60 minutes)",
-        };
-
-        Finding {
-            id: Uuid::new_v4().to_string(),
-            detector: "DegreeCentralityDetector".to_string(),
-            severity,
-            title: format!("Feature Envy: {}", name),
-            description,
-            affected_files: vec![file_path.into()],
-            line_start: None,
-            line_end: None,
-            suggested_fix: Some(suggested_fix),
-            estimated_effort: Some(estimated_effort.to_string()),
-            category: Some("coupling".to_string()),
-            cwe_id: None,
-            why_it_matters: Some(
-                "Feature Envy occurs when a function uses features of other classes \
-                more than its own. This creates tight coupling and makes the code \
-                harder to maintain and test."
-                    .to_string(),
-            ),
-            ..Default::default()
+        // Adjust based on function role
+        match role {
+            FunctionRole::Utility => {
+                // Utilities are expected to have high fan-in
+                // Only flag if fan-out is also problematic
+                if fan_out < self.min_elevated_fanout * 2 {
+                    Severity::Low // Expected behavior
+                } else {
+                    base_severity.min(Severity::Medium)
+                }
+            }
+            FunctionRole::Orchestrator => {
+                // Orchestrators are expected to have high fan-out
+                // Only flag if fan-in is also problematic
+                if fan_in < self.min_elevated_fanin * 2 {
+                    Severity::Low // Expected behavior
+                } else {
+                    base_severity.min(Severity::Medium)
+                }
+            }
+            FunctionRole::Leaf => {
+                // Leaf functions shouldn't have high coupling
+                base_severity.min(Severity::Medium)
+            }
+            FunctionRole::Test => {
+                Severity::Low
+            }
+            FunctionRole::Hub => {
+                // Hubs are genuine coupling concerns
+                base_severity
+            }
+            FunctionRole::EntryPoint | FunctionRole::Unknown => {
+                base_severity
+            }
         }
     }
 
-    /// Create Coupling Hotspot finding
-    fn create_coupling_hotspot_finding(
+    /// Legacy name-based skip check (fallback when no context available)
+    fn should_skip_by_name(&self, name: &str) -> bool {
+        const SKIP_NAMES: &[&str] = &[
+            "new", "default", "from", "into", "create", "build", "make", "with",
+            "clone", "drop", "fmt", "eq", "hash", "cmp", "partial_cmp",
+            "get", "set", "instance", "global", "shared", "current",
+            "run", "main", "init", "setup", "start", "execute", "dispatch", "handle",
+            "read", "write", "parse", "format", "render", "display", "detect", "analyze",
+            "iter", "next", "map", "filter", "fold",
+            "is_", "has_", "check_", "validate_", "should_", "can_", "find_",
+            "calculate_", "compute_", "scan_", "extract_", "normalize_",
+        ];
+
+        let name_lower = name.to_lowercase();
+        SKIP_NAMES.iter().any(|&skip| {
+            name_lower == skip
+                || name_lower.starts_with(&format!("{}_", skip))
+                || name_lower.starts_with(skip)
+        })
+    }
+
+    /// Check if path is a natural hub file
+    fn is_hub_file(&self, path: &str) -> bool {
+        const SKIP_PATHS: &[&str] = &[
+            "/mod.rs", "/lib.rs", "/main.rs", "/cli/", "/handlers/",
+        ];
+        SKIP_PATHS.iter().any(|&pat| path.contains(pat))
+    }
+
+    /// Create a coupling finding
+    fn create_finding(
         &self,
         name: &str,
-        qualified_name: &str,
         file_path: &str,
-        in_degree: usize,
-        out_degree: usize,
-        complexity: u32,
-        loc: u32,
+        line_start: u32,
+        line_end: u32,
+        fan_in: usize,
+        fan_out: usize,
+        role: FunctionRole,
     ) -> Finding {
-        let total_coupling = in_degree + out_degree;
+        let severity = self.calculate_severity(fan_in, fan_out, role);
+        let total = fan_in + fan_out;
 
-        let severity = if complexity >= self.high_complexity_threshold {
-            Severity::Critical
-        } else {
-            Severity::High
+        let role_note = match role {
+            FunctionRole::Utility => " (utility - high fan-in expected)",
+            FunctionRole::Orchestrator => " (orchestrator - high fan-out expected)",
+            FunctionRole::Hub => " (architectural hub)",
+            _ => "",
         };
 
+        let title = format!("High Coupling: {}{}", name, role_note);
+
         let description = format!(
-            "Function `{}` is a **Coupling Hotspot**: high in-degree ({}) \
-            AND high out-degree ({}).\n\n\
-            **What this means:**\n\
-            - Both heavily depended ON ({} callers)\n\
-            - AND heavily dependent ON others ({} callees)\n\
-            - Total coupling: {} connections\n\
-            - Changes here cascade in both directions\n\
-            - This is a critical architectural risk\n\n\
-            **Metrics:**\n\
-            - In-degree: {}\n\
-            - Out-degree: {}\n\
-            - Total coupling: {}\n\
-            - Complexity: {}\n\
-            - Lines of code: {}",
-            name,
-            in_degree,
-            out_degree,
-            in_degree,
-            out_degree,
-            total_coupling,
-            in_degree,
-            out_degree,
-            total_coupling,
-            complexity,
-            loc
+            "Function '{}' has {} connections ({} callers, {} callees). \
+            High coupling increases change risk.\n\n\
+            **Analysis:**\n\
+            - In-degree (callers): {}\n\
+            - Out-degree (callees): {}\n\
+            - Total coupling: {}",
+            name, total, fan_in, fan_out, fan_in, fan_out, total
         );
 
-        let suggested_fix = "\
-            **For Coupling Hotspots (Critical):**\n\n\
-            1. **Architectural review**: This function is a design bottleneck\n\n\
-            2. **Split by responsibility**: Extract into focused modules\n\n\
-            3. **Introduce layers**: Create abstraction boundaries\n\n\
-            4. **Apply SOLID principles**:\n\
-               - Single Responsibility (split concerns)\n\
-               - Interface Segregation (smaller interfaces)\n\
-               - Dependency Inversion (depend on abstractions)\n\n\
-            5. **Consider strangler pattern**: Gradually replace with better design"
-            .to_string();
-
-        let estimated_effort = if severity == Severity::Critical {
-            "Large (1-2 days)"
-        } else {
-            "Large (4-8 hours)"
+        let suggested_fix = match role {
+            FunctionRole::Utility => {
+                "This utility is more coupled than expected. Consider:\n\
+                - Breaking into smaller, focused helpers\n\
+                - Reducing its dependencies on other modules"
+                    .to_string()
+            }
+            FunctionRole::Hub => {
+                "This is a coupling hotspot. Consider:\n\
+                - Introducing abstraction layers\n\
+                - Applying facade pattern\n\
+                - Splitting by responsibility"
+                    .to_string()
+            }
+            _ => {
+                "Consider breaking into smaller functions or using dependency injection"
+                    .to_string()
+            }
         };
 
         Finding {
             id: Uuid::new_v4().to_string(),
             detector: "DegreeCentralityDetector".to_string(),
             severity,
-            title: format!("Coupling Hotspot: {}", name),
+            title,
             description,
             affected_files: vec![file_path.into()],
-            line_start: None,
-            line_end: None,
+            line_start: Some(line_start),
+            line_end: Some(line_end),
             suggested_fix: Some(suggested_fix),
-            estimated_effort: Some(estimated_effort.to_string()),
-            category: Some("architecture".to_string()),
+            estimated_effort: Some("Medium (2-4 hours)".to_string()),
+            category: Some("coupling".to_string()),
             cwe_id: None,
             why_it_matters: Some(
-                "Coupling hotspots are the most problematic code - they both depend on \
-                many other parts AND are depended on by many parts. Any change here \
-                cascades in all directions."
+                "Highly coupled code is harder to change and test. Changes cascade unpredictably."
                     .to_string(),
             ),
             ..Default::default()
@@ -330,7 +228,7 @@ impl Detector for DegreeCentralityDetector {
     }
 
     fn description(&self) -> &'static str {
-        "Detects coupling issues using degree centrality (God Classes, Feature Envy, Coupling Hotspots)"
+        "Detects coupling issues using degree centrality"
     }
 
     fn category(&self) -> &'static str {
@@ -339,98 +237,146 @@ impl Detector for DegreeCentralityDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    }
+
+    /// Legacy detection without context
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
-        // Skip common utility/factory/accessor function names - high connectivity is expected
-        const SKIP_NAMES: &[&str] = &[
-            // Constructors & factories
-            "new", "default", "from", "into", "create", "build", "make", "with",
-            // Trait implementations
-            "clone", "drop", "fmt", "eq", "hash", "cmp", "partial_cmp",
-            // Accessors & singletons  
-            "get", "set", "instance", "global", "shared", "current",
-            // Entry points & orchestration
-            "run", "main", "init", "setup", "start", "execute", "dispatch", "handle",
-            // Common operations
-            "read", "write", "parse", "format", "render", "display", "detect", "analyze",
-            // Iteration
-            "iter", "next", "map", "filter", "fold",
-            // Helper/utility function prefixes (high connectivity expected)
-            "is_", "has_", "check_", "validate_", "should_", "can_", "find_",
-            "calculate_", "compute_", "scan_", "extract_", "normalize_",
-            // Service/business logic prefixes (expected high fan-in)
-            "resolve_", "schedule_", "add_", "update_", "delete_", "remove_",
-            "apply_", "use", "fetch_", "load_", "save_", "send_", "notify_",
-        ];
-        
-        // Skip files that are naturally high-connectivity hubs
-        const SKIP_PATHS: &[&str] = &[
-            "/mod.rs", "/lib.rs", "/main.rs", "/cli/", "/handlers/",
-        ];
-        
+
         for func in graph.get_functions() {
-            // Skip common utility functions
-            let name_lower = func.name.to_lowercase();
-            if SKIP_NAMES.iter().any(|&skip| {
-                name_lower == skip 
-                    || name_lower.starts_with(&format!("{}_", skip))
-                    || name_lower.starts_with(skip)  // For prefixes like "is_", "has_", etc.
-            }) {
+            // Skip by name or hub file
+            if self.should_skip_by_name(&func.name) || self.is_hub_file(&func.file_path) {
                 continue;
             }
-            
-            // Skip hub files
-            if SKIP_PATHS.iter().any(|&pat| func.file_path.contains(pat)) {
-                continue;
-            }
-            
+
             let fan_in = graph.call_fan_in(&func.qualified_name);
             let fan_out = graph.call_fan_out(&func.qualified_name);
             let total_degree = fan_in + fan_out;
-            
-            // High fan-in with low fan-out = accessor/utility (expected, skip)
-            // High fan-out with low fan-in = orchestrator (expected, skip)
-            // Both high = actual coupling problem
+
+            // Skip expected patterns
             if fan_in > 20 && fan_out < 5 {
-                continue; // Utility function - many callers, few dependencies
+                continue; // Utility pattern
             }
             if fan_out > 20 && fan_in < 5 {
-                continue; // Orchestrator - few callers, many dependencies
+                continue; // Orchestrator pattern
             }
-            
-            // Only flag when BOTH fan-in and fan-out are elevated (true coupling hub)
-            if total_degree >= 30 && fan_in >= 8 && fan_out >= 8 {
-                let severity = if total_degree >= 60 && fan_in >= 15 && fan_out >= 15 {
-                    Severity::High
-                } else if total_degree >= 40 {
-                    Severity::Medium
-                } else {
-                    Severity::Low
-                };
-                
-                findings.push(Finding {
-                    id: Uuid::new_v4().to_string(),
-                    detector: "DegreeCentralityDetector".to_string(),
-                    severity,
-                    title: format!("High Coupling: {}", func.name),
-                    description: format!(
-                        "Function '{}' has {} connections ({} callers, {} callees). High coupling increases change risk.",
-                        func.name, total_degree, fan_in, fan_out
-                    ),
-                    affected_files: vec![func.file_path.clone().into()],
-                    line_start: Some(func.line_start),
-                    line_end: Some(func.line_end),
-                    suggested_fix: Some("Consider breaking into smaller functions or using dependency injection".to_string()),
-                    estimated_effort: Some("Medium (2-4 hours)".to_string()),
-                    category: Some("coupling".to_string()),
-                    cwe_id: None,
-                    why_it_matters: Some("Highly coupled code is harder to change and test".to_string()),
-                    ..Default::default()
-                });
+
+            // Only flag when BOTH are elevated
+            if total_degree >= self.min_total_degree
+                && fan_in >= self.min_elevated_fanin
+                && fan_out >= self.min_elevated_fanout
+            {
+                findings.push(self.create_finding(
+                    &func.name,
+                    &func.file_path,
+                    func.line_start,
+                    func.line_end,
+                    fan_in,
+                    fan_out,
+                    FunctionRole::Unknown,
+                ));
             }
         }
-        
+
+        Ok(findings)
+    }
+
+    /// Whether this detector uses function context
+    fn uses_context(&self) -> bool {
+        true
+    }
+
+    /// Enhanced detection with function context
+    fn detect_with_context(
+        &self,
+        graph: &GraphStore,
+        contexts: &Arc<FunctionContextMap>,
+    ) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        let funcs = graph.get_functions();
+
+        debug!(
+            "DegreeCentralityDetector: analyzing {} functions with context",
+            funcs.len()
+        );
+
+        for func in funcs {
+            let ctx = contexts.get(&func.qualified_name);
+
+            // Skip test functions
+            if let Some(c) = ctx {
+                if c.is_test || c.role == FunctionRole::Test {
+                    continue;
+                }
+            }
+
+            // Skip hub files (even with context)
+            if self.is_hub_file(&func.file_path) {
+                continue;
+            }
+
+            let (fan_in, fan_out, role) = if let Some(c) = ctx {
+                (c.in_degree, c.out_degree, c.role)
+            } else {
+                let fan_in = graph.call_fan_in(&func.qualified_name);
+                let fan_out = graph.call_fan_out(&func.qualified_name);
+                (fan_in, fan_out, FunctionRole::Unknown)
+            };
+
+            let total_degree = fan_in + fan_out;
+
+            // Role-aware filtering
+            match role {
+                FunctionRole::Utility => {
+                    // Utilities can have high fan-in, only flag if extreme
+                    if fan_out < self.min_elevated_fanout || total_degree < 50 {
+                        continue;
+                    }
+                }
+                FunctionRole::Orchestrator => {
+                    // Orchestrators can have high fan-out, only flag if extreme
+                    if fan_in < self.min_elevated_fanin || total_degree < 50 {
+                        continue;
+                    }
+                }
+                FunctionRole::Leaf => {
+                    // Leaf functions shouldn't have high coupling - flag if elevated
+                    if total_degree < self.min_total_degree {
+                        continue;
+                    }
+                }
+                FunctionRole::Hub => {
+                    // Hubs are expected to have high coupling, but still flag extreme cases
+                    if total_degree < self.min_total_degree * 2 {
+                        continue;
+                    }
+                }
+                _ => {
+                    // Default: require both elevated
+                    if total_degree < self.min_total_degree
+                        || fan_in < self.min_elevated_fanin
+                        || fan_out < self.min_elevated_fanout
+                    {
+                        continue;
+                    }
+                }
+            }
+
+            findings.push(self.create_finding(
+                &func.name,
+                &func.file_path,
+                func.line_start,
+                func.line_end,
+                fan_in,
+                fan_out,
+                role,
+            ));
+        }
+
+        debug!(
+            "DegreeCentralityDetector: found {} findings",
+            findings.len()
+        );
         Ok(findings)
     }
 }
@@ -443,16 +389,33 @@ mod tests {
     fn test_new_detector() {
         let detector = DegreeCentralityDetector::new();
         assert_eq!(detector.high_complexity_threshold, 15);
-        assert_eq!(detector.min_indegree, 5);
+        assert_eq!(detector.min_elevated_fanin, 8);
     }
 
     #[test]
-    fn test_with_config() {
-        let config = DetectorConfig::new()
-            .with_option("high_complexity_threshold", serde_json::json!(25))
-            .with_option("min_indegree", serde_json::json!(10));
-        let detector = DegreeCentralityDetector::with_config(config);
-        assert_eq!(detector.high_complexity_threshold, 25);
-        assert_eq!(detector.min_indegree, 10);
+    fn test_severity_with_role() {
+        let detector = DegreeCentralityDetector::new();
+
+        // Utility with high fan-in but low fan-out = Low severity (expected behavior)
+        let sev = detector.calculate_severity(50, 5, FunctionRole::Utility);
+        assert_eq!(sev, Severity::Low);
+
+        // Hub with high both = Medium (total=40, needs 60+ for High)
+        let sev = detector.calculate_severity(20, 20, FunctionRole::Hub);
+        assert_eq!(sev, Severity::Medium);
+        
+        // Hub with very high both = High
+        let sev = detector.calculate_severity(35, 35, FunctionRole::Hub);
+        assert_eq!(sev, Severity::High);
+    }
+
+    #[test]
+    fn test_skip_by_name() {
+        let detector = DegreeCentralityDetector::new();
+
+        assert!(detector.should_skip_by_name("is_valid"));
+        assert!(detector.should_skip_by_name("new"));
+        assert!(detector.should_skip_by_name("get"));
+        assert!(!detector.should_skip_by_name("process_orders"));
     }
 }

@@ -21,6 +21,7 @@
 //! ```
 
 use crate::detectors::base::{DetectionSummary, Detector, DetectorResult, ProgressCallback};
+use crate::detectors::function_context::{FunctionContextMap, FunctionContextBuilder};
 use crate::graph::GraphStore;
 use crate::models::Finding;
 use anyhow::Result;
@@ -43,6 +44,8 @@ pub struct DetectorEngine {
     max_findings: usize,
     /// Progress callback for reporting execution status
     progress_callback: Option<ProgressCallback>,
+    /// Pre-computed function contexts (built from graph on first run)
+    function_contexts: Option<Arc<FunctionContextMap>>,
 }
 
 impl DetectorEngine {
@@ -65,6 +68,7 @@ impl DetectorEngine {
             workers: actual_workers,
             max_findings: MAX_FINDINGS_LIMIT,
             progress_callback: None,
+            function_contexts: None,
         }
     }
 
@@ -83,6 +87,30 @@ impl DetectorEngine {
     pub fn with_progress_callback(mut self, callback: ProgressCallback) -> Self {
         self.progress_callback = Some(callback);
         self
+    }
+
+    /// Set pre-computed function contexts
+    pub fn with_function_contexts(mut self, contexts: Arc<FunctionContextMap>) -> Self {
+        self.function_contexts = Some(contexts);
+        self
+    }
+
+    /// Get function contexts (builds them from graph if not already set)
+    pub fn get_or_build_contexts(&mut self, graph: &GraphStore) -> Arc<FunctionContextMap> {
+        if let Some(ref ctx) = self.function_contexts {
+            return Arc::clone(ctx);
+        }
+        
+        info!("Building function contexts from graph...");
+        let contexts = FunctionContextBuilder::new(graph).build();
+        let arc = Arc::new(contexts);
+        self.function_contexts = Some(Arc::clone(&arc));
+        arc
+    }
+
+    /// Get function contexts (returns None if not built)
+    pub fn function_contexts(&self) -> Option<&Arc<FunctionContextMap>> {
+        self.function_contexts.as_ref()
     }
 
     /// Register a detector
@@ -118,13 +146,16 @@ impl DetectorEngine {
     ///
     /// # Returns
     /// All findings from all detectors, sorted by severity (highest first)
-    pub fn run(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    pub fn run(&mut self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let start = Instant::now();
         info!(
             "Starting detection with {} detectors on {} workers",
             self.detectors.len(),
             self.workers
         );
+
+        // Build function contexts (if not already set)
+        let contexts = self.get_or_build_contexts(graph);
 
         // Partition detectors into independent and dependent
         let (independent, dependent): (Vec<_>, Vec<_>) = self.detectors
@@ -147,11 +178,12 @@ impl DetectorEngine {
             .num_threads(self.workers)
             .build()?;
 
+        let contexts_for_parallel = Arc::clone(&contexts);
         let independent_results: Vec<DetectorResult> = pool.install(|| {
             independent
                 .par_iter()
                 .map(|detector| {
-                    let result = self.run_single_detector(detector, graph);
+                    let result = self.run_single_detector(detector, graph, &contexts_for_parallel);
                     
                     // Update progress
                     let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -180,7 +212,7 @@ impl DetectorEngine {
         // Run dependent detectors sequentially
         // TODO: Build dependency graph and run in topological order
         for detector in dependent {
-            let result = self.run_single_detector(&detector, graph);
+            let result = self.run_single_detector(&detector, graph, &contexts);
             
             // Update progress
             let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -225,8 +257,11 @@ impl DetectorEngine {
     ///
     /// Unlike `run()`, this returns individual results for each detector,
     /// useful for debugging and detailed reporting.
-    pub fn run_detailed(&self, graph: &GraphStore) -> Result<(Vec<DetectorResult>, DetectionSummary)> {
+    pub fn run_detailed(&mut self, graph: &GraphStore) -> Result<(Vec<DetectorResult>, DetectionSummary)> {
         let start = Instant::now();
+        
+        // Build function contexts
+        let contexts = self.get_or_build_contexts(graph);
         
         // Partition detectors
         let (independent, dependent): (Vec<_>, Vec<_>) = self.detectors
@@ -239,16 +274,17 @@ impl DetectorEngine {
             .num_threads(self.workers)
             .build()?;
 
+        let contexts_for_parallel = Arc::clone(&contexts);
         let mut all_results: Vec<DetectorResult> = pool.install(|| {
             independent
                 .par_iter()
-                .map(|detector| self.run_single_detector(detector, graph))
+                .map(|detector| self.run_single_detector(detector, graph, &contexts_for_parallel))
                 .collect()
         });
 
         // Run dependent sequentially
         for detector in dependent {
-            all_results.push(self.run_single_detector(&detector, graph));
+            all_results.push(self.run_single_detector(&detector, graph, &contexts));
         }
 
         // Build summary
@@ -262,15 +298,25 @@ impl DetectorEngine {
     }
 
     /// Run a single detector with error handling and timing
-    fn run_single_detector(&self, detector: &Arc<dyn Detector>, graph: &GraphStore) -> DetectorResult {
+    fn run_single_detector(
+        &self,
+        detector: &Arc<dyn Detector>,
+        graph: &GraphStore,
+        contexts: &Arc<FunctionContextMap>,
+    ) -> DetectorResult {
         let name = detector.name().to_string();
         let start = Instant::now();
 
         debug!("Running detector: {}", name);
 
-        // Wrap in catch_unwind to handle panics from Kuzu
+        // Wrap in catch_unwind to handle panics
+        let contexts_clone = Arc::clone(contexts);
         let detect_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            detector.detect(graph)
+            if detector.uses_context() {
+                detector.detect_with_context(graph, &contexts_clone)
+            } else {
+                detector.detect(graph)
+            }
         }));
 
         match detect_result {
