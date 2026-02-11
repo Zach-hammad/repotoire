@@ -863,4 +863,39 @@ function loopy(items: string[]): number {
         assert!(func.complexity.unwrap_or(0) >= 4,
             "Expected complexity >= 4, got {:?}", func.complexity);
     }
+
+    #[test]
+    fn test_parse_calls() {
+        let source = r#"
+function helperA() {
+    console.log("hello");
+}
+
+function helperB() {
+    helperA();
+}
+
+async function main() {
+    helperB();
+}
+"#;
+        let path = PathBuf::from("test.ts");
+        let result = parse_source(source, &path, "ts").unwrap();
+        
+        assert_eq!(result.functions.len(), 3, "Expected 3 functions");
+        
+        // Debug: print what we got
+        eprintln!("Functions: {:?}", result.functions.iter().map(|f| (&f.name, f.line_start, f.line_end)).collect::<Vec<_>>());
+        eprintln!("Calls: {:?}", result.calls);
+        
+        // helperB calls helperA
+        assert!(result.calls.iter().any(|(caller, callee)| 
+            caller.contains("helperB") && callee == "helperA"
+        ), "Expected helperB -> helperA call, got {:?}", result.calls);
+        
+        // main calls helperB
+        assert!(result.calls.iter().any(|(caller, callee)| 
+            caller.contains("main") && callee == "helperB"
+        ), "Expected main -> helperB call, got {:?}", result.calls);
+    }
 }

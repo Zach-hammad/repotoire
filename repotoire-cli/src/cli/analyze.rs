@@ -173,6 +173,16 @@ pub fn run(
     let mut func_nodes = Vec::with_capacity(total_functions);
     let mut class_nodes = Vec::with_capacity(total_classes);
     let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
+    
+    // Build a global function lookup: function name -> qualified_name
+    // This helps resolve cross-file function calls
+    let mut global_func_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for (_, result) in &parse_results {
+        for func in &result.functions {
+            // Map simple name to qualified name (last one wins for duplicates)
+            global_func_map.insert(func.name.clone(), func.qualified_name.clone());
+        }
+    }
 
     for (file_path, result) in &parse_results {
         let relative_path = file_path.strip_prefix(&repo_path).unwrap_or(file_path);
@@ -217,9 +227,19 @@ pub fn run(
             edges.push((relative_str.clone(), class.qualified_name.clone(), CodeEdge::contains()));
         }
 
-        // Call edges
+        // Call edges - look up callee's full qualified_name
         for (caller, callee) in &result.calls {
-            let callee_qn = format!("{}::{}", relative_str, callee);
+            // Try to find the callee function in this file first
+            let callee_qn = if let Some(callee_func) = result.functions.iter().find(|f| f.name == *callee) {
+                callee_func.qualified_name.clone()
+            } else if let Some(global_qn) = global_func_map.get(callee) {
+                // Found in another file (cross-file call)
+                global_qn.clone()
+            } else {
+                // External function (from import, e.g. console.log) - skip creating edge
+                // These don't resolve to nodes in our graph
+                continue;
+            };
             edges.push((caller.clone(), callee_qn, CodeEdge::calls()));
         }
 
