@@ -4,7 +4,30 @@
 //! code entities, findings, and analysis results.
 
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
+
+/// Generate a deterministic finding ID based on content hash.
+/// 
+/// This ensures findings have stable IDs across runs, enabling:
+/// - Tracking findings over time (fixed vs new vs recurring)
+/// - Suppression by ID in config files
+/// - Reliable deduplication
+/// 
+/// The ID is a 16-character hex string derived from hashing:
+/// - detector name (which detector found it)
+/// - file path (where it was found)
+/// - line number (specific location)
+/// - title (what the issue is)
+pub fn deterministic_finding_id(detector: &str, file: &str, line: u32, title: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    detector.hash(&mut hasher);
+    file.hash(&mut hasher);
+    line.hash(&mut hasher);
+    title.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
 
 /// Severity levels for findings
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

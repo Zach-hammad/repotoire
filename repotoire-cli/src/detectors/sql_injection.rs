@@ -178,12 +178,20 @@ impl SQLInjectionDetector {
             || line_lower.contains("console.warn")
             || line_lower.contains("console.info")
             || line_lower.contains("console.debug")
+            || line_lower.contains("console.trace")
+            || line_lower.contains("console.dir")
             || line_lower.contains(".log.")
             || line_lower.contains("log.error")
             || line_lower.contains("log.info")
             || line_lower.contains("log.warn")
             || line_lower.contains("log.debug")
             || line_lower.contains("logger.")
+            // Node.js logging libraries
+            || line_lower.contains("winston.")
+            || line_lower.contains("pino.")
+            || line_lower.contains("bunyan.")
+            || line_lower.contains("log4js.")
+            || line_lower.contains("morgan(")
             || line_lower.contains("throw new error")
             || line_lower.contains("throw error")
             || line_lower.contains("new error(")
@@ -264,10 +272,17 @@ impl SQLInjectionDetector {
         if line_lower.contains(".query(") || line_lower.contains(".execute(") {
             return true;
         }
-        // Common JS database libraries
+        // Common JS database libraries - require SQL-specific method calls
         if line_lower.contains("mysql.") || line_lower.contains("pg.") 
-            || line_lower.contains("sequelize") || line_lower.contains("knex")
-            || line_lower.contains("pool.") || line_lower.contains("client.") {
+            || line_lower.contains("sequelize") || line_lower.contains("knex") {
+            return true;
+        }
+        // pool.* and client.* only count as SQL context with SQL-specific methods
+        if (line_lower.contains("pool.") || line_lower.contains("client."))
+            && (line_lower.contains(".query") || line_lower.contains(".execute")
+                || line_lower.contains(".prepare") || line_lower.contains(".run")
+                || line_lower.contains(".all(") || line_lower.contains(".get(")
+                || line_lower.contains(".connect")) {
             return true;
         }
 
@@ -342,13 +357,16 @@ impl SQLInjectionDetector {
                     // so they're self-evidently SQL context (building a SQL string, even if assigned to variable)
                     let is_self_evident_sql = pattern_type == "go_sprintf" || pattern_type == "js_template";
                     
+                    // Check if this line directly contains SQL context
+                    let has_direct_sql_context = is_self_evident_sql || self.is_sql_context(line);
+                    
                     // Require SQL context to reduce false positives
                     // "create directory" with f-string is not SQL injection
-                    if !is_self_evident_sql && !self.is_sql_context(line) {
+                    if !has_direct_sql_context {
                         // Check surrounding lines for context
-                        let has_sql_context = (line_no > 0 && self.is_sql_context(lines[line_no - 1]))
+                        let has_surrounding_sql_context = (line_no > 0 && self.is_sql_context(lines[line_no - 1]))
                             || (line_no + 1 < lines.len() && self.is_sql_context(lines[line_no + 1]));
-                        if !has_sql_context {
+                        if !has_surrounding_sql_context {
                             continue;
                         }
                     }
@@ -364,6 +382,7 @@ impl SQLInjectionDetector {
                         line_num,
                         pattern_type,
                         line.trim(),
+                        has_direct_sql_context,
                     ));
 
                     if findings.len() >= self.max_findings {
@@ -376,6 +395,115 @@ impl SQLInjectionDetector {
         findings
     }
 
+    /// Determine source language from file extension
+    fn detect_language(file_path: &str) -> &'static str {
+        if file_path.ends_with(".py") {
+            "python"
+        } else if file_path.ends_with(".js") || file_path.ends_with(".ts") || file_path.ends_with(".jsx") || file_path.ends_with(".tsx") {
+            "javascript"
+        } else if file_path.ends_with(".go") {
+            "go"
+        } else if file_path.ends_with(".java") {
+            "java"
+        } else {
+            "python" // default fallback
+        }
+    }
+
+    /// Get language-specific fix examples
+    fn get_fix_examples(language: &str) -> &'static str {
+        match language {
+            "javascript" => "**Recommended fixes**:\n\n\
+                1. **Use parameterized queries** (preferred):\n\
+                   ```javascript\n\
+                   // Instead of:\n\
+                   db.query(`SELECT * FROM users WHERE id = ${userId}`);\n\n\
+                   // Use:\n\
+                   db.query('SELECT * FROM users WHERE id = $1', [userId]);\n\
+                   ```\n\n\
+                2. **Use an ORM/query builder**:\n\
+                   ```javascript\n\
+                   // Instead of:\n\
+                   knex.raw(`SELECT * FROM users WHERE id = ${userId}`);\n\n\
+                   // Use:\n\
+                   knex('users').where('id', userId);\n\
+                   ```\n\n\
+                3. **Use prepared statements**:\n\
+                   ```javascript\n\
+                   // mysql2/promise\n\
+                   const [rows] = await connection.execute(\n\
+                     'SELECT * FROM users WHERE id = ?',\n\
+                     [userId]\n\
+                   );\n\
+                   ```\n\n\
+                4. **Validate and sanitize input** when parameterization is not possible.",
+            "go" => "**Recommended fixes**:\n\n\
+                1. **Use parameterized queries** (preferred):\n\
+                   ```go\n\
+                   // Instead of:\n\
+                   query := fmt.Sprintf(\"SELECT * FROM users WHERE id = %s\", id)\n\
+                   db.Query(query)\n\n\
+                   // Use:\n\
+                   db.Query(\"SELECT * FROM users WHERE id = $1\", id)\n\
+                   ```\n\n\
+                2. **Use prepared statements**:\n\
+                   ```go\n\
+                   stmt, err := db.Prepare(\"SELECT * FROM users WHERE id = ?\")\n\
+                   rows, err := stmt.Query(id)\n\
+                   ```\n\n\
+                3. **Use sqlx named parameters**:\n\
+                   ```go\n\
+                   query := \"SELECT * FROM users WHERE id = :id\"\n\
+                   rows, err := db.NamedQuery(query, map[string]interface{}{\"id\": id})\n\
+                   ```\n\n\
+                4. **Validate and sanitize input** when parameterization is not possible.",
+            "java" => "**Recommended fixes**:\n\n\
+                1. **Use PreparedStatement** (preferred):\n\
+                   ```java\n\
+                   // Instead of:\n\
+                   Statement stmt = conn.createStatement();\n\
+                   stmt.execute(\"SELECT * FROM users WHERE id = \" + userId);\n\n\
+                   // Use:\n\
+                   PreparedStatement pstmt = conn.prepareStatement(\n\
+                     \"SELECT * FROM users WHERE id = ?\"\n\
+                   );\n\
+                   pstmt.setString(1, userId);\n\
+                   ```\n\n\
+                2. **Use JPA/Hibernate parameters**:\n\
+                   ```java\n\
+                   // Instead of:\n\
+                   em.createQuery(\"SELECT u FROM User u WHERE u.id = \" + id);\n\n\
+                   // Use:\n\
+                   em.createQuery(\"SELECT u FROM User u WHERE u.id = :id\")\n\
+                     .setParameter(\"id\", id);\n\
+                   ```\n\n\
+                3. **Validate and sanitize input** when parameterization is not possible.",
+            _ => "**Recommended fixes**:\n\n\
+                1. **Use parameterized queries** (preferred):\n\
+                   ```python\n\
+                   # Instead of:\n\
+                   cursor.execute(f\"SELECT * FROM users WHERE id={user_id}\")\n\n\
+                   # Use:\n\
+                   cursor.execute(\"SELECT * FROM users WHERE id = ?\", (user_id,))\n\
+                   ```\n\n\
+                2. **Use ORM methods properly**:\n\
+                   ```python\n\
+                   # Instead of:\n\
+                   User.objects.raw(f\"SELECT * FROM users WHERE id={user_id}\")\n\n\
+                   # Use:\n\
+                   User.objects.filter(id=user_id)\n\
+                   ```\n\n\
+                3. **Use SQLAlchemy's bindparams**:\n\
+                   ```python\n\
+                   # Instead of:\n\
+                   engine.execute(text(f\"SELECT * FROM users WHERE id={user_id}\"))\n\n\
+                   # Use:\n\
+                   engine.execute(text(\"SELECT * FROM users WHERE id = :id\"), {\"id\": user_id})\n\
+                   ```\n\n\
+                4. **Validate and sanitize input** when parameterization is not possible.",
+        }
+    }
+
     /// Create a finding for detected SQL injection vulnerability
     fn create_finding(
         &self,
@@ -383,6 +511,7 @@ impl SQLInjectionDetector {
         line_start: u32,
         pattern_type: &str,
         snippet: &str,
+        has_direct_sql_context: bool,
     ) -> Finding {
         let pattern_descriptions = [
             ("f-string", "f-string with variable interpolation in SQL query"),
@@ -401,11 +530,14 @@ impl SQLInjectionDetector {
 
         let title = "Potential SQL Injection (CWE-89)".to_string();
 
+        // Detect language for appropriate code block highlighting
+        let language = Self::detect_language(file_path);
+
         let description = format!(
             "**Potential SQL Injection Vulnerability**\n\n\
              **Pattern detected**: {}\n\n\
              **Location**: {}:{}\n\n\
-             **Code snippet**:\n```python\n{}\n```\n\n\
+             **Code snippet**:\n```{}\n{}\n```\n\n\
              SQL injection occurs when untrusted input is incorporated into SQL queries without\n\
              proper sanitization. An attacker could manipulate the query to:\n\
              - Access unauthorized data\n\
@@ -414,37 +546,31 @@ impl SQLInjectionDetector {
              - In some cases, execute operating system commands\n\n\
              This vulnerability is classified as **CWE-89: Improper Neutralization of Special\n\
              Elements used in an SQL Command ('SQL Injection')**.",
-            pattern_desc, file_path, line_start, snippet
+            pattern_desc, file_path, line_start, language, snippet
         );
 
-        let suggested_fix = "**Recommended fixes**:\n\n\
-             1. **Use parameterized queries** (preferred):\n\
-                ```python\n\
-                # Instead of:\n\
-                cursor.execute(f\"SELECT * FROM users WHERE id={user_id}\")\n\n\
-                # Use:\n\
-                cursor.execute(\"SELECT * FROM users WHERE id = ?\", (user_id,))\n\
-                ```\n\n\
-             2. **Use ORM methods properly**:\n\
-                ```python\n\
-                # Instead of:\n\
-                User.objects.raw(f\"SELECT * FROM users WHERE id={user_id}\")\n\n\
-                # Use:\n\
-                User.objects.filter(id=user_id)\n\
-                ```\n\n\
-             3. **Use SQLAlchemy's bindparams**:\n\
-                ```python\n\
-                # Instead of:\n\
-                engine.execute(text(f\"SELECT * FROM users WHERE id={user_id}\"))\n\n\
-                # Use:\n\
-                engine.execute(text(\"SELECT * FROM users WHERE id = :id\"), {\"id\": user_id})\n\
-                ```\n\n\
-             4. **Validate and sanitize input** when parameterization is not possible.";
+        let suggested_fix = Self::get_fix_examples(language);
+
+        // Determine severity based on confidence:
+        // - Critical: Direct db.query/execute with user input (has_direct_sql_context = true, self-evident pattern)
+        // - High: SQL context detected but uncertain source (has_direct_sql_context = true, from surrounding context)
+        // - Medium: Pattern match without clear SQL context (should be rare given our filters)
+        let is_self_evident_sql = pattern_type == "go_sprintf" || pattern_type == "js_template";
+        let severity = if has_direct_sql_context && is_self_evident_sql {
+            // Direct SQL sink with string interpolation - highest confidence
+            Severity::Critical
+        } else if has_direct_sql_context {
+            // SQL context detected on same line
+            Severity::Critical
+        } else {
+            // SQL context from surrounding lines only
+            Severity::High
+        };
 
         Finding {
             id: Uuid::new_v4().to_string(),
             detector: "SQLInjectionDetector".to_string(),
-            severity: Severity::Critical,
+            severity,
             title,
             description,
             affected_files: vec![PathBuf::from(file_path)],

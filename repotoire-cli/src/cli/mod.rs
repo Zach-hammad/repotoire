@@ -89,7 +89,7 @@ pub enum Commands {
         #[arg(long)]
         thorough: bool,
         
-        /// Relaxed mode: only show high/critical findings (less noise)
+        /// Relaxed mode: filter to high/critical findings only (display filter, does not affect grade)
         #[arg(long)]
         relaxed: bool,
 

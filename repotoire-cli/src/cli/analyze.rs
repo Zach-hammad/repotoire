@@ -405,9 +405,14 @@ pub fn run(
         }
     }
 
-    // In thorough mode, we could add external tool detectors here
+    // In thorough mode, add external tool detectors (Bandit, Ruff, ESLint, etc.)
     if thorough {
-        tracing::info!("Thorough mode enabled - all {} detectors active", engine.detector_count());
+        let external = crate::detectors::all_external_detectors(&repo_path);
+        let external_count = external.len();
+        for detector in external {
+            engine.register(detector);
+        }
+        tracing::info!("Thorough mode: added {} external detectors ({} total)", external_count, engine.detector_count());
     }
 
     let detector_bar = multi.add(ProgressBar::new_spinner());
@@ -483,6 +488,9 @@ pub fn run(
         findings.truncate(n);
     }
 
+    // Create display summary from filtered findings (only shows counts for displayed severities)
+    let display_summary = FindingsSummary::from_findings(&findings);
+
     // Track displayed findings count for pagination
     let displayed_findings = findings.len();
     
@@ -518,7 +526,8 @@ pub fn run(
         }
     }
 
-    // Build report with paginated findings but full summary from all findings
+    // Build report with paginated findings and filtered summary (for display)
+    // Grade calculation already used all_findings_summary, so display_summary is just for output
     let report = HealthReport {
         overall_score,
         grade: grade.clone(),
@@ -526,7 +535,7 @@ pub fn run(
         quality_score,
         architecture_score: Some(architecture_score),
         findings: paginated_findings,
-        findings_summary: all_findings_summary,
+        findings_summary: display_summary,
         total_files: files.len(),
         total_functions,
         total_classes,
@@ -788,16 +797,10 @@ fn calculate_health_scores(
     architecture_score = architecture_score.max(25.0_f64).min(100.0);
 
     // Weighted average: Structure 40%, Quality 30%, Architecture 30%
-    let mut overall = structure_score * 0.4 + quality_score * 0.3 + architecture_score * 0.3;
+    let overall = structure_score * 0.4 + quality_score * 0.3 + architecture_score * 0.3;
     
-    // Apply direct penalty to overall score for critical/high security findings
-    // This ensures security vulns tank the score regardless of pillar weighting
-    let critical_count = findings.iter().filter(|f| f.severity == Severity::Critical).count();
-    let high_count = findings.iter().filter(|f| f.severity == Severity::High).count();
-    
-    // Each critical drops score by 8 points, each high by 3 points (on top of pillar deductions)
-    let security_penalty = (critical_count as f64 * 8.0) + (high_count as f64 * 3.0);
-    overall = (overall - security_penalty).max(25.0);
+    // Floor at 5.0 to allow F grade gradation (pillar scores already penalize security 3x)
+    let overall = overall.max(5.0);
 
     (overall, structure_score, quality_score, architecture_score)
 }
