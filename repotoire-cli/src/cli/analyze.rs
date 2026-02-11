@@ -243,12 +243,32 @@ pub fn run(
             edges.push((caller.clone(), callee_qn, CodeEdge::calls()));
         }
 
-        // Import edges
+        // Import edges - resolve relative imports to actual file paths
         for import in &result.imports {
+            // Clean up import path: remove ./ and handle relative paths
+            let clean_import = import
+                .trim_start_matches("./")
+                .trim_start_matches("../");
+            
             for (other_file, _) in &parse_results {
                 let other_relative = other_file.strip_prefix(&repo_path).unwrap_or(other_file);
                 let other_str = other_relative.display().to_string();
-                if other_str.contains(import) && other_str != relative_str {
+                if other_str == relative_str {
+                    continue; // Skip self
+                }
+                
+                // Check if the import matches this file (with or without extension)
+                let other_name = other_relative.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("");
+                
+                // Match: import './utils' should match 'utils.ts', 'utils/index.ts', etc.
+                if other_str.contains(clean_import) || 
+                   (clean_import == other_name) ||
+                   (other_str.ends_with(&format!("{}.ts", clean_import))) ||
+                   (other_str.ends_with(&format!("{}.tsx", clean_import))) ||
+                   (other_str.ends_with(&format!("{}.js", clean_import))) ||
+                   (other_str.ends_with(&format!("{}/index.ts", clean_import))) {
                     edges.push((relative_str.clone(), other_str, CodeEdge::imports()));
                     break;
                 }
