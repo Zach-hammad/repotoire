@@ -112,6 +112,10 @@ struct SarifResult {
     properties: SarifResultProperties,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     fixes: Vec<SarifFix>,
+    /// Confidence ranking from 0.0 (lowest) to 100.0 (highest)
+    /// See SARIF 2.1.0 spec §3.27.28
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rank: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -341,6 +345,9 @@ fn build_result(finding: &Finding, index: usize) -> SarifResult {
         })
         .unwrap_or_default();
 
+    // Convert confidence (0.0-1.0) to SARIF rank (0.0-100.0)
+    let rank = finding.confidence.map(|c| (c * 100.0).clamp(0.0, 100.0));
+
     SarifResult {
         rule_id,
         level: severity_to_sarif_level(&finding.severity).to_string(),
@@ -361,6 +368,7 @@ fn build_result(finding: &Finding, index: usize) -> SarifResult {
             cwe_id: finding.cwe_id.clone(),
         },
         fixes,
+        rank,
     }
 }
 
@@ -454,6 +462,7 @@ fn get_detector_tags(detector: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn test_normalize_rule_id() {
@@ -469,5 +478,90 @@ mod tests {
         assert_eq!(severity_to_sarif_level(&Severity::Critical), "error");
         assert_eq!(severity_to_sarif_level(&Severity::Medium), "warning");
         assert_eq!(severity_to_sarif_level(&Severity::Low), "note");
+    }
+
+    #[test]
+    fn test_confidence_to_rank() {
+        // Finding with high confidence (0.95) should produce rank 95.0
+        let high_conf_finding = Finding {
+            id: "test-1".to_string(),
+            detector: "TestDetector".to_string(),
+            severity: Severity::High,
+            title: "High confidence finding".to_string(),
+            description: "Test".to_string(),
+            affected_files: vec![PathBuf::from("test.py")],
+            line_start: Some(10),
+            line_end: Some(20),
+            confidence: Some(0.95),
+            ..Default::default()
+        };
+
+        let result = build_result(&high_conf_finding, 0);
+        assert_eq!(result.rank, Some(95.0));
+
+        // Finding with medium confidence (0.7)
+        let med_conf_finding = Finding {
+            confidence: Some(0.7),
+            ..high_conf_finding.clone()
+        };
+        let result = build_result(&med_conf_finding, 1);
+        assert_eq!(result.rank, Some(70.0));
+
+        // Finding with no confidence should produce None rank
+        let no_conf_finding = Finding {
+            confidence: None,
+            ..high_conf_finding.clone()
+        };
+        let result = build_result(&no_conf_finding, 2);
+        assert_eq!(result.rank, None);
+
+        // Edge case: confidence > 1.0 should be clamped to 100.0
+        let over_conf_finding = Finding {
+            confidence: Some(1.5),
+            ..high_conf_finding.clone()
+        };
+        let result = build_result(&over_conf_finding, 3);
+        assert_eq!(result.rank, Some(100.0));
+
+        // Edge case: confidence < 0.0 should be clamped to 0.0
+        let neg_conf_finding = Finding {
+            confidence: Some(-0.1),
+            ..high_conf_finding
+        };
+        let result = build_result(&neg_conf_finding, 4);
+        assert_eq!(result.rank, Some(0.0));
+    }
+
+    #[test]
+    fn test_rank_in_sarif_output() {
+        // Create a minimal report with a finding that has confidence
+        let report = HealthReport {
+            overall_score: 85.0,
+            grade: "B".to_string(),
+            structure_score: 90.0,
+            quality_score: 80.0,
+            architecture_score: Some(85.0),
+            findings: vec![Finding {
+                id: "test-sarif".to_string(),
+                detector: "SecurityDetector".to_string(),
+                severity: Severity::High,
+                title: "Security issue".to_string(),
+                description: "Potential vulnerability".to_string(),
+                affected_files: vec![PathBuf::from("src/main.py")],
+                line_start: Some(42),
+                line_end: Some(42),
+                confidence: Some(0.85),
+                ..Default::default()
+            }],
+            findings_summary: crate::models::FindingsSummary::default(),
+            total_files: 10,
+            total_functions: 50,
+            total_classes: 5,
+        };
+
+        let sarif_json = render(&report).expect("SARIF render should succeed");
+        
+        // Verify rank appears in output
+        assert!(sarif_json.contains("\"rank\": 85.0"), "SARIF output should contain rank: 85.0");
     }
 }
