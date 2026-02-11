@@ -229,16 +229,50 @@ pub fn run(
 
         // Call edges - look up callee's full qualified_name
         for (caller, callee) in &result.calls {
+            // Extract the module path and function name
+            // e.g., "text::render" -> module="text", func="render"
+            // e.g., "Self::method" -> module="Self", func="method"
+            let parts: Vec<&str> = callee.rsplitn(2, "::").collect();
+            let callee_name = parts[0];
+            let callee_module = if parts.len() > 1 { Some(parts[1]) } else { None };
+            
+            // Also handle method calls like "self.method" or "obj.method"
+            let callee_name = callee_name.rsplit('.').next().unwrap_or(callee_name);
+            
             // Try to find the callee function in this file first
-            let callee_qn = if let Some(callee_func) = result.functions.iter().find(|f| f.name == *callee) {
+            let callee_qn = if let Some(callee_func) = result.functions.iter().find(|f| f.name == callee_name) {
                 callee_func.qualified_name.clone()
-            } else if let Some(global_qn) = global_func_map.get(callee) {
-                // Found in another file (cross-file call)
-                global_qn.clone()
             } else {
-                // External function (from import, e.g. console.log) - skip creating edge
-                // These don't resolve to nodes in our graph
-                continue;
+                // For module::func calls (like text::render), try to find in that module's file
+                let mut found = None;
+                if let Some(module) = callee_module {
+                    // Look for file matching the module name (e.g., "text" -> "text.rs")
+                    for (other_path, other_result) in &parse_results {
+                        let other_relative = other_path.strip_prefix(&repo_path).unwrap_or(other_path);
+                        let other_str = other_relative.display().to_string();
+                        let file_stem = other_relative.file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("");
+                        
+                        // Check if this file matches the module name
+                        if file_stem == module || other_str.contains(&format!("/{}.rs", module)) {
+                            if let Some(func) = other_result.functions.iter().find(|f| f.name == callee_name) {
+                                found = Some(func.qualified_name.clone());
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                // Fall back to global lookup
+                if found.is_none() {
+                    found = global_func_map.get(callee_name).cloned();
+                }
+                
+                match found {
+                    Some(qn) => qn,
+                    None => continue, // External function, skip
+                }
             };
             edges.push((caller.clone(), callee_qn, CodeEdge::calls()));
         }
