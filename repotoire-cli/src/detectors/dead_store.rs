@@ -180,7 +180,7 @@ impl DeadStoreDetector {
 
     /// Use graph to find functions with unused parameters
     fn find_unused_params(&self, graph: &GraphStore) -> Vec<Finding> {
-        let mut findings = Vec::new();
+        let findings = Vec::new();
         
         // This would require parameter tracking which isn't fully in graph yet
         // Leaving as placeholder for future enhancement

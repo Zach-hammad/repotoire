@@ -2,6 +2,11 @@
 //!
 //! Graph-aware detection of parameter groups that appear together across functions.
 //! Uses function parameter data from the graph to identify missing abstractions.
+//!
+//! Enhanced with call graph analysis:
+//! - Higher severity if functions with same params CALL each other (strong coupling)
+//! - Lower severity if functions are in different modules with no call relationship
+//! - Identifies refactoring opportunities where params travel through call chains
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphStore;
@@ -148,6 +153,7 @@ impl DataClumpsDetector {
                         .or_default()
                         .push(FuncInfo {
                             name: func.name.clone(),
+                            qualified_name: func.qualified_name.clone(),
                             file: func.file_path.clone(),
                             line: func.line_start,
                         });
@@ -155,20 +161,58 @@ impl DataClumpsDetector {
             }
         }
         
-        // Filter to clumps meeting threshold
+        // Filter to clumps meeting threshold and analyze call relationships
         let mut clumps: Vec<DataClump> = param_to_funcs
             .into_iter()
             .filter(|(_, funcs)| funcs.len() >= self.thresholds.min_occurrences)
-            .map(|(params, funcs)| DataClump { params, funcs })
+            .map(|(params, funcs)| {
+                // Analyze call relationships between functions in this clump
+                let (call_count, is_chain) = self.analyze_call_relationships(graph, &funcs);
+                DataClump { 
+                    params, 
+                    funcs,
+                    call_relationships: call_count,
+                    is_call_chain: is_chain,
+                }
+            })
             .collect();
         
         // Remove subsets
         clumps = self.remove_subsets(clumps);
         
-        // Sort by function count
-        clumps.sort_by(|a, b| b.funcs.len().cmp(&a.funcs.len()));
+        // Sort by call relationships first (stronger signal), then by function count
+        clumps.sort_by(|a, b| {
+            b.call_relationships.cmp(&a.call_relationships)
+                .then(b.funcs.len().cmp(&a.funcs.len()))
+        });
         
         clumps
+    }
+
+    /// Analyze call relationships between functions that share parameters
+    fn analyze_call_relationships(&self, graph: &GraphStore, funcs: &[FuncInfo]) -> (usize, bool) {
+        let func_qns: HashSet<&str> = funcs.iter().map(|f| f.qualified_name.as_str()).collect();
+        let mut call_count = 0;
+        let mut has_chain = false;
+        
+        for func in funcs {
+            let callees = graph.get_callees(&func.qualified_name);
+            for callee in &callees {
+                if func_qns.contains(callee.qualified_name.as_str()) {
+                    call_count += 1;
+                    
+                    // Check if callee also calls another function in the clump (chain)
+                    let callee_callees = graph.get_callees(&callee.qualified_name);
+                    for cc in &callee_callees {
+                        if func_qns.contains(cc.qualified_name.as_str()) && cc.qualified_name != func.qualified_name {
+                            has_chain = true;
+                        }
+                    }
+                }
+            }
+        }
+        
+        (call_count, has_chain)
     }
 
     /// Remove clumps that are subsets of larger ones
@@ -195,24 +239,55 @@ impl DataClumpsDetector {
         result
     }
 
-    fn calculate_severity(&self, func_count: usize) -> Severity {
-        if func_count >= 6 {
+    /// Calculate severity based on function count and call relationships
+    fn calculate_severity(&self, clump: &DataClump) -> Severity {
+        let func_count = clump.funcs.len();
+        let call_rels = clump.call_relationships;
+        
+        // Base severity from function count
+        let base = if func_count >= 6 {
             Severity::High
         } else if func_count >= 4 {
             Severity::Medium
         } else {
             Severity::Low
+        };
+        
+        // Upgrade severity if there are call relationships (stronger signal)
+        // Functions that call each other with the same params = definite refactor target
+        if clump.is_call_chain {
+            // Params traveling through a call chain = HIGH priority
+            return match base {
+                Severity::Low => Severity::Medium,
+                Severity::Medium => Severity::High,
+                _ => Severity::High,
+            };
         }
+        
+        if call_rels >= 3 {
+            // Many mutual calls = boost severity
+            return match base {
+                Severity::Low => Severity::Medium,
+                _ => base,
+            };
+        }
+        
+        base
     }
 }
 
 struct DataClump {
     params: Vec<String>,
     funcs: Vec<FuncInfo>,
+    /// Number of call relationships between functions in this clump
+    call_relationships: usize,
+    /// Whether functions form a call chain (A->B->C all have same params)
+    is_call_chain: bool,
 }
 
 struct FuncInfo {
     name: String,
+    qualified_name: String,
     file: String,
     line: u32,
 }
@@ -286,7 +361,7 @@ impl Detector for DataClumpsDetector {
         let clumps = self.find_clumps(graph);
         
         for clump in clumps {
-            let severity = self.calculate_severity(clump.funcs.len());
+            let severity = self.calculate_severity(&clump);
             let struct_name = suggest_struct_name(&clump.params);
             let params_str = clump.params.join(", ");
             
@@ -299,6 +374,17 @@ impl Detector for DataClumpsDetector {
             
             let more_note = if clump.funcs.len() > 5 {
                 format!("\n  ... and {} more functions", clump.funcs.len() - 5)
+            } else {
+                String::new()
+            };
+            
+            // Add call relationship info if present
+            let call_info = if clump.is_call_chain {
+                "\n\n⚠️ **Call chain detected**: These parameters travel through a call chain, \
+                 making refactoring especially valuable.".to_string()
+            } else if clump.call_relationships > 0 {
+                format!("\n\n📞 **{} call relationships** found between these functions.", 
+                        clump.call_relationships)
             } else {
                 String::new()
             };
@@ -318,12 +404,13 @@ impl Detector for DataClumpsDetector {
                 description: format!(
                     "Parameters **({})** appear together in **{} functions**.\n\n\
                      This suggests a missing abstraction - consider extracting a `{}` struct.\n\n\
-                     **Affected functions:**\n{}{}",
+                     **Affected functions:**\n{}{}{}",
                     params_str,
                     clump.funcs.len(),
                     struct_name,
                     func_list,
-                    more_note
+                    more_note,
+                    call_info
                 ),
                 affected_files: files,
                 line_start: clump.funcs.first().map(|f| f.line),
@@ -335,13 +422,16 @@ impl Detector for DataClumpsDetector {
                      {}\n\
                      }}\n\
                      ```\n\n\
-                     Then refactor functions to accept `{}` instead of {} separate parameters.",
+                     Then refactor functions to accept `{}` instead of {} separate parameters.{}",
                     struct_name,
                     clump.params.iter().map(|p| format!("    {}: Type,", p)).collect::<Vec<_>>().join("\n"),
                     struct_name,
-                    clump.params.len()
+                    clump.params.len(),
+                    if clump.is_call_chain { 
+                        "\n\nSince these functions call each other, the refactoring can be done incrementally." 
+                    } else { "" }
                 )),
-                estimated_effort: Some(if clump.funcs.len() >= 6 {
+                estimated_effort: Some(if clump.funcs.len() >= 6 || clump.is_call_chain {
                     "Large (2-4 hours)".to_string()
                 } else {
                     "Medium (1-2 hours)".to_string()
@@ -350,14 +440,14 @@ impl Detector for DataClumpsDetector {
                 cwe_id: None,
                 why_it_matters: Some(
                     "Data clumps indicate missing abstractions. Grouping related parameters \
-                     into a struct improves readability and makes changes easier."
+                     into a struct improves readability, type safety, and makes changes easier."
                         .to_string()
                 ),
                 ..Default::default()
             });
         }
 
-        info!("DataClumpsDetector found {} findings", findings.len());
+        info!("DataClumpsDetector found {} findings (graph-aware)", findings.len());
         Ok(findings)
     }
 }
@@ -383,8 +473,59 @@ mod tests {
     #[test]
     fn test_severity() {
         let detector = DataClumpsDetector::new();
-        assert_eq!(detector.calculate_severity(3), Severity::Low);
-        assert_eq!(detector.calculate_severity(4), Severity::Medium);
-        assert_eq!(detector.calculate_severity(6), Severity::High);
+        
+        // Test base severity from function count
+        let clump_3 = DataClump {
+            params: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            funcs: vec![
+                FuncInfo { name: "f1".to_string(), qualified_name: "mod::f1".to_string(), file: "a.rs".to_string(), line: 1 },
+                FuncInfo { name: "f2".to_string(), qualified_name: "mod::f2".to_string(), file: "a.rs".to_string(), line: 10 },
+                FuncInfo { name: "f3".to_string(), qualified_name: "mod::f3".to_string(), file: "a.rs".to_string(), line: 20 },
+            ],
+            call_relationships: 0,
+            is_call_chain: false,
+        };
+        assert_eq!(detector.calculate_severity(&clump_3), Severity::Low);
+        
+        let clump_4 = DataClump {
+            params: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            funcs: vec![
+                FuncInfo { name: "f1".to_string(), qualified_name: "mod::f1".to_string(), file: "a.rs".to_string(), line: 1 },
+                FuncInfo { name: "f2".to_string(), qualified_name: "mod::f2".to_string(), file: "a.rs".to_string(), line: 10 },
+                FuncInfo { name: "f3".to_string(), qualified_name: "mod::f3".to_string(), file: "a.rs".to_string(), line: 20 },
+                FuncInfo { name: "f4".to_string(), qualified_name: "mod::f4".to_string(), file: "a.rs".to_string(), line: 30 },
+            ],
+            call_relationships: 0,
+            is_call_chain: false,
+        };
+        assert_eq!(detector.calculate_severity(&clump_4), Severity::Medium);
+        
+        let clump_6 = DataClump {
+            params: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            funcs: vec![
+                FuncInfo { name: "f1".to_string(), qualified_name: "mod::f1".to_string(), file: "a.rs".to_string(), line: 1 },
+                FuncInfo { name: "f2".to_string(), qualified_name: "mod::f2".to_string(), file: "a.rs".to_string(), line: 10 },
+                FuncInfo { name: "f3".to_string(), qualified_name: "mod::f3".to_string(), file: "a.rs".to_string(), line: 20 },
+                FuncInfo { name: "f4".to_string(), qualified_name: "mod::f4".to_string(), file: "a.rs".to_string(), line: 30 },
+                FuncInfo { name: "f5".to_string(), qualified_name: "mod::f5".to_string(), file: "a.rs".to_string(), line: 40 },
+                FuncInfo { name: "f6".to_string(), qualified_name: "mod::f6".to_string(), file: "a.rs".to_string(), line: 50 },
+            ],
+            call_relationships: 0,
+            is_call_chain: false,
+        };
+        assert_eq!(detector.calculate_severity(&clump_6), Severity::High);
+        
+        // Test call chain boost
+        let clump_chain = DataClump {
+            params: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            funcs: vec![
+                FuncInfo { name: "f1".to_string(), qualified_name: "mod::f1".to_string(), file: "a.rs".to_string(), line: 1 },
+                FuncInfo { name: "f2".to_string(), qualified_name: "mod::f2".to_string(), file: "a.rs".to_string(), line: 10 },
+                FuncInfo { name: "f3".to_string(), qualified_name: "mod::f3".to_string(), file: "a.rs".to_string(), line: 20 },
+            ],
+            call_relationships: 2,
+            is_call_chain: true,  // Call chain boosts Low -> Medium
+        };
+        assert_eq!(detector.calculate_severity(&clump_chain), Severity::Medium);
     }
 }

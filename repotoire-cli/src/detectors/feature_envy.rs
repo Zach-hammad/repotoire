@@ -1,10 +1,7 @@
 //! Feature Envy Detector
 //!
-//! Detects methods that use other classes more than their own class,
-//! indicating the method might belong in the other class.
-//!
-//! This is a code smell that traditional linters cannot detect because it requires
-//! understanding cross-class relationships via the knowledge graph.
+//! Graph-aware detection of methods that use other classes more than their own.
+//! Uses FunctionContext to distinguish legitimate patterns from actual smells.
 //!
 //! Example:
 //! ```text
@@ -18,11 +15,19 @@
 //! }
 //! ```
 //! This method should probably be on Customer, not Order.
+//!
+//! Graph-aware enhancements:
+//! - Skip Utility functions (expected to be used across modules)
+//! - Skip Orchestrator functions (their job is to coordinate)
+//! - Skip Facade patterns (high out-degree, few callers from each module)
+//! - Reduce severity for Hub functions (they bridge modules intentionally)
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::function_context::{FunctionContext, FunctionContextMap, FunctionRole};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -67,6 +72,8 @@ impl Default for FeatureEnvyThresholds {
 pub struct FeatureEnvyDetector {
     config: DetectorConfig,
     thresholds: FeatureEnvyThresholds,
+    /// Function context for graph-aware analysis
+    function_contexts: Option<FunctionContextMap>,
 }
 
 impl FeatureEnvyDetector {
@@ -80,6 +87,7 @@ impl FeatureEnvyDetector {
         Self {
             config: DetectorConfig::new(),
             thresholds,
+            function_contexts: None,
         }
     }
 
@@ -96,7 +104,67 @@ impl FeatureEnvyDetector {
             medium_min_uses: config.get_option_or("medium_min_uses", 10),
         };
 
-        Self { config, thresholds }
+        Self { config, thresholds, function_contexts: None }
+    }
+
+    /// Set function contexts for graph-aware analysis
+    pub fn with_function_contexts(mut self, contexts: FunctionContextMap) -> Self {
+        self.function_contexts = Some(contexts);
+        self
+    }
+
+    /// Check if function should be skipped based on role
+    fn should_skip_by_role(&self, qualified_name: &str) -> bool {
+        if let Some(ref contexts) = self.function_contexts {
+            if let Some(ctx) = contexts.get(qualified_name) {
+                match ctx.role {
+                    // Utilities are EXPECTED to be called from many modules
+                    FunctionRole::Utility => {
+                        debug!("Skipping utility function: {}", ctx.name);
+                        return true;
+                    }
+                    // Orchestrators coordinate many functions by design
+                    FunctionRole::Orchestrator => {
+                        debug!("Skipping orchestrator function: {}", ctx.name);
+                        return true;
+                    }
+                    // Test functions can call whatever they need
+                    FunctionRole::Test => {
+                        return true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
+
+    /// Get severity multiplier from function context
+    fn get_severity_multiplier(&self, qualified_name: &str) -> f64 {
+        if let Some(ref contexts) = self.function_contexts {
+            if let Some(ctx) = contexts.get(qualified_name) {
+                return ctx.severity_multiplier();
+            }
+        }
+        1.0
+    }
+
+    /// Check if this is a facade pattern (high out-degree, delegates to many modules)
+    fn is_facade_pattern(&self, qualified_name: &str) -> bool {
+        if let Some(ref contexts) = self.function_contexts {
+            if let Some(ctx) = contexts.get(qualified_name) {
+                // Facade: high out-degree, moderate caller modules, low complexity
+                // It delegates work rather than implementing logic
+                let is_delegator = ctx.out_degree >= 5 && ctx.callee_modules >= 3;
+                let is_low_complexity = ctx.complexity.unwrap_or(1) <= 5;
+                if is_delegator && is_low_complexity {
+                    debug!("Detected facade pattern: {} (out={}, callee_mods={})", 
+                           ctx.name, ctx.out_degree, ctx.callee_modules);
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Calculate severity based on ratio and uses
@@ -240,7 +308,17 @@ impl Detector for FeatureEnvyDetector {
         ];
         
         for func in graph.get_functions() {
-            // Skip orchestrator functions by name
+            // === Graph-aware role-based filtering ===
+            if self.should_skip_by_role(&func.qualified_name) {
+                continue;
+            }
+            
+            // Skip facade patterns (intentional delegation)
+            if self.is_facade_pattern(&func.qualified_name) {
+                continue;
+            }
+            
+            // Skip orchestrator functions by name (fallback for no context)
             let name_lower = func.name.to_lowercase();
             if ORCHESTRATOR_NAMES.iter().any(|&pat| name_lower == pat || name_lower.starts_with(&format!("{}_", pat))) {
                 continue;
@@ -257,29 +335,60 @@ impl Detector for FeatureEnvyDetector {
             }
             
             // Count calls to own file vs other files
+            // Also track which modules are being called
             let own_file = &func.file_path;
+            let own_module = own_file.rsplit('/').nth(1).unwrap_or("");
             let mut internal_calls = 0;
             let mut external_calls = 0;
+            let mut external_modules: HashSet<String> = HashSet::new();
             
             for callee in &callees {
                 if callee.file_path == *own_file {
                     internal_calls += 1;
                 } else {
                     external_calls += 1;
+                    // Track the external module
+                    if let Some(module) = callee.file_path.rsplit('/').nth(1) {
+                        external_modules.insert(module.to_string());
+                    }
                 }
             }
             
-            // Feature envy: more external than internal calls
-            // Require at least SOME internal calls - 0 internal often means utility/orchestrator
-            // Threshold: at least 15 external calls to avoid noise
-            if external_calls > internal_calls * 3 && external_calls >= 15 && internal_calls > 0 {
+            // === Enhanced feature envy detection ===
+            // Original: external > internal * 3 && external >= 15 && internal > 0
+            // New: Also check module concentration - if calling many modules, it's likely orchestration
+            
+            let is_concentrated = external_modules.len() <= 2; // Calls mostly 1-2 modules
+            let high_external = external_calls > internal_calls * 3 && external_calls >= 15;
+            
+            if high_external && internal_calls > 0 && is_concentrated {
                 let ratio = external_calls as f64 / (internal_calls + 1) as f64;
-                let severity = if ratio > 8.0 && external_calls >= 25 {
+                let mut severity = if ratio > 8.0 && external_calls >= 25 {
                     Severity::High
                 } else if ratio > 5.0 && external_calls >= 15 {
                     Severity::Medium
                 } else {
                     Severity::Low
+                };
+                
+                // Apply role-based severity multiplier
+                let multiplier = self.get_severity_multiplier(&func.qualified_name);
+                if multiplier < 1.0 {
+                    severity = match severity {
+                        Severity::Critical => Severity::High,
+                        Severity::High => Severity::Medium,
+                        Severity::Medium => Severity::Low,
+                        _ => Severity::Low,
+                    };
+                }
+                
+                // Build suggestion with target module
+                let target_module = external_modules.iter().next().cloned().unwrap_or_default();
+                let suggestion = if is_concentrated && !target_module.is_empty() {
+                    format!("Consider moving '{}' to the '{}' module where most of its dependencies live", 
+                            func.name, target_module)
+                } else {
+                    "Consider moving this function to the class it uses most".to_string()
                 };
                 
                 findings.push(Finding {
@@ -288,22 +397,28 @@ impl Detector for FeatureEnvyDetector {
                     severity,
                     title: format!("Feature Envy: {}", func.name),
                     description: format!(
-                        "Function '{}' calls {} external functions but only {} internal. It may belong elsewhere.",
-                        func.name, external_calls, internal_calls
+                        "Function '{}' calls {} external functions (in {} modules) but only {} internal.\n\n\
+                         Primary external dependency: {}",
+                        func.name, external_calls, external_modules.len(), internal_calls,
+                        if is_concentrated { target_module.as_str() } else { "scattered across modules" }
                     ),
                     affected_files: vec![func.file_path.clone().into()],
                     line_start: Some(func.line_start),
                     line_end: Some(func.line_end),
-                    suggested_fix: Some("Consider moving this function to the class it uses most".to_string()),
+                    suggested_fix: Some(suggestion),
                     estimated_effort: Some("Medium (1-2 hours)".to_string()),
                     category: Some("coupling".to_string()),
                     cwe_id: None,
-                    why_it_matters: Some("Feature envy indicates misplaced functionality".to_string()),
+                    why_it_matters: Some(
+                        "Feature envy indicates misplaced functionality. Moving the function \
+                         to its natural home reduces coupling and improves cohesion.".to_string()
+                    ),
                     ..Default::default()
                 });
             }
         }
         
+        info!("FeatureEnvyDetector found {} findings (graph-aware)", findings.len());
         Ok(findings)
     }
 }

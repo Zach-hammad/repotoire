@@ -84,6 +84,9 @@ impl UnreachableCodeDetector {
             .map(|(_, callee)| callee)
             .collect();
 
+        // First pass: find directly dead functions
+        let mut directly_dead: HashSet<String> = HashSet::new();
+        
         for func in &functions {
             // Skip if it's called somewhere
             if called_functions.contains(&func.qualified_name) {
@@ -119,17 +122,47 @@ impl UnreachableCodeDetector {
                 continue;
             }
 
+            directly_dead.insert(func.qualified_name.clone());
+        }
+
+        // Second pass: find transitively dead functions
+        // (functions only called by dead functions)
+        let transitively_dead = self.find_transitively_dead(graph, &directly_dead);
+
+        // Create findings for directly dead functions
+        for func in &functions {
+            if !directly_dead.contains(&func.qualified_name) {
+                continue;
+            }
+
+            // Check how many functions this dead function calls (impact)
+            let callees = graph.get_callees(&func.qualified_name);
+            let dead_callees: Vec<_> = callees.iter()
+                .filter(|c| transitively_dead.contains(&c.qualified_name))
+                .collect();
+            
+            let cascade_note = if !dead_callees.is_empty() {
+                format!(
+                    "\n\n⚠️ **Cascade**: Removing this also removes {} transitively dead function(s):\n{}",
+                    dead_callees.len(),
+                    dead_callees.iter().take(3).map(|c| format!("  - {}", c.name)).collect::<Vec<_>>().join("\n")
+                )
+            } else {
+                String::new()
+            };
+
             debug!("Dead function found: {} in {}", func.name, func.file_path);
 
             findings.push(Finding {
                 id: Uuid::new_v4().to_string(),
                 detector: "UnreachableCodeDetector".to_string(),
-                severity: Severity::Medium,
+                severity: if !dead_callees.is_empty() { Severity::High } else { Severity::Medium },
                 title: format!("Dead function: {}", func.name),
                 description: format!(
                     "Function '{}' has **zero callers** in the codebase.\n\n\
-                     This function is never called and may be dead code that can be removed.",
-                    func.name
+                     This function is never called and may be dead code that can be removed.{}",
+                    func.name,
+                    cascade_note
                 ),
                 affected_files: vec![func.file_path.clone().into()],
                 line_start: Some(func.line_start),
@@ -141,7 +174,11 @@ impl UnreachableCodeDetector {
                      3. If it's a callback, ensure it's passed to the caller"
                         .to_string()
                 ),
-                estimated_effort: Some("10 minutes".to_string()),
+                estimated_effort: Some(if !dead_callees.is_empty() {
+                    "15 minutes".to_string()
+                } else {
+                    "10 minutes".to_string()
+                }),
                 category: Some("dead-code".to_string()),
                 cwe_id: Some("CWE-561".to_string()),
                 why_it_matters: Some(
@@ -153,7 +190,97 @@ impl UnreachableCodeDetector {
             });
         }
 
+        // Create separate findings for transitively dead (lower severity - removing root will fix)
+        for func in &functions {
+            if !transitively_dead.contains(&func.qualified_name) {
+                continue;
+            }
+            if directly_dead.contains(&func.qualified_name) {
+                continue; // Already reported
+            }
+
+            // Find which dead function(s) call this one
+            let dead_callers: Vec<_> = graph.get_callers(&func.qualified_name)
+                .into_iter()
+                .filter(|c| directly_dead.contains(&c.qualified_name) || transitively_dead.contains(&c.qualified_name))
+                .collect();
+
+            findings.push(Finding {
+                id: Uuid::new_v4().to_string(),
+                detector: "UnreachableCodeDetector".to_string(),
+                severity: Severity::Low, // Lower - fixing root dead function will resolve this
+                title: format!("Transitively dead: {}", func.name),
+                description: format!(
+                    "Function '{}' is only called by dead function(s):\n{}\n\n\
+                     Removing the dead callers will make this removable too.",
+                    func.name,
+                    dead_callers.iter().take(3).map(|c| format!("  - {}", c.name)).collect::<Vec<_>>().join("\n")
+                ),
+                affected_files: vec![func.file_path.clone().into()],
+                line_start: Some(func.line_start),
+                line_end: Some(func.line_end),
+                suggested_fix: Some(
+                    "This function will become removable after its dead callers are removed."
+                        .to_string()
+                ),
+                estimated_effort: Some("5 minutes".to_string()),
+                category: Some("dead-code".to_string()),
+                cwe_id: Some("CWE-561".to_string()),
+                why_it_matters: Some(
+                    "Transitively dead code is only reachable through other dead code."
+                        .to_string()
+                ),
+                ..Default::default()
+            });
+        }
+
         findings
+    }
+
+    /// Find functions that are transitively dead (only called by dead functions)
+    fn find_transitively_dead(&self, graph: &GraphStore, directly_dead: &HashSet<String>) -> HashSet<String> {
+        let mut transitively_dead: HashSet<String> = HashSet::new();
+        let mut changed = true;
+        let mut iterations = 0;
+        
+        // Iterate until no new dead functions found
+        while changed && iterations < 10 {
+            changed = false;
+            iterations += 1;
+            
+            for func in graph.get_functions() {
+                // Skip if already marked dead
+                if directly_dead.contains(&func.qualified_name) 
+                    || transitively_dead.contains(&func.qualified_name) {
+                    continue;
+                }
+                
+                // Skip entry points
+                if self.is_entry_point(&func.name, &func.file_path) {
+                    continue;
+                }
+                
+                // Get all callers
+                let callers = graph.get_callers(&func.qualified_name);
+                if callers.is_empty() {
+                    continue; // Would have been caught as directly dead
+                }
+                
+                // Check if ALL callers are dead
+                let all_callers_dead = callers.iter().all(|c| 
+                    directly_dead.contains(&c.qualified_name) 
+                    || transitively_dead.contains(&c.qualified_name)
+                );
+                
+                if all_callers_dead {
+                    transitively_dead.insert(func.qualified_name.clone());
+                    changed = true;
+                }
+            }
+        }
+        
+        debug!("Found {} transitively dead functions", transitively_dead.len());
+        transitively_dead
     }
 
     /// Find code after return/throw statements using source scanning

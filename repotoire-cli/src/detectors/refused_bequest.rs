@@ -1,10 +1,13 @@
 //! Refused Bequest detector - identifies improper inheritance
 //!
-//! Detects classes that inherit but don't use parent functionality.
+//! Graph-aware detection of classes that inherit but don't use parent functionality.
 //! A "refused bequest" occurs when a child class overrides parent methods
 //! without calling super() or using parent functionality.
 //!
-//! This often indicates that composition should be used instead of inheritance.
+//! Enhanced with graph analysis:
+//! - Check if child is used polymorphically (through parent type) - if so, higher severity
+//! - Trace inheritance depth - deep hierarchies with refused bequest are worse
+//! - Analyze if overridden methods are actually called differently by callers
 //!
 //! Example:
 //! ```text
@@ -23,6 +26,7 @@ use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -188,6 +192,98 @@ impl RefusedBequestDetector {
             ..Default::default()
         }
     }
+
+    /// Check if child class is used polymorphically (through parent type)
+    fn check_polymorphic_usage(&self, graph: &GraphStore, child_qn: &str, parent_qn: &str) -> bool {
+        // Look for functions that reference the parent type and might receive child instances
+        // This is heuristic - check if parent is used as parameter/return type in callers of child methods
+        
+        let child_methods: Vec<_> = graph.get_functions()
+            .into_iter()
+            .filter(|f| f.qualified_name.starts_with(child_qn))
+            .collect();
+        
+        for method in &child_methods {
+            let callers = graph.get_callers(&method.qualified_name);
+            for caller in &callers {
+                // If caller also calls parent methods, it might be polymorphic usage
+                let caller_callees = graph.get_callees(&caller.qualified_name);
+                for callee in &caller_callees {
+                    if callee.qualified_name.starts_with(parent_qn) {
+                        debug!("Polymorphic usage: {} calls both {} and parent {}", 
+                               caller.name, method.name, parent_qn);
+                        return true;
+                    }
+                }
+            }
+        }
+        
+        false
+    }
+
+    /// Get the depth of the inheritance hierarchy
+    fn get_inheritance_depth(&self, graph: &GraphStore, class_qn: &str) -> usize {
+        let mut depth = 0;
+        let mut current = class_qn.to_string();
+        let mut seen = HashSet::new();
+        
+        while let Some((_, parent)) = graph.get_inheritance()
+            .into_iter()
+            .find(|(child, _)| child == &current) 
+        {
+            if seen.contains(&parent) {
+                break; // Avoid cycles
+            }
+            seen.insert(parent.clone());
+            current = parent;
+            depth += 1;
+            
+            if depth > 10 {
+                break; // Safety limit
+            }
+        }
+        
+        depth
+    }
+
+    /// Check if child class methods are called differently than parent
+    fn check_divergent_callers(
+        &self, 
+        graph: &GraphStore, 
+        child_methods: &[crate::graph::CodeNode],
+        parent_qn: &str
+    ) -> bool {
+        // Get parent methods
+        let parent_methods: Vec<_> = graph.get_functions()
+            .into_iter()
+            .filter(|f| f.qualified_name.starts_with(parent_qn))
+            .collect();
+        
+        // For each child method, check if its callers are different from parent's callers
+        for child_method in child_methods {
+            let method_name = child_method.name.clone();
+            let child_callers: HashSet<_> = graph.get_callers(&child_method.qualified_name)
+                .into_iter()
+                .map(|c| c.qualified_name)
+                .collect();
+            
+            // Find corresponding parent method
+            if let Some(parent_method) = parent_methods.iter().find(|m| m.name == method_name) {
+                let parent_callers: HashSet<_> = graph.get_callers(&parent_method.qualified_name)
+                    .into_iter()
+                    .map(|c| c.qualified_name)
+                    .collect();
+                
+                // If there are callers unique to child, behavior might diverge
+                let unique_child_callers: HashSet<_> = child_callers.difference(&parent_callers).collect();
+                if unique_child_callers.len() >= 2 {
+                    return true;
+                }
+            }
+        }
+        
+        false
+    }
 }
 
 impl Default for RefusedBequestDetector {
@@ -214,6 +310,12 @@ impl Detector for RefusedBequestDetector {
     }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         
+        // Build set of all class names for polymorphism detection
+        let all_classes: HashSet<String> = graph.get_classes()
+            .into_iter()
+            .map(|c| c.qualified_name.clone())
+            .collect();
+        
         for (child_qn, parent_qn) in graph.get_inheritance() {
             // Skip common patterns
             if parent_qn.contains("Base") || parent_qn.contains("Abstract") || parent_qn.contains("Mixin") {
@@ -234,23 +336,93 @@ impl Detector for RefusedBequestDetector {
                         .collect();
                     
                     if potential_refusals.len() >= 2 {
+                        // === Graph-enhanced analysis ===
+                        
+                        // Check if child is used polymorphically (someone calls parent type methods on it)
+                        let is_polymorphic = self.check_polymorphic_usage(graph, &child_qn, &parent_qn);
+                        
+                        // Check inheritance depth (deeper = worse)
+                        let inheritance_depth = self.get_inheritance_depth(graph, &parent_qn);
+                        
+                        // Calculate if child methods are called differently from parent
+                        let has_divergent_callers = self.check_divergent_callers(
+                            graph, 
+                            &child_methods, 
+                            &parent_qn
+                        );
+                        
+                        // Determine severity based on graph analysis
+                        let severity = if is_polymorphic && has_divergent_callers {
+                            // Used polymorphically but behaves differently - LSP violation!
+                            Severity::High
+                        } else if is_polymorphic || inheritance_depth >= 3 {
+                            // Either polymorphic usage or deep hierarchy
+                            Severity::Medium
+                        } else {
+                            Severity::Low
+                        };
+                        
+                        // Build enhanced description
+                        let mut notes = Vec::new();
+                        if is_polymorphic {
+                            notes.push("⚠️ Used polymorphically (through parent type)".to_string());
+                        }
+                        if has_divergent_callers {
+                            notes.push("📞 Callers use it differently than parent".to_string());
+                        }
+                        if inheritance_depth >= 2 {
+                            notes.push(format!("📊 Inheritance depth: {}", inheritance_depth));
+                        }
+                        
+                        let graph_notes = if notes.is_empty() {
+                            String::new()
+                        } else {
+                            format!("\n\n**Graph analysis:**\n{}", notes.join("\n"))
+                        };
+                        
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "RefusedBequestDetector".to_string(),
-                            severity: Severity::Low,
+                            severity,
                             title: format!("Refused Bequest: {}", child.name),
                             description: format!(
-                                "Class '{}' inherits from '{}' but may not use inherited behavior properly.",
-                                child.name, parent_qn
+                                "Class '{}' inherits from '{}' but may not use inherited behavior properly.\n\n\
+                                 {} of {} methods appear to override without using parent.{}",
+                                child.name, 
+                                parent_qn.rsplit("::").next().unwrap_or(&parent_qn),
+                                potential_refusals.len(),
+                                child_methods.len(),
+                                graph_notes
                             ),
                             affected_files: vec![child.file_path.clone().into()],
                             line_start: Some(child.line_start),
                             line_end: Some(child.line_end),
-                            suggested_fix: Some("Consider composition over inheritance if not using parent behavior".to_string()),
-                            estimated_effort: Some("Medium (1-2 hours)".to_string()),
+                            suggested_fix: Some(
+                                if is_polymorphic {
+                                    format!(
+                                        "Since '{}' is used polymorphically, consider:\n\
+                                         1. Fix the overrides to properly extend parent behavior\n\
+                                         2. Extract a new interface that both classes implement\n\
+                                         3. Use the Strategy pattern if behavior varies", 
+                                        child.name
+                                    )
+                                } else {
+                                    "Consider composition over inheritance if not using parent behavior".to_string()
+                                }
+                            ),
+                            estimated_effort: Some(if severity == Severity::High {
+                                "Large (2-4 hours)".to_string()
+                            } else {
+                                "Medium (1-2 hours)".to_string()
+                            }),
                             category: Some("structure".to_string()),
                             cwe_id: None,
-                            why_it_matters: Some("Refused bequest indicates improper use of inheritance".to_string()),
+                            why_it_matters: Some(
+                                "Refused bequest indicates improper use of inheritance and may violate \
+                                 the Liskov Substitution Principle. This makes code harder to reason about \
+                                 and can lead to subtle bugs when the child is used in place of the parent."
+                                    .to_string()
+                            ),
                             ..Default::default()
                         });
                     }
@@ -258,6 +430,7 @@ impl Detector for RefusedBequestDetector {
             }
         }
         
+        info!("RefusedBequestDetector found {} findings (graph-aware)", findings.len());
         Ok(findings)
     }
 }
