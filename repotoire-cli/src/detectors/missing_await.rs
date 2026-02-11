@@ -1,6 +1,7 @@
 //! Missing Await Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -64,6 +65,7 @@ impl Detector for MissingAwaitDetector {
                                 category: Some("bug-risk".to_string()),
                                 cwe_id: None,
                                 why_it_matters: Some("Will get Promise object instead of result.".to_string()),
+                                ..Default::default()
                             });
                         }
                     }

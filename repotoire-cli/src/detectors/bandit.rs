@@ -171,6 +171,7 @@ impl BanditDetector {
                  {} has {} severity and {} confidence.",
                 test_name, issue_severity, issue_confidence
             )),
+            ..Default::default()
         })
     }
 

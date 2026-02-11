@@ -554,6 +554,7 @@ mod tests {
             category: None,
             cwe_id: None,
             why_it_matters: None,
+            ..Default::default()
         };
 
         assert_eq!(determine_fix_type(&finding), FixType::Simplify);

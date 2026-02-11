@@ -416,6 +416,7 @@ impl EvalDetector {
                 "Code execution vulnerabilities allow attackers to run arbitrary code on the server, \
                  potentially leading to complete system compromise."
             )),
+            ..Default::default()
         }
     }
 

@@ -1,6 +1,7 @@
 //! Prototype Pollution Detector (JavaScript)
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -59,6 +60,7 @@ impl Detector for PrototypePollutionDetector {
                             category: Some("security".to_string()),
                             cwe_id: Some("CWE-1321".to_string()),
                             why_it_matters: Some("Can lead to RCE or DoS.".to_string()),
+                            ..Default::default()
                         });
                     }
                 }

@@ -1,6 +1,7 @@
 //! Regex Compilation in Loop Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -78,6 +79,7 @@ impl Detector for RegexInLoopDetector {
                                 category: Some("performance".to_string()),
                                 cwe_id: None,
                                 why_it_matters: Some("Regex compilation is expensive.".to_string()),
+                                ..Default::default()
                             });
                             in_loop = false;
                         }

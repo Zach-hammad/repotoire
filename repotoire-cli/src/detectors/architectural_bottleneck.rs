@@ -227,6 +227,7 @@ impl ArchitecturalBottleneckDetector {
                 making it risky to change and a potential performance hotspot."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }
@@ -305,6 +306,7 @@ impl Detector for ArchitecturalBottleneckDetector {
                     category: Some("architecture".to_string()),
                     cwe_id: None,
                     why_it_matters: Some("Bottlenecks are single points of failure that amplify bugs".to_string()),
+                    ..Default::default()
                 });
             }
         }

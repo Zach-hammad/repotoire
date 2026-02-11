@@ -1,6 +1,7 @@
 //! Django Security Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -68,6 +69,7 @@ impl Detector for DjangoSecurityDetector {
                             category: Some("security".to_string()),
                             cwe_id: Some("CWE-352".to_string()),
                             why_it_matters: Some("Enables CSRF attacks.".to_string()),
+                            ..Default::default()
                         });
                     }
                     if debug_true().is_match(line) {
@@ -87,6 +89,7 @@ impl Detector for DjangoSecurityDetector {
                                 category: Some("security".to_string()),
                                 cwe_id: Some("CWE-215".to_string()),
                                 why_it_matters: Some("Leaks stack traces and config.".to_string()),
+                                ..Default::default()
                             });
                         }
                     }
@@ -105,6 +108,7 @@ impl Detector for DjangoSecurityDetector {
                             category: Some("security".to_string()),
                             cwe_id: Some("CWE-89".to_string()),
                             why_it_matters: Some("Risk of SQL injection.".to_string()),
+                            ..Default::default()
                         });
                     }
                 }

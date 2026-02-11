@@ -276,6 +276,7 @@ impl NpmAuditDetector {
                 "This dependency ({}) has a known security vulnerability that could be exploited by attackers.",
                 vuln.package
             )),
+            ..Default::default()
         }
     }
 }

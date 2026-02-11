@@ -215,6 +215,7 @@ impl DataClumpsDetector {
                  counts, and makes changes easier."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 

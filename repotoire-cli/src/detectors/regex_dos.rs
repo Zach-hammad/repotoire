@@ -1,6 +1,7 @@
 //! Regex DoS Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -63,6 +64,7 @@ impl Detector for RegexDosDetector {
                             category: Some("security".to_string()),
                             cwe_id: Some("CWE-1333".to_string()),
                             why_it_matters: Some("Attackers could cause denial of service.".to_string()),
+                            ..Default::default()
                         });
                     }
                 }

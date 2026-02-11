@@ -297,6 +297,7 @@ describe('{}', () => {{
                  AI may produce subtly incorrect implementations."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }
@@ -376,6 +377,7 @@ impl Detector for AIMissingTestsDetector {
                     category: Some("ai_watchdog".to_string()),
                     cwe_id: None,
                     why_it_matters: Some("Complex untested code is a maintenance risk".to_string()),
+                    ..Default::default()
                 });
             }
         }

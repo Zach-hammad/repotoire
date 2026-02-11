@@ -144,6 +144,7 @@ impl DegreeCentralityDetector {
                 understand, test, and maintain."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 
@@ -224,6 +225,7 @@ impl DegreeCentralityDetector {
                 harder to maintain and test."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 
@@ -311,6 +313,7 @@ impl DegreeCentralityDetector {
                 cascades in all directions."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }
@@ -413,6 +416,7 @@ impl Detector for DegreeCentralityDetector {
                     category: Some("coupling".to_string()),
                     cwe_id: None,
                     why_it_matters: Some("Highly coupled code is harder to change and test".to_string()),
+                    ..Default::default()
                 });
             }
         }

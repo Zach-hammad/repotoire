@@ -314,6 +314,7 @@ impl GodClassDetector {
                  affect other parts, leading to bugs and technical debt."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }

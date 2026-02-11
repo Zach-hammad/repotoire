@@ -73,6 +73,7 @@ impl EmptyCatchDetector {
             category: Some("error-handling".to_string()),
             cwe_id: Some("CWE-390".to_string()),
             why_it_matters: Some("Swallowed exceptions hide bugs and make debugging difficult.".to_string()),
+            ..Default::default()
         }
     }
 }

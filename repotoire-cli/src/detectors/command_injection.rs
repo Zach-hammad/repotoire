@@ -163,6 +163,7 @@ impl Detector for CommandInjectionDetector {
                                 category: Some("security".to_string()),
                                 cwe_id: Some("CWE-78".to_string()),
                                 why_it_matters: Some("Attackers could execute arbitrary system commands by injecting shell metacharacters.".to_string()),
+                                ..Default::default()
                             });
                         }
                     }
@@ -185,6 +186,7 @@ impl Detector for CommandInjectionDetector {
                                 category: Some("security".to_string()),
                                 cwe_id: Some("CWE-78".to_string()),
                                 why_it_matters: Some("An attacker can inject shell commands by providing input like '; rm -rf /' or '$(malicious_command)'".to_string()),
+                                ..Default::default()
                             });
                         }
                         // Also check if it's using a variable we identified as dangerous (built from template literal)
@@ -203,6 +205,7 @@ impl Detector for CommandInjectionDetector {
                                 category: Some("security".to_string()),
                                 cwe_id: Some("CWE-78".to_string()),
                                 why_it_matters: Some("The command variable was built using ${} interpolation, allowing shell injection.".to_string()),
+                                ..Default::default()
                             });
                         }
                     }
@@ -229,6 +232,7 @@ impl Detector for CommandInjectionDetector {
                                 category: Some("security".to_string()),
                                 cwe_id: Some("CWE-78".to_string()),
                                 why_it_matters: Some("An attacker can execute ANY system command by sending malicious input like 'rm -rf /' or 'cat /etc/passwd'.".to_string()),
+                                ..Default::default()
                             });
                         }
                     }
@@ -264,6 +268,7 @@ impl Detector for CommandInjectionDetector {
                                 category: Some("security".to_string()),
                                 cwe_id: Some("CWE-78".to_string()),
                                 why_it_matters: Some("Go's exec.Command runs system commands. If user input controls the command or arguments, attackers can execute arbitrary commands.".to_string()),
+                                ..Default::default()
                             });
                         }
                     }

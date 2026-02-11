@@ -159,6 +159,7 @@ impl MypyDetector {
             why_it_matters: Some(
                 "Type errors can cause runtime crashes. Static type checking catches these bugs before they reach production.".to_string()
             ),
+            ..Default::default()
         })
     }
 

@@ -54,6 +54,7 @@ impl Detector for InconsistentReturnsDetector {
                         category: Some("bug-risk".to_string()),
                         cwe_id: None,
                         why_it_matters: Some("Can cause unexpected None/undefined.".to_string()),
+                        ..Default::default()
                     });
                 }
             }

@@ -1,6 +1,7 @@
 //! Insecure Random Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -64,6 +65,7 @@ impl Detector for InsecureRandomDetector {
                                 category: Some("security".to_string()),
                                 cwe_id: Some("CWE-330".to_string()),
                                 why_it_matters: Some("Predictable random allows attackers to guess tokens.".to_string()),
+                                ..Default::default()
                             });
                         }
                     }

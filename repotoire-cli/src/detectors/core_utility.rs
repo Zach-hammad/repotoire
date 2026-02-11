@@ -189,6 +189,7 @@ impl CoreUtilityDetector {
                 have cascading effects across the system."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 
@@ -273,6 +274,7 @@ impl CoreUtilityDetector {
                 It may confuse developers and add cognitive load when navigating the codebase."
                     .to_string(),
             ),
+            ..Default::default()
         })
     }
 }
@@ -324,6 +326,7 @@ impl Detector for CoreUtilityDetector {
                     category: Some("architecture".to_string()),
                     cwe_id: None,
                     why_it_matters: Some("Core utilities need extra attention as bugs affect many callers".to_string()),
+                    ..Default::default()
                 });
             }
         }

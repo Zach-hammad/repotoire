@@ -1,6 +1,7 @@
 //! Hardcoded IPs Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -75,6 +76,7 @@ impl Detector for HardcodedIpsDetector {
                             category: Some("configuration".to_string()),
                             cwe_id: None,
                             why_it_matters: Some("Hardcoded IPs break in different environments.".to_string()),
+                            ..Default::default()
                         });
                     }
                 }

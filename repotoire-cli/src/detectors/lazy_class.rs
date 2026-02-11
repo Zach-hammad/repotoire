@@ -164,6 +164,7 @@ impl LazyClassDetector {
                  consider removing or expanding it."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }
@@ -227,6 +228,7 @@ impl Detector for LazyClassDetector {
                     category: Some("structure".to_string()),
                     cwe_id: None,
                     why_it_matters: Some("Lazy classes add complexity without providing value".to_string()),
+                    ..Default::default()
                 });
             }
         }

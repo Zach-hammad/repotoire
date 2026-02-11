@@ -334,7 +334,7 @@ fn extract_interface_methods(body_node: Option<Node>, source: &[u8]) -> Vec<Stri
     let mut methods = Vec::new();
 
     for child in node.children(&mut node.walk()) {
-        if child.kind() == "method_spec" {
+        if child.kind() == "method_elem" {
             if let Some(name_node) = child.child_by_field_name("name") {
                 if let Ok(name) = name_node.utf8_text(source) {
                     methods.push(name.to_string());

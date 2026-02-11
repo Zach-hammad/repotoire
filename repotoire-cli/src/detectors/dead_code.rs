@@ -572,6 +572,7 @@ impl DeadCodeDetector {
                     .to_string(),
             ),
             confidence: Some(confidence),
+            ..Default::default()
         }
     }
 
@@ -635,6 +636,7 @@ impl DeadCodeDetector {
                     .to_string(),
             ),
             confidence: Some(confidence),
+            ..Default::default()
         }
     }
 

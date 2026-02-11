@@ -184,6 +184,7 @@ impl InappropriateIntimacyDetector {
                  and increased maintenance costs."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }
@@ -288,6 +289,7 @@ impl Detector for InappropriateIntimacyDetector {
                     category: Some("coupling".to_string()),
                     cwe_id: None,
                     why_it_matters: Some("Bidirectional coupling makes both files hard to change independently - a change in one often requires changes in the other".to_string()),
+                    ..Default::default()
                 });
             }
         }

@@ -86,6 +86,7 @@ impl Detector for CommentedCodeDetector {
                                 category: Some("maintainability".to_string()),
                                 cwe_id: None,
                                 why_it_matters: Some("Commented code clutters and confuses.".to_string()),
+                                ..Default::default()
                             });
                         }
                         i = j;

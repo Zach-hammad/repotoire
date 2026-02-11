@@ -85,6 +85,7 @@ impl Detector for DuplicateCodeDetector {
                     category: Some("maintainability".to_string()),
                     cwe_id: None,
                     why_it_matters: Some("Duplicate code means duplicate bugs.".to_string()),
+                    ..Default::default()
                 });
             }
         }

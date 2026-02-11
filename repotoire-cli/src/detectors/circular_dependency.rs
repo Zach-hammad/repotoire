@@ -104,6 +104,7 @@ impl CircularDependencyDetector {
                  individual modules."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }

@@ -358,6 +358,7 @@ impl AIChurnDetector {
                  hidden bugs, incomplete error handling, and logic that may not be fully correct."
                     .to_string(),
             ),
+            ..Default::default()
         })
     }
 }

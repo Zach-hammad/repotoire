@@ -220,6 +220,7 @@ impl JscpdDetector {
                 "Duplicated code violates DRY (Don't Repeat Yourself) and makes maintenance harder. \
                  Bugs fixed in one location may not be fixed in duplicates.".to_string()
             ),
+            ..Default::default()
         }
     }
 }

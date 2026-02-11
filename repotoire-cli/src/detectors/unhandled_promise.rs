@@ -1,6 +1,7 @@
 //! Unhandled Promise Rejection Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -61,6 +62,7 @@ impl Detector for UnhandledPromiseDetector {
                                 category: Some("error-handling".to_string()),
                                 cwe_id: None,
                                 why_it_matters: Some("Unhandled rejections crash Node.js.".to_string()),
+                                ..Default::default()
                             });
                         }
                     }

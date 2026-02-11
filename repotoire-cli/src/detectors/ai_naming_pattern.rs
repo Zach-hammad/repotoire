@@ -411,6 +411,7 @@ impl AINamingPatternDetector {
                  a common pattern in AI-generated code.",
                 (analysis.generic_ratio * 100.0) as u32
             )),
+            ..Default::default()
         }
     }
 }
@@ -464,6 +465,7 @@ impl Detector for AINamingPatternDetector {
                     category: Some("ai_watchdog".to_string()),
                     cwe_id: None,
                     why_it_matters: Some("Generic names reduce code readability".to_string()),
+                    ..Default::default()
                 });
             }
         }

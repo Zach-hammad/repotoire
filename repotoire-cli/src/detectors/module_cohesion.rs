@@ -259,6 +259,7 @@ impl ModuleCohesionDetector {
                 This makes changes risky, testing difficult, and onboarding painful."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 
@@ -327,6 +328,7 @@ impl ModuleCohesionDetector {
                 They become maintenance nightmares and bottlenecks for development."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 
@@ -396,6 +398,7 @@ impl ModuleCohesionDetector {
                 that should be elsewhere."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 
@@ -454,6 +457,7 @@ impl ModuleCohesionDetector {
                 and hard to evolve."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }
@@ -523,6 +527,7 @@ impl Detector for ModuleCohesionDetector {
                         category: Some("architecture".to_string()),
                         cwe_id: None,
                         why_it_matters: Some("Low cohesion makes modules harder to understand and maintain".to_string()),
+                        ..Default::default()
                     });
                 }
             }

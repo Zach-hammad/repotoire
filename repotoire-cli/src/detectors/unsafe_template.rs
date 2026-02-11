@@ -495,6 +495,7 @@ impl UnsafeTemplateDetector {
                  potentially stealing sensitive data or hijacking user sessions."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 

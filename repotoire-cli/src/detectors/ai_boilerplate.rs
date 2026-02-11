@@ -508,6 +508,7 @@ Consolidate database access patterns."#
                  Abstracting common patterns reduces bugs and improves consistency."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }

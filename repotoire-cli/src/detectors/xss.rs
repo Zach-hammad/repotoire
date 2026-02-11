@@ -1,6 +1,7 @@
 //! XSS Detection
 
 use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
+use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -64,6 +65,7 @@ impl Detector for XssDetector {
                             category: Some("security".to_string()),
                             cwe_id: Some("CWE-79".to_string()),
                             why_it_matters: Some("XSS allows attackers to execute scripts in users' browsers.".to_string()),
+                            ..Default::default()
                         });
                     }
                 }

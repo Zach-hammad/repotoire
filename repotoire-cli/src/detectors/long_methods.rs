@@ -47,6 +47,7 @@ impl Detector for LongMethodsDetector {
                     category: Some("maintainability".to_string()),
                     cwe_id: None,
                     why_it_matters: Some("Long methods are hard to understand and test.".to_string()),
+                    ..Default::default()
                 });
             }
         }

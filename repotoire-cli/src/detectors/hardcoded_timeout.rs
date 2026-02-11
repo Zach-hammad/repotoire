@@ -1,6 +1,7 @@
 //! Hardcoded Timeout Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -63,6 +64,7 @@ impl Detector for HardcodedTimeoutDetector {
                                 category: Some("maintainability".to_string()),
                                 cwe_id: None,
                                 why_it_matters: Some("Hard to find and adjust timeouts.".to_string()),
+                                ..Default::default()
                             });
                         }
                     }

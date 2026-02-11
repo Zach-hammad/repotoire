@@ -297,6 +297,7 @@ impl LongParameterListDetector {
                  doing too much and should be split."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }
@@ -354,6 +355,7 @@ impl Detector for LongParameterListDetector {
                     category: Some("quality".to_string()),
                     cwe_id: None,
                     why_it_matters: Some("Long parameter lists make functions hard to call and understand".to_string()),
+                    ..Default::default()
                 });
             }
         }

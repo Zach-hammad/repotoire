@@ -210,7 +210,7 @@ pub fn run(cli: Cli) -> Result<()> {
             } else {
                 severity
             };
-            analyze::run(&cli.path, &format, output.as_deref(), effective_severity, top, page, per_page, skip_detector, thorough, no_git, cli.workers, fail_on, no_emoji)
+            analyze::run(&cli.path, &format, output.as_deref(), effective_severity, top, page, per_page, skip_detector, thorough, no_git, cli.workers, fail_on, no_emoji, false, None)
         }
 
         Some(Commands::Findings { index, json, top, severity, page, per_page, interactive }) => {
@@ -255,7 +255,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 }
             }
             // Default: run analyze with pagination (page 1, 20 per page)
-            analyze::run(&cli.path, "text", None, None, None, 1, 20, vec![], false, false, cli.workers, None, false)
+            analyze::run(&cli.path, "text", None, None, None, 1, 20, vec![], false, false, cli.workers, None, false, false, None)
         }
     }
 }

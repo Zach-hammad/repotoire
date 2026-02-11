@@ -1,6 +1,7 @@
 //! Insecure Crypto Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -216,6 +217,7 @@ impl Detector for InsecureCryptoDetector {
                             category: Some("security".to_string()),
                             cwe_id: Some("CWE-328".to_string()),
                             why_it_matters: Some("Weak hashes can be cracked or collided.".to_string()),
+                            ..Default::default()
                         });
                     }
                     // Check for weak cipher usage, but skip mere mentions
@@ -234,6 +236,7 @@ impl Detector for InsecureCryptoDetector {
                             category: Some("security".to_string()),
                             cwe_id: Some("CWE-327".to_string()),
                             why_it_matters: Some("Weak ciphers can be broken.".to_string()),
+                            ..Default::default()
                         });
                     }
                 }

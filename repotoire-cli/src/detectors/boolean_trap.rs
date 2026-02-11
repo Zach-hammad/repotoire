@@ -61,6 +61,7 @@ impl Detector for BooleanTrapDetector {
                             category: Some("readability".to_string()),
                             cwe_id: None,
                             why_it_matters: Some("Confusing API, easy to get wrong.".to_string()),
+                            ..Default::default()
                         });
                     }
                 }

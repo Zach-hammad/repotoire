@@ -206,6 +206,7 @@ impl RadonDetector {
             why_it_matters: Some(
                 "High cyclomatic complexity increases bug risk and makes code harder to test comprehensively.".to_string()
             ),
+            ..Default::default()
         })
     }
 
@@ -257,6 +258,7 @@ impl RadonDetector {
             why_it_matters: Some(
                 "Low maintainability makes the codebase harder to understand and modify, increasing technical debt.".to_string()
             ),
+            ..Default::default()
         })
     }
 

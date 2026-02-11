@@ -166,6 +166,7 @@ impl PylintDetector {
             category: Some(Self::get_category_tag(symbol)),
             cwe_id: None,
             why_it_matters: None,
+            ..Default::default()
         })
     }
 

@@ -1,6 +1,7 @@
 //! Dead Store Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -78,6 +79,7 @@ impl Detector for DeadStoreDetector {
                             category: Some("code-quality".to_string()),
                             cwe_id: Some("CWE-563".to_string()),
                             why_it_matters: Some("Indicates logic error or dead code.".to_string()),
+                            ..Default::default()
                         });
                     }
                 }

@@ -398,6 +398,7 @@ impl TaintDetector {
                 vuln_title,
                 self.get_impact(&flow.vulnerability)
             )),
+            ..Default::default()
         }
     }
 

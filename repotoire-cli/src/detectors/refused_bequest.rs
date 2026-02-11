@@ -185,6 +185,7 @@ impl RefusedBequestDetector {
                  instead of inheritance leads to more flexible and maintainable code."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }
@@ -250,6 +251,7 @@ impl Detector for RefusedBequestDetector {
                             category: Some("structure".to_string()),
                             cwe_id: None,
                             why_it_matters: Some("Refused bequest indicates improper use of inheritance".to_string()),
+                            ..Default::default()
                         });
                     }
                 }

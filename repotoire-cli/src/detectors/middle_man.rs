@@ -160,6 +160,7 @@ impl MiddleManDetector {
                  consider removing it or giving it real responsibilities."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }
@@ -229,6 +230,7 @@ impl Detector for MiddleManDetector {
                     category: Some("structure".to_string()),
                     cwe_id: None,
                     why_it_matters: Some("Middle man classes add indirection without value".to_string()),
+                    ..Default::default()
                 });
             }
         }

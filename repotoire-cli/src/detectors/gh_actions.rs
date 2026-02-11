@@ -249,6 +249,7 @@ This can lead to:
                 "Command injection in CI/CD pipelines can lead to complete repository compromise, \
                  secrets theft, and supply chain attacks affecting all users of your software.".to_string()
             ),
+            ..Default::default()
         }
     }
 }

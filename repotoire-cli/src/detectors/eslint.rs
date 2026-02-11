@@ -191,6 +191,7 @@ impl ESLintDetector {
             category: Some(Self::get_tag_from_rule(rule_id)),
             cwe_id: None,
             why_it_matters: None,
+            ..Default::default()
         })
     }
 

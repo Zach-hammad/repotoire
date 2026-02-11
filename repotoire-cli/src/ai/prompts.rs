@@ -378,6 +378,7 @@ mod tests {
             category: None,
             cwe_id: None,
             why_it_matters: None,
+            confidence: None,
         };
 
         let prompt = FixPromptBuilder::new(finding, FixType::Simplify, "python")

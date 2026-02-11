@@ -91,6 +91,7 @@ impl Detector for PathTraversalDetector {
                             category: Some("security".to_string()),
                             cwe_id: Some("CWE-22".to_string()),
                             why_it_matters: Some("Attackers could read sensitive files like /etc/passwd or overwrite critical system files.".to_string()),
+                            ..Default::default()
                         });
                     }
                     
@@ -112,6 +113,7 @@ impl Detector for PathTraversalDetector {
                             category: Some("security".to_string()),
                             cwe_id: Some("CWE-22".to_string()),
                             why_it_matters: Some("path.join() is commonly misunderstood as safe, but it preserves '../' sequences allowing directory escape.".to_string()),
+                            ..Default::default()
                         });
                     }
                     
@@ -131,6 +133,7 @@ impl Detector for PathTraversalDetector {
                             category: Some("security".to_string()),
                             cwe_id: Some("CWE-22".to_string()),
                             why_it_matters: Some("Attackers could download sensitive configuration files, source code, or credentials from the server.".to_string()),
+                            ..Default::default()
                         });
                     }
                     
@@ -156,6 +159,7 @@ impl Detector for PathTraversalDetector {
                             category: Some("security".to_string()),
                             cwe_id: Some("CWE-22".to_string()),
                             why_it_matters: Some("String concatenation provides no protection against '../' sequences in user input.".to_string()),
+                            ..Default::default()
                         });
                     }
                 }

@@ -331,6 +331,7 @@ impl AIDuplicateBlockDetector {
                  When requirements change, all copies must be updated consistently."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }

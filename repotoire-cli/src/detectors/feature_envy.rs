@@ -198,6 +198,7 @@ impl FeatureEnvyDetector {
                  reduces coupling, and makes the code easier to understand and maintain."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }
@@ -298,6 +299,7 @@ impl Detector for FeatureEnvyDetector {
                     category: Some("coupling".to_string()),
                     cwe_id: None,
                     why_it_matters: Some("Feature envy indicates misplaced functionality".to_string()),
+                    ..Default::default()
                 });
             }
         }

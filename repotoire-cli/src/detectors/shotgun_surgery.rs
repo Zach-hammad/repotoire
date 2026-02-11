@@ -132,6 +132,7 @@ impl ShotgunSurgeryDetector {
                 and increases the risk of missing something."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }

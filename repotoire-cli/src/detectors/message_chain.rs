@@ -168,6 +168,7 @@ impl MessageChainDetector {
                  the code fragile and hard to change."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }

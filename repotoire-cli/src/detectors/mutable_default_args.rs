@@ -1,6 +1,7 @@
 //! Mutable Default Arguments Detector (Python)
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -58,6 +59,7 @@ impl Detector for MutableDefaultArgsDetector {
                             category: Some("bug-risk".to_string()),
                             cwe_id: None,
                             why_it_matters: Some("Causes surprising shared state bugs.".to_string()),
+                            ..Default::default()
                         });
                     }
                 }

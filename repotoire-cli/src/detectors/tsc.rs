@@ -208,6 +208,7 @@ impl TscDetector {
             why_it_matters: Some(
                 "Type errors can cause runtime crashes. TypeScript's type system catches these bugs at compile time.".to_string()
             ),
+            ..Default::default()
         }
     }
 

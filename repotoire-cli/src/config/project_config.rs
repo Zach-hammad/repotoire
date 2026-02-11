@@ -407,6 +407,7 @@ impl ProjectConfig {
 /// Converts various formats to kebab-case for matching
 fn normalize_detector_name(name: &str) -> String {
     // GodClassDetector -> god-class
+    // SQLInjectionDetector -> sql-injection
     // god_class -> god-class
     // god-class -> god-class
     
@@ -415,7 +416,16 @@ fn normalize_detector_name(name: &str) -> String {
     
     for (i, c) in chars.iter().enumerate() {
         if c.is_uppercase() {
-            if i > 0 && !chars[i - 1].is_uppercase() {
+            // Add hyphen if:
+            // 1. Not first char AND previous is lowercase (e.g., godClass -> god-class)
+            // 2. Not first char AND previous is uppercase AND next is lowercase (e.g., SQLInjection -> sql-injection)
+            let prev_is_lower = i > 0 && chars[i - 1].is_lowercase();
+            let is_acronym_end = i > 0 
+                && chars[i - 1].is_uppercase() 
+                && i + 1 < chars.len() 
+                && chars[i + 1].is_lowercase();
+            
+            if prev_is_lower || is_acronym_end {
                 result.push('-');
             }
             result.push(c.to_lowercase().next().unwrap());
@@ -434,6 +444,14 @@ fn normalize_detector_name(name: &str) -> String {
 
 /// Simple glob pattern matching
 fn glob_match(pattern: &str, path: &str) -> bool {
+    // Handle **/X/** patterns (match if path contains X as a directory)
+    if pattern.starts_with("**/") && pattern.ends_with("/**") {
+        let middle = pattern.trim_start_matches("**/").trim_end_matches("/**");
+        // Check if path contains /middle/ or starts with middle/
+        return path.contains(&format!("/{}/", middle)) 
+            || path.starts_with(&format!("{}/", middle));
+    }
+    
     // Handle ** (match any path segments)
     if pattern.contains("**") {
         let parts: Vec<&str> = pattern.split("**").collect();
@@ -478,7 +496,8 @@ mod tests {
         assert_eq!(normalize_detector_name("GodClassDetector"), "god-class");
         assert_eq!(normalize_detector_name("god_class"), "god-class");
         assert_eq!(normalize_detector_name("god-class"), "god-class");
-        assert_eq!(normalize_detector_name("SQLInjectionDetector"), "s-q-l-injection");
+        // Consecutive uppercase stays together: SQL -> sql
+        assert_eq!(normalize_detector_name("SQLInjectionDetector"), "sql-injection");
         assert_eq!(normalize_detector_name("NPlusOneDetector"), "n-plus-one");
     }
 

@@ -221,6 +221,7 @@ impl AIComplexitySpikeDetector {
                  proper decomposition.",
                 spike.current_complexity, spike.z_score, spike.baseline_median
             )),
+            ..Default::default()
         }
     }
 
@@ -385,6 +386,7 @@ impl Detector for AIComplexitySpikeDetector {
                         category: Some("ai_watchdog".to_string()),
                         cwe_id: None,
                         why_it_matters: Some("Complexity spikes often indicate code that needs review".to_string()),
+                        ..Default::default()
                     });
                 }
             }

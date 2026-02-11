@@ -583,6 +583,7 @@ impl VotingEngine {
             cwe_id: base.cwe_id.clone(),
             why_it_matters: base.why_it_matters.clone(),
             confidence: Some(consensus.confidence),
+            ..Default::default()
         }
     }
 

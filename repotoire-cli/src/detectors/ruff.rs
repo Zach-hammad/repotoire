@@ -181,6 +181,7 @@ impl RuffLintDetector {
             category: Some(Self::get_category(code)),
             cwe_id: None,
             why_it_matters: None,
+            ..Default::default()
         })
     }
 
@@ -372,6 +373,7 @@ impl Detector for RuffImportDetector {
                 category: Some("imports".to_string()),
                 cwe_id: None,
                 why_it_matters: None,
+                ..Default::default()
             });
         }
 

@@ -213,6 +213,7 @@ impl SemgrepDetector {
             why_it_matters: Some(
                 "Security vulnerabilities can be exploited by attackers to compromise your application.".to_string()
             ),
+            ..Default::default()
         })
     }
 

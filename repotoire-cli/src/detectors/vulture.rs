@@ -240,6 +240,7 @@ impl VultureDetector {
             why_it_matters: Some(
                 "Dead code adds maintenance burden and can mislead developers about actual code paths.".to_string()
             ),
+            ..Default::default()
         }
     }
 

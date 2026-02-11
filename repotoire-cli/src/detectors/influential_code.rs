@@ -213,6 +213,7 @@ impl InfluentialCodeDetector {
                 stability, and test coverage are critical."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 
@@ -288,6 +289,7 @@ impl InfluentialCodeDetector {
                 developers navigating the codebase."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 }
@@ -347,6 +349,7 @@ impl Detector for InfluentialCodeDetector {
                     category: Some("architecture".to_string()),
                     cwe_id: None,
                     why_it_matters: Some("Changes to influential code have wide-reaching effects".to_string()),
+                    ..Default::default()
                 });
             }
         }

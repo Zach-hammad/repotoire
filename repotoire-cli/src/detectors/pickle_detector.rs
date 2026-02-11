@@ -341,6 +341,7 @@ impl PickleDeserializationDetector {
                  to take complete control of the application and server."
                     .to_string(),
             ),
+            ..Default::default()
         }
     }
 

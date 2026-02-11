@@ -549,6 +549,7 @@ mod tests {
             category: None,
             cwe_id: None,
             why_it_matters: None,
+            ..Default::default()
         }
     }
 

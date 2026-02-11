@@ -80,6 +80,7 @@ impl Detector for UnreachableCodeDetector {
                                 category: Some("code-quality".to_string()),
                                 cwe_id: Some("CWE-561".to_string()),
                                 why_it_matters: Some("Dead code indicates logic errors.".to_string()),
+                                ..Default::default()
                             });
                         }
                     }

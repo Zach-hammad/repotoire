@@ -10,6 +10,7 @@
 //! CWE-89: Improper Neutralization of Special Elements used in an SQL Command
 
 use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
+use crate::detectors::taint::{TaintAnalyzer, TaintAnalysisResult, TaintCategory};
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -69,6 +70,8 @@ pub struct SQLInjectionDetector {
     js_template_sql_pattern: Regex,
     // Go fmt.Sprintf pattern
     go_sprintf_sql_pattern: Regex,
+    // Taint analyzer for graph-based data flow
+    taint_analyzer: TaintAnalyzer,
 }
 
 impl SQLInjectionDetector {
@@ -136,6 +139,7 @@ impl SQLInjectionDetector {
             percent_sql_pattern,
             js_template_sql_pattern,
             go_sprintf_sql_pattern,
+            taint_analyzer: TaintAnalyzer::new(),
         }
     }
 
@@ -628,6 +632,7 @@ impl SQLInjectionDetector {
                     .to_string(),
             ),
             confidence: Some(confidence),
+            ..Default::default()
         }
     }
 }
@@ -802,6 +807,7 @@ impl SQLInjectionDetector {
                     .to_string(),
             ),
             confidence: None,
+            ..Default::default()
         }
     }
 }

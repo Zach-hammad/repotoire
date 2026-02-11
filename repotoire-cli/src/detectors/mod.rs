@@ -118,6 +118,9 @@ mod sql_injection;
 mod taint_detector;
 mod unsafe_template;
 
+// Taint analysis module (graph-based data flow tracking)
+pub mod taint;
+
 // Framework/ORM detection for reducing false positives
 pub mod framework_detection;
 

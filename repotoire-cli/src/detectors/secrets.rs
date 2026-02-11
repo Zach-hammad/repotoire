@@ -195,6 +195,7 @@ impl SecretDetector {
                         category: Some("security".to_string()),
                         cwe_id: Some("CWE-798".to_string()),
                         why_it_matters: Some("Hardcoded secrets can be extracted from source code, leading to credential theft".to_string()),
+                        ..Default::default()
                     });
                 }
             }

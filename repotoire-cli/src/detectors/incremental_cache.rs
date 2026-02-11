@@ -100,6 +100,7 @@ impl CachedFinding {
             category: self.category.clone(),
             cwe_id: self.cwe_id.clone(),
             why_it_matters: self.why_it_matters.clone(),
+            ..Default::default()
         }
     }
 }
@@ -451,6 +452,7 @@ mod tests {
             category: None,
             cwe_id: None,
             why_it_matters: None,
+            ..Default::default()
         }
     }
 

@@ -1,6 +1,7 @@
 //! Implicit Coercion Detector (JavaScript)
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -65,6 +66,7 @@ impl Detector for ImplicitCoercionDetector {
                             category: Some("code-quality".to_string()),
                             cwe_id: None,
                             why_it_matters: Some("Type coercion causes subtle bugs.".to_string()),
+                            ..Default::default()
                         });
                     }
                 }

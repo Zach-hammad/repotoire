@@ -98,6 +98,7 @@ impl GlobalVariablesDetector {
             category: Some("code-quality".to_string()),
             cwe_id: None,
             why_it_matters: Some("Global state causes hidden dependencies.".to_string()),
+            ..Default::default()
         }
     }
 }

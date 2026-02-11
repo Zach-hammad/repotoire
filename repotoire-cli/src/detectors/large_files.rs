@@ -1,6 +1,7 @@
 //! Large Files Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use uuid::Uuid;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -51,6 +52,7 @@ impl Detector for LargeFilesDetector {
                         category: Some("maintainability".to_string()),
                         cwe_id: None,
                         why_it_matters: Some("Large files are hard to understand and maintain.".to_string()),
+                        ..Default::default()
                     });
                 }
             }
