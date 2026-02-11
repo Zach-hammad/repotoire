@@ -26,7 +26,9 @@ use tracing::{debug, info};
 use uuid::Uuid;
 
 /// Taint source patterns (user input, network, etc.)
+/// NOTE: These should only be actual INPUT sources, not operations that use input
 const TAINT_SOURCES: &[(&str, &str)] = &[
+    // Web request input (user-controlled)
     ("request.args", "user_input"),
     ("request.form", "user_input"),
     ("request.data", "user_input"),
@@ -37,56 +39,74 @@ const TAINT_SOURCES: &[(&str, &str)] = &[
     ("request.GET", "user_input"),
     ("request.POST", "user_input"),
     ("request.body", "user_input"),
+    ("req.params", "user_input"),
+    ("req.query", "user_input"),
+    ("req.body", "user_input"),
+    // CLI/stdin input
     ("input(", "user_input"),
     ("raw_input(", "user_input"),
     ("sys.stdin", "user_input"),
+    ("sys.argv", "user_input"),
+    ("argv[", "user_input"),
+    // Environment (may be attacker-controlled in some contexts)
     ("os.environ", "environment"),
     ("getenv(", "environment"),
-    ("open(", "file"),
-    ("urlopen(", "network"),
-    ("requests.get(", "network"),
-    ("requests.post(", "network"),
+    ("process.env", "environment"),
+    // Network input (reading FROM network, not making requests)
     ("socket.recv(", "network"),
+    (".read()", "file"),  // Reading file content, not opening
+    // NOTE: open() is NOT a source - it's a sink for path traversal
+    // NOTE: requests.get() is a sink for SSRF, not a source
 ];
 
 /// Taint sink patterns (dangerous operations)
+/// A sink is where tainted data becomes dangerous if unsanitized
 const TAINT_SINKS: &[(&str, &str)] = &[
     // SQL injection sinks
     ("cursor.execute(", "sql_injection"),
-    ("execute(", "sql_injection"),
+    (".execute(", "sql_injection"),
     ("executemany(", "sql_injection"),
     (".raw(", "sql_injection"),
+    ("rawQuery(", "sql_injection"),
+    ("$query(", "sql_injection"),
     // Command injection sinks
     ("os.system(", "command_injection"),
     ("os.popen(", "command_injection"),
     ("subprocess.call(", "command_injection"),
     ("subprocess.run(", "command_injection"),
     ("subprocess.Popen(", "command_injection"),
+    ("child_process.exec(", "command_injection"),
+    ("execSync(", "command_injection"),
     // Code injection sinks
     ("eval(", "code_injection"),
     ("exec(", "code_injection"),
-    ("compile(", "code_injection"),
-    // Path traversal sinks
-    ("open(", "path_traversal"),
-    ("os.path.join(", "path_traversal"),
-    ("shutil.copy(", "path_traversal"),
+    ("Function(", "code_injection"),
+    // Path traversal sinks (path argument from user input)
     ("send_file(", "path_traversal"),
+    ("send_from_directory(", "path_traversal"),
+    ("res.sendFile(", "path_traversal"),
+    ("res.download(", "path_traversal"),
+    // NOTE: open() removed - too noisy, most opens are safe internal operations
     // XSS sinks
     ("render_template_string(", "xss"),
     ("Markup(", "xss"),
     ("innerHTML", "xss"),
-    // SSRF sinks
+    ("document.write(", "xss"),
+    ("dangerouslySetInnerHTML", "xss"),
+    // SSRF sinks (URL from user input)
     ("urlopen(", "ssrf"),
     ("requests.get(", "ssrf"),
     ("requests.post(", "ssrf"),
     ("httpx.get(", "ssrf"),
+    ("fetch(", "ssrf"),
+    ("axios.get(", "ssrf"),
     // Log injection sinks
     ("logging.info(", "log_injection"),
     ("logging.debug(", "log_injection"),
     ("logging.warning(", "log_injection"),
     ("logging.error(", "log_injection"),
     ("logger.info(", "log_injection"),
-    ("log.info(", "log_injection"),
+    ("console.log(", "log_injection"),
 ];
 
 /// Vulnerability severity mapping

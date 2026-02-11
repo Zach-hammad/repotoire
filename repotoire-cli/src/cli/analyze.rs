@@ -982,7 +982,18 @@ fn format_and_output(
     displayed_findings: usize,
     no_emoji: bool,
 ) -> Result<()> {
-    let output = reporters::report(report, format)?;
+    // For machine-readable formats, include ALL findings (not paginated)
+    let report_for_output = if format == "json" || format == "sarif" {
+        HealthReport {
+            findings: all_findings.to_vec(),
+            findings_summary: FindingsSummary::from_findings(all_findings),
+            ..report.clone()
+        }
+    } else {
+        report.clone()
+    };
+    
+    let output = reporters::report(&report_for_output, format)?;
 
     let write_to_file = output_path.is_some()
         || matches!(format, "html" | "sarif" | "markdown" | "md");
