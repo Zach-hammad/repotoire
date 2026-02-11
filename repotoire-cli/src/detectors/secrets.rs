@@ -109,6 +109,63 @@ impl SecretDetector {
             .to_path_buf()
     }
     
+    /// Check if a Python os.environ.get() or os.getenv() call has a fallback (second argument)
+    /// Pattern: os.environ.get("KEY", "fallback") or os.getenv("KEY", "fallback")
+    fn has_python_env_fallback(line: &str) -> bool {
+        // Look for the pattern: os.environ.get( or os.getenv( followed by args with a comma
+        // This indicates a default value is provided
+        let line_lower = line.to_lowercase();
+        
+        for pattern in ["os.environ.get(", "os.getenv("] {
+            if let Some(start) = line_lower.find(pattern) {
+                let after_pattern = &line[start + pattern.len()..];
+                // Count parentheses to find the matching close
+                let mut depth = 1;
+                let mut found_comma_at_depth_1 = false;
+                
+                for ch in after_pattern.chars() {
+                    match ch {
+                        '(' => depth += 1,
+                        ')' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        ',' if depth == 1 => {
+                            found_comma_at_depth_1 = true;
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+                
+                if found_comma_at_depth_1 {
+                    return true;
+                }
+            }
+        }
+        
+        false
+    }
+    
+    /// Check if a Go os.Getenv() call has fallback handling on the same line
+    /// Common patterns:
+    /// - `if val := os.Getenv("X"); val == "" { ... }` (short variable declaration with check)
+    /// - `val := os.Getenv("X"); if val == "" { val = "default" }`
+    /// - Using with a helper: `getEnvOr(os.Getenv("X"), "default")`
+    /// - Ternary-style: `func() string { if v := os.Getenv("X"); v != "" { return v }; return "default" }()`
+    fn has_go_env_fallback(line: &str) -> bool {
+        // Check for common fallback indicators on the same line
+        let has_empty_check = line.contains(r#"== """#) || line.contains(r#"!= """#);
+        let has_if_statement = line.contains("if ");
+        let has_fallback_helper = line.to_lowercase().contains("getenvdefault") 
+            || line.to_lowercase().contains("getenvor")
+            || line.to_lowercase().contains("envdefault");
+        
+        has_fallback_helper || (has_empty_check && has_if_statement)
+    }
+    
     fn scan_file(&self, path: &Path) -> Vec<Finding> {
         let mut findings = vec![];
         
@@ -157,6 +214,21 @@ impl SecretDetector {
                     // Dev fallback pattern: process.env.X || 'fallback' or process.env.X ?? 'fallback'
                     // These are typically local dev defaults, not production credentials
                     if line_lower.contains("process.env") && (line.contains("||") || line.contains("??")) {
+                        effective_severity = Severity::Low;
+                    }
+                    // Python fallback patterns: os.environ.get("KEY", "fallback") or os.getenv("KEY", "fallback")
+                    // The second argument is the default value, indicating a fallback
+                    else if (line_lower.contains("os.environ.get(") || line_lower.contains("os.getenv(")) 
+                        && Self::has_python_env_fallback(line) 
+                    {
+                        effective_severity = Severity::Low;
+                    }
+                    // Go fallback patterns: os.Getenv with fallback handling
+                    // os.LookupEnv returns (value, found) - implies fallback handling
+                    // Also check for common inline fallback patterns
+                    else if line.contains("os.LookupEnv(") 
+                        || (line.contains("os.Getenv(") && Self::has_go_env_fallback(line))
+                    {
                         effective_severity = Severity::Low;
                     }
                     // Localhost URLs are lower risk - typically dev/test environments

@@ -361,17 +361,30 @@ pub use external_tool::{
 
 use std::path::Path;
 use std::sync::Arc;
+use crate::config::ProjectConfig;
 
 /// Create a default set of graph-based detectors
 ///
 /// Returns detectors that only query the graph (no external tools required).
 /// The `repository_path` is used by file-scanning detectors (security, etc.)
+/// The `project_config` is used to apply per-project threshold overrides.
 pub fn default_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
+    default_detectors_with_config(repository_path, &ProjectConfig::default())
+}
+
+/// Create a default set of graph-based detectors with project configuration
+///
+/// This variant allows passing project-level configuration for threshold overrides.
+pub fn default_detectors_with_config(repository_path: &Path, project_config: &ProjectConfig) -> Vec<Arc<dyn Detector>> {
     vec![
-        // Core detectors
+        // Core detectors (with project config support)
         Arc::new(CircularDependencyDetector::new()),
-        Arc::new(GodClassDetector::new()),
-        Arc::new(LongParameterListDetector::new()),
+        Arc::new(GodClassDetector::with_config(
+            DetectorConfig::from_project_config("GodClassDetector", project_config)
+        )),
+        Arc::new(LongParameterListDetector::with_config(
+            DetectorConfig::from_project_config("LongParameterListDetector", project_config)
+        )),
         // Code smell detectors
         Arc::new(DataClumpsDetector::new()),
         Arc::new(DeadCodeDetector::new()),

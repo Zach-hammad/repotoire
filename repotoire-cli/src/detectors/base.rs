@@ -66,6 +66,38 @@ impl DetectorConfig {
         Self::default()
     }
 
+    /// Create a config populated from project-level detector thresholds
+    /// 
+    /// Looks up the detector by name in the project config and copies
+    /// any threshold values into the options map.
+    pub fn from_project_config(
+        detector_name: &str,
+        project_config: &crate::config::ProjectConfig,
+    ) -> Self {
+        let mut config = Self::new();
+        
+        // Normalize detector name for lookup (GodClassDetector -> god-class)
+        let normalized = crate::config::normalize_detector_name(detector_name);
+        
+        // Look up detector config in project config
+        if let Some(detector_override) = project_config.detectors.get(&normalized)
+            .or_else(|| project_config.detectors.get(detector_name))
+        {
+            // Copy thresholds to options
+            for (key, value) in &detector_override.thresholds {
+                let json_value = match value {
+                    crate::config::ThresholdValue::Integer(v) => serde_json::json!(*v),
+                    crate::config::ThresholdValue::Float(v) => serde_json::json!(*v),
+                    crate::config::ThresholdValue::Boolean(v) => serde_json::json!(*v),
+                    crate::config::ThresholdValue::String(v) => serde_json::json!(v),
+                };
+                config.options.insert(key.clone(), json_value);
+            }
+        }
+        
+        config
+    }
+
     /// Set the repository ID
     pub fn with_repo_id(mut self, repo_id: impl Into<String>) -> Self {
         self.repo_id = Some(repo_id.into());

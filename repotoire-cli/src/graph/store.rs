@@ -696,6 +696,15 @@ impl GraphStore {
             if edge.weight().kind != *edge_kind {
                 continue;
             }
+            
+            // Skip type-only imports - they don't create runtime circular dependencies
+            if *edge_kind == EdgeKind::Imports {
+                if let Some(is_type_only) = edge.weight().properties.get("is_type_only") {
+                    if is_type_only == "true" {
+                        continue;
+                    }
+                }
+            }
 
             let target = edge.target();
 
