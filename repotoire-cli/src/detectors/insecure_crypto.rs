@@ -91,11 +91,22 @@ fn is_cipher_mention_not_usage(line: &str) -> bool {
     if line.contains("is_hash_mention") || line.contains("is_cipher_mention") || 
        line.contains("weak_hash") || line.contains("weak_cipher") ||
        line.contains("usage_patterns") || line.contains("WEAK_") ||
-       line.contains("des.new") || line.contains("arc4.new") {
+       line.contains("des.new") || line.contains("arc4.new") ||
+       line.contains("blowfish.new") || line.contains("cipher.newecb") {
         return true;
     }
     
+    // Skip string literal pattern checks (e.g. line.contains("\"ECB\""))
+    // These are checking FOR weak ciphers, not USING them
     let lower = line.to_lowercase();
+    if line.contains(".contains(") && (
+       lower.contains("\"des") || lower.contains("'des") ||
+       lower.contains("\"rc4") || lower.contains("'rc4") ||
+       lower.contains("\"rc2") || lower.contains("'rc2") ||
+       lower.contains("\"ecb") || lower.contains("'ecb") ||
+       lower.contains("\"blowfish") || lower.contains("'blowfish")) {
+        return true;
+    }
     
     // Skip regex pattern definitions (like this detector's own source!)
     if line.contains("Regex::new") || line.contains("regex::Regex") {
@@ -314,5 +325,22 @@ impl Detector for InsecureCryptoDetector {
             }
         }
         Ok(findings)
+    }
+}
+
+#[test]
+fn test_self_flagging_protection() {
+    // These are lines from our own source code that should NOT be flagged
+    let lines = vec![
+        r#"        line.contains("\"RC4\"") || line.contains("'RC4'") ||"#,
+        r#"       line.contains("blowfish.new") || line.contains("cipher.newecb") {"#,
+        r#"       lower.contains("\"ecb") || lower.contains("'ecb") ||"#,
+    ];
+    
+    for line in lines {
+        if weak_cipher().is_match(line) {
+            assert!(is_cipher_mention_not_usage(line), 
+                "Should skip detector source line: {}", line);
+        }
     }
 }
