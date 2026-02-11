@@ -702,8 +702,8 @@ fn parse_severity(s: &str) -> Severity {
 /// Returns (overall, structure, quality, architecture)
 fn calculate_health_scores(
     findings: &[crate::models::Finding],
-    _total_files: usize,
-    _total_functions: usize,
+    total_files: usize,
+    total_functions: usize,
     _total_classes: usize,
 ) -> (f64, f64, f64, f64) {
     // Base score starts at 100
@@ -711,19 +711,25 @@ fn calculate_health_scores(
     let mut quality_score: f64 = 100.0;
     let mut architecture_score: f64 = 100.0;
 
-    // Deduct points based on findings
+    // Normalize by codebase size to prevent large projects from always scoring 0
+    // Use sqrt to dampen the effect of very large codebases
+    let size_factor = ((total_files + total_functions) as f64).sqrt().max(10.0);
+    
+    // Deduct points based on findings, normalized by size
     for finding in findings {
-        let deduction: f64 = match finding.severity {
-            Severity::Critical => 10.0,
-            Severity::High => 5.0,
-            Severity::Medium => 2.0,
-            Severity::Low => 0.5,
+        let base_deduction: f64 = match finding.severity {
+            Severity::Critical => 8.0,
+            Severity::High => 4.0,
+            Severity::Medium => 1.5,
+            Severity::Low => 0.3,
             Severity::Info => 0.0,
         };
 
-        // Categorize by finding category - scale down deductions
+        // Scale deduction by codebase size - larger codebases get smaller per-finding penalty
+        let scaled = base_deduction / size_factor;
+        
+        // Categorize by finding category
         let category = finding.category.as_deref().unwrap_or("");
-        let scaled = deduction * 0.05; // 5% - prevents zeroing with many findings
         
         if category.contains("security") || category.contains("inject") {
             quality_score -= scaled;
@@ -739,10 +745,10 @@ fn calculate_health_scores(
         }
     }
 
-    // Clamp to 0-100
-    structure_score = structure_score.max(0.0_f64).min(100.0);
-    quality_score = quality_score.max(0.0_f64).min(100.0);
-    architecture_score = architecture_score.max(0.0_f64).min(100.0);
+    // Clamp to 25-100 (floor of 25 so no codebase looks "hopeless")
+    structure_score = structure_score.max(25.0_f64).min(100.0);
+    quality_score = quality_score.max(25.0_f64).min(100.0);
+    architecture_score = architecture_score.max(25.0_f64).min(100.0);
 
     // Weighted average: Structure 40%, Quality 30%, Architecture 30%
     let overall = structure_score * 0.4 + quality_score * 0.3 + architecture_score * 0.3;

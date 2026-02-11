@@ -54,6 +54,14 @@ impl Detector for InsecureCryptoDetector {
             
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py"|"js"|"ts"|"java"|"go"|"rs"|"rb"|"php"|"cs") { continue; }
+            
+            // Skip translation/localization files (French "des" = "of the", not DES cipher)
+            let path_str = path.to_string_lossy().to_lowercase();
+            if path_str.contains("/lang/") || path_str.contains("/locale") || 
+               path_str.contains("/i18n/") || path_str.contains("/translations/") ||
+               path_str.contains("_lang") || path_str.contains(".lang.") {
+                continue;
+            }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
