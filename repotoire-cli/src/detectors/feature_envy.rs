@@ -51,14 +51,14 @@ pub struct FeatureEnvyThresholds {
 impl Default for FeatureEnvyThresholds {
     fn default() -> Self {
         Self {
-            threshold_ratio: 3.0,
-            min_external_uses: 15,
+            threshold_ratio: 4.0,       // Increased from 3.0
+            min_external_uses: 25,      // Increased from 15
             critical_ratio: 10.0,
-            critical_min_uses: 30,
-            high_ratio: 5.0,
-            high_min_uses: 20,
-            medium_ratio: 3.0,
-            medium_min_uses: 10,
+            critical_min_uses: 50,      // Increased from 30
+            high_ratio: 6.0,            // Increased from 5.0
+            high_min_uses: 35,          // Increased from 20
+            medium_ratio: 4.0,          // Increased from 3.0
+            medium_min_uses: 20,        // Increased from 10
         }
     }
 }
@@ -289,24 +289,24 @@ mod tests {
     #[test]
     fn test_default_thresholds() {
         let detector = FeatureEnvyDetector::new();
-        assert!((detector.thresholds.threshold_ratio - 3.0).abs() < f64::EPSILON);
-        assert_eq!(detector.thresholds.min_external_uses, 15);
+        assert!((detector.thresholds.threshold_ratio - 4.0).abs() < f64::EPSILON);
+        assert_eq!(detector.thresholds.min_external_uses, 25);
     }
 
     #[test]
     fn test_severity_calculation() {
         let detector = FeatureEnvyDetector::new();
 
-        // Low
-        assert_eq!(detector.calculate_severity(2.0, 5), Severity::Low);
+        // Low (below thresholds)
+        assert_eq!(detector.calculate_severity(2.0, 10), Severity::Low);
 
-        // Medium
-        assert_eq!(detector.calculate_severity(3.0, 10), Severity::Medium);
+        // Medium (ratio >= 4.0 && uses >= 20)
+        assert_eq!(detector.calculate_severity(4.0, 20), Severity::Medium);
 
-        // High
-        assert_eq!(detector.calculate_severity(5.0, 20), Severity::High);
+        // High (ratio >= 6.0 && uses >= 35)
+        assert_eq!(detector.calculate_severity(6.0, 35), Severity::High);
 
-        // Critical
-        assert_eq!(detector.calculate_severity(10.0, 30), Severity::Critical);
+        // Critical (ratio >= 10.0 && uses >= 50)
+        assert_eq!(detector.calculate_severity(10.0, 50), Severity::Critical);
     }
 }

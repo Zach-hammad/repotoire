@@ -14,7 +14,7 @@ use crate::detectors::{
 };
 use crate::git;
 use crate::graph::{GraphStore, CodeNode, CodeEdge, NodeKind};
-use crate::models::{FindingsSummary, HealthReport, Severity};
+use crate::models::{Finding, FindingsSummary, HealthReport, Severity};
 use crate::parsers::{parse_file, ParseResult};
 use crate::reporters;
 
@@ -478,6 +478,9 @@ pub fn run(
 
     // Track displayed findings count for pagination
     let displayed_findings = findings.len();
+    
+    // Keep all findings for caching (don't destroy with drain!)
+    let all_findings = findings.clone();
 
     // Apply pagination (per_page = 0 means all)
     let (paginated_findings, pagination_info) = if per_page > 0 {
@@ -485,7 +488,7 @@ pub fn run(
         let page = page.max(1).min(total_pages.max(1));
         let start = (page - 1) * per_page;
         let end = (start + per_page).min(displayed_findings);
-        let paginated: Vec<_> = findings.drain(start..end).collect();
+        let paginated: Vec<_> = findings[start..end].to_vec();
         (
             paginated,
             Some((page, total_pages, per_page, displayed_findings)),
@@ -545,8 +548,8 @@ pub fn run(
         println!("{}", output);
     }
 
-    // Cache results for later commands
-    cache_results(&repotoire_dir, &report)?;
+    // Cache results for later commands (pass ALL findings, not paginated)
+    cache_results(&repotoire_dir, &report, &all_findings)?;
 
     // Show pagination info if applicable
     if let Some((current_page, total_pages, per_page, total)) = pagination_info {
@@ -748,7 +751,7 @@ fn calculate_health_scores(
 }
 
 /// Cache analysis results for other commands (findings, fix, etc.)
-fn cache_results(repotoire_dir: &Path, report: &HealthReport) -> Result<()> {
+fn cache_results(repotoire_dir: &Path, report: &HealthReport, all_findings: &[Finding]) -> Result<()> {
     use std::fs;
 
     // Cache health data
@@ -765,10 +768,10 @@ fn cache_results(repotoire_dir: &Path, report: &HealthReport) -> Result<()> {
     });
     fs::write(&health_cache, serde_json::to_string_pretty(&health_json)?)?;
 
-    // Cache findings
+    // Cache ALL findings (not just paginated)
     let findings_cache = repotoire_dir.join("last_findings.json");
     let findings_json = serde_json::json!({
-        "findings": report.findings.iter().map(|f| {
+        "findings": all_findings.iter().map(|f| {
             serde_json::json!({
                 "id": f.id,
                 "detector": f.detector,

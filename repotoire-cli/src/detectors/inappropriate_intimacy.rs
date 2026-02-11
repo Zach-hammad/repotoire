@@ -43,9 +43,9 @@ pub struct InappropriateIntimacyThresholds {
 impl Default for InappropriateIntimacyThresholds {
     fn default() -> Self {
         Self {
-            threshold_high: 20,
-            threshold_medium: 10,
-            min_mutual_access: 5,
+            threshold_high: 40,      // Increased from 20
+            threshold_medium: 20,    // Increased from 10
+            min_mutual_access: 8,    // Increased from 5
         }
     }
 }
@@ -270,19 +270,19 @@ mod tests {
     #[test]
     fn test_default_thresholds() {
         let detector = InappropriateIntimacyDetector::new();
-        assert_eq!(detector.thresholds.threshold_high, 20);
-        assert_eq!(detector.thresholds.threshold_medium, 10);
-        assert_eq!(detector.thresholds.min_mutual_access, 5);
+        assert_eq!(detector.thresholds.threshold_high, 40);
+        assert_eq!(detector.thresholds.threshold_medium, 20);
+        assert_eq!(detector.thresholds.min_mutual_access, 8);
     }
 
     #[test]
     fn test_severity_calculation() {
         let detector = InappropriateIntimacyDetector::new();
 
-        assert_eq!(detector.calculate_severity(5), Severity::Low);
-        assert_eq!(detector.calculate_severity(10), Severity::Medium);
-        assert_eq!(detector.calculate_severity(15), Severity::Medium);
-        assert_eq!(detector.calculate_severity(20), Severity::High);
-        assert_eq!(detector.calculate_severity(30), Severity::High);
+        assert_eq!(detector.calculate_severity(10), Severity::Low);
+        assert_eq!(detector.calculate_severity(20), Severity::Medium);
+        assert_eq!(detector.calculate_severity(30), Severity::Medium);
+        assert_eq!(detector.calculate_severity(40), Severity::High);
+        assert_eq!(detector.calculate_severity(60), Severity::High);
     }
 }

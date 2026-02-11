@@ -3,6 +3,10 @@
 //! A fast, local-first code analysis tool that uses knowledge graphs
 //! to detect code smells, architectural issues, and technical debt.
 
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+
 pub mod ai;
 pub mod cache;
 mod cli;
