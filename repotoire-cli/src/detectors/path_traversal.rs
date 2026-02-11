@@ -78,18 +78,38 @@ impl Detector for PathTraversalDetector {
                 .to_path_buf();
             let file_str = path.to_string_lossy();
 
+            // Detect test files for severity reduction
+            let is_test_file = file_str.contains("/test") || file_str.contains("/tests/") ||
+                file_str.contains("_test.") || file_str.contains(".test.") ||
+                file_str.contains("/spec/") || file_str.contains("_spec.");
+
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
+                    // More specific user input patterns - avoid matching variable names like "input_stream"
                     let has_user_input = line.contains("req.") || line.contains("request.") ||
-                        line.contains("params") || line.contains("input") || line.contains("argv") ||
+                        line.contains("params[") || line.contains("params.") ||
+                        line.contains("input(") ||  // Python input() function, not "input_stream"
+                        line.contains("sys.argv") || line.contains("process.argv") ||
                         line.contains("r.URL") || line.contains("c.Param") || line.contains("c.Query") ||
                         line.contains("FormValue") || line.contains("r.Form") ||
-                        line.contains("query.") || line.contains("body.");
+                        line.contains("query[") || line.contains("query.get") ||
+                        line.contains("body[") || line.contains("body.get");
                     
                     let line_num = (i + 1) as u32;
                     
                     // Helper to check taint and adjust severity
                     let check_taint = |base_severity: Severity, base_desc: &str| -> (Severity, String) {
+                        // Reduce severity for test files
+                        let adjusted_base = if is_test_file {
+                            match base_severity {
+                                Severity::Critical => Severity::Medium,
+                                Severity::High => Severity::Low,
+                                _ => Severity::Low,
+                            }
+                        } else {
+                            base_severity
+                        };
+                        
                         let matching_taint = taint_result.paths.iter().find(|p| {
                             (p.sink_file == file_str || p.source_file == file_str) &&
                             (p.sink_line == line_num || p.source_line == line_num)
@@ -105,14 +125,16 @@ impl Detector for PathTraversalDetector {
                                 ))
                             }
                             Some(taint_path) => {
-                                (Severity::Critical, format!(
+                                // Even taint-confirmed, reduce for test files
+                                let sev = if is_test_file { Severity::Medium } else { Severity::Critical };
+                                (sev, format!(
                                     "{}\n\n**Taint Analysis Confirmed**: Data flow analysis traced a path \
                                      from user input to this file sink without sanitization:\n\n`{}`",
                                     base_desc,
                                     taint_path.path_string()
                                 ))
                             }
-                            None => (base_severity, base_desc.to_string())
+                            None => (adjusted_base, base_desc.to_string())
                         }
                     };
                     

@@ -426,7 +426,9 @@ pub fn default_detectors_with_config(repository_path: &Path, project_config: &Pr
         Arc::new(EvalDetector::with_repository_path(repository_path.to_path_buf())),
         Arc::new(PickleDeserializationDetector::with_repository_path(repository_path.to_path_buf())),
         Arc::new(SQLInjectionDetector::with_repository_path(repository_path.to_path_buf())),
-        Arc::new(TaintDetector::with_repository_path(repository_path.to_path_buf())),
+        // TaintDetector disabled - naive file-based analysis, replaced by graph-based detectors:
+        // PathTraversalDetector, CommandInjectionDetector, SqlInjectionDetector, etc.
+        // Arc::new(TaintDetector::with_repository_path(repository_path.to_path_buf())),
         Arc::new(UnsafeTemplateDetector::with_repository_path(repository_path.to_path_buf())),
         // Misc detectors
         Arc::new(GeneratorMisuseDetector::new()),
