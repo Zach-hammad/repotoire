@@ -23,6 +23,26 @@ static ENTRY_POINTS: &[&str] = &[
     "__init__",
     "setUp",
     "tearDown",
+    // Rust common trait methods (called via trait dispatch, not visible in call graph)
+    "run",
+    "detect",
+    "name",
+    "description",
+    "new",
+    "default",
+    "from",
+    "into",
+    "try_from",
+    "try_into",
+    "clone",
+    "fmt",
+    "eq",
+    "cmp",
+    "hash",
+    "drop",
+    "deref",
+    "serialize",
+    "deserialize",
 ];
 
 /// Framework-specific files where default exports are auto-loaded
@@ -236,6 +256,21 @@ impl DeadCodeDetector {
             "_get_",
             "_set_",
             "_check_",
+            // Rust trait implementation patterns
+            "with_",  // builder pattern
+            "into_",
+            "as_",
+            "is_",
+            "has_",
+            "can_",
+            "should_",
+            "try_",
+            "parse_",
+            "render_",
+            "run_",
+            "execute_",
+            "process_",
+            "extract_",
         ];
 
         let name_lower = name.to_lowercase();
