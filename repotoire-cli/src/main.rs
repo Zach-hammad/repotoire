@@ -19,6 +19,7 @@ pub mod models;
 mod parsers;
 mod pipeline;
 mod reporters;
+pub mod scoring;
 
 use anyhow::Result;
 use clap::Parser;

@@ -105,6 +105,10 @@ pub enum Commands {
         /// Disable emoji in output (cleaner for CI logs)
         #[arg(long)]
         no_emoji: bool,
+        
+        /// Explain the scoring formula with full breakdown
+        #[arg(long)]
+        explain_score: bool,
     },
 
     /// View findings from last analysis
@@ -203,6 +207,7 @@ pub fn run(cli: Cli) -> Result<()> {
             no_git,
             fail_on,
             no_emoji,
+            explain_score,
         }) => {
             // In relaxed mode, default to high severity unless explicitly specified
             let effective_severity = if relaxed && severity.is_none() {
@@ -210,7 +215,7 @@ pub fn run(cli: Cli) -> Result<()> {
             } else {
                 severity
             };
-            analyze::run(&cli.path, &format, output.as_deref(), effective_severity, top, page, per_page, skip_detector, thorough, no_git, cli.workers, fail_on, no_emoji, false, None)
+            analyze::run(&cli.path, &format, output.as_deref(), effective_severity, top, page, per_page, skip_detector, thorough, no_git, cli.workers, fail_on, no_emoji, false, None, explain_score)
         }
 
         Some(Commands::Findings { index, json, top, severity, page, per_page, interactive }) => {
@@ -255,7 +260,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 }
             }
             // Default: run analyze with pagination (page 1, 20 per page)
-            analyze::run(&cli.path, "text", None, None, None, 1, 20, vec![], false, false, cli.workers, None, false, false, None)
+            analyze::run(&cli.path, "text", None, None, None, 1, 20, vec![], false, false, cli.workers, None, false, false, None, false)
         }
     }
 }

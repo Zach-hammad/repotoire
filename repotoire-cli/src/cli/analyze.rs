@@ -89,6 +89,7 @@ pub fn run(
     no_emoji: bool,
     incremental: bool,
     since: Option<String>,
+    explain_score: bool,
 ) -> Result<()> {
     let start_time = Instant::now();
 
@@ -194,12 +195,26 @@ pub fn run(
     // Step 6: Apply detector config overrides
     apply_detector_overrides(&mut findings, &project_config);
 
-    // Step 7: Calculate health scores
-    let (overall_score, structure_score, quality_score, architecture_score) =
-        calculate_health_scores(
-            &findings, file_result.files_to_parse.len(),
-            parse_result.total_functions, parse_result.total_classes, &project_config
-        );
+    // Step 7: Calculate health scores using graph-aware scorer
+    let scorer = crate::scoring::GraphScorer::new(&graph, &project_config);
+    let score_breakdown = scorer.calculate(&findings);
+    
+    let overall_score = score_breakdown.overall_score;
+    let structure_score = score_breakdown.structure.final_score;
+    let quality_score = score_breakdown.quality.final_score;
+    let architecture_score = score_breakdown.architecture.final_score;
+    let grade = score_breakdown.grade.clone();
+
+    // Log graph metrics
+    let metrics = &score_breakdown.graph_metrics;
+    tracing::info!(
+        "Graph metrics: {} modules, {:.1}% coupling, {:.1}% cohesion, {} cycles, {:.1}% simple fns",
+        metrics.module_count,
+        metrics.avg_coupling * 100.0,
+        metrics.avg_cohesion * 100.0,
+        metrics.cycle_count,
+        metrics.simple_function_ratio * 100.0
+    );
 
     // Step 8: Filter and paginate findings
     let all_findings_summary = FindingsSummary::from_findings(&findings);
@@ -210,9 +225,6 @@ pub fn run(
     let displayed_findings = findings.len();
 
     let (paginated_findings, pagination_info) = paginate_findings(findings, page, per_page);
-
-    // Calculate grade with security caps
-    let grade = calculate_grade(overall_score, &all_findings_summary);
 
     // Build report
     let report = HealthReport {
@@ -233,6 +245,13 @@ pub fn run(
         &report, &all_findings, format, output_path,
         &repotoire_dir, pagination_info, displayed_findings, config.no_emoji
     )?;
+
+    // Show score explanation if requested
+    if explain_score && format == "text" {
+        println!("\n{}", style("─".repeat(60)).dim());
+        let explanation = scorer.explain(&score_breakdown);
+        println!("{}", explanation);
+    }
 
     // Final summary (suppress for machine-readable formats)
     if !quiet_mode {
