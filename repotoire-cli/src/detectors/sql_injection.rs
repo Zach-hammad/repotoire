@@ -180,6 +180,32 @@ impl SQLInjectionDetector {
         if stripped.starts_with('#') {
             return None;
         }
+        
+        // Skip obvious non-SQL contexts that might contain SQL keywords coincidentally
+        let line_lower = line.to_lowercase();
+        if line_lower.contains("console.log") 
+            || line_lower.contains("console.error")
+            || line_lower.contains("console.warn")
+            || line_lower.contains("console.info")
+            || line_lower.contains("console.debug")
+            || line_lower.contains(".log.")
+            || line_lower.contains("log.error")
+            || line_lower.contains("log.info")
+            || line_lower.contains("log.warn")
+            || line_lower.contains("log.debug")
+            || line_lower.contains("logger.")
+            || line_lower.contains("throw new error")
+            || line_lower.contains("throw error")
+            || line_lower.contains("new error(")
+            || line_lower.contains("reject(")
+            || line_lower.contains("assert.")
+            || line_lower.contains("expect(")
+            || line_lower.contains("test(")
+            || line_lower.contains("describe(")
+            || line_lower.contains("it(")
+        {
+            return None;
+        }
 
         // Check f-string pattern
         if self.fstring_sql_pattern.is_match(line) {

@@ -150,11 +150,37 @@ impl SecretDetector {
                         continue;
                     }
                     
+                    // Determine effective severity based on context
+                    let line_lower = line.to_lowercase();
+                    let mut effective_severity = pattern.severity.clone();
+                    
+                    // Dev fallback pattern: process.env.X || 'fallback' or process.env.X ?? 'fallback'
+                    // These are typically local dev defaults, not production credentials
+                    if line_lower.contains("process.env") && (line.contains("||") || line.contains("??")) {
+                        effective_severity = Severity::Low;
+                    }
+                    // Localhost URLs are lower risk - typically dev/test environments
+                    else if matched.contains("localhost") || matched.contains("127.0.0.1") {
+                        effective_severity = Severity::Low;
+                    }
+                    // Check file path for seed/script/test patterns
+                    else if let Some(rel_path) = path.to_str() {
+                        let rel_lower = rel_path.to_lowercase();
+                        if rel_lower.contains("/seed") 
+                            || rel_lower.contains("/script")
+                            || rel_lower.contains("/fixture")
+                            || rel_lower.contains(".seed.")
+                            || rel_lower.contains(".script.")
+                        {
+                            effective_severity = Severity::Low;
+                        }
+                    }
+                    
                     let line_start = line_num as u32 + 1;
                     findings.push(Finding {
                         id: Uuid::new_v4().to_string(),
                         detector: "SecretDetector".to_string(),
-                        severity: pattern.severity.clone(),
+                        severity: effective_severity,
                         title: format!("Hardcoded {}", pattern.name),
                         description: format!(
                             "Potential {} found in source code at line {}. \
