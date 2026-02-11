@@ -608,11 +608,11 @@ impl SQLInjectionDetector {
             // Direct SQL sink with string interpolation - highest confidence
             Severity::Critical
         } else if has_direct_sql_context {
-            // SQL context detected on same line
-            Severity::Critical
+            // SQL context detected on same line, but not self-evident pattern
+            Severity::High
         } else {
             // SQL context from surrounding lines only
-            Severity::High
+            Severity::Medium
         };
 
         // Calculate confidence based on how strongly the pattern matched

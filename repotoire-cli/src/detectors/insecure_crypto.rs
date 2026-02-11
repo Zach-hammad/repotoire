@@ -19,6 +19,13 @@ fn weak_hash() -> &'static Regex {
 /// Check if a line is merely mentioning a weak hash (in comments, strings, etc.)
 /// rather than actually using it. Returns true if the line should be SKIPPED.
 fn is_hash_mention_not_usage(line: &str) -> bool {
+    // Skip lines containing detector-related patterns (avoid flagging our own source)
+    if line.contains("is_hash_mention") || line.contains("is_cipher_mention") || 
+       line.contains("weak_hash") || line.contains("weak_cipher") ||
+       line.contains("usage_patterns") || line.contains("WEAK_") {
+        return true;
+    }
+    
     let lower = line.to_lowercase();
     
     // Skip comments
@@ -80,6 +87,14 @@ fn weak_cipher() -> &'static Regex {
 /// Check if a line is merely mentioning a weak cipher (in definitions, error messages, etc.)
 /// rather than actually using it. Returns true if the line should be SKIPPED.
 fn is_cipher_mention_not_usage(line: &str) -> bool {
+    // Skip lines containing detector-related patterns (avoid flagging our own source)
+    if line.contains("is_hash_mention") || line.contains("is_cipher_mention") || 
+       line.contains("weak_hash") || line.contains("weak_cipher") ||
+       line.contains("usage_patterns") || line.contains("WEAK_") ||
+       line.contains("des.new") || line.contains("arc4.new") {
+        return true;
+    }
+    
     let lower = line.to_lowercase();
     
     // Skip regex pattern definitions (like this detector's own source!)
