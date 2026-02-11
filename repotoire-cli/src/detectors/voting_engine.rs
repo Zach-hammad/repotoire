@@ -544,6 +544,9 @@ impl VotingEngine {
             "is_", "has_", "check_", "validate_", "should_", "can_", "find_",
             "calculate_", "compute_", "scan_", "extract_", "normalize_",
             "get_", "set_", "parse_", "format_",
+            // Service/business logic prefixes
+            "resolve_", "schedule_", "add_", "update_", "delete_", "remove_",
+            "apply_", "use", "fetch_", "load_", "save_", "send_", "notify_",
         ];
         
         UTILITY_PREFIXES.iter().any(|p| func_name.starts_with(p))
@@ -649,7 +652,7 @@ mod utility_tests {
             ("Architectural Bottleneck: find_dead_classes", true),
             ("Architectural Bottleneck: check_line_for_patterns", true),
             ("Architectural Bottleneck: calculate_health_scores", true),
-            ("Architectural Bottleneck: remove_finding_impact", false),  // doesn't start with utility prefix
+            ("Architectural Bottleneck: remove_finding_impact", true),  // matches remove_ prefix
             ("Some Other Finding", false),
         ];
         

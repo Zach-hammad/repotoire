@@ -359,6 +359,9 @@ impl Detector for DegreeCentralityDetector {
             // Helper/utility function prefixes (high connectivity expected)
             "is_", "has_", "check_", "validate_", "should_", "can_", "find_",
             "calculate_", "compute_", "scan_", "extract_", "normalize_",
+            // Service/business logic prefixes (expected high fan-in)
+            "resolve_", "schedule_", "add_", "update_", "delete_", "remove_",
+            "apply_", "use", "fetch_", "load_", "save_", "send_", "notify_",
         ];
         
         // Skip files that are naturally high-connectivity hubs

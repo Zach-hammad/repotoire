@@ -43,8 +43,45 @@ impl Detector for NosqlInjectionDetector {
             if !matches!(ext, "js"|"ts"|"py"|"rb"|"php") { continue; }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
+                // Check if file has MongoDB/Mongoose imports
+                let has_mongo_context = content.contains("mongoose")
+                    || content.contains("mongodb")
+                    || content.contains("MongoClient")
+                    || content.contains("mongo")
+                    || content.contains("Collection");
+                
                 for (i, line) in content.lines().enumerate() {
                     if nosql_pattern().is_match(line) {
+                        // Skip Array.find() - check for array method context
+                        // Array methods: .filter(), .map(), .some(), .every() nearby
+                        let is_array_method = line.contains(".filter(")
+                            || line.contains(".map(")
+                            || line.contains(".some(")
+                            || line.contains(".every(")
+                            || line.contains(".forEach(")
+                            || line.contains(".reduce(")
+                            || line.contains("Array.")
+                            || line.contains("[].")
+                            // Common array variable patterns
+                            || line.contains("items.find(")
+                            || line.contains("list.find(")
+                            || line.contains("array.find(")
+                            || line.contains("results.find(")
+                            || line.contains("data.find(")
+                            || line.contains("options.find(")
+                            || line.contains("preferences.find(")
+                            || line.contains("constraints.find(")
+                            || line.contains("constraints?.find(");
+                        
+                        if is_array_method {
+                            continue;
+                        }
+                        
+                        // Skip if no MongoDB context in file
+                        if !has_mongo_context && !line.contains("db.") && !line.contains("collection.") {
+                            continue;
+                        }
+                        
                         let has_user_input = line.contains("req.") || line.contains("body") || 
                             line.contains("params") || line.contains("query");
                         if has_user_input {
