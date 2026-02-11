@@ -270,7 +270,7 @@ function AgentConfigCard({
             <div className="text-sm text-muted-foreground space-y-2">
               <p>First, login via the CLI:</p>
               <pre className="p-3 bg-muted rounded-lg text-xs font-mono">
-                pip install repotoire{'\n'}repotoire login
+                cargo install repotoire{'\n'}repotoire login
               </pre>
               <p className="text-xs">
                 This stores your credentials at <code className="bg-muted px-1 rounded">~/.repotoire/credentials</code> which the MCP server reads automatically.

@@ -129,7 +129,7 @@ export function Navbar() {
                     size="sm"
                     className="relative overflow-hidden bg-primary hover:bg-primary/90 text-primary-foreground h-8 px-4 font-display border-0 shadow-md hover:shadow-lg transition-shadow duration-200"
                   >
-                    <span className="relative z-10">pip install repotoire</span>
+                    <span className="relative z-10">cargo install repotoire</span>
                     {/* Shimmer effect */}
                     <motion.span
                       className="absolute inset-0 -z-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
@@ -235,7 +235,7 @@ export function Navbar() {
                         size="sm"
                         className="w-full bg-primary hover:bg-primary/90 text-primary-foreground border-0"
                       >
-                        pip install repotoire
+                        cargo install repotoire
                       </Button>
                     </Link>
                   </motion.div>

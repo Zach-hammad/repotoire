@@ -101,11 +101,8 @@ export default function DocsPage() {
               Local-first analysis. No Docker, no external services:
             </p>
             <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-              <code>{`# Install (Rust - recommended, ~10 min first build)
+              <code>{`# Install (Rust CLI)
 cargo install repotoire
-
-# Or Python (faster install, requires Python 3.10+)
-pip install repotoire
 
 # Analyze your codebase
 repotoire analyze .

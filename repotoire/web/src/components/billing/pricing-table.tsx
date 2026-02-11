@@ -29,7 +29,7 @@ interface PlanFeature {
 
 const features: PlanFeature[] = [
   { name: 'Local analysis (CLI)', free: true, pro: true, enterprise: true },
-  { name: '47 detectors', free: true, pro: true, enterprise: true },
+  { name: '81 detectors', free: true, pro: true, enterprise: true },
   { name: 'AI auto-fix (BYOK)', free: true, pro: true, enterprise: true },
   { name: 'Repositories', free: 'Unlimited', pro: 'Unlimited', enterprise: 'Unlimited' },
   { name: 'Team dashboard', free: false, pro: true, enterprise: true },

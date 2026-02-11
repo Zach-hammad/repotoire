@@ -738,18 +738,34 @@ fn calculate_health_scores(
         
         // Categorize by finding category
         let category = finding.category.as_deref().unwrap_or("");
+        let detector = finding.detector.to_lowercase();
         
-        if category.contains("security") || category.contains("inject") {
-            quality_score -= scaled;
+        // Security findings get 3x weight - injection vulns and secrets are serious
+        let is_security = category.contains("security") 
+            || category.contains("inject")
+            || detector.contains("sql")
+            || detector.contains("xss")
+            || detector.contains("secret")
+            || detector.contains("credential")
+            || detector.contains("command")
+            || detector.contains("path_traversal")
+            || detector.contains("ssrf")
+            || finding.cwe_id.is_some();
+        
+        let security_multiplier = if is_security { 3.0 } else { 1.0 };
+        let effective_deduction = scaled * security_multiplier;
+        
+        if is_security {
+            quality_score -= effective_deduction;
         } else if category.contains("architect") || category.contains("bottleneck") || category.contains("circular") {
-            architecture_score -= scaled;
+            architecture_score -= effective_deduction;
         } else if category.contains("complex") || category.contains("naming") || category.contains("readab") {
-            structure_score -= scaled;
+            structure_score -= effective_deduction;
         } else {
             // Distribute evenly among all three
-            quality_score -= scaled / 3.0;
-            structure_score -= scaled / 3.0;
-            architecture_score -= scaled / 3.0;
+            quality_score -= effective_deduction / 3.0;
+            structure_score -= effective_deduction / 3.0;
+            architecture_score -= effective_deduction / 3.0;
         }
     }
 
@@ -762,6 +778,26 @@ fn calculate_health_scores(
     let overall = structure_score * 0.4 + quality_score * 0.3 + architecture_score * 0.3;
 
     (overall, structure_score, quality_score, architecture_score)
+}
+
+/// Normalize a path to be relative (strip common prefixes)
+fn normalize_path(path: &Path) -> String {
+    let s = path.display().to_string();
+    // Strip common absolute prefixes to make paths relative
+    if let Some(stripped) = s.strip_prefix("/tmp/") {
+        // For temp dirs, keep just the relative part after the repo name
+        if let Some(pos) = stripped.find('/') {
+            return stripped[pos + 1..].to_string();
+        }
+    }
+    // Strip home directory prefixes
+    if let Ok(home) = std::env::var("HOME") {
+        if let Some(stripped) = s.strip_prefix(&home) {
+            return stripped.trim_start_matches('/').to_string();
+        }
+    }
+    // Return as-is if already relative or no match
+    s
 }
 
 /// Cache analysis results for other commands (findings, fix, etc.)
@@ -792,7 +828,7 @@ fn cache_results(repotoire_dir: &Path, report: &HealthReport, all_findings: &[Fi
                 "title": f.title,
                 "description": f.description,
                 "severity": f.severity.to_string(),
-                "affected_files": f.affected_files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                "affected_files": f.affected_files.iter().map(|p| normalize_path(p)).collect::<Vec<_>>(),
                 "line_start": f.line_start,
                 "line_end": f.line_end,
                 "suggested_fix": f.suggested_fix,

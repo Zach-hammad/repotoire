@@ -10,6 +10,8 @@ use std::sync::OnceLock;
 use uuid::Uuid;
 
 static SHELL_EXEC: OnceLock<Regex> = OnceLock::new();
+static GO_EXEC: OnceLock<Regex> = OnceLock::new();
+static JS_EXEC_DIRECT: OnceLock<Regex> = OnceLock::new();
 
 fn shell_exec() -> &'static Regex {
     // Be specific about shell execution patterns - avoid matching RegExp.exec(), String.prototype.exec(), etc.
@@ -20,6 +22,17 @@ fn shell_exec() -> &'static Regex {
     // - Ruby: system, exec, backticks
     // Note: execAsync is a common promisified wrapper for child_process.exec
     SHELL_EXEC.get_or_init(|| Regex::new(r#"(?i)(os\.system|os\.popen|subprocess\.(call|run|Popen)|child_process\.(exec|spawn|fork)|execSync|execAsync|spawnSync|require\(['"]child_process['"]\)|shell_exec|proc_open)"#).unwrap())
+}
+
+fn go_exec() -> &'static Regex {
+    // Go exec patterns: exec.Command, exec.CommandContext
+    GO_EXEC.get_or_init(|| Regex::new(r#"exec\.(Command|CommandContext)\s*\("#).unwrap())
+}
+
+fn js_exec_direct() -> &'static Regex {
+    // Direct exec() call pattern for JavaScript - matches exec( but not .exec( to avoid RegExp.exec
+    // This catches: exec(something), execSync(something), execAsync(something)
+    JS_EXEC_DIRECT.get_or_init(|| Regex::new(r#"(?:^|[^.\w])(exec|execSync|execAsync)\s*\("#).unwrap())
 }
 
 pub struct CommandInjectionDetector {
@@ -190,6 +203,67 @@ impl Detector for CommandInjectionDetector {
                                 category: Some("security".to_string()),
                                 cwe_id: Some("CWE-78".to_string()),
                                 why_it_matters: Some("The command variable was built using ${} interpolation, allowing shell injection.".to_string()),
+                            });
+                        }
+                    }
+                    
+                    // Check for direct exec(req.body.command) pattern in JavaScript
+                    // This catches exec(userInput) without template literals
+                    if js_exec_direct().is_match(line) {
+                        let has_direct_user_input = line.contains("req.body") || line.contains("req.query") ||
+                            line.contains("req.params") || line.contains("request.body") ||
+                            line.contains("request.query") || line.contains("request.params");
+                        
+                        if has_direct_user_input {
+                            findings.push(Finding {
+                                id: Uuid::new_v4().to_string(),
+                                detector: "CommandInjectionDetector".to_string(),
+                                severity: Severity::Critical,
+                                title: "Command injection via direct user input".to_string(),
+                                description: "User-controlled input (req.body/query/params) passed directly to shell execution function. This allows arbitrary command execution.".to_string(),
+                                affected_files: vec![self.relative_path(path)],
+                                line_start: Some((i + 1) as u32),
+                                line_end: Some((i + 1) as u32),
+                                suggested_fix: Some("Never pass user input directly to exec(). Use a whitelist of allowed commands, or use spawn() with a fixed command and user input only as arguments.".to_string()),
+                                estimated_effort: Some("1 hour".to_string()),
+                                category: Some("security".to_string()),
+                                cwe_id: Some("CWE-78".to_string()),
+                                why_it_matters: Some("An attacker can execute ANY system command by sending malicious input like 'rm -rf /' or 'cat /etc/passwd'.".to_string()),
+                            });
+                        }
+                    }
+                    
+                    // Check for Go exec.Command with user input
+                    if go_exec().is_match(line) {
+                        let has_user_input = line.contains("r.") || line.contains("req.") || 
+                            line.contains("request.") || line.contains("c.") ||
+                            line.contains("ctx.") || line.contains("Param") ||
+                            line.contains("Query") || line.contains("FormValue") ||
+                            line.contains("PostForm") || line.contains("userInput") ||
+                            line.contains("input") || line.contains("cmd") ||
+                            line.contains("command");
+                        
+                        // Also flag if variable names suggest user input
+                        let has_risky_var = line.to_lowercase().contains("userinput") ||
+                            line.to_lowercase().contains("user_input") ||
+                            line.to_lowercase().contains("usercmd") ||
+                            line.to_lowercase().contains("user_cmd");
+                        
+                        if has_user_input || has_risky_var {
+                            findings.push(Finding {
+                                id: Uuid::new_v4().to_string(),
+                                detector: "CommandInjectionDetector".to_string(),
+                                severity: Severity::Critical,
+                                title: "Potential command injection in Go exec.Command".to_string(),
+                                description: "exec.Command called with potentially user-controlled input. If the command or arguments come from user input, this allows arbitrary command execution.".to_string(),
+                                affected_files: vec![self.relative_path(path)],
+                                line_start: Some((i + 1) as u32),
+                                line_end: Some((i + 1) as u32),
+                                suggested_fix: Some("Validate user input against a whitelist of allowed commands. Never pass raw user input to exec.Command. Use filepath.Clean for paths.".to_string()),
+                                estimated_effort: Some("1 hour".to_string()),
+                                category: Some("security".to_string()),
+                                cwe_id: Some("CWE-78".to_string()),
+                                why_it_matters: Some("Go's exec.Command runs system commands. If user input controls the command or arguments, attackers can execute arbitrary commands.".to_string()),
                             });
                         }
                     }

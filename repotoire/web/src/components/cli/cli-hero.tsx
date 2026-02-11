@@ -8,7 +8,7 @@ import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard"
 
 export function CLIHero() {
   const { copied, copy } = useCopyToClipboard()
-  const installCommand = "pip install repotoire"
+  const installCommand = "cargo install repotoire"
 
   const copyToClipboard = () => {
     copy(installCommand)
@@ -49,7 +49,7 @@ export function CLIHero() {
             <span className="text-primary">locally.</span>
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            47 detectors. Graph-powered analysis. AI fixes with your own keys.
+            81 detectors. Graph-powered analysis. AI fixes with your own keys.
             <br />
             <span className="text-foreground font-medium">Your code never leaves your machine.</span>
           </p>
@@ -95,7 +95,7 @@ export function CLIHero() {
             <div className="flex justify-center mb-2">
               <Zap className="w-6 h-6 text-primary" />
             </div>
-            <div className="text-2xl font-bold text-foreground">47</div>
+            <div className="text-2xl font-bold text-foreground">81</div>
             <div className="text-sm text-muted-foreground">Detectors</div>
           </div>
           <div className="text-center p-4 rounded-xl bg-muted/50 border border-border/50">

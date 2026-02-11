@@ -9,7 +9,7 @@ use std::path::Path;
 /// Run a query against the code graph
 /// 
 /// Note: Cypher queries are no longer supported. Use the built-in query commands instead.
-pub fn run(path: &Path, query: &str, _format: &str) -> Result<()> {
+pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     let repo_path = path
         .canonicalize()
         .with_context(|| format!("Path does not exist: {}", path.display()))?;
@@ -25,61 +25,108 @@ pub fn run(path: &Path, query: &str, _format: &str) -> Result<()> {
     let graph = GraphStore::new(&db_path)
         .with_context(|| "Failed to open graph database")?;
 
+    let json_output = format == "json";
+
     // Parse simple query patterns
     let query_lower = query.to_lowercase();
     
     if query_lower.contains("function") {
         let functions = graph.get_functions();
-        println!("\n{} Functions ({})\n", style("📊").bold(), functions.len());
-        for func in functions.iter().take(50) {
-            println!("  {} ({}:{})", 
-                style(&func.qualified_name).cyan(),
-                &func.file_path,
-                func.line_start
-            );
-        }
-        if functions.len() > 50 {
-            println!("  ... and {} more", functions.len() - 50);
+        if json_output {
+            let json: Vec<_> = functions.iter().map(|f| serde_json::json!({
+                "name": f.name,
+                "qualified_name": f.qualified_name,
+                "file": f.file_path,
+                "line_start": f.line_start,
+                "line_end": f.line_end,
+            })).collect();
+            println!("{}", serde_json::to_string_pretty(&json)?);
+        } else {
+            println!("\n{} Functions ({})\n", style("📊").bold(), functions.len());
+            for func in functions.iter().take(50) {
+                println!("  {} ({}:{})", 
+                    style(&func.qualified_name).cyan(),
+                    &func.file_path,
+                    func.line_start
+                );
+            }
+            if functions.len() > 50 {
+                println!("  ... and {} more", functions.len() - 50);
+            }
         }
     } else if query_lower.contains("class") {
         let classes = graph.get_classes();
-        println!("\n{} Classes ({})\n", style("📊").bold(), classes.len());
-        for class in classes.iter().take(50) {
-            println!("  {} ({}:{})", 
-                style(&class.qualified_name).cyan(),
-                &class.file_path,
+        if json_output {
+            let json: Vec<_> = classes.iter().map(|c| serde_json::json!({
+                "name": c.name,
+                "qualified_name": c.qualified_name,
+                "file": c.file_path,
+                "line_start": c.line_start,
+                "line_end": c.line_end,
+            })).collect();
+            println!("{}", serde_json::to_string_pretty(&json)?);
+        } else {
+            println!("\n{} Classes ({})\n", style("📊").bold(), classes.len());
+            for class in classes.iter().take(50) {
+                println!("  {} ({}:{})", 
+                    style(&class.qualified_name).cyan(),
+                    &class.file_path,
                 class.line_start
-            );
-        }
-        if classes.len() > 50 {
-            println!("  ... and {} more", classes.len() - 50);
+                );
+            }
+            if classes.len() > 50 {
+                println!("  ... and {} more", classes.len() - 50);
+            }
         }
     } else if query_lower.contains("file") {
         let files = graph.get_files();
-        println!("\n{} Files ({})\n", style("📊").bold(), files.len());
-        for file in files.iter().take(50) {
-            println!("  {}", style(&file.file_path).cyan());
-        }
-        if files.len() > 50 {
-            println!("  ... and {} more", files.len() - 50);
+        if json_output {
+            let json: Vec<_> = files.iter().map(|f| serde_json::json!({
+                "path": f.file_path,
+            })).collect();
+            println!("{}", serde_json::to_string_pretty(&json)?);
+        } else {
+            println!("\n{} Files ({})\n", style("📊").bold(), files.len());
+            for file in files.iter().take(50) {
+                println!("  {}", style(&file.file_path).cyan());
+            }
+            if files.len() > 50 {
+                println!("  ... and {} more", files.len() - 50);
+            }
         }
     } else if query_lower.contains("call") {
         let calls = graph.get_calls();
-        println!("\n{} Call Edges ({})\n", style("📊").bold(), calls.len());
-        for (from, to) in calls.iter().take(50) {
-            println!("  {} -> {}", style(from).cyan(), style(to).green());
-        }
-        if calls.len() > 50 {
-            println!("  ... and {} more", calls.len() - 50);
+        if json_output {
+            let json: Vec<_> = calls.iter().map(|(from, to)| serde_json::json!({
+                "from": from,
+                "to": to,
+            })).collect();
+            println!("{}", serde_json::to_string_pretty(&json)?);
+        } else {
+            println!("\n{} Call Edges ({})\n", style("📊").bold(), calls.len());
+            for (from, to) in calls.iter().take(50) {
+                println!("  {} -> {}", style(from).cyan(), style(to).green());
+            }
+            if calls.len() > 50 {
+                println!("  ... and {} more", calls.len() - 50);
+            }
         }
     } else if query_lower.contains("import") {
         let imports = graph.get_imports();
-        println!("\n{} Import Edges ({})\n", style("📊").bold(), imports.len());
-        for (from, to) in imports.iter().take(50) {
-            println!("  {} -> {}", style(from).cyan(), style(to).green());
-        }
-        if imports.len() > 50 {
-            println!("  ... and {} more", imports.len() - 50);
+        if json_output {
+            let json: Vec<_> = imports.iter().map(|(from, to)| serde_json::json!({
+                "from": from,
+                "to": to,
+            })).collect();
+            println!("{}", serde_json::to_string_pretty(&json)?);
+        } else {
+            println!("\n{} Import Edges ({})\n", style("📊").bold(), imports.len());
+            for (from, to) in imports.iter().take(50) {
+                println!("  {} -> {}", style(from).cyan(), style(to).green());
+            }
+            if imports.len() > 50 {
+                println!("  ... and {} more", imports.len() - 50);
+            }
         }
     } else if query_lower == "stats" {
         // Redirect to stats command

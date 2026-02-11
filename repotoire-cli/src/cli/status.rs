@@ -25,18 +25,20 @@ pub fn run(path: &Path) -> Result<()> {
     if db_path.exists() {
         println!("  {} Graph database exists", style("[OK]").green());
         
-        // Try to get stats
-        if let Ok(graph) = crate::graph::GraphStore::new(&db_path) {
-            let stats = graph.stats();
-            let file_count = stats.get("files").copied().unwrap_or(0);
-            let func_count = stats.get("functions").copied().unwrap_or(0);
-            let class_count = stats.get("classes").copied().unwrap_or(0);
+        // Try to get stats from cached JSON (faster than loading graph)
+        let stats_path = crate::cache::get_graph_stats_path(&repo_path);
+        if let Ok(stats_json) = std::fs::read_to_string(&stats_path) {
+            if let Ok(stats) = serde_json::from_str::<serde_json::Value>(&stats_json) {
+                let file_count = stats.get("total_files").and_then(|v| v.as_i64()).unwrap_or(0);
+                let func_count = stats.get("total_functions").and_then(|v| v.as_i64()).unwrap_or(0);
+                let class_count = stats.get("total_classes").and_then(|v| v.as_i64()).unwrap_or(0);
             
-            println!("      {} files, {} functions, {} classes", 
-                style(file_count).cyan(),
-                style(func_count).cyan(),
-                style(class_count).cyan()
-            );
+                println!("      {} files, {} functions, {} classes", 
+                    style(file_count).cyan(),
+                    style(func_count).cyan(),
+                    style(class_count).cyan()
+                );
+            }
         }
     } else {
         println!(

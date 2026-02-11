@@ -72,7 +72,7 @@ Each layer catches different types of issues. Together, they provide a holistic 
 Try Repotoire on your codebase today:
 
 \`\`\`bash
-pip install repotoire
+cargo install repotoire
 repotoire ingest /path/to/repo
 repotoire analyze /path/to/repo -o report.html
 \`\`\`
@@ -237,8 +237,8 @@ Applied fix to src/analytics/metrics.py
 ## Getting Started
 
 \`\`\`bash
-# Install with auto-fix dependencies
-pip install repotoire[autofix]
+# Install the CLI
+cargo install repotoire
 export OPENAI_API_KEY="sk-..."
 
 # Generate embeddings for RAG

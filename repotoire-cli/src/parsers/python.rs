@@ -552,13 +552,13 @@ fn extract_calls_recursive(
         let call_line = node.start_position().row as u32 + 1;
 
         // Find which function/method contains this call
-        let caller = find_containing_scope(call_line, scope_map);
+        // For top-level calls (outside any function), use the file path as the caller
+        let caller = find_containing_scope(call_line, scope_map)
+            .unwrap_or_else(|| path.display().to_string());
 
         // Get the function being called
         if let Some(func_node) = node.child_by_field_name("function") {
-            let callee = extract_call_target(&func_node, source);
-
-            if let (Some(caller), Some(callee)) = (caller, callee) {
+            if let Some(callee) = extract_call_target(&func_node, source) {
                 // Skip self.method calls where caller and callee are in same class
                 // (these are tracked differently in the Python version)
                 if !callee.starts_with("self.") || !caller.contains(&callee.replace("self.", "")) {

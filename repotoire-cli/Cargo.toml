@@ -1,12 +1,14 @@
 [package]
 name = "repotoire"
-version = "0.3.36"
+version = "0.3.37"
 edition = "2021"
-description = "Graph-powered code analysis CLI"
+description = "Graph-powered code analysis CLI. 81 detectors for security, architecture, and code quality."
 license = "MIT"
 repository = "https://github.com/Zach-hammad/repotoire"
+homepage = "https://repotoire.com"
+documentation = "https://github.com/Zach-hammad/repotoire#readme"
 readme = "README.md"
-keywords = ["code-analysis", "linter", "graph", "rust"]
+keywords = ["code-analysis", "static-analysis", "security", "linter"]
 categories = ["development-tools", "command-line-utilities"]
 exclude = [
     "target/",

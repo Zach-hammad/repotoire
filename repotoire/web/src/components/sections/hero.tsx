@@ -95,7 +95,7 @@ function CLICard() {
         <div className="p-4 font-mono text-sm space-y-2 bg-background/50">
           <div className="flex items-center gap-2 text-muted-foreground">
             <span className="text-primary">$</span>
-            <TypingText text="pip install repotoire" delay={0.5} />
+            <TypingText text="cargo install repotoire" delay={0.5} />
           </div>
           <motion.div
             initial={{ opacity: 0 }}
@@ -233,7 +233,7 @@ export function Hero() {
             <div className="flex flex-wrap justify-center gap-2">
               <FeaturePill icon={Shield} text="Code stays local" delay={1.5} />
               <FeaturePill icon={Zap} text="9 languages" delay={1.6} />
-              <FeaturePill icon={Sparkles} text="47 detectors" delay={1.7} />
+              <FeaturePill icon={Sparkles} text="81 detectors" delay={1.7} />
             </div>
 
             {/* CTA */}
@@ -254,7 +254,7 @@ export function Hero() {
                 </Button>
               </Link>
               <p className="text-sm text-muted-foreground mt-4">
-                <code className="px-2 py-1 rounded bg-muted text-foreground font-mono">pip install repotoire</code>
+                <code className="px-2 py-1 rounded bg-muted text-foreground font-mono">cargo install repotoire</code>
                 <span className="mx-2">·</span>
                 No sign-up required
               </p>

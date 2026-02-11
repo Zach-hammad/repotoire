@@ -9,15 +9,15 @@ import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard"
 const steps = [
   {
     title: "Install",
-    command: "pip install repotoire",
-    output: "Successfully installed repotoire-0.1.38",
+    command: "cargo install repotoire",
+    output: "Installed package `repotoire v0.3.36`",
   },
   {
     title: "Analyze",
     command: "repotoire analyze .",
     output: `Scanning repository...
 ✓ Built code graph (847 nodes, 2,341 edges)
-✓ Running 47 detectors...
+✓ Running 81 detectors...
 
 ╭───────────────────────────────────────╮
 │  Health Score: 87/100                 │

@@ -69,6 +69,10 @@ pub struct SQLInjectionDetector {
     concat_sql_pattern: Regex,
     format_sql_pattern: Regex,
     percent_sql_pattern: Regex,
+    // JavaScript template literal pattern
+    js_template_sql_pattern: Regex,
+    // Go fmt.Sprintf pattern
+    go_sprintf_sql_pattern: Regex,
 }
 
 impl SQLInjectionDetector {
@@ -115,6 +119,18 @@ impl SQLInjectionDetector {
             r#"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*%[sdr].*["']\s*%"#
         ).unwrap();
 
+        // Pattern 5: JavaScript template literals with SQL keywords
+        // Matches: db.query(`SELECT * FROM users WHERE id = ${userId}`)
+        let js_template_sql_pattern = Regex::new(
+            r#"(?i)`[^`]*\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b[^`]*\$\{[^}]+\}[^`]*`"#
+        ).unwrap();
+
+        // Pattern 6: Go fmt.Sprintf with SQL keywords
+        // Matches: fmt.Sprintf("SELECT * FROM users WHERE id = %s", id)
+        let go_sprintf_sql_pattern = Regex::new(
+            r#"(?i)fmt\.Sprintf\s*\(\s*["'`][^"'`]*\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b[^"'`]*%[svdqxXfFeEgGtTpbcoU][^"'`]*["'`]"#
+        ).unwrap();
+
         Self {
             config,
             repository_path,
@@ -124,6 +140,8 @@ impl SQLInjectionDetector {
             concat_sql_pattern,
             format_sql_pattern,
             percent_sql_pattern,
+            js_template_sql_pattern,
+            go_sprintf_sql_pattern,
         }
     }
 
@@ -180,6 +198,16 @@ impl SQLInjectionDetector {
             return Some("percent_format");
         }
 
+        // Check JavaScript template literal pattern
+        if self.js_template_sql_pattern.is_match(line) {
+            return Some("js_template");
+        }
+
+        // Check Go fmt.Sprintf pattern
+        if self.go_sprintf_sql_pattern.is_match(line) {
+            return Some("go_sprintf");
+        }
+
         None
     }
 
@@ -213,6 +241,33 @@ impl SQLInjectionDetector {
             return true;
         }
 
+        // JavaScript/Node.js SQL patterns
+        if line_lower.contains(".query(") || line_lower.contains(".execute(") {
+            return true;
+        }
+        // Common JS database libraries
+        if line_lower.contains("mysql.") || line_lower.contains("pg.") 
+            || line_lower.contains("sequelize") || line_lower.contains("knex")
+            || line_lower.contains("pool.") || line_lower.contains("client.") {
+            return true;
+        }
+
+        // Go SQL patterns
+        if line_lower.contains(".queryrow(") || line_lower.contains(".queryrowcontext(") {
+            return true;
+        }
+        if line_lower.contains("sql.open") || line_lower.contains("db.query")
+            || line_lower.contains("db.exec") || line_lower.contains("db.prepare") {
+            return true;
+        }
+        // Go fmt.Sprintf with SQL keywords is always SQL context
+        if line_lower.contains("fmt.sprintf") 
+            && ["select", "insert", "update", "delete"]
+                .iter()
+                .any(|kw| line_lower.contains(kw)) {
+            return true;
+        }
+
         false
     }
 
@@ -230,8 +285,8 @@ impl SQLInjectionDetector {
         
         debug!("Scanning for SQL injection in: {:?}", self.repository_path);
 
-        // Walk through Python files (respects .gitignore and .repotoireignore)
-        for path in walk_source_files(&self.repository_path, Some(&["py"])) {
+        // Walk through Python, JavaScript, TypeScript, and Go files (respects .gitignore and .repotoireignore)
+        for path in walk_source_files(&self.repository_path, Some(&["py", "js", "ts", "go"])) {
             let rel_path = path
                 .strip_prefix(&self.repository_path)
                 .unwrap_or(&path)
@@ -311,6 +366,8 @@ impl SQLInjectionDetector {
             ("concatenation", "string concatenation in SQL query"),
             ("format", ".format() string interpolation in SQL query"),
             ("percent_format", "% string formatting in SQL query"),
+            ("js_template", "JavaScript template literal with interpolation in SQL query"),
+            ("go_sprintf", "Go fmt.Sprintf with string interpolation in SQL query"),
         ];
 
         let pattern_desc = pattern_descriptions
@@ -477,5 +534,65 @@ mod tests {
         assert!(detector.is_sql_context("db.query(statement)"));
         assert!(detector.is_sql_context("User.objects.raw(sql)"));
         assert!(!detector.is_sql_context("print(message)"));
+    }
+
+    #[test]
+    fn test_js_template_sql_detection() {
+        let detector = SQLInjectionDetector::new();
+
+        // Should detect JavaScript template literal SQL injection
+        assert_eq!(
+            detector.check_line_for_patterns(r#"db.query(`SELECT * FROM users WHERE id = ${userId}`)"#),
+            Some("js_template")
+        );
+
+        // Should detect with INSERT
+        assert_eq!(
+            detector.check_line_for_patterns(r#"pool.execute(`INSERT INTO logs (msg) VALUES ('${message}')`)"#),
+            Some("js_template")
+        );
+
+        // Should NOT detect static template literal
+        assert!(detector.check_line_for_patterns(r#"db.query(`SELECT * FROM users`)"#).is_none());
+    }
+
+    #[test]
+    fn test_go_sprintf_sql_detection() {
+        let detector = SQLInjectionDetector::new();
+
+        // Should detect Go fmt.Sprintf SQL injection
+        assert_eq!(
+            detector.check_line_for_patterns(r#"query := fmt.Sprintf("SELECT * FROM users WHERE id = %s", id)"#),
+            Some("go_sprintf")
+        );
+
+        // Should detect with %v
+        assert_eq!(
+            detector.check_line_for_patterns(r#"sql := fmt.Sprintf("DELETE FROM users WHERE id = %v", userId)"#),
+            Some("go_sprintf")
+        );
+
+        // Should NOT detect non-SQL sprintf
+        assert!(detector.check_line_for_patterns(r#"msg := fmt.Sprintf("Hello %s", name)"#).is_none());
+    }
+
+    #[test]
+    fn test_js_sql_context_detection() {
+        let detector = SQLInjectionDetector::new();
+
+        assert!(detector.is_sql_context("pool.query(sql)"));
+        assert!(detector.is_sql_context("client.execute(query)"));
+        assert!(detector.is_sql_context("mysql.query(statement)"));
+        assert!(detector.is_sql_context("const result = await pg.query(sql)"));
+    }
+
+    #[test]
+    fn test_go_sql_context_detection() {
+        let detector = SQLInjectionDetector::new();
+
+        assert!(detector.is_sql_context("db.QueryRow(query)"));
+        assert!(detector.is_sql_context("db.Exec(sql)"));
+        assert!(detector.is_sql_context("db.Query(statement)"));
+        assert!(detector.is_sql_context(r#"query := fmt.Sprintf("SELECT * FROM users")"#));
     }
 }

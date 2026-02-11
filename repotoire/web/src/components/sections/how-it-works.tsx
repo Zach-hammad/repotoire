@@ -59,7 +59,7 @@ export function HowItWorks() {
             </div>
             <div className="bg-muted rounded-lg p-4 font-mono text-sm">
               <div className="text-muted-foreground"># Install CLI</div>
-              <div className="text-primary mt-1">pip install repotoire</div>
+              <div className="text-primary mt-1">cargo install repotoire</div>
               <div className="text-muted-foreground mt-3">✓ Installed v0.1.44</div>
               <div className="text-muted-foreground">✓ 9 languages supported</div>
             </div>

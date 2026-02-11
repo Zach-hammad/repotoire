@@ -11,16 +11,11 @@ Analyze your codebase in under 2 minutes. No sign-up, no Docker, no external ser
 
 ## Install
 
-**Rust (recommended)** — fastest analysis, single binary:
+**Rust CLI** — fast analysis, single binary:
 \`\`\`bash
 cargo install repotoire
 \`\`\`
 > ⏱️ First install takes ~10 min (compiles Kuzu graph database)
-
-**Python** — quick install, requires Python 3.10+:
-\`\`\`bash
-pip install repotoire
-\`\`\`
 
 ## Analyze
 
@@ -32,7 +27,7 @@ repotoire analyze .
 That's it. Repotoire will:
 - Parse your code (Python, TypeScript, Go, Java, Rust, C/C++, C#, Kotlin)
 - Build a local knowledge graph
-- Run 47 detectors
+- Run 81 detectors
 - Show your health score
 
 ## Example Output
@@ -43,7 +38,7 @@ That's it. Repotoire will:
 Repository: ./my-project
 Files: 156 | Functions: 412 | Classes: 89
 
-Running 47 detectors...
+Running 81 detectors...
 
 ┌──────────────────┬───────┬───────┐
 │ Category         │ Score │ Grade │

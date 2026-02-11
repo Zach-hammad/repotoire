@@ -48,7 +48,7 @@ export function FinalCTA() {
         >
           <div className="bg-background border border-border rounded-lg p-4 font-mono text-sm text-left">
             <span className="text-primary">$</span>{" "}
-            <span className="text-foreground">pip install repotoire && repotoire analyze .</span>
+            <span className="text-foreground">cargo install repotoire && repotoire analyze .</span>
           </div>
         </div>
 

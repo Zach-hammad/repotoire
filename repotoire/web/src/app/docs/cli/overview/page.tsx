@@ -11,14 +11,9 @@ Graph-powered code analysis from your terminal. No sign-up required.
 
 ## Installation
 
-**Rust (recommended)**:
+**Rust CLI**:
 \`\`\`bash
 cargo install repotoire
-\`\`\`
-
-**Python**:
-\`\`\`bash
-pip install repotoire
 \`\`\`
 
 ## Quick Start

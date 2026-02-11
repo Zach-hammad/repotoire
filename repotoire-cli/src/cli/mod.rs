@@ -15,6 +15,18 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Parse and validate workers count (1-64)
+fn parse_workers(s: &str) -> Result<usize, String> {
+    let n: usize = s.parse().map_err(|_| format!("'{}' is not a valid number", s))?;
+    if n == 0 {
+        Err("workers must be at least 1".to_string())
+    } else if n > 64 {
+        Err("workers cannot exceed 64".to_string())
+    } else {
+        Ok(n)
+    }
+}
+
 /// Repotoire - Graph-powered code analysis
 ///
 /// 100% LOCAL - No account needed. No data leaves your machine.
@@ -26,12 +38,12 @@ pub struct Cli {
     #[arg(global = true, default_value = ".")]
     pub path: PathBuf,
 
-    /// Log level
-    #[arg(long, global = true, default_value = "info")]
+    /// Log level (error, warn, info, debug, trace)
+    #[arg(long, global = true, default_value = "info", value_parser = ["error", "warn", "info", "debug", "trace"])]
     pub log_level: String,
 
-    /// Number of parallel workers
-    #[arg(long, global = true, default_value = "8")]
+    /// Number of parallel workers (1-64)
+    #[arg(long, global = true, default_value = "8", value_parser = parse_workers)]
     pub workers: usize,
 
     #[command(subcommand)]
@@ -53,8 +65,8 @@ pub enum Commands {
         #[arg(long, short = 'o')]
         output: Option<PathBuf>,
 
-        /// Minimum severity to report
-        #[arg(long)]
+        /// Minimum severity to report (critical, high, medium, low)
+        #[arg(long, value_parser = ["critical", "high", "medium", "low"])]
         severity: Option<String>,
 
         /// Maximum findings to show
@@ -87,7 +99,7 @@ pub enum Commands {
 
         /// Exit with code 1 if findings at this severity or higher exist
         /// Values: critical, high, medium, low (default: none - always exit 0)
-        #[arg(long)]
+        #[arg(long, value_parser = ["critical", "high", "medium", "low"])]
         fail_on: Option<String>,
 
         /// Disable emoji in output (cleaner for CI logs)
@@ -97,7 +109,8 @@ pub enum Commands {
 
     /// View findings from last analysis
     Findings {
-        /// Finding index to show details
+        /// Finding index to show details (e.g., --index 5)
+        #[arg(long, short = 'n')]
         index: Option<usize>,
 
         /// Output as JSON
@@ -109,7 +122,7 @@ pub enum Commands {
         top: Option<usize>,
 
         /// Minimum severity to show (critical, high, medium, low)
-        #[arg(long)]
+        #[arg(long, value_parser = ["critical", "high", "medium", "low"])]
         severity: Option<String>,
 
         /// Page number (1-indexed)
@@ -137,7 +150,7 @@ pub enum Commands {
 
     /// Query the code graph directly
     Graph {
-        /// Cypher query to execute
+        /// Query keyword: functions, classes, files, calls, imports, stats
         query: String,
 
         /// Output format (json, table)
@@ -154,7 +167,7 @@ pub enum Commands {
     /// Check environment setup
     Doctor,
 
-    /// Remove all .repotoire directories
+    /// Remove cached analysis data for a repository
     Clean {
         /// Preview what would be removed without deleting
         #[arg(long)]
@@ -228,6 +241,19 @@ pub fn run(cli: Cli) -> Result<()> {
         Some(Commands::Serve { local }) => serve::run(&cli.path, local),
 
         None => {
+            // Check if the path looks like an unknown subcommand
+            let path_str = cli.path.to_string_lossy();
+            if !cli.path.exists() && !path_str.contains('/') && !path_str.contains('\\') && !path_str.starts_with('.') {
+                // Looks like user tried to use an unknown subcommand
+                let known_commands = ["init", "analyze", "findings", "fix", "graph", "stats", "status", "doctor", "clean", "version", "serve"];
+                if !known_commands.contains(&path_str.as_ref()) {
+                    anyhow::bail!(
+                        "Unknown command '{}'. Run 'repotoire --help' for available commands.\n\nDid you mean one of: {}?",
+                        path_str,
+                        known_commands.join(", ")
+                    );
+                }
+            }
             // Default: run analyze with pagination (page 1, 20 per page)
             analyze::run(&cli.path, "text", None, None, None, 1, 20, vec![], false, false, cli.workers, None, false)
         }

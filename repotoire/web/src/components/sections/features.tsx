@@ -62,7 +62,7 @@ export function Features() {
           id="features-heading"
           className={`text-3xl sm:text-4xl tracking-tight text-foreground mb-4 text-center opacity-0 ${isVisible ? "animate-fade-up" : ""}`}
         >
-          <span className="font-serif italic text-muted-foreground">47 detectors,</span>{" "}
+          <span className="font-serif italic text-muted-foreground">81 detectors,</span>{" "}
           <span className="text-gradient font-display font-semibold">9 languages</span>
         </h2>
         <p

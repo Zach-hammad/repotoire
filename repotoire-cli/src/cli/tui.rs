@@ -117,6 +117,15 @@ impl App {
 }
 
 pub fn run(findings: Vec<Finding>, repo_path: std::path::PathBuf) -> Result<()> {
+    // Check if we have a TTY
+    use std::io::IsTerminal;
+    if !io::stdout().is_terminal() {
+        anyhow::bail!(
+            "Interactive mode requires a terminal (TTY).\n\
+             Run without -i flag, or use: repotoire findings --json"
+        );
+    }
+
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();

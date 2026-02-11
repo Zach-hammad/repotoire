@@ -553,12 +553,12 @@ fn extract_calls_recursive(
 ) {
     if node.kind() == "invocation_expression" {
         let call_line = node.start_position().row as u32 + 1;
-        let caller = find_containing_scope(call_line, scope_map);
+        // For top-level calls (outside any function), use the file path as the caller
+        let caller = find_containing_scope(call_line, scope_map)
+            .unwrap_or_else(|| path.display().to_string());
 
         if let Some(func_node) = node.child_by_field_name("function") {
-            let callee = extract_call_target(&func_node, source);
-
-            if let (Some(caller), Some(callee)) = (caller, callee) {
+            if let Some(callee) = extract_call_target(&func_node, source) {
                 result.calls.push((caller, callee));
             }
         }
@@ -567,13 +567,13 @@ fn extract_calls_recursive(
     // Handle object creation expressions
     if node.kind() == "object_creation_expression" {
         let call_line = node.start_position().row as u32 + 1;
-        let caller = find_containing_scope(call_line, scope_map);
+        // For top-level calls (outside any function), use the file path as the caller
+        let caller = find_containing_scope(call_line, scope_map)
+            .unwrap_or_else(|| path.display().to_string());
 
         if let Some(type_node) = node.child_by_field_name("type") {
             if let Ok(callee) = type_node.utf8_text(source) {
-                if let Some(caller) = caller {
-                    result.calls.push((caller, format!("new {}", callee)));
-                }
+                result.calls.push((caller, format!("new {}", callee)));
             }
         }
     }

@@ -55,12 +55,12 @@ export default function TeamsPage() {
 
             <div className="bg-background rounded-lg p-4 font-mono text-sm text-left mb-4 border">
               <div className="text-muted-foreground mb-2"># Install and analyze in seconds</div>
-              <div className="text-foreground">pip install repotoire</div>
+              <div className="text-foreground">cargo install repotoire</div>
               <div className="text-foreground">repotoire analyze .</div>
             </div>
 
             <p className="text-muted-foreground text-sm mb-4">
-              Full code analysis with 47 detectors. No sign-up required.
+              Full code analysis with 81 detectors. No sign-up required.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center">

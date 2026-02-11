@@ -394,7 +394,7 @@ pub fn default_detectors(repository_path: &Path) -> Vec<Arc<dyn Detector>> {
         Arc::new(PickleDeserializationDetector::with_repository_path(repository_path.to_path_buf())),
         Arc::new(SQLInjectionDetector::with_repository_path(repository_path.to_path_buf())),
         Arc::new(TaintDetector::with_repository_path(repository_path.to_path_buf())),
-        Arc::new(UnsafeTemplateDetector::new()),
+        Arc::new(UnsafeTemplateDetector::with_repository_path(repository_path.to_path_buf())),
         // Misc detectors
         Arc::new(GeneratorMisuseDetector::new()),
         Arc::new(InfiniteLoopDetector::new()),

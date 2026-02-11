@@ -127,19 +127,21 @@ Processing files... ████████████░░░░ 75% (375/50
 
 ## Supported Languages
 
-| Language | Parsing | Call Graph | Imports | Inheritance |
-|----------|---------|------------|---------|-------------|
-| Python | ✅ | ✅ | ✅ | ✅ |
-| TypeScript | ✅ | ✅ | ✅ | ✅ |
-| JavaScript | ✅ | ✅ | ✅ | ✅ |
-| Go | ✅ | ✅ | ✅ | ✅ |
-| Java | ✅ | ✅ | ✅ | ✅ |
-| Rust | ✅ | ✅ | ✅ | ✅ |
-| C/C++ | ✅ | ✅ | ✅ | ✅ |
-| C# | ✅ | ✅ | ✅ | ✅ |
-| Kotlin | ✅ | ✅ | ✅ | ✅ |
+| Language | Parsing | Call Graph | Imports | Status |
+|----------|---------|------------|---------|--------|
+| Rust | ✅ | ✅ | ✅ | **Full Support** |
+| Python | ✅ | 🚧 | 🚧 | Parsing only |
+| TypeScript | ✅ | 🚧 | 🚧 | Parsing only |
+| JavaScript | ✅ | 🚧 | 🚧 | Parsing only |
+| Go | ✅ | 🚧 | 🚧 | Parsing only |
+| Java | ✅ | 🚧 | 🚧 | Parsing only |
+| C/C++ | ✅ | 🚧 | 🚧 | Parsing only |
+| C# | ✅ | 🚧 | 🚧 | Parsing only |
+| Kotlin | ✅ | 🚧 | 🚧 | Parsing only |
 
 All languages use tree-sitter for parsing, compiled to native code via Rust.
+
+**Note:** Call graph analysis (function calls, imports) is currently implemented for Rust only. Other languages get full AST parsing with class/function/module detection — call graph support is actively in development and coming soon!
 
 ## CLI Reference
 
@@ -220,7 +222,7 @@ enabled = true
 ```
 ┌──────────┐    ┌───────────────┐    ┌──────────────┐    ┌──────────┐
 │  Source  │───▶│ Rust Parser   │───▶│  Kuzu Graph  │───▶│ Detectors│
-│  Files   │    │ (tree-sitter) │    │  (embedded)  │    │   (47)   │
+│  Files   │    │ (tree-sitter) │    │  (embedded)  │    │   (81)   │
 └──────────┘    └───────────────┘    └──────────────┘    └──────────┘
      │                                      │
      │         6 languages                  │      Graph algorithms:
