@@ -111,7 +111,10 @@ pub fn run(
     );
 
     // Print header
-    print_header(&repo_path, config.no_emoji);
+    // Suppress progress output for machine-readable formats
+    let quiet_mode = format == "json" || format == "sarif";
+    
+    print_header(&repo_path, config.no_emoji, format);
 
     // Create cache directory (~/.cache/repotoire/<repo-hash>/)
     let repotoire_dir = crate::cache::ensure_cache_dir(&repo_path)
@@ -133,18 +136,22 @@ pub fn run(
     )?;
 
     if file_result.all_files.is_empty() {
-        println!("\n{}No source files found to analyze.", style("⚠️  ").yellow());
+        if !quiet_mode {
+            println!("\n{}No source files found to analyze.", style("⚠️  ").yellow());
+        }
         return Ok(());
     }
 
-    if file_result.files_to_parse.is_empty() && config.is_incremental_mode {
+    if file_result.files_to_parse.is_empty() && config.is_incremental_mode && !quiet_mode {
         println!("\n{}No files changed since last run. Using cached results.", style("✓ ").green());
     }
 
     // Step 2: Initialize graph database
     let db_path = repotoire_dir.join("graph_db");
-    let icon_graph = if config.no_emoji { "" } else { "🕸️  " };
-    println!("{}Initializing graph database...", style(icon_graph).bold());
+    if !quiet_mode {
+        let icon_graph = if config.no_emoji { "" } else { "🕸️  " };
+        println!("{}Initializing graph database...", style(icon_graph).bold());
+    }
     let graph = Arc::new(GraphStore::new(&db_path).with_context(|| "Failed to initialize graph database")?);
 
     // Step 3: Parse files and build graph
@@ -166,7 +173,7 @@ pub fn run(
 
     let mut findings = run_detectors(
         &graph, &repo_path, &project_config, &skip_detector,
-        config.thorough, config.workers, &multi, &spinner_style
+        config.thorough, config.workers, &multi, &spinner_style, quiet_mode
     )?;
 
     // Step 5: Apply voting engine
@@ -227,14 +234,16 @@ pub fn run(
         &repotoire_dir, pagination_info, displayed_findings, config.no_emoji
     )?;
 
-    // Final summary
-    let elapsed = start_time.elapsed();
-    let icon_done = if config.no_emoji { "" } else { "✨ " };
-    println!(
-        "\n{}Analysis complete in {:.2}s",
-        style(icon_done).bold(),
-        elapsed.as_secs_f64()
-    );
+    // Final summary (suppress for machine-readable formats)
+    if !quiet_mode {
+        let elapsed = start_time.elapsed();
+        let icon_done = if config.no_emoji { "" } else { "✨ " };
+        println!(
+            "\n{}Analysis complete in {:.2}s",
+            style(icon_done).bold(),
+            elapsed.as_secs_f64()
+        );
+    }
 
     // Exit with code 1 if --fail-on threshold is met (for CI/CD)
     check_fail_threshold(&config.fail_on, &report)?;
@@ -274,7 +283,12 @@ fn apply_config_defaults(
 }
 
 /// Print analysis header
-fn print_header(repo_path: &Path, no_emoji: bool) {
+fn print_header(repo_path: &Path, no_emoji: bool, format: &str) {
+    // Suppress progress output for machine-readable formats
+    if format == "json" || format == "sarif" {
+        return;
+    }
+    
     let icon_analyze = if no_emoji { "" } else { "🎼 " };
     let icon_search = if no_emoji { "" } else { "🔍 " };
     
@@ -755,8 +769,11 @@ fn run_detectors(
     workers: usize,
     multi: &MultiProgress,
     spinner_style: &ProgressStyle,
+    quiet_mode: bool,
 ) -> Result<Vec<Finding>> {
-    println!("\n{}Running detectors...", style("🕵️  ").bold());
+    if !quiet_mode {
+        println!("\n{}Running detectors...", style("🕵️  ").bold());
+    }
 
     let mut engine = DetectorEngine::new(workers);
     let skip_set: HashSet<&str> = skip_detector.iter().map(|s| s.as_str()).collect();
@@ -998,21 +1015,24 @@ fn format_and_output(
     // Cache results
     cache_results(repotoire_dir, report, all_findings)?;
 
-    // Show pagination info
-    if let Some((current_page, total_pages, per_page, total)) = pagination_info {
-        println!(
-            "\n{}Showing page {} of {} ({} findings per page, {} total)",
-            style("📑 ").bold(),
-            style(current_page).cyan(),
-            style(total_pages).cyan(),
-            style(per_page).dim(),
-            style(total).cyan(),
-        );
-        if current_page < total_pages {
+    // Show pagination info (suppress for machine-readable formats)
+    let quiet_mode = format == "json" || format == "sarif";
+    if !quiet_mode {
+        if let Some((current_page, total_pages, per_page, total)) = pagination_info {
             println!(
-                "   Use {} to see more",
-                style(format!("--page {}", current_page + 1)).yellow()
+                "\n{}Showing page {} of {} ({} findings per page, {} total)",
+                style("📑 ").bold(),
+                style(current_page).cyan(),
+                style(total_pages).cyan(),
+                style(per_page).dim(),
+                style(total).cyan(),
             );
+            if current_page < total_pages {
+                println!(
+                    "   Use {} to see more",
+                    style(format!("--page {}", current_page + 1)).yellow()
+                );
+            }
         }
     }
 
