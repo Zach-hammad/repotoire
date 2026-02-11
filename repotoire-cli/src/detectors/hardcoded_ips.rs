@@ -43,6 +43,9 @@ impl Detector for HardcodedIpsDetector {
             let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if fname.contains("config") || fname.contains("test") || fname.contains(".env") { continue; }
             
+            // Skip detector files (they contain patterns, not actual usage)
+            if fname.contains("detector") || fname.contains("scanner") { continue; }
+            
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py"|"js"|"ts"|"java"|"go"|"rs"|"rb"|"php"|"cs") { continue; }
 
@@ -50,6 +53,13 @@ impl Detector for HardcodedIpsDetector {
                 for (i, line) in content.lines().enumerate() {
                     let trimmed = line.trim();
                     if trimmed.starts_with("//") || trimmed.starts_with("#") { continue; }
+                    
+                    // Skip lines with local development services and common dev ports
+                    let lower = line.to_lowercase();
+                    if lower.contains("ollama") || lower.contains("local") || 
+                       lower.contains("dev") || lower.contains("default") ||
+                       lower.contains(":11434") || lower.contains(":3000") ||
+                       lower.contains(":8080") || lower.contains(":5000") { continue; }
 
                     if let Some(m) = ip_pattern().find(line) {
                         findings.push(Finding {

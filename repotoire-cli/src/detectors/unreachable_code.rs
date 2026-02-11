@@ -40,7 +40,9 @@ impl Detector for UnreachableCodeDetector {
             if !path.is_file() { continue; }
             
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "py"|"js"|"ts"|"jsx"|"tsx"|"java"|"go"|"rs"|"rb"|"php"|"c"|"cpp") { continue; }
+            // Skip Rust - compiler already catches unreachable code, and our naive check doesn't understand blocks
+            if ext == "rs" { continue; }
+            if !matches!(ext, "py"|"js"|"ts"|"jsx"|"tsx"|"java"|"go"|"rb"|"php"|"c"|"cpp") { continue; }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
