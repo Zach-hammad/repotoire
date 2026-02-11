@@ -71,14 +71,14 @@ impl Detector for CommandInjectionDetector {
                         // Look for: params, req, request, body, query, input, userId, id, args, etc.
                         let lower = line.to_lowercase();
                         let has_risky_interpolation = 
-                            (lower.contains("${") && (
+                            lower.contains("${") && (
                                 lower.contains("id}") || lower.contains("id,") ||
                                 lower.contains("param") || lower.contains("input") ||
                                 lower.contains("user") || lower.contains("name}") ||
                                 lower.contains("args") || lower.contains("arg}") ||
                                 lower.contains("req.") || lower.contains("body") ||
                                 lower.contains("query")
-                            ));
+                            );
                         
                         if has_risky_interpolation {
                             // Extract variable name

@@ -2,6 +2,8 @@
 //!
 //! Defines the available tools and their JSON schemas for the MCP protocol.
 
+#![allow(non_snake_case)]
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;

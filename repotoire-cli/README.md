@@ -87,8 +87,8 @@ Rust-accelerated parsing. 3,000 files in under a minute.
 | Codebase | Files | Time | Speed |
 |----------|-------|------|-------|
 | Django | 3,000 | 55s | 54 files/sec |
-| Express.js | 141 | 0.02s | 7,500 files/sec |
-| Medium project | 500 | ~10s | 50 files/sec |
+| Express.js | 141 | 0.4s | 350 files/sec |
+| Medium project | 500 | ~5s | 100 files/sec |
 
 Progress bars show you what's happening:
 ```
@@ -97,7 +97,7 @@ Processing files... ████████████░░░░ 75% (375/50
 
 ## What It Finds
 
-**47 detectors** across 4 categories:
+**81 detectors** across 4 categories:
 
 ### 🏗️ Architecture
 - Circular dependencies (Tarjan's SCC algorithm)
@@ -251,7 +251,7 @@ enabled = true
      │                                      │
      │         6 languages                  │      Graph algorithms:
      │         Parallel parsing             │      • Tarjan's SCC
-     │         ~7,500 files/sec             │      • Betweenness centrality
+     │         ~100-400 files/sec           │      • Betweenness centrality
      │                                      │      • Community detection
      │                                      ▼
      │                               ┌──────────────┐
@@ -340,7 +340,7 @@ repotoire analyze . --relaxed
 ## Documentation
 
 - **[Schema Reference](docs/SCHEMA.md)** — Graph node/edge types and Cypher examples
-- **[Detectors](docs/DETECTORS.md)** — Full list of 47 detectors with configuration
+- **[Detectors](docs/DETECTORS.md)** — Full list of 81 detectors with configuration
 
 ## Contributing
 
