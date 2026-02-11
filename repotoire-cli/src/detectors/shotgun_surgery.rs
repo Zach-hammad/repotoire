@@ -1,140 +1,167 @@
 //! Shotgun Surgery Detector
 //!
-//! Detects classes that are used by many other functions, indicating that changes
-//! to these classes will require updates across the codebase (shotgun surgery).
+//! Graph-aware detection of classes/functions where changes propagate widely.
+//! Uses call graph to trace actual impact of modifications.
 //!
-//! This represents high fan-in coupling that traditional linters cannot detect.
+//! Detection criteria:
+//! - High fan-in (many callers)
+//! - Callers spread across many files/modules
+//! - Changes would cascade through call graph
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use tracing::{debug, info};
 use uuid::Uuid;
 
-/// Detect classes with too many dependents (high fan-in).
-///
-/// Shotgun surgery is a code smell where a single change requires modifications
-/// in many different places. This detector finds classes that are used by many
-/// other functions across multiple files.
+/// Thresholds for shotgun surgery detection
+#[derive(Debug, Clone)]
+pub struct ShotgunSurgeryThresholds {
+    /// Minimum callers to consider
+    pub min_callers: usize,
+    /// Minimum unique files for medium severity
+    pub medium_files: usize,
+    /// Minimum unique files for high severity
+    pub high_files: usize,
+    /// Minimum unique modules for critical
+    pub critical_modules: usize,
+}
+
+impl Default for ShotgunSurgeryThresholds {
+    fn default() -> Self {
+        Self {
+            min_callers: 5,
+            medium_files: 3,
+            high_files: 5,
+            critical_modules: 4,
+        }
+    }
+}
+
 pub struct ShotgunSurgeryDetector {
     config: DetectorConfig,
-    /// Threshold for CRITICAL severity (dependents count)
-    threshold_critical: usize,
-    /// Threshold for HIGH severity
-    threshold_high: usize,
-    /// Threshold for MEDIUM severity
-    threshold_medium: usize,
+    thresholds: ShotgunSurgeryThresholds,
 }
 
 impl ShotgunSurgeryDetector {
-    /// Create a new detector with default config
     pub fn new() -> Self {
         Self {
             config: DetectorConfig::new(),
-            threshold_critical: 25,
-            threshold_high: 15,
-            threshold_medium: 8,
+            thresholds: ShotgunSurgeryThresholds::default(),
         }
     }
 
-    /// Create with custom config
     pub fn with_config(config: DetectorConfig) -> Self {
-        Self {
-            threshold_critical: config.get_option_or("threshold_critical", 25),
-            threshold_high: config.get_option_or("threshold_high", 15),
-            threshold_medium: config.get_option_or("threshold_medium", 8),
-            config,
+        let thresholds = ShotgunSurgeryThresholds {
+            min_callers: config.get_option_or("min_callers", 5),
+            medium_files: config.get_option_or("medium_files", 3),
+            high_files: config.get_option_or("high_files", 5),
+            critical_modules: config.get_option_or("critical_modules", 4),
+        };
+        Self { config, thresholds }
+    }
+
+    /// Analyze impact of changing a class
+    fn analyze_class_impact(&self, graph: &GraphStore, class: &crate::graph::CodeNode) -> Option<ImpactAnalysis> {
+        let functions = graph.get_functions();
+        
+        // Find all methods belonging to this class
+        let methods: Vec<_> = functions.iter()
+            .filter(|f| {
+                f.file_path == class.file_path &&
+                f.line_start >= class.line_start &&
+                f.line_end <= class.line_end
+            })
+            .collect();
+
+        // Collect all external callers of all methods
+        let mut all_callers: HashSet<String> = HashSet::new();
+        let mut caller_files: HashSet<String> = HashSet::new();
+        let mut caller_modules: HashSet<String> = HashSet::new();
+
+        for method in &methods {
+            for caller in graph.get_callers(&method.qualified_name) {
+                // Skip internal callers (same class)
+                if caller.file_path == class.file_path &&
+                   caller.line_start >= class.line_start &&
+                   caller.line_end <= class.line_end {
+                    continue;
+                }
+
+                all_callers.insert(caller.qualified_name.clone());
+                caller_files.insert(caller.file_path.clone());
+                caller_modules.insert(Self::extract_module(&caller.file_path));
+            }
+        }
+
+        if all_callers.len() < self.thresholds.min_callers {
+            return None;
+        }
+
+        // Trace cascading impact (callers of callers)
+        let cascade_depth = self.trace_cascade_depth(graph, &all_callers, 0);
+
+        Some(ImpactAnalysis {
+            direct_callers: all_callers.len(),
+            affected_files: caller_files.len(),
+            affected_modules: caller_modules.len(),
+            cascade_depth,
+            sample_files: caller_files.iter().take(5).cloned().collect(),
+        })
+    }
+
+    /// Trace how far changes cascade through the call graph
+    fn trace_cascade_depth(&self, graph: &GraphStore, callers: &HashSet<String>, depth: usize) -> usize {
+        if depth >= 3 || callers.is_empty() {
+            return depth;
+        }
+
+        let mut next_level: HashSet<String> = HashSet::new();
+        for caller_qn in callers {
+            for upstream in graph.get_callers(caller_qn) {
+                if !callers.contains(&upstream.qualified_name) {
+                    next_level.insert(upstream.qualified_name.clone());
+                }
+            }
+        }
+
+        if next_level.is_empty() {
+            depth
+        } else {
+            self.trace_cascade_depth(graph, &next_level, depth + 1)
         }
     }
 
-    /// Create finding for a class with high fan-in
-    fn create_finding(
-        &self,
-        class_name: &str,
-        short_name: &str,
-        file_path: &str,
-        line_start: Option<u32>,
-        line_end: Option<u32>,
-        caller_count: usize,
-        files_affected: usize,
-        sample_files: &[String],
-    ) -> Finding {
-        let severity = if caller_count >= self.threshold_critical {
+    fn extract_module(file_path: &str) -> String {
+        std::path::Path::new(file_path)
+            .parent()
+            .and_then(|p| p.to_str())
+            .unwrap_or("root")
+            .to_string()
+    }
+
+    fn calculate_severity(&self, analysis: &ImpactAnalysis) -> Severity {
+        if analysis.affected_modules >= self.thresholds.critical_modules {
             Severity::Critical
-        } else if caller_count >= self.threshold_high {
+        } else if analysis.affected_files >= self.thresholds.high_files {
             Severity::High
-        } else {
+        } else if analysis.affected_files >= self.thresholds.medium_files {
             Severity::Medium
-        };
-
-        // Format sample files list
-        let mut sample_files_str = sample_files
-            .iter()
-            .take(5)
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("\n  - ");
-        if files_affected > 5 {
-            sample_files_str.push_str(&format!("\n  ... and {} more files", files_affected - 5));
-        }
-
-        let suggested_fix = if severity == Severity::Critical {
-            format!(
-                "URGENT: Class '{}' is used by {} functions across {} files. \
-                Any change will require widespread modifications. Consider:\n\
-                  1. Create a facade or wrapper to isolate changes\n\
-                  2. Split responsibilities into multiple focused classes\n\
-                  3. Use dependency injection to reduce direct coupling\n\
-                  4. Introduce interfaces to decouple implementations",
-                short_name, caller_count, files_affected
-            )
         } else {
-            format!(
-                "Class '{}' is used by {} functions across {} files. Consider:\n\
-                  - Creating a facade to limit surface area\n\
-                  - Splitting into smaller, more focused classes\n\
-                  - Using the Strategy or Bridge pattern to reduce coupling",
-                short_name, caller_count, files_affected
-            )
-        };
-
-        let description = format!(
-            "Class '{}' is used by {} different functions across {} files. \
-            Changes to this class will require updates in many places across the codebase.\n\n\
-            Affected files (sample):\n  - {}",
-            short_name, caller_count, files_affected, sample_files_str
-        );
-
-        let estimated_effort = match severity {
-            Severity::Critical => "Large (1-2 days)",
-            Severity::High => "Large (4-8 hours)",
-            _ => "Medium (2-4 hours)",
-        };
-
-        Finding {
-            id: Uuid::new_v4().to_string(),
-            detector: "ShotgunSurgeryDetector".to_string(),
-            severity,
-            title: format!("Shotgun Surgery Risk: {}", short_name),
-            description,
-            affected_files: vec![file_path.into()],
-            line_start,
-            line_end,
-            suggested_fix: Some(suggested_fix),
-            estimated_effort: Some(estimated_effort.to_string()),
-            category: Some("coupling".to_string()),
-            cwe_id: None,
-            why_it_matters: Some(
-                "Shotgun surgery means a single conceptual change requires modifying \
-                many different files. This makes changes error-prone, time-consuming, \
-                and increases the risk of missing something."
-                    .to_string(),
-            ),
-            ..Default::default()
+            Severity::Low
         }
     }
+}
+
+struct ImpactAnalysis {
+    direct_callers: usize,
+    affected_files: usize,
+    affected_modules: usize,
+    cascade_depth: usize,
+    sample_files: Vec<String>,
 }
 
 impl Default for ShotgunSurgeryDetector {
@@ -149,7 +176,7 @@ impl Detector for ShotgunSurgeryDetector {
     }
 
     fn description(&self) -> &'static str {
-        "Detects classes with high fan-in (shotgun surgery risk)"
+        "Detects code where changes propagate widely"
     }
 
     fn category(&self) -> &'static str {
@@ -161,51 +188,159 @@ impl Detector for ShotgunSurgeryDetector {
     }
 
     fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
-        debug!("Starting shotgun surgery detection");
-        
         let mut findings = Vec::new();
-        
-        // Get all classes
-        let classes = graph.get_classes();
-        
-        for class in classes {
-            // Get all callers (functions that call this class's methods)
-            let callers = graph.get_callers(&class.qualified_name);
-            let caller_count = callers.len();
-            
-            // Only flag if above threshold
-            if caller_count < self.threshold_medium {
+
+        for class in graph.get_classes() {
+            // Skip interfaces
+            if class.qualified_name.contains("::interface::") {
                 continue;
             }
-            
-            // Count unique files
-            let unique_files: HashSet<_> = callers.iter().map(|c| &c.file_path).collect();
-            let files_affected = unique_files.len();
-            
-            // Get sample file paths
-            let sample_files: Vec<String> = unique_files
-                .iter()
-                .take(5)
-                .map(|s| s.to_string())
+
+            let analysis = match self.analyze_class_impact(graph, &class) {
+                Some(a) => a,
+                None => continue,
+            };
+
+            let severity = self.calculate_severity(&analysis);
+
+            let cascade_note = if analysis.cascade_depth > 1 {
+                format!(
+                    "\n\n**Cascade Analysis:** Changes propagate {} levels deep through the call graph.",
+                    analysis.cascade_depth
+                )
+            } else {
+                String::new()
+            };
+
+            let sample_list = analysis.sample_files.join("\n  - ");
+            let more_note = if analysis.affected_files > 5 {
+                format!("\n  ... and {} more files", analysis.affected_files - 5)
+            } else {
+                String::new()
+            };
+
+            findings.push(Finding {
+                id: Uuid::new_v4().to_string(),
+                detector: "ShotgunSurgeryDetector".to_string(),
+                severity,
+                title: format!("Shotgun Surgery Risk: {}", class.name),
+                description: format!(
+                    "Class '{}' is called by **{} functions** across **{} files** in **{} modules**.\n\n\
+                     Any change to this class requires updates throughout the codebase.{}\n\n\
+                     **Affected files (sample):**\n  - {}{}",
+                    class.name,
+                    analysis.direct_callers,
+                    analysis.affected_files,
+                    analysis.affected_modules,
+                    cascade_note,
+                    sample_list,
+                    more_note
+                ),
+                affected_files: vec![class.file_path.clone().into()],
+                line_start: Some(class.line_start),
+                line_end: Some(class.line_end),
+                suggested_fix: Some(format!(
+                    "Options to reduce coupling:\n\
+                     1. Create a Facade to limit the API surface\n\
+                     2. Use interfaces/protocols to decouple\n\
+                     3. Split into smaller, focused classes\n\
+                     4. Apply Dependency Injection pattern"
+                )),
+                estimated_effort: Some(match severity {
+                    Severity::Critical => "Large (1-2 days)",
+                    Severity::High => "Large (4-8 hours)",
+                    _ => "Medium (2-4 hours)",
+                }.to_string()),
+                category: Some("coupling".to_string()),
+                cwe_id: None,
+                why_it_matters: Some(
+                    "Shotgun surgery means a single change requires editing many files. \
+                     This increases the chance of missing something and introducing bugs."
+                        .to_string()
+                ),
+                ..Default::default()
+            });
+        }
+
+        // Also check high-impact functions (not just classes)
+        for func in graph.get_functions() {
+            let callers = graph.get_callers(&func.qualified_name);
+            if callers.len() < self.thresholds.min_callers * 2 {
+                continue;
+            }
+
+            let caller_files: HashSet<_> = callers.iter().map(|c| &c.file_path).collect();
+            let caller_modules: HashSet<_> = callers.iter()
+                .map(|c| Self::extract_module(&c.file_path))
                 .collect();
+
+            if caller_modules.len() >= self.thresholds.critical_modules {
+                findings.push(Finding {
+                    id: Uuid::new_v4().to_string(),
+                    detector: "ShotgunSurgeryDetector".to_string(),
+                    severity: Severity::High,
+                    title: format!("High-Impact Function: {}", func.name),
+                    description: format!(
+                        "Function '{}' is called from {} places across {} modules.\n\n\
+                         Changes will have wide-reaching effects.",
+                        func.name, callers.len(), caller_modules.len()
+                    ),
+                    affected_files: vec![func.file_path.clone().into()],
+                    line_start: Some(func.line_start),
+                    line_end: Some(func.line_end),
+                    suggested_fix: Some("Consider creating wrapper functions or using dependency injection".to_string()),
+                    estimated_effort: Some("Medium (2-4 hours)".to_string()),
+                    category: Some("coupling".to_string()),
+                    cwe_id: None,
+                    why_it_matters: Some("High-impact functions require careful change management".to_string()),
+                    ..Default::default()
+                });
+            }
+        }
+
+        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
+        info!("ShotgunSurgeryDetector found {} findings", findings.len());
+        Ok(findings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::{CodeNode, CodeEdge, GraphStore};
+
+    #[test]
+    fn test_detect_shotgun_surgery() {
+        let graph = GraphStore::in_memory();
+        
+        // Create a class with many external callers
+        graph.add_node(CodeNode::class("SharedService", "src/shared.py")
+            .with_qualified_name("shared::SharedService")
+            .with_lines(1, 50));
+        
+        graph.add_node(CodeNode::function("do_work", "src/shared.py")
+            .with_qualified_name("shared::SharedService::do_work")
+            .with_lines(10, 20));
+        
+        // Add callers from multiple files
+        for i in 0..10 {
+            let file = format!("src/module_{}.py", i);
+            let caller = format!("caller_{}", i);
+            graph.add_node(CodeNode::function(&caller, &file)
+                .with_qualified_name(&format!("module_{}::{}", i, caller))
+                .with_lines(1, 10));
             
-            findings.push(self.create_finding(
-                &class.qualified_name,
-                &class.name,
-                &class.file_path,
-                Some(class.line_start),
-                Some(class.line_end),
-                caller_count,
-                files_affected,
-                &sample_files,
-            ));
+            graph.add_edge_by_name(
+                &format!("module_{}::{}", i, caller),
+                "shared::SharedService::do_work",
+                CodeEdge::calls()
+            );
         }
         
-        // Sort by severity (critical first)
-        findings.sort_by(|a, b| b.severity.cmp(&a.severity));
+        let detector = ShotgunSurgeryDetector::new();
+        let findings = detector.detect(&graph).unwrap();
         
-        info!("ShotgunSurgeryDetector found {} issues", findings.len());
-        
-        Ok(findings)
+        assert!(!findings.is_empty());
+        assert!(findings[0].title.contains("SharedService"));
     }
 }

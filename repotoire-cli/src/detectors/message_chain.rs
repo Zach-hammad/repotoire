@@ -1,27 +1,32 @@
 //! Message Chain detector for Law of Demeter violations
 //!
-//! Detects long method chains that violate the Law of Demeter principle:
-//! - Deep coupling through chains of 4+ method calls
-//! - Excessive knowledge of object internals
-//! - Tight coupling that makes code brittle to changes
+//! Detects long method chains like: a.b().c().d().e()
+//! These violate the Law of Demeter by coupling to internal object structure.
 //!
-//! Example violation:
-//! ```text
-//! user.get_profile().get_settings().get_notifications().is_email_enabled()
-//! ```
-//!
-//! Better approach:
-//! ```text
-//! user.wants_email_notifications()
-//! ```
+//! Uses both:
+//! - Source code pattern matching for inline chains
+//! - Call graph analysis for cross-function delegation chains
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
+use regex::Regex;
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use tracing::{debug, info};
 use uuid::Uuid;
+
+static CHAIN_PATTERN: OnceLock<Regex> = OnceLock::new();
+
+fn chain_pattern() -> &'static Regex {
+    CHAIN_PATTERN.get_or_init(|| {
+        // Match method chains: .method().method().method()
+        // At least 4 chained calls
+        Regex::new(r"(\.[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)){4,}").unwrap()
+    })
+}
 
 /// Thresholds for message chain detection
 #[derive(Debug, Clone)]
@@ -30,152 +35,242 @@ pub struct MessageChainThresholds {
     pub min_chain_depth: usize,
     /// Chain depth for high severity
     pub high_severity_depth: usize,
-    /// Chain depth for critical severity
-    pub critical_severity_depth: usize,
-    /// Report chains of depth 3 (low severity)
-    pub report_low_severity: bool,
 }
 
 impl Default for MessageChainThresholds {
     fn default() -> Self {
         Self {
             min_chain_depth: 4,
-            high_severity_depth: 5,
-            critical_severity_depth: 7,
-            report_low_severity: false,
+            high_severity_depth: 6,
         }
     }
 }
 
-/// Detects Law of Demeter violations through long method chains
+/// Patterns to exclude (builder patterns, fluent APIs)
+const EXCLUDE_PATTERNS: &[&str] = &[
+    "builder", "with_", "set_", "add_", "and_", "or_",
+    "filter", "map", "reduce", "collect", "iter",
+    "select", "where", "order_by", "group_by", "join",
+    "expect", "unwrap", "ok", "err", "and_then",
+];
+
+/// Detects Law of Demeter violations
 pub struct MessageChainDetector {
     config: DetectorConfig,
     thresholds: MessageChainThresholds,
+    repository_path: PathBuf,
 }
 
 impl MessageChainDetector {
-    /// Create a new detector with default thresholds
-    pub fn new() -> Self {
-        Self::with_thresholds(MessageChainThresholds::default())
-    }
-
-    /// Create with custom thresholds
-    pub fn with_thresholds(thresholds: MessageChainThresholds) -> Self {
+    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
         Self {
             config: DetectorConfig::new(),
-            thresholds,
+            thresholds: MessageChainThresholds::default(),
+            repository_path: repository_path.into(),
         }
     }
 
-    /// Create with custom config
-    pub fn with_config(config: DetectorConfig) -> Self {
+    pub fn with_config(config: DetectorConfig, repository_path: impl Into<PathBuf>) -> Self {
         let thresholds = MessageChainThresholds {
             min_chain_depth: config.get_option_or("min_chain_depth", 4),
-            high_severity_depth: config.get_option_or("high_severity_depth", 5),
-            critical_severity_depth: config.get_option_or("critical_severity_depth", 7),
-            report_low_severity: config.get_option_or("report_low_severity", false),
+            high_severity_depth: config.get_option_or("high_severity_depth", 6),
         };
-
-        Self { config, thresholds }
+        Self {
+            config,
+            thresholds,
+            repository_path: repository_path.into(),
+        }
     }
 
-    /// Calculate severity based on chain depth
-    fn calculate_severity(&self, chain_depth: usize) -> Severity {
-        if chain_depth >= self.thresholds.critical_severity_depth {
-            Severity::Critical
-        } else if chain_depth >= self.thresholds.high_severity_depth {
+    /// Check if chain is a fluent API pattern (not a violation)
+    fn is_fluent_pattern(&self, chain: &str) -> bool {
+        let lower = chain.to_lowercase();
+        EXCLUDE_PATTERNS.iter().any(|p| lower.contains(p))
+    }
+
+    /// Count depth of a method chain
+    fn count_chain_depth(&self, chain: &str) -> usize {
+        // Count method calls: .name()
+        chain.matches(").").count() + 1
+    }
+
+    fn calculate_severity(&self, depth: usize) -> Severity {
+        if depth >= self.thresholds.high_severity_depth {
             Severity::High
         } else {
             Severity::Medium
         }
     }
 
-    /// Estimate effort based on chain depth
-    fn estimate_effort(&self, chain_depth: usize) -> String {
-        if chain_depth >= 7 {
-            "Medium (2-4 hours)".to_string()
-        } else if chain_depth >= 5 {
-            "Small (1-2 hours)".to_string()
-        } else {
-            "Small (30-60 minutes)".to_string()
+    /// Scan source files for method chains
+    fn scan_source_files(&self) -> Vec<Finding> {
+        let mut findings = Vec::new();
+        let mut seen: HashSet<(String, u32)> = HashSet::new();
+        
+        let walker = ignore::WalkBuilder::new(&self.repository_path)
+            .hidden(false)
+            .git_ignore(true)
+            .build();
+
+        for entry in walker.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if !matches!(ext, "py" | "js" | "ts" | "java" | "go" | "rs" | "rb") {
+                continue;
+            }
+
+            // Skip test files
+            let path_str = path.to_string_lossy();
+            if path_str.contains("/test") || path_str.contains("_test.") {
+                continue;
+            }
+
+            let rel_path = path.strip_prefix(&self.repository_path)
+                .unwrap_or(path)
+                .to_path_buf();
+
+            if let Some(content) = crate::cache::global_cache().get_content(path) {
+                for (i, line) in content.lines().enumerate() {
+                    let line_num = (i + 1) as u32;
+                    
+                    // Skip comments
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("//") || trimmed.starts_with("#") || trimmed.starts_with("*") {
+                        continue;
+                    }
+
+                    if let Some(m) = chain_pattern().find(line) {
+                        let chain = m.as_str();
+                        
+                        // Skip fluent APIs
+                        if self.is_fluent_pattern(chain) {
+                            continue;
+                        }
+
+                        let depth = self.count_chain_depth(chain);
+                        if depth < self.thresholds.min_chain_depth {
+                            continue;
+                        }
+
+                        // Deduplicate
+                        let key = (rel_path.to_string_lossy().to_string(), line_num);
+                        if seen.contains(&key) {
+                            continue;
+                        }
+                        seen.insert(key);
+
+                        let severity = self.calculate_severity(depth);
+                        
+                        findings.push(Finding {
+                            id: Uuid::new_v4().to_string(),
+                            detector: "MessageChainDetector".to_string(),
+                            severity,
+                            title: format!("Law of Demeter violation: {}-level chain", depth),
+                            description: format!(
+                                "Method chain with **{} levels** found:\n```\n{}\n```\n\n\
+                                 This violates the Law of Demeter by coupling to internal object structure.",
+                                depth, chain.trim()
+                            ),
+                            affected_files: vec![rel_path.clone()],
+                            line_start: Some(line_num),
+                            line_end: Some(line_num),
+                            suggested_fix: Some(
+                                "Options:\n\
+                                 1. Add a delegate method on the first object\n\
+                                 2. Use Tell, Don't Ask - have the object do the work\n\
+                                 3. Create a Facade to hide the chain"
+                                    .to_string()
+                            ),
+                            estimated_effort: Some("Small (30 min)".to_string()),
+                            category: Some("coupling".to_string()),
+                            cwe_id: None,
+                            why_it_matters: Some(
+                                "Long method chains couple your code to internal object structure. \
+                                 Changes to intermediate objects break the chain."
+                                    .to_string()
+                            ),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
         }
+
+        findings
     }
 
-    /// Create a finding for a message chain violation
-    fn create_finding(
-        &self,
-        _func_name: String,
-        func_simple_name: String,
-        file_path: String,
-        line_number: Option<u32>,
-        chain_depth: usize,
-        chain_example: Option<String>,
-    ) -> Finding {
-        let severity = self.calculate_severity(chain_depth);
-
-        let example_text = chain_example
-            .as_ref()
-            .map(|e| format!("\n\n**Example chain:**\n```\n{}\n```", e))
-            .unwrap_or_default();
-
-        let description = format!(
-            "Method chain with **{} levels** violates the Law of Demeter.\n\n\
-             Function `{}` contains method chains that traverse {} levels deep into object structures. \
-             This indicates:\n\
-             - Tight coupling to internal object structure\n\
-             - Violation of encapsulation principles\n\
-             - Fragile code that breaks when intermediate objects change{}",
-            chain_depth, func_simple_name, chain_depth, example_text
-        );
-
-        let suggestion = 
-            "**Refactoring approaches:**\n\n\
-             1. **Delegate to intermediate object:**\n\
-                Instead of `a.b().c().d()`, add `a.get_d()` that internally calls `b().c().d()`\n\n\
-             2. **Use Tell, Don't Ask principle:**\n\
-                Instead of `user.get_profile().get_settings().get_notifications().is_email_enabled()`\n\
-                Use `user.wants_email_notifications()`\n\n\
-             3. **Consider a Facade pattern:**\n\
-                Create a simpler interface that hides the chain complexity\n\n\
-             4. **Extract a method:**\n\
-                If the chain retrieves data for computation, extract a method on the first object"
-            .to_string();
-
-        Finding {
-            id: Uuid::new_v4().to_string(),
-            detector: "MessageChainDetector".to_string(),
-            severity,
-            title: format!(
-                "Law of Demeter violation: {}-level chain in {}",
-                chain_depth, func_simple_name
-            ),
-            description,
-            affected_files: if file_path.is_empty() {
-                vec![]
-            } else {
-                vec![PathBuf::from(&file_path)]
-            },
-            line_start: line_number,
-            line_end: None,
-            suggested_fix: Some(suggestion),
-            estimated_effort: Some(self.estimate_effort(chain_depth)),
-            category: Some("coupling".to_string()),
-            cwe_id: None,
-            why_it_matters: Some(
-                "The Law of Demeter (principle of least knowledge) states that a method \
-                 should only talk to its immediate friends, not to strangers. Long method \
-                 chains create tight coupling to the internal structure of objects, making \
-                 the code fragile and hard to change."
-                    .to_string(),
-            ),
-            ..Default::default()
+    /// Use call graph to find delegation chains across functions
+    fn find_delegation_chains(&self, graph: &GraphStore) -> Vec<Finding> {
+        let mut findings = Vec::new();
+        
+        // Find functions that are part of long call chains
+        for func in graph.get_functions() {
+            // Check if this function is mostly a pass-through
+            let callees = graph.get_callees(&func.qualified_name);
+            let callers = graph.get_callers(&func.qualified_name);
+            
+            // Single callee with single caller = potential chain link
+            if callees.len() == 1 && callers.len() == 1 {
+                let complexity = func.complexity().unwrap_or(1);
+                
+                // Low complexity suggests pass-through
+                if complexity <= 2 {
+                    // Trace the chain depth
+                    let chain_depth = self.trace_chain_depth(graph, &func.qualified_name, 0);
+                    
+                    if chain_depth >= self.thresholds.min_chain_depth as i32 {
+                        let severity = self.calculate_severity(chain_depth as usize);
+                        
+                        findings.push(Finding {
+                            id: Uuid::new_v4().to_string(),
+                            detector: "MessageChainDetector".to_string(),
+                            severity,
+                            title: format!("Delegation chain: {} is part of {}-level chain", func.name, chain_depth),
+                            description: format!(
+                                "Function '{}' is part of a {}-level delegation chain through the call graph.\n\n\
+                                 This indicates potential Law of Demeter violation at the architectural level.",
+                                func.name, chain_depth
+                            ),
+                            affected_files: vec![func.file_path.clone().into()],
+                            line_start: Some(func.line_start),
+                            line_end: Some(func.line_end),
+                            suggested_fix: Some("Consider collapsing the delegation chain or using direct access".to_string()),
+                            estimated_effort: Some("Medium (1-2 hours)".to_string()),
+                            category: Some("coupling".to_string()),
+                            cwe_id: None,
+                            why_it_matters: Some("Deep delegation chains add indirection and coupling".to_string()),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
         }
+
+        findings
+    }
+
+    /// Trace how deep a delegation chain goes
+    fn trace_chain_depth(&self, graph: &GraphStore, qn: &str, depth: i32) -> i32 {
+        if depth > 10 {
+            return depth; // Prevent infinite recursion
+        }
+
+        let callees = graph.get_callees(qn);
+        if callees.len() != 1 {
+            return depth;
+        }
+
+        self.trace_chain_depth(graph, &callees[0].qualified_name, depth + 1)
     }
 }
 
 impl Default for MessageChainDetector {
     fn default() -> Self {
-        Self::new()
+        Self::new(".")
     }
 }
 
@@ -194,11 +289,19 @@ impl Detector for MessageChainDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
-        // Message chains need AST analysis to detect a.b.c.d patterns
-        // Return empty for now - would need source code scanning
-        let _ = graph;
-        Ok(vec![])
+    }
+
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        
+        // Source code scanning for inline chains
+        findings.extend(self.scan_source_files());
+        
+        // Graph analysis for delegation chains
+        findings.extend(self.find_delegation_chains(graph));
+
+        info!("MessageChainDetector found {} findings", findings.len());
+        Ok(findings)
     }
 }
 
@@ -207,21 +310,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_thresholds() {
-        let detector = MessageChainDetector::new();
-        assert_eq!(detector.thresholds.min_chain_depth, 4);
-        assert_eq!(detector.thresholds.high_severity_depth, 5);
-        assert_eq!(detector.thresholds.critical_severity_depth, 7);
+    fn test_is_fluent_pattern() {
+        let detector = MessageChainDetector::new(".");
+        
+        assert!(detector.is_fluent_pattern(".filter().map().collect()"));
+        assert!(detector.is_fluent_pattern(".with_name().with_age().build()"));
+        assert!(!detector.is_fluent_pattern(".get_user().get_profile().get_settings()"));
     }
 
     #[test]
-    fn test_severity_calculation() {
-        let detector = MessageChainDetector::new();
+    fn test_count_chain_depth() {
+        let detector = MessageChainDetector::new(".");
+        
+        // .a().b() = 2 calls (a, b)
+        assert_eq!(detector.count_chain_depth(".a().b()"), 2);
+        // .a().b().c().d() = 4 calls
+        assert_eq!(detector.count_chain_depth(".a().b().c().d()"), 4);
+    }
 
+    #[test]
+    fn test_severity() {
+        let detector = MessageChainDetector::new(".");
+        
         assert_eq!(detector.calculate_severity(4), Severity::Medium);
-        assert_eq!(detector.calculate_severity(5), Severity::High);
         assert_eq!(detector.calculate_severity(6), Severity::High);
-        assert_eq!(detector.calculate_severity(7), Severity::Critical);
-        assert_eq!(detector.calculate_severity(10), Severity::Critical);
     }
 }

@@ -405,7 +405,7 @@ pub fn default_detectors_with_config(repository_path: &Path, project_config: &Pr
         Arc::new(FeatureEnvyDetector::new()),
         Arc::new(InappropriateIntimacyDetector::new()),
         Arc::new(LazyClassDetector::new()),
-        Arc::new(MessageChainDetector::new()),
+        Arc::new(MessageChainDetector::new(repository_path)),
         Arc::new(MiddleManDetector::new()),
         Arc::new(RefusedBequestDetector::new()),
         // AI detectors
