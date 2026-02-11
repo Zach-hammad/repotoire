@@ -207,6 +207,32 @@ impl SecretDetector {
                         continue;
                     }
                     
+                    // Skip placeholder patterns (setup templates, documentation)
+                    let matched_lower = matched.to_lowercase();
+                    if matched_lower.contains("your-") 
+                        || matched_lower.contains("-here")
+                        || matched_lower.contains("changeme")
+                        || matched_lower.contains("replace")
+                        || matched_lower.contains("todo")
+                        || matched_lower.contains("fixme")
+                        || matched == "sk-your-openai-key"
+                        || matched_lower.starts_with("xxx")
+                        || matched_lower.ends_with("xxx") {
+                        continue;
+                    }
+                    
+                    // Skip shell variable substitutions: ${VAR_NAME}
+                    // Docker Compose, shell scripts use ${SECRET} as variable reference, not hardcoded
+                    if line.contains(&format!("${{{}", &matched.split('=').next().unwrap_or(""))) {
+                        continue;
+                    }
+                    
+                    // Skip when value is reading from process.env (not hardcoding)
+                    // Pattern: const secret = process.env.SECRET
+                    if line.contains("= process.env.") || line.contains("=process.env.") {
+                        continue;
+                    }
+                    
                     // Determine effective severity based on context
                     let line_lower = line.to_lowercase();
                     let mut effective_severity = pattern.severity.clone();

@@ -163,6 +163,61 @@ impl SQLInjectionDetector {
         false
     }
 
+    /// Check if a JavaScript template literal is a safe tagged template
+    /// Tagged templates like sql`...`, Prisma.sql`...`, db.sql`...` are parameterized
+    fn is_safe_tagged_template(&self, line: &str) -> bool {
+        // Check for common safe SQL tagged template patterns
+        // These ORMs/libraries parameterize interpolations automatically
+        let safe_tags = [
+            "sql`",           // Drizzle, Slonik, postgres.js
+            ".sql`",          // db.sql`, Prisma.sql`
+            "Prisma.sql`",    // Prisma
+            "raw`",           // Some ORMs
+            "sqlstring`",     // sqlstring library
+        ];
+        
+        let line_trimmed = line.trim();
+        for tag in safe_tags {
+            if line_trimmed.contains(tag) || line.contains(&format!(" {}", tag)) {
+                return true;
+            }
+        }
+        
+        false
+    }
+    
+    /// Check if the SQL keyword is actually a JavaScript variable name
+    /// e.g., `${insert.id}` where "insert" is a variable, not SQL INSERT
+    fn is_variable_name_false_positive(&self, line: &str) -> bool {
+        let line_lower = line.to_lowercase();
+        
+        // Check if SQL keywords appear only inside ${...} as variable names
+        // Pattern: ${insert.something} or ${update.field} or ${delete}
+        let keywords = ["insert", "update", "delete", "select"];
+        
+        for keyword in keywords {
+            // If keyword exists, check if it's inside ${...} as a variable reference
+            if line_lower.contains(keyword) {
+                // Check for patterns like ${insert. or ${update. (variable access)
+                if line_lower.contains(&format!("${{{}", keyword)) {
+                    // This is likely a variable named insert/update/delete
+                    // Only flag if it ALSO appears outside of ${} in SQL context
+                    let outside_interpolation = line_lower
+                        .split("${")
+                        .next()
+                        .map(|s| s.contains(keyword))
+                        .unwrap_or(false);
+                    
+                    if !outside_interpolation {
+                        return true;  // Keyword only in variable name, not SQL
+                    }
+                }
+            }
+        }
+        
+        false
+    }
+    
     /// Check a line for dangerous SQL patterns
     fn check_line_for_patterns(&self, line: &str) -> Option<&'static str> {
         let stripped = line.trim();
@@ -225,7 +280,11 @@ impl SQLInjectionDetector {
         }
 
         // Check JavaScript template literal pattern
-        if self.js_template_sql_pattern.is_match(line) {
+        // Skip safe tagged templates (Drizzle sql``, Prisma.sql``, etc.)
+        // Skip when SQL keyword is actually a variable name (${insert.id})
+        if self.js_template_sql_pattern.is_match(line) 
+            && !self.is_safe_tagged_template(line)
+            && !self.is_variable_name_false_positive(line) {
             return Some("js_template");
         }
 

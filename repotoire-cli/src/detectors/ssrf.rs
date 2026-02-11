@@ -57,6 +57,30 @@ impl Detector for SsrfDetector {
                 
                 for (i, line) in content.lines().enumerate() {
                     if http_client().is_match(line) {
+                        // Skip relative URLs - they always hit same-origin server
+                        // Pattern: fetch('/api/...) or fetch(`/api/...)
+                        if line.contains("fetch('/") || line.contains("fetch(`/") 
+                            || line.contains("fetch(\"/") {
+                            continue;
+                        }
+                        
+                        // Skip config constant URLs (API_URL, BASE_URL, etc.)
+                        // These are from env/config, not user input
+                        if line.contains("API_URL") || line.contains("BASE_URL") 
+                            || line.contains("SERVER_URL") || line.contains("BACKEND_URL")
+                            || line.contains("apiUrl") || line.contains("baseUrl") {
+                            // Additional check: must have interpolation to be potential SSRF
+                            // If it's just API_URL + "/path", that's safe
+                            let has_dynamic_path = line.contains("params") 
+                                || line.contains("query") 
+                                || line.contains("${") && !line.contains("${API_URL")
+                                    && !line.contains("${BASE_URL")
+                                    && !line.contains("${SERVER_URL");
+                            if !has_dynamic_path {
+                                continue;
+                            }
+                        }
+                        
                         let has_user_input = line.contains("req.") || line.contains("request.") ||
                             line.contains("params") || line.contains("query") || line.contains("input");
                         if has_user_input {
