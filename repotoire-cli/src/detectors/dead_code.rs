@@ -535,6 +535,23 @@ impl DeadCodeDetector {
                 continue;
             }
             
+            // Skip classes in core/lib files that are likely imported by other files
+            // These patterns indicate the class is meant to be exported
+            let file_str = class.file_path.to_lowercase();
+            if file_str.contains("/nanochat/") ||  // Package internals
+               file_str.contains("/src/") ||
+               file_str.contains("/lib/") ||
+               file_str.contains("/core/") ||
+               file_str.contains("/models/") ||
+               file_str.contains("/utils/") ||
+               file_str.ends_with("/__init__.py") ||
+               !file_str.contains("/tests/") && !file_str.contains("/scripts/") {
+                // Only skip if it looks like a public class (starts with uppercase, not underscore)
+                if !name.starts_with('_') && name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                    continue;
+                }
+            }
+            
             // Skip decorated classes
             let has_decorators = class.get_bool("has_decorators").unwrap_or(false);
             if has_decorators {

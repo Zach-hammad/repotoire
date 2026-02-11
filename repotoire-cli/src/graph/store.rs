@@ -500,6 +500,22 @@ impl GraphStore {
         }
     }
 
+    /// Get importers of a module/class (who imports this?)
+    pub fn get_importers(&self, qn: &str) -> Vec<CodeNode> {
+        let index = self.node_index.read().unwrap();
+        let graph = self.graph.read().unwrap();
+
+        if let Some(&idx) = index.get(qn) {
+            graph
+                .edges_directed(idx, Direction::Incoming)
+                .filter(|e| e.weight().kind == EdgeKind::Imports)
+                .filter_map(|e| graph.node_weight(e.source()).cloned())
+                .collect()
+        } else {
+            vec![]
+        }
+    }
+
     /// Get parent classes (what does this inherit from?)
     pub fn get_parent_classes(&self, qn: &str) -> Vec<CodeNode> {
         let index = self.node_index.read().unwrap();

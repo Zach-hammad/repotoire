@@ -177,6 +177,20 @@ impl EvalDetector {
         if stripped.starts_with('#') {
             return None;
         }
+        
+        // Skip safe framework-specific patterns that use these function names safely
+        let lower = line.to_lowercase();
+        if lower.contains("torch.compile") ||           // PyTorch JIT compiler
+           lower.contains("tf.function") ||             // TensorFlow decorator
+           lower.contains("jax.jit") ||                 // JAX JIT
+           lower.contains("numba.jit") ||               // Numba JIT
+           lower.contains("re.compile") ||              // Regex compilation
+           lower.contains("regex.compile") ||           // Regex compilation
+           lower.contains("pattern.compile") ||         // Pattern compilation
+           lower.contains("compiler.compile") ||        // Generic compilers
+           lower.contains("model.compile") {            // Keras model.compile
+            return None;
+        }
 
         // Check if line contains a code exec function
         let has_exec_func = CODE_EXEC_FUNCTIONS.iter().any(|f| line.contains(f));

@@ -12,7 +12,9 @@ use uuid::Uuid;
 static LOG_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn log_pattern() -> &'static Regex {
-    LOG_PATTERN.get_or_init(|| Regex::new(r"(?i)(log|print|console|logger|debug|info|warn|error)\s*[\.(]\s*.*\b(password|secret|token|api_?key|credential|auth)").unwrap())
+    // Match logging statements that include actual credential variable names
+    // Use word boundaries and avoid partial matches like "tokenizer" matching "token"
+    LOG_PATTERN.get_or_init(|| Regex::new(r"(?i)(log|print|console|logger|debug|info|warn|error)\s*[\.(]\s*[^)]*\b(password|passwd|secret|api_key|apikey|auth_token|access_token|private_key|credentials?)\b(?!_path|_file|_dir|izer)").unwrap())
 }
 
 pub struct CleartextCredentialsDetector {
