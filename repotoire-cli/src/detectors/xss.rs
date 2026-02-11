@@ -2,12 +2,11 @@
 
 use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
 use crate::graph::GraphStore;
-use crate::models::{Finding, Severity};
+use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use uuid::Uuid;
 
 static XSS_PATTERN: OnceLock<Regex> = OnceLock::new();
 

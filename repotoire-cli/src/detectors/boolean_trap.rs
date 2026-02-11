@@ -44,15 +44,18 @@ impl Detector for BooleanTrapDetector {
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
                     if bool_args().is_match(line) {
+                        let title = "Boolean trap (multiple bool args)".to_string();
+                        let line_num = (i + 1) as u32;
+                        let file_str = path.to_string_lossy();
                         findings.push(Finding {
-                            id: Uuid::new_v4().to_string(),
+                            id: deterministic_finding_id("BooleanTrapDetector", &file_str, line_num, &title),
                             detector: "BooleanTrapDetector".to_string(),
                             severity: Severity::Low,
-                            title: "Boolean trap (multiple bool args)".to_string(),
+                            title,
                             description: "foo(true, false) is hard to understand at call site.".to_string(),
                             affected_files: vec![path.to_path_buf()],
-                            line_start: Some((i + 1) as u32),
-                            line_end: Some((i + 1) as u32),
+                            line_start: Some(line_num),
+                            line_end: Some(line_num),
                             suggested_fix: Some("Use named arguments or an options object.".to_string()),
                             estimated_effort: Some("15 minutes".to_string()),
                             category: Some("readability".to_string()),

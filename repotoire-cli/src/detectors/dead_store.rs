@@ -2,13 +2,12 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphStore;
-use crate::models::{Finding, Severity};
+use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use uuid::Uuid;
 
 static ASSIGNMENT: OnceLock<Regex> = OnceLock::new();
 

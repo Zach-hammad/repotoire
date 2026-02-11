@@ -2,10 +2,9 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphStore;
-use crate::models::{Finding, Severity};
+use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
-use uuid::Uuid;
 
 pub struct DeepNestingDetector {
     repository_path: PathBuf,
