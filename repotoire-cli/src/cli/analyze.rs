@@ -503,7 +503,20 @@ pub fn run(
     } else {
         (findings, None)
     };
-    let grade = HealthReport::grade_from_score(overall_score);
+    let mut grade = HealthReport::grade_from_score(overall_score);
+    
+    // Cap grade based on security findings - can't get A/B with critical vulns
+    if all_findings_summary.critical > 0 {
+        // Any critical finding caps grade at C
+        if grade == "A" || grade == "B" {
+            grade = "C".to_string();
+        }
+    } else if all_findings_summary.high > 0 {
+        // High findings (no critical) caps grade at B
+        if grade == "A" {
+            grade = "B".to_string();
+        }
+    }
 
     // Build report with paginated findings but full summary from all findings
     let report = HealthReport {
