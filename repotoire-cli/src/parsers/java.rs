@@ -653,4 +653,82 @@ public class Calculator {
         assert!(result.functions.iter().any(|f| f.name == "add"));
         assert!(result.functions.iter().any(|f| f.name == "subtract"));
     }
+
+    #[test]
+    fn test_method_count_excludes_nested_lambdas() {
+        // Issue #18: Parser should not count lambdas/anonymous classes as class methods
+        let source = r#"
+public class StreamProcessor {
+    private List<String> items;
+    
+    public StreamProcessor() {
+        this.items = new ArrayList<>();
+    }
+    
+    public List<String> process() {
+        // These lambdas should NOT be counted as methods
+        return items.stream()
+            .filter(item -> item != null)
+            .map(item -> item.toUpperCase())
+            .collect(Collectors.toList());
+    }
+    
+    public void registerCallback(Consumer<String> callback) {
+        // Lambda passed to method - not a class method
+        items.forEach(item -> callback.accept(item));
+    }
+}
+"#;
+        let path = PathBuf::from("StreamProcessor.java");
+        let result = parse_source(source, &path).unwrap();
+
+        let class = &result.classes[0];
+        assert_eq!(class.name, "StreamProcessor");
+        
+        // Should have exactly 3 methods: constructor, process, registerCallback
+        // NOT: filter lambda, map lambda, forEach lambda
+        assert_eq!(
+            class.methods.len(),
+            3,
+            "Expected 3 methods, got {:?}",
+            class.methods
+        );
+    }
+
+    #[test]
+    fn test_method_count_excludes_anonymous_classes() {
+        let source = r#"
+public class EventHandler {
+    public void setup() {
+        // Anonymous class - its methods should NOT count as EventHandler methods
+        button.addListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                handleClick();
+            }
+        });
+    }
+    
+    private void handleClick() {
+        System.out.println("clicked");
+    }
+}
+"#;
+        let path = PathBuf::from("EventHandler.java");
+        let result = parse_source(source, &path).unwrap();
+
+        // Find the main class (not the anonymous one)
+        let main_class = result.classes.iter()
+            .find(|c| c.name == "EventHandler")
+            .expect("Should find EventHandler class");
+        
+        // EventHandler should have 2 methods: setup, handleClick
+        // NOT: actionPerformed (that belongs to anonymous ActionListener)
+        assert_eq!(
+            main_class.methods.len(),
+            2,
+            "Expected 2 methods (setup, handleClick), got {:?}",
+            main_class.methods
+        );
+    }
 }

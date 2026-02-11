@@ -411,24 +411,37 @@ fn extract_class_heritage(class_node: &Node, source: &[u8]) -> Vec<String> {
 }
 
 /// Extract method names from a class body
+/// NOTE: Only counts direct method definitions inside class_body, not nested closures/callbacks
 fn extract_method_names(class_node: &Node, source: &[u8]) -> Vec<String> {
     let mut methods = Vec::new();
 
     if let Some(body) = class_node.child_by_field_name("body") {
+        // Only iterate direct children of class_body - not nested functions
         for child in body.children(&mut body.walk()) {
-            if child.kind() == "method_definition" {
-                if let Some(name_node) = child.child_by_field_name("name") {
-                    if let Ok(name) = name_node.utf8_text(source) {
-                        methods.push(name.to_string());
+            match child.kind() {
+                "method_definition" => {
+                    // Regular class method: foo() {} or async foo() {}
+                    if let Some(name_node) = child.child_by_field_name("name") {
+                        if let Ok(name) = name_node.utf8_text(source) {
+                            methods.push(name.to_string());
+                        }
                     }
                 }
-            } else if child.kind() == "public_field_definition" {
-                // Check if it's a method (arrow function property)
-                if let Some(name_node) = child.child_by_field_name("name") {
-                    if let Ok(name) = name_node.utf8_text(source) {
-                        methods.push(name.to_string());
+                "public_field_definition" => {
+                    // Only count if the value is an arrow function (class field method pattern)
+                    // e.g., foo = () => {} or foo = async () => {}
+                    // Skip regular properties like: name = "value"
+                    if let Some(value_node) = child.child_by_field_name("value") {
+                        if value_node.kind() == "arrow_function" {
+                            if let Some(name_node) = child.child_by_field_name("name") {
+                                if let Ok(name) = name_node.utf8_text(source) {
+                                    methods.push(name.to_string());
+                                }
+                            }
+                        }
                     }
                 }
+                _ => {}
             }
         }
     }
@@ -461,6 +474,7 @@ fn extract_interface_methods(iface_node: &Node, source: &[u8]) -> Vec<String> {
 }
 
 /// Extract methods from a class body as Function entities
+/// NOTE: Only extracts direct method definitions, not nested closures/callbacks
 fn extract_class_methods(
     class_node: &Node,
     source: &[u8],
@@ -469,14 +483,70 @@ fn extract_class_methods(
     class_name: &str,
 ) {
     if let Some(body) = class_node.child_by_field_name("body") {
+        // Only iterate direct children of class_body
         for child in body.children(&mut body.walk()) {
-            if child.kind() == "method_definition" {
-                if let Some(func) = parse_method_node(&child, source, path, class_name) {
-                    result.functions.push(func);
+            match child.kind() {
+                "method_definition" => {
+                    // Regular class method
+                    if let Some(func) = parse_method_node(&child, source, path, class_name) {
+                        result.functions.push(func);
+                    }
                 }
+                "public_field_definition" => {
+                    // Arrow function class field (e.g., foo = () => {})
+                    if let Some(value_node) = child.child_by_field_name("value") {
+                        if value_node.kind() == "arrow_function" {
+                            if let Some(func) = parse_arrow_field_node(&child, &value_node, source, path, class_name) {
+                                result.functions.push(func);
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
+}
+
+/// Parse an arrow function class field into a Function struct
+/// e.g., foo = () => {} or foo = async (x) => x * 2
+fn parse_arrow_field_node(
+    field_node: &Node,
+    arrow_node: &Node,
+    source: &[u8],
+    path: &Path,
+    class_name: &str,
+) -> Option<Function> {
+    let name_node = field_node.child_by_field_name("name")?;
+    let name = name_node.utf8_text(source).ok()?.to_string();
+
+    // Arrow function parameters can be in formal_parameters or a single identifier
+    let params_node = arrow_node.child_by_field_name("parameters")
+        .or_else(|| {
+            // For single-param arrows like x => x, the parameter is the first child
+            arrow_node.children(&mut arrow_node.walk())
+                .find(|c| c.kind() == "identifier" || c.kind() == "formal_parameters")
+        });
+    let parameters = extract_parameters(params_node, source);
+
+    let return_type = extract_return_type(arrow_node, source);
+    let is_async = is_async_function(arrow_node, source);
+
+    let line_start = field_node.start_position().row as u32 + 1;
+    let line_end = field_node.end_position().row as u32 + 1;
+    let qualified_name = format!("{}::{}.{}:{}", path.display(), class_name, name, line_start);
+
+    Some(Function {
+        name,
+        qualified_name,
+        file_path: path.to_path_buf(),
+        line_start,
+        line_end,
+        parameters,
+        return_type,
+        is_async,
+        complexity: Some(calculate_complexity(arrow_node, source)),
+    })
 }
 
 /// Parse a method definition into a Function struct
@@ -897,5 +967,96 @@ async function main() {
         assert!(result.calls.iter().any(|(caller, callee)| 
             caller.contains("main") && callee == "helperB"
         ), "Expected main -> helperB call, got {:?}", result.calls);
+    }
+
+    #[test]
+    fn test_method_count_excludes_nested() {
+        // Issue #18: Parser should not count closures/callbacks as class methods
+        let source = r#"
+class Foo {
+    bar() {
+        const inner = () => {};  // NOT a method - nested arrow function
+        items.map(x => x);       // NOT a method - callback
+        function localHelper() {} // NOT a method - nested function
+    }
+    baz() {}  // IS a method
+    qux = () => {};  // IS a method - arrow function class field
+}
+"#;
+        let path = PathBuf::from("test.ts");
+        let result = parse_source(source, &path, "ts").unwrap();
+
+        assert_eq!(result.classes.len(), 1, "Expected 1 class");
+        let class = &result.classes[0];
+        assert_eq!(class.name, "Foo");
+        
+        // Should have exactly 3 methods: bar, baz, qux
+        // NOT: inner, map callback, localHelper (these are nested)
+        assert_eq!(
+            class.methods.len(), 
+            3, 
+            "Expected 3 methods (bar, baz, qux), got {:?}", 
+            class.methods
+        );
+        assert!(class.methods.contains(&"bar".to_string()), "Missing 'bar' method");
+        assert!(class.methods.contains(&"baz".to_string()), "Missing 'baz' method");
+        assert!(class.methods.contains(&"qux".to_string()), "Missing 'qux' arrow field");
+    }
+
+    #[test]
+    fn test_method_count_excludes_property_values() {
+        // Ensure non-function class fields are not counted as methods
+        let source = r#"
+class Config {
+    name = "test";      // NOT a method - string property
+    count = 42;         // NOT a method - number property
+    items = [1, 2, 3];  // NOT a method - array property
+    handler = () => {}; // IS a method - arrow function
+    process() {}        // IS a method
+}
+"#;
+        let path = PathBuf::from("test.ts");
+        let result = parse_source(source, &path, "ts").unwrap();
+
+        let class = &result.classes[0];
+        assert_eq!(
+            class.methods.len(),
+            2,
+            "Expected 2 methods (handler, process), got {:?}",
+            class.methods
+        );
+        assert!(class.methods.contains(&"handler".to_string()));
+        assert!(class.methods.contains(&"process".to_string()));
+    }
+
+    #[test]
+    fn test_js_method_count_excludes_nested() {
+        // Same test for JavaScript
+        let source = r#"
+class Service {
+    constructor() {
+        this.callbacks = [];
+    }
+    
+    register(callback) {
+        const wrapper = () => callback();  // nested, not a method
+        this.callbacks.push(wrapper);
+    }
+    
+    execute() {
+        this.callbacks.forEach(cb => cb());  // callback, not a method
+    }
+}
+"#;
+        let path = PathBuf::from("test.js");
+        let result = parse_source(source, &path, "js").unwrap();
+
+        let class = &result.classes[0];
+        assert_eq!(
+            class.methods.len(),
+            3,
+            "Expected 3 methods (constructor, register, execute), got {:?}",
+            class.methods
+        );
     }
 }

@@ -601,4 +601,77 @@ import (
         assert!(result.imports.contains(&"fmt".to_string()));
         assert!(result.imports.contains(&"os".to_string()));
     }
+
+    #[test]
+    fn test_method_count_excludes_nested_closures() {
+        // Issue #18: Parser should not count closures inside methods as separate methods
+        let source = r#"
+package main
+
+type Handler struct {
+    callbacks []func()
+}
+
+func (h *Handler) Register(name string) {
+    // This closure should NOT be counted as a separate method
+    callback := func() {
+        fmt.Println(name)
+    }
+    h.callbacks = append(h.callbacks, callback)
+}
+
+func (h *Handler) Execute() {
+    // The func literal here is NOT a method
+    for _, cb := range h.callbacks {
+        go func(callback func()) {
+            callback()
+        }(cb)
+    }
+}
+
+func (h *Handler) Clear() {
+    h.callbacks = nil
+}
+"#;
+        let path = PathBuf::from("test.go");
+        let result = parse_source(source, &path).unwrap();
+
+        // Should have exactly 3 methods on Handler: Register, Execute, Clear
+        // NOT: the closure in Register, the goroutine func in Execute
+        let methods: Vec<_> = result.functions.iter()
+            .filter(|f| f.qualified_name.contains("Handler"))
+            .collect();
+        
+        assert_eq!(
+            methods.len(),
+            3,
+            "Expected 3 methods (Register, Execute, Clear), got {:?}",
+            methods.iter().map(|f| &f.name).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_interface_methods_counted() {
+        let source = r#"
+package main
+
+type Writer interface {
+    Write(p []byte) (n int, err error)
+    Close() error
+}
+"#;
+        let path = PathBuf::from("test.go");
+        let result = parse_source(source, &path).unwrap();
+
+        let iface = result.classes.iter()
+            .find(|c| c.name == "Writer")
+            .expect("Should find Writer interface");
+        
+        assert_eq!(
+            iface.methods.len(),
+            2,
+            "Expected 2 interface methods (Write, Close), got {:?}",
+            iface.methods
+        );
+    }
 }

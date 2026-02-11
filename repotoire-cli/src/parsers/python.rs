@@ -833,4 +833,73 @@ def varargs(*args, **kwargs):
         assert!(func.parameters.contains(&"*args".to_string()));
         assert!(func.parameters.contains(&"**kwargs".to_string()));
     }
+
+    #[test]
+    fn test_method_count_excludes_nested() {
+        // Issue #18: Parser should not count nested functions/lambdas as class methods
+        let source = r#"
+class DataProcessor:
+    def __init__(self):
+        self.handlers = []
+    
+    def process(self, items):
+        # These should NOT be counted as methods:
+        inner_helper = lambda x: x * 2
+        results = list(map(lambda item: item.strip(), items))
+        
+        def local_transform(val):
+            return val.upper()
+        
+        return [local_transform(r) for r in results]
+    
+    def register(self, handler):
+        self.handlers.append(handler)
+"#;
+        let path = PathBuf::from("test.py");
+        let result = parse_source(source, &path).unwrap();
+
+        assert_eq!(result.classes.len(), 1);
+        let class = &result.classes[0];
+        assert_eq!(class.name, "DataProcessor");
+        
+        // Should have exactly 3 methods: __init__, process, register
+        // NOT: inner_helper lambda, map lambda, local_transform
+        assert_eq!(
+            class.methods.len(),
+            3,
+            "Expected 3 methods (__init__, process, register), got {:?}",
+            class.methods
+        );
+        assert!(class.methods.contains(&"__init__".to_string()));
+        assert!(class.methods.contains(&"process".to_string()));
+        assert!(class.methods.contains(&"register".to_string()));
+    }
+
+    #[test]
+    fn test_decorated_methods_counted_correctly() {
+        let source = r#"
+class MyClass:
+    @property
+    def value(self):
+        return self._value
+    
+    @staticmethod
+    def create():
+        return MyClass()
+    
+    @classmethod
+    def from_string(cls, s):
+        return cls()
+"#;
+        let path = PathBuf::from("test.py");
+        let result = parse_source(source, &path).unwrap();
+
+        let class = &result.classes[0];
+        assert_eq!(
+            class.methods.len(),
+            3,
+            "Expected 3 methods (value, create, from_string), got {:?}",
+            class.methods
+        );
+    }
 }
