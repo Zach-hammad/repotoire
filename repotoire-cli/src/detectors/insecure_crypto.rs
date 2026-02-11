@@ -344,3 +344,30 @@ fn test_self_flagging_protection() {
         }
     }
 }
+
+#[test]
+fn test_self_flagging_line_106() {
+    // Line 106 of this file
+    let line = r#"lower.contains("\"ecb") || lower.contains("'ecb") ||"#;
+    println!("Line: {}", line);
+    println!("Contains .contains(: {}", line.contains(".contains("));
+    let lower = line.to_lowercase();
+    println!("Lower contains \"ecb: {}", lower.contains("\"ecb"));
+    
+    assert!(is_cipher_mention_not_usage(line), "Line 106 should be skipped");
+}
+
+#[test]
+fn test_self_flagging_line_215() {
+    // Line 215 of this file
+    let line = r#"        line.contains("\"rc4") || line.contains("'rc4") ||"#;
+    println!("Line: {}", line);
+    println!("Contains .contains(: {}", line.contains(".contains("));
+    let lower = line.to_lowercase();
+    println!("Lower contains \"rc4: {}", lower.contains("\"rc4"));
+    
+    // Does weak_cipher match?
+    println!("Weak cipher matches: {}", weak_cipher().is_match(line));
+    
+    assert!(is_cipher_mention_not_usage(line), "Line 215 should be skipped");
+}
