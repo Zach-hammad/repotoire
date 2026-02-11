@@ -57,9 +57,13 @@ impl Detector for PathTraversalDetector {
     fn name(&self) -> &'static str { "path-traversal" }
     fn description(&self) -> &'static str { "Detects path traversal vulnerabilities" }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
+
+        // Run taint analysis for path traversal
+        let taint_paths = self.taint_analyzer.trace_taint(graph, TaintCategory::PathTraversal);
+        let taint_result = TaintAnalysisResult::from_paths(taint_paths);
 
         for entry in walker.filter_map(|e| e.ok()) {
             if findings.len() >= self.max_findings { break; }
@@ -72,6 +76,7 @@ impl Detector for PathTraversalDetector {
             let rel_path = path.strip_prefix(&self.repository_path)
                 .unwrap_or(path)
                 .to_path_buf();
+            let file_str = path.to_string_lossy();
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
@@ -81,17 +86,52 @@ impl Detector for PathTraversalDetector {
                         line.contains("FormValue") || line.contains("r.Form") ||
                         line.contains("query.") || line.contains("body.");
                     
+                    let line_num = (i + 1) as u32;
+                    
+                    // Helper to check taint and adjust severity
+                    let check_taint = |base_severity: Severity, base_desc: &str| -> (Severity, String) {
+                        let matching_taint = taint_result.paths.iter().find(|p| {
+                            (p.sink_file == file_str || p.source_file == file_str) &&
+                            (p.sink_line == line_num || p.source_line == line_num)
+                        });
+                        
+                        match matching_taint {
+                            Some(taint_path) if taint_path.is_sanitized => {
+                                (Severity::Low, format!(
+                                    "{}\n\n**Taint Analysis Note**: A sanitizer function (`{}`) was found \
+                                     in the data flow path, which may mitigate this vulnerability.",
+                                    base_desc,
+                                    taint_path.sanitizer.as_deref().unwrap_or("unknown")
+                                ))
+                            }
+                            Some(taint_path) => {
+                                (Severity::Critical, format!(
+                                    "{}\n\n**Taint Analysis Confirmed**: Data flow analysis traced a path \
+                                     from user input to this file sink without sanitization:\n\n`{}`",
+                                    base_desc,
+                                    taint_path.path_string()
+                                ))
+                            }
+                            None => (base_severity, base_desc.to_string())
+                        }
+                    };
+                    
                     // Check for direct file operations with user input
                     if file_op().is_match(line) && has_user_input {
+                        let (severity, description) = check_taint(
+                            Severity::High,
+                            "File operation with user-controlled input detected. An attacker could use '../' sequences to access files outside the intended directory."
+                        );
+                        
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "PathTraversalDetector".to_string(),
-                            severity: Severity::High,
+                            severity,
                             title: "Potential path traversal in file operation".to_string(),
-                            description: "File operation with user-controlled input detected. An attacker could use '../' sequences to access files outside the intended directory.".to_string(),
+                            description,
                             affected_files: vec![rel_path.clone()],
-                            line_start: Some((i + 1) as u32),
-                            line_end: Some((i + 1) as u32),
+                            line_start: Some(line_num),
+                            line_end: Some(line_num),
                             suggested_fix: Some("1. Use path.basename() to extract filename only\n2. Validate resolved path is within allowed directory\n3. Use a whitelist of allowed filenames if possible".to_string()),
                             estimated_effort: Some("30 minutes".to_string()),
                             category: Some("security".to_string()),
@@ -104,16 +144,20 @@ impl Detector for PathTraversalDetector {
                     // Check for path.join with user input (common pattern)
                     // e.g., path.join(baseDir, req.params.filename)
                     if path_join().is_match(line) && has_user_input {
-                        // path.join does NOT sanitize ../ - this is a common misconception
+                        let (severity, description) = check_taint(
+                            Severity::High,
+                            "path.join() with user input does NOT prevent path traversal. Joining '/base' with '../etc/passwd' results in '/etc/passwd'."
+                        );
+                        
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "PathTraversalDetector".to_string(),
-                            severity: Severity::High,
+                            severity,
                             title: "Path traversal via path.join with user input".to_string(),
-                            description: "path.join() with user input does NOT prevent path traversal. Joining '/base' with '../etc/passwd' results in '/etc/passwd'.".to_string(),
+                            description,
                             affected_files: vec![rel_path.clone()],
-                            line_start: Some((i + 1) as u32),
-                            line_end: Some((i + 1) as u32),
+                            line_start: Some(line_num),
+                            line_end: Some(line_num),
                             suggested_fix: Some("After joining, verify the resolved path starts with your base directory:\n```\nconst resolved = path.resolve(baseDir, userInput);\nif (!resolved.startsWith(path.resolve(baseDir))) { throw new Error('Invalid path'); }\n```".to_string()),
                             estimated_effort: Some("30 minutes".to_string()),
                             category: Some("security".to_string()),
@@ -125,15 +169,20 @@ impl Detector for PathTraversalDetector {
                     
                     // Check for sendFile/download with user input
                     if send_file().is_match(line) && has_user_input {
+                        let (severity, description) = check_taint(
+                            Severity::High,
+                            "File download/send function with user-controlled path. Attackers could download arbitrary files from the server."
+                        );
+                        
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "PathTraversalDetector".to_string(),
-                            severity: Severity::High,
+                            severity,
                             title: "Path traversal in file download".to_string(),
-                            description: "File download/send function with user-controlled path. Attackers could download arbitrary files from the server.".to_string(),
+                            description,
                             affected_files: vec![rel_path.clone()],
-                            line_start: Some((i + 1) as u32),
-                            line_end: Some((i + 1) as u32),
+                            line_start: Some(line_num),
+                            line_end: Some(line_num),
                             suggested_fix: Some("Use res.download() with { root: '/safe/base/dir' } option, or validate resolved path is within allowed directory.".to_string()),
                             estimated_effort: Some("30 minutes".to_string()),
                             category: Some("security".to_string()),
@@ -151,15 +200,20 @@ impl Detector for PathTraversalDetector {
                         (line.contains("open(") || line.contains("read(") || line.contains("write("));
                     
                     if has_path_concat && has_user_input {
+                        let (severity, description) = check_taint(
+                            Severity::High,
+                            "File path constructed via string concatenation with user input. This is vulnerable to directory traversal attacks."
+                        );
+                        
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "PathTraversalDetector".to_string(),
-                            severity: Severity::High,
+                            severity,
                             title: "Path traversal via string concatenation".to_string(),
-                            description: "File path constructed via string concatenation with user input. This is vulnerable to directory traversal attacks.".to_string(),
+                            description,
                             affected_files: vec![rel_path.clone()],
-                            line_start: Some((i + 1) as u32),
-                            line_end: Some((i + 1) as u32),
+                            line_start: Some(line_num),
+                            line_end: Some(line_num),
                             suggested_fix: Some("Use secure path functions and validate the final resolved path is within the allowed directory.".to_string()),
                             estimated_effort: Some("30 minutes".to_string()),
                             category: Some("security".to_string()),
@@ -171,6 +225,10 @@ impl Detector for PathTraversalDetector {
                 }
             }
         }
+        
+        // Filter out Low severity (sanitized) findings
+        findings.retain(|f| f.severity != Severity::Low);
+        
         Ok(findings)
     }
 }

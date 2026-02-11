@@ -63,9 +63,13 @@ impl Detector for CommandInjectionDetector {
     fn name(&self) -> &'static str { "command-injection" }
     fn description(&self) -> &'static str { "Detects command injection vulnerabilities" }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
+
+        // Run taint analysis for command injection
+        let taint_paths = self.taint_analyzer.trace_taint(graph, TaintCategory::CommandInjection);
+        let taint_result = TaintAnalysisResult::from_paths(taint_paths);
 
         for entry in walker.filter_map(|e| e.ok()) {
             if findings.len() >= self.max_findings { break; }
@@ -77,6 +81,7 @@ impl Detector for CommandInjectionDetector {
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
+                let file_str = path.to_string_lossy();
                 
                 // First pass: find template literals with RISKY interpolation stored in variables
                 // e.g., const cmd = `echo ${userId}`;  // userId could be user input
@@ -113,6 +118,36 @@ impl Detector for CommandInjectionDetector {
                 }
                 
                 for (i, line) in lines.iter().enumerate() {
+                    let line_num = (i + 1) as u32;
+                    
+                    // Helper to check taint and adjust severity
+                    let check_taint = |base_desc: &str| -> (Severity, String) {
+                        let matching_taint = taint_result.paths.iter().find(|p| {
+                            (p.sink_file == file_str || p.source_file == file_str) &&
+                            (p.sink_line == line_num || p.source_line == line_num)
+                        });
+                        
+                        match matching_taint {
+                            Some(taint_path) if taint_path.is_sanitized => {
+                                (Severity::Low, format!(
+                                    "{}\n\n**Taint Analysis Note**: A sanitizer function (`{}`) was found \
+                                     in the data flow path, which may mitigate this vulnerability.",
+                                    base_desc,
+                                    taint_path.sanitizer.as_deref().unwrap_or("unknown")
+                                ))
+                            }
+                            Some(taint_path) => {
+                                (Severity::Critical, format!(
+                                    "{}\n\n**Taint Analysis Confirmed**: Data flow analysis traced a path \
+                                     from user input to this command execution sink without sanitization:\n\n`{}`",
+                                    base_desc,
+                                    taint_path.path_string()
+                                ))
+                            }
+                            None => (Severity::Critical, base_desc.to_string())
+                        }
+                    };
+                    
                     // Check for direct shell execution with template literal
                     if shell_exec().is_match(line) {
                         // Check for user input sources
@@ -145,7 +180,7 @@ impl Detector for CommandInjectionDetector {
                             || uses_dangerous_var;
                         
                         if is_risky {
-                            let desc = if has_template_interpolation {
+                            let base_desc = if has_template_interpolation {
                                 "Template literal with interpolation passed directly to shell execution. Variables are inserted unsanitized."
                             } else if uses_dangerous_var {
                                 "Shell execution using a command string built from template literal. User input may flow into the command."
@@ -155,15 +190,17 @@ impl Detector for CommandInjectionDetector {
                                 "Shell command execution with potential user input."
                             };
                             
+                            let (severity, description) = check_taint(base_desc);
+                            
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "CommandInjectionDetector".to_string(),
-                                severity: Severity::Critical,
+                                severity,
                                 title: "Potential command injection".to_string(),
-                                description: desc.to_string(),
+                                description,
                                 affected_files: vec![self.relative_path(path)],
-                                line_start: Some((i + 1) as u32),
-                                line_end: Some((i + 1) as u32),
+                                line_start: Some(line_num),
+                                line_end: Some(line_num),
                                 suggested_fix: Some("Use subprocess/spawn with array arguments instead of shell string. Never interpolate user input into commands.".to_string()),
                                 estimated_effort: Some("45 minutes".to_string()),
                                 category: Some("security".to_string()),
@@ -178,15 +215,19 @@ impl Detector for CommandInjectionDetector {
                     // but ONLY if shell_exec() didn't already match (avoid duplicates)
                     else if line.contains("exec(") || line.contains("execSync(") || line.contains("execAsync(") {
                         if line.contains("`") && line.contains("${") {
+                            let (severity, description) = check_taint(
+                                "Template literal with variable interpolation passed to exec(). This is a classic command injection pattern."
+                            );
+                            
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "CommandInjectionDetector".to_string(),
-                                severity: Severity::Critical,
+                                severity,
                                 title: "Command injection via template literal".to_string(),
-                                description: "Template literal with variable interpolation passed to exec(). This is a classic command injection pattern.".to_string(),
+                                description,
                                 affected_files: vec![self.relative_path(path)],
-                                line_start: Some((i + 1) as u32),
-                                line_end: Some((i + 1) as u32),
+                                line_start: Some(line_num),
+                                line_end: Some(line_num),
                                 suggested_fix: Some("Use spawn() with array arguments: spawn('cmd', [arg1, arg2]) instead of exec(`cmd ${arg}`)".to_string()),
                                 estimated_effort: Some("30 minutes".to_string()),
                                 category: Some("security".to_string()),
@@ -197,15 +238,19 @@ impl Detector for CommandInjectionDetector {
                         }
                         // Also check if it's using a variable we identified as dangerous (built from template literal)
                         else if dangerous_vars.iter().any(|v| line.contains(&format!("({})", v)) || line.contains(&format!("({},", v))) {
+                            let (severity, description) = check_taint(
+                                "Shell execution using a command string that was built with template literal interpolation. User input may flow into the shell command."
+                            );
+                            
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "CommandInjectionDetector".to_string(),
-                                severity: Severity::Critical,
+                                severity,
                                 title: "Command injection via interpolated variable".to_string(),
-                                description: "Shell execution using a command string that was built with template literal interpolation. User input may flow into the shell command.".to_string(),
+                                description,
                                 affected_files: vec![self.relative_path(path)],
-                                line_start: Some((i + 1) as u32),
-                                line_end: Some((i + 1) as u32),
+                                line_start: Some(line_num),
+                                line_end: Some(line_num),
                                 suggested_fix: Some("Use spawn() with array arguments instead of building command strings. Never interpolate user input.".to_string()),
                                 estimated_effort: Some("45 minutes".to_string()),
                                 category: Some("security".to_string()),
@@ -224,15 +269,19 @@ impl Detector for CommandInjectionDetector {
                             line.contains("request.query") || line.contains("request.params");
                         
                         if has_direct_user_input {
+                            let (severity, description) = check_taint(
+                                "User-controlled input (req.body/query/params) passed directly to shell execution function. This allows arbitrary command execution."
+                            );
+                            
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "CommandInjectionDetector".to_string(),
-                                severity: Severity::Critical,
+                                severity,
                                 title: "Command injection via direct user input".to_string(),
-                                description: "User-controlled input (req.body/query/params) passed directly to shell execution function. This allows arbitrary command execution.".to_string(),
+                                description,
                                 affected_files: vec![self.relative_path(path)],
-                                line_start: Some((i + 1) as u32),
-                                line_end: Some((i + 1) as u32),
+                                line_start: Some(line_num),
+                                line_end: Some(line_num),
                                 suggested_fix: Some("Never pass user input directly to exec(). Use a whitelist of allowed commands, or use spawn() with a fixed command and user input only as arguments.".to_string()),
                                 estimated_effort: Some("1 hour".to_string()),
                                 category: Some("security".to_string()),
@@ -260,15 +309,19 @@ impl Detector for CommandInjectionDetector {
                             line.to_lowercase().contains("user_cmd");
                         
                         if has_user_input || has_risky_var {
+                            let (severity, description) = check_taint(
+                                "exec.Command called with potentially user-controlled input. If the command or arguments come from user input, this allows arbitrary command execution."
+                            );
+                            
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "CommandInjectionDetector".to_string(),
-                                severity: Severity::Critical,
+                                severity,
                                 title: "Potential command injection in Go exec.Command".to_string(),
-                                description: "exec.Command called with potentially user-controlled input. If the command or arguments come from user input, this allows arbitrary command execution.".to_string(),
+                                description,
                                 affected_files: vec![self.relative_path(path)],
-                                line_start: Some((i + 1) as u32),
-                                line_end: Some((i + 1) as u32),
+                                line_start: Some(line_num),
+                                line_end: Some(line_num),
                                 suggested_fix: Some("Validate user input against a whitelist of allowed commands. Never pass raw user input to exec.Command. Use filepath.Clean for paths.".to_string()),
                                 estimated_effort: Some("1 hour".to_string()),
                                 category: Some("security".to_string()),
@@ -281,6 +334,10 @@ impl Detector for CommandInjectionDetector {
                 }
             }
         }
+        
+        // Filter out Low severity (sanitized) findings
+        findings.retain(|f| f.severity != Severity::Low);
+        
         Ok(findings)
     }
 }

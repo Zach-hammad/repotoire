@@ -36,9 +36,13 @@ impl Detector for XssDetector {
     fn name(&self) -> &'static str { "xss" }
     fn description(&self) -> &'static str { "Detects XSS vulnerabilities" }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
+
+        // Run taint analysis for XSS
+        let taint_paths = self.taint_analyzer.trace_taint(graph, TaintCategory::Xss);
+        let taint_result = TaintAnalysisResult::from_paths(taint_paths);
 
         for entry in walker.filter_map(|e| e.ok()) {
             if findings.len() >= self.max_findings { break; }
@@ -52,20 +56,58 @@ impl Detector for XssDetector {
             if is_test_file(path) { continue; }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
+                let file_str = path.to_string_lossy();
+                
                 for (i, line) in content.lines().enumerate() {
                     if xss_pattern().is_match(line) {
                         let has_user_input = line.contains("req.") || line.contains("props.") ||
                             line.contains("params") || line.contains("query") || line.contains("input");
                         
+                        let line_num = (i + 1) as u32;
+                        
+                        // Check taint analysis for this location
+                        let matching_taint = taint_result.paths.iter().find(|p| {
+                            (p.sink_file == file_str || p.source_file == file_str) &&
+                            (p.sink_line == line_num || p.source_line == line_num)
+                        });
+                        
+                        // Adjust severity based on taint analysis
+                        let (severity, description) = match matching_taint {
+                            Some(taint_path) if taint_path.is_sanitized => {
+                                // Sanitizer found - lower severity
+                                (Severity::Low, format!(
+                                    "Direct HTML injection can lead to XSS attacks.\n\n\
+                                     **Taint Analysis Note**: A sanitizer function (`{}`) was found \
+                                     in the data flow path, which may mitigate this vulnerability.",
+                                    taint_path.sanitizer.as_deref().unwrap_or("unknown")
+                                ))
+                            }
+                            Some(taint_path) => {
+                                // Unsanitized taint path - critical
+                                (Severity::Critical, format!(
+                                    "Direct HTML injection can lead to XSS attacks.\n\n\
+                                     **Taint Analysis Confirmed**: Data flow analysis traced a path \
+                                     from user input to this XSS sink without sanitization:\n\n\
+                                     `{}`",
+                                    taint_path.path_string()
+                                ))
+                            }
+                            None => {
+                                // No taint path - use pattern-based severity
+                                let sev = if has_user_input { Severity::Critical } else { Severity::Medium };
+                                (sev, "Direct HTML injection can lead to XSS attacks.".to_string())
+                            }
+                        };
+                        
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "XssDetector".to_string(),
-                            severity: if has_user_input { Severity::Critical } else { Severity::Medium },
+                            severity,
                             title: "Potential XSS vulnerability".to_string(),
-                            description: "Direct HTML injection can lead to XSS attacks.".to_string(),
+                            description,
                             affected_files: vec![path.to_path_buf()],
-                            line_start: Some((i + 1) as u32),
-                            line_end: Some((i + 1) as u32),
+                            line_start: Some(line_num),
+                            line_end: Some(line_num),
                             suggested_fix: Some("Sanitize input or use textContent instead.".to_string()),
                             estimated_effort: Some("30 minutes".to_string()),
                             category: Some("security".to_string()),
@@ -77,6 +119,10 @@ impl Detector for XssDetector {
                 }
             }
         }
+        
+        // Filter out Low severity (sanitized) findings
+        findings.retain(|f| f.severity != Severity::Low);
+        
         Ok(findings)
     }
 }
