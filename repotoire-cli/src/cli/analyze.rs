@@ -788,7 +788,16 @@ fn calculate_health_scores(
     architecture_score = architecture_score.max(25.0_f64).min(100.0);
 
     // Weighted average: Structure 40%, Quality 30%, Architecture 30%
-    let overall = structure_score * 0.4 + quality_score * 0.3 + architecture_score * 0.3;
+    let mut overall = structure_score * 0.4 + quality_score * 0.3 + architecture_score * 0.3;
+    
+    // Apply direct penalty to overall score for critical/high security findings
+    // This ensures security vulns tank the score regardless of pillar weighting
+    let critical_count = findings.iter().filter(|f| f.severity == Severity::Critical).count();
+    let high_count = findings.iter().filter(|f| f.severity == Severity::High).count();
+    
+    // Each critical drops score by 8 points, each high by 3 points (on top of pillar deductions)
+    let security_penalty = (critical_count as f64 * 8.0) + (high_count as f64 * 3.0);
+    overall = (overall - security_penalty).max(25.0);
 
     (overall, structure_score, quality_score, architecture_score)
 }

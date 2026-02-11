@@ -9,7 +9,7 @@
 //!
 //! CWE-89: Improper Neutralization of Special Elements used in an SQL Command
 
-use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -45,17 +45,14 @@ const SQL_OBJECT_PATTERNS: &[&str] = &[
     "session",
 ];
 
-/// Default file patterns to exclude
-const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
-    "tests/",
-    "test_",
-    "_test.py",
-    "migrations/",
-    "__pycache__/",
-    ".git/",
-    "node_modules/",
-    "venv/",
-    ".venv/",
+/// Default directory patterns to exclude (for non-test exclusions)
+const DEFAULT_EXCLUDE_DIRS: &[&str] = &[
+    "migrations",
+    "__pycache__",
+    ".git",
+    "node_modules",
+    "venv",
+    ".venv",
 ];
 
 /// Detects potential SQL injection vulnerabilities
@@ -63,7 +60,7 @@ pub struct SQLInjectionDetector {
     config: DetectorConfig,
     repository_path: PathBuf,
     max_findings: usize,
-    exclude_patterns: Vec<String>,
+    exclude_dirs: Vec<String>,
     // Compiled regex patterns
     fstring_sql_pattern: Regex,
     concat_sql_pattern: Regex,
@@ -89,10 +86,10 @@ impl SQLInjectionDetector {
     /// Create with custom config and repository path
     pub fn with_config(config: DetectorConfig, repository_path: PathBuf) -> Self {
         let max_findings = config.get_option_or("max_findings", 100);
-        let exclude_patterns = config
-            .get_option::<Vec<String>>("exclude_patterns")
+        let exclude_dirs = config
+            .get_option::<Vec<String>>("exclude_dirs")
             .unwrap_or_else(|| {
-                DEFAULT_EXCLUDE_PATTERNS
+                DEFAULT_EXCLUDE_DIRS
                     .iter()
                     .map(|s| s.to_string())
                     .collect()
@@ -138,7 +135,7 @@ impl SQLInjectionDetector {
             config,
             repository_path,
             max_findings,
-            exclude_patterns,
+            exclude_dirs,
             fstring_sql_pattern,
             concat_sql_pattern,
             format_sql_pattern,
@@ -149,28 +146,21 @@ impl SQLInjectionDetector {
     }
 
     /// Check if path should be excluded
-    fn should_exclude(&self, path: &str) -> bool {
-        for pattern in &self.exclude_patterns {
-            if pattern.ends_with('/') {
-                let dir = pattern.trim_end_matches('/');
-                if path.split('/').any(|p| p == dir) {
-                    return true;
-                }
-            } else if pattern.contains('*') {
-                let pattern = pattern.replace('*', ".*");
-                if let Ok(re) = Regex::new(&format!("^{}$", pattern)) {
-                    let filename = Path::new(path)
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("");
-                    if re.is_match(path) || re.is_match(filename) {
-                        return true;
-                    }
-                }
-            } else if path.contains(pattern) {
+    fn should_exclude(&self, path: &Path) -> bool {
+        // Use shared test file detection utility
+        if is_test_file(path) {
+            return true;
+        }
+        
+        // Check excluded directories
+        let path_str = path.to_string_lossy();
+        for dir in &self.exclude_dirs {
+            // Match as path component (not substring)
+            if path_str.split('/').any(|p| p == dir) {
                 return true;
             }
         }
+        
         false
     }
 
@@ -315,19 +305,19 @@ impl SQLInjectionDetector {
         debug!("Scanning for SQL injection in: {:?}", self.repository_path);
 
         // Walk through Python, JavaScript, TypeScript, and Go files (respects .gitignore and .repotoireignore)
-        for path in walk_source_files(&self.repository_path, Some(&["py", "js", "ts", "go"])) {
+        for path in walk_source_files(&self.repository_path, Some(&["py", "js", "ts", "go", "java"])) {
+            if self.should_exclude(&path) {
+                debug!("Excluding file: {:?}", path);
+                continue;
+            }
+            
             let rel_path = path
                 .strip_prefix(&self.repository_path)
                 .unwrap_or(&path)
                 .to_string_lossy()
                 .to_string();
 
-            if self.should_exclude(&rel_path) {
-                debug!("Excluding file: {}", rel_path);
-                continue;
-            }
-
-            let content = match std::fs::read_to_string(path) {
+            let content = match std::fs::read_to_string(&path) {
                 Ok(c) => c,
                 Err(_) => continue,
             };

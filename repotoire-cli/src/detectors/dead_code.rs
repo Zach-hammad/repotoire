@@ -19,6 +19,7 @@ use uuid::Uuid;
 /// Entry points that should not be flagged as dead code
 static ENTRY_POINTS: &[&str] = &[
     "main",
+    "init",          // Go init functions run automatically
     "__main__",
     "__init__",
     "setUp",
@@ -194,6 +195,52 @@ impl DeadCodeDetector {
         }
         
         false
+    }
+
+    /// Check if a function is exported by looking at the source file
+    /// This is a fallback when the graph doesn't have is_exported set
+    fn is_exported_in_source(&self, file_path: &str, line_start: u32) -> bool {
+        use tracing::debug;
+        
+        // Only check JS/TS files
+        let is_js_ts = file_path.ends_with(".js") || file_path.ends_with(".ts") 
+            || file_path.ends_with(".jsx") || file_path.ends_with(".tsx") 
+            || file_path.ends_with(".mjs");
+        
+        if !is_js_ts {
+            return false;
+        }
+        
+        // Read the relevant lines from the source
+        match std::fs::read_to_string(file_path) {
+            Ok(content) => {
+                let lines: Vec<&str> = content.lines().collect();
+                let line_idx = (line_start as usize).saturating_sub(1);
+                
+                // Check the function's line and the line before for export keyword
+                for offset in 0..=1 {
+                    if line_idx >= offset {
+                        if let Some(line) = lines.get(line_idx - offset) {
+                            let trimmed = line.trim();
+                            debug!("Checking line {} for export: '{}'", line_idx - offset + 1, trimmed);
+                            // Check for various export patterns
+                            if trimmed.starts_with("export ") 
+                                || trimmed.starts_with("export{")
+                                || trimmed.contains("module.exports")
+                                || trimmed.contains("exports.") {
+                                debug!("Found export pattern in {}", file_path);
+                                return true;
+                            }
+                        }
+                    }
+                }
+                false
+            }
+            Err(e) => {
+                debug!("Could not read file {}: {}", file_path, e);
+                false
+            }
+        }
     }
 
     /// Check if a function name is a magic method
@@ -449,8 +496,16 @@ impl DeadCodeDetector {
             let has_decorators = func.get_bool("has_decorators").unwrap_or(false);
             let is_exported = func.get_bool("is_exported").unwrap_or(false);
             
-            // Skip exported functions from framework files - they're likely used externally
-            if is_exported && self.is_framework_auto_load(file_path) {
+            // Skip exported functions - they're likely used by external modules
+            // Export means the author intended external use, so not "dead" even if uncalled internally
+            if is_exported {
+                continue;
+            }
+            
+            // Check source for JS/TS export keyword (graph may not have is_exported set)
+            // Use qualified_name to get full path since file_path may be relative
+            let full_path = func.qualified_name.split("::").next().unwrap_or(file_path);
+            if self.is_exported_in_source(full_path, func.line_start) {
                 continue;
             }
             
