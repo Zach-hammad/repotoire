@@ -13,8 +13,16 @@ static LOG_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn log_pattern() -> &'static Regex {
     // Match logging statements that include actual credential variable names
-    // Use word boundaries and avoid partial matches like "tokenizer" matching "token"
-    LOG_PATTERN.get_or_init(|| Regex::new(r"(?i)(log|print|console|logger|debug|info|warn|error)\s*[\.(]\s*[^)]*\b(password|passwd|secret|api_key|apikey|auth_token|access_token|private_key|credentials?)\b(?!_path|_file|_dir|izer)").unwrap())
+    LOG_PATTERN.get_or_init(|| Regex::new(r"(?i)(log|print|console|logger|debug|info|warn|error)\s*[\.(]\s*[^)]*\b(password|passwd|secret|api_key|apikey|auth_token|access_token|private_key|credentials?)\b").unwrap())
+}
+
+fn is_false_positive(line: &str) -> bool {
+    let lower = line.to_lowercase();
+    // Skip path/file references and tokenizer-related terms
+    lower.contains("_path") || lower.contains("_file") || lower.contains("_dir") 
+        || lower.contains("tokenizer") || lower.contains("token_path")
+        || lower.contains("password_field") || lower.contains("password_input")
+        || lower.contains("password_hash") || lower.contains("password_reset")
 }
 
 pub struct CleartextCredentialsDetector {
@@ -46,7 +54,7 @@ impl Detector for CleartextCredentialsDetector {
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
-                    if log_pattern().is_match(line) {
+                    if log_pattern().is_match(line) && !is_false_positive(line) {
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "CleartextCredentialsDetector".to_string(),
