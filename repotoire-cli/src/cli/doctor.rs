@@ -5,8 +5,8 @@ use anyhow::Result;
 pub fn run() -> Result<()> {
     println!("🩺 Repotoire Doctor\n");
     
-    // Check Kuzu
-    println!("✓ Kuzu database: OK");
+    // Check graph database (petgraph + sled)
+    println!("✓ Graph database: OK");
     
     // Check tree-sitter parsers
     println!("✓ Tree-sitter parsers: OK");

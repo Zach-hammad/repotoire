@@ -1,7 +1,7 @@
 //! Analyze command implementation
 //!
 //! This command performs a full codebase analysis:
-//! 1. Initialize Kuzu graph database
+//! 1. Initialize petgraph graph database
 //! 2. Walk repository and parse all supported files
 //! 3. Build the code graph (nodes + edges)
 //! 4. Enrich with git history (authors, churn, temporal data)
@@ -90,7 +90,7 @@ pub fn run(
     let db_path = repotoire_dir.join("graph_db");
     let icon_graph = if no_emoji { "" } else { "🕸️  " };
     println!("{}Initializing graph database...", style(icon_graph).bold());
-    let graph = Arc::new(GraphStore::new(&db_path).with_context(|| "Failed to initialize Kuzu database")?);
+    let graph = Arc::new(GraphStore::new(&db_path).with_context(|| "Failed to initialize graph database")?);
     let graph_ref = &graph; // For local usage
 
     // Set up progress bars
