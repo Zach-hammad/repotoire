@@ -6,10 +6,13 @@
 //! - Has too much complexity
 //! - Has low cohesion (methods don't share data)
 //!
-//! These classes violate the Single Responsibility Principle and
-//! are difficult to understand, test, and maintain.
+//! Enhanced with graph-based role detection:
+//! - Framework core classes (Flask, Express) are NOT flagged
+//! - Facade pattern (thin wrappers) have raised thresholds
+//! - Entry point classes (heavily used) have raised thresholds
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::class_context::{ClassContextBuilder, ClassContextMap, ClassRole};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -48,7 +51,7 @@ impl Default for GodClassThresholds {
     }
 }
 
-/// Patterns for legitimate large classes
+/// Patterns for legitimate large classes (fallback when graph analysis unavailable)
 const EXCLUDED_PATTERNS: &[&str] = &[
     r".*Client$",       // Database/API clients
     r".*Connection$",   // Connection managers
@@ -70,6 +73,8 @@ pub struct GodClassDetector {
     thresholds: GodClassThresholds,
     excluded_patterns: Vec<Regex>,
     use_pattern_exclusions: bool,
+    /// Whether to use graph-based class context analysis
+    use_graph_context: bool,
 }
 
 impl GodClassDetector {
@@ -90,22 +95,17 @@ impl GodClassDetector {
             thresholds,
             excluded_patterns,
             use_pattern_exclusions: true,
+            use_graph_context: true, // Enable by default
         }
     }
 
     /// Create with custom config
-    /// 
-    /// Supports both naming conventions:
-    /// - max_methods / method_count
-    /// - max_lines / loc
     pub fn with_config(config: DetectorConfig) -> Self {
         let thresholds = GodClassThresholds {
-            // Support both "max_methods" and "method_count" from config
             max_methods: config.get_option("max_methods")
                 .or_else(|| config.get_option("method_count"))
                 .unwrap_or(20),
             critical_methods: config.get_option_or("critical_methods", 30),
-            // Support both "max_lines" and "loc" from config
             max_lines: config.get_option("max_lines")
                 .or_else(|| config.get_option("loc"))
                 .unwrap_or(500),
@@ -115,6 +115,7 @@ impl GodClassDetector {
         };
 
         let use_pattern_exclusions = config.get_option_or("use_pattern_exclusions", true);
+        let use_graph_context = config.get_option_or("use_graph_context", true);
 
         let excluded_patterns = EXCLUDED_PATTERNS
             .iter()
@@ -126,6 +127,7 @@ impl GodClassDetector {
             thresholds,
             excluded_patterns,
             use_pattern_exclusions,
+            use_graph_context,
         }
     }
 
@@ -137,19 +139,23 @@ impl GodClassDetector {
         self.excluded_patterns.iter().any(|p| p.is_match(class_name))
     }
 
-    /// Determine if metrics indicate a god class
+    /// Determine if metrics indicate a god class, given adjusted thresholds
     fn is_god_class(
         &self,
         method_count: usize,
         complexity: usize,
         loc: usize,
+        max_methods: usize,
+        critical_methods: usize,
+        max_lines: usize,
+        critical_lines: usize,
     ) -> Option<String> {
         let mut reasons = Vec::new();
 
         // Check method count
-        if method_count >= self.thresholds.critical_methods {
+        if method_count >= critical_methods {
             reasons.push(format!("very high method count ({})", method_count));
-        } else if method_count >= self.thresholds.max_methods {
+        } else if method_count >= max_methods {
             reasons.push(format!("high method count ({})", method_count));
         }
 
@@ -161,17 +167,17 @@ impl GodClassDetector {
         }
 
         // Check lines of code
-        if loc >= self.thresholds.critical_lines {
+        if loc >= critical_lines {
             reasons.push(format!("very large class ({} LOC)", loc));
-        } else if loc >= self.thresholds.max_lines {
+        } else if loc >= max_lines {
             reasons.push(format!("large class ({} LOC)", loc));
         }
 
         // Need at least one critical violation or two regular violations
         let critical_count = [
-            method_count >= self.thresholds.critical_methods,
+            method_count >= critical_methods,
             complexity >= self.thresholds.critical_complexity,
-            loc >= self.thresholds.critical_lines,
+            loc >= critical_lines,
         ]
         .iter()
         .filter(|&&x| x)
@@ -184,8 +190,14 @@ impl GodClassDetector {
         }
     }
 
-    /// Calculate severity based on metrics
-    fn calculate_severity(&self, method_count: usize, complexity: usize, loc: usize) -> Severity {
+    /// Calculate severity based on metrics and role
+    fn calculate_severity(
+        &self,
+        method_count: usize,
+        complexity: usize,
+        loc: usize,
+        severity_multiplier: f64,
+    ) -> Severity {
         let critical_count = [
             method_count >= self.thresholds.critical_methods,
             complexity >= self.thresholds.critical_complexity,
@@ -194,10 +206,6 @@ impl GodClassDetector {
         .iter()
         .filter(|&&x| x)
         .count();
-
-        if critical_count >= 2 {
-            return Severity::Critical;
-        }
 
         let high_count = [
             method_count >= self.thresholds.max_methods,
@@ -208,12 +216,37 @@ impl GodClassDetector {
         .filter(|&&x| x)
         .count();
 
-        match (critical_count, high_count) {
+        let base_severity = match (critical_count, high_count) {
+            (n, _) if n >= 2 => Severity::Critical,
             (1, _) => Severity::High,
             (0, n) if n >= 2 => Severity::High,
             (0, 1) => Severity::Medium,
             _ => Severity::Low,
+        };
+
+        // Apply role-based severity reduction
+        if severity_multiplier <= 0.0 {
+            return Severity::Low; // Shouldn't happen, but safety
         }
+        if severity_multiplier <= 0.3 {
+            return Severity::Low;
+        }
+        if severity_multiplier <= 0.5 {
+            return match base_severity {
+                Severity::Critical => Severity::Medium,
+                Severity::High => Severity::Low,
+                _ => Severity::Low,
+            };
+        }
+        if severity_multiplier <= 0.7 {
+            return match base_severity {
+                Severity::Critical => Severity::High,
+                Severity::High => Severity::Medium,
+                _ => base_severity,
+            };
+        }
+
+        base_severity
     }
 
     /// Generate refactoring suggestions
@@ -223,8 +256,13 @@ impl GodClassDetector {
         method_count: usize,
         complexity: usize,
         loc: usize,
+        role_note: Option<&str>,
     ) -> String {
         let mut suggestions = vec![format!("Refactor '{}' to reduce its responsibilities:\n", name)];
+
+        if let Some(note) = role_note {
+            suggestions.push(format!("**Note:** {}\n\n", note));
+        }
 
         if method_count >= self.thresholds.max_methods {
             suggestions.push(
@@ -286,7 +324,6 @@ impl GodClassDetector {
     /// Create a finding for a god class
     fn create_finding(
         &self,
-        _qualified_name: String,
         name: String,
         file_path: String,
         method_count: usize,
@@ -295,26 +332,58 @@ impl GodClassDetector {
         line_start: Option<u32>,
         line_end: Option<u32>,
         reason: &str,
+        role_info: Option<(&ClassRole, &str)>,
     ) -> Finding {
-        let severity = self.calculate_severity(method_count, complexity, loc);
+        let severity_multiplier = role_info
+            .map(|(role, _)| role.severity_multiplier())
+            .unwrap_or(1.0);
 
-        Finding {
-            id: Uuid::new_v4().to_string(),
-            detector: "GodClassDetector".to_string(),
-            severity,
-            title: format!("God class detected: {}", name),
-            description: format!(
+        let severity = self.calculate_severity(method_count, complexity, loc, severity_multiplier);
+
+        let role_note = role_info.map(|(role, reason)| {
+            format!(
+                "This class was identified as {:?} ({}). Thresholds adjusted accordingly.",
+                role, reason
+            )
+        });
+
+        let description = if let Some((role, role_reason)) = role_info {
+            format!(
+                "Class '{}' shows signs of being a god class: {}.\n\n\
+                 **Role Analysis:** {:?} — {}\n\n\
+                 **Metrics:**\n\
+                 - Methods: {}\n\
+                 - Total complexity: {}\n\
+                 - Lines of code: {}",
+                name, reason, role, role_reason, method_count, complexity, loc
+            )
+        } else {
+            format!(
                 "Class '{}' shows signs of being a god class: {}.\n\n\
                  **Metrics:**\n\
                  - Methods: {}\n\
                  - Total complexity: {}\n\
                  - Lines of code: {}",
                 name, reason, method_count, complexity, loc
-            ),
+            )
+        };
+
+        Finding {
+            id: Uuid::new_v4().to_string(),
+            detector: "GodClassDetector".to_string(),
+            severity,
+            title: format!("God class detected: {}", name),
+            description,
             affected_files: vec![PathBuf::from(&file_path)],
             line_start,
             line_end,
-            suggested_fix: Some(self.suggest_refactoring(&name, method_count, complexity, loc)),
+            suggested_fix: Some(self.suggest_refactoring(
+                &name,
+                method_count,
+                complexity,
+                loc,
+                role_note.as_deref(),
+            )),
             estimated_effort: Some(self.estimate_effort(method_count, complexity, loc)),
             category: Some("complexity".to_string()),
             cwe_id: None,
@@ -350,8 +419,31 @@ impl Detector for GodClassDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    }
+
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
+
+        // Build class context for graph-based analysis
+        let class_contexts: Option<ClassContextMap> = if self.use_graph_context {
+            let builder = ClassContextBuilder::new(graph);
+            let contexts = builder.build();
+            debug!("ClassContext built {} entries", contexts.len());
+            if contexts.is_empty() {
+                debug!("ClassContext empty, falling back to pattern matching");
+                None
+            } else {
+                // Debug: show framework classes found
+                for (qn, ctx) in &contexts {
+                    if ctx.role == ClassRole::FrameworkCore {
+                        debug!("Framework class detected: {} ({:?})", qn, ctx.role_reason);
+                    }
+                }
+                Some(contexts)
+            }
+        } else {
+            None
+        };
 
         for class in graph.get_classes() {
             // Skip TypeScript/Go interfaces - they have properties, not methods
@@ -361,22 +453,52 @@ impl Detector for GodClassDetector {
                 continue;
             }
 
-            // Use is_excluded_pattern() to skip legitimate large classes
-            if self.is_excluded_pattern(&class.name) {
-                debug!("Skipping excluded pattern: {}", class.name);
-                continue;
-            }
-
             let method_count = class.get_i64("methodCount").unwrap_or(0) as usize;
             let complexity = class.complexity().unwrap_or(1) as usize;
             let loc = class.loc() as usize;
 
-            // Use is_god_class() for multi-criteria evaluation
-            if let Some(reason) = self.is_god_class(method_count, complexity, loc) {
-                // Use create_finding() which calls calculate_severity(),
-                // suggest_refactoring(), and estimate_effort()
+            // Get class context if available
+            let ctx = class_contexts.as_ref().and_then(|c| c.get(&class.qualified_name));
+
+            // Check if we should skip this class entirely based on graph analysis
+            if let Some(ctx) = ctx {
+                if ctx.skip_god_class() {
+                    debug!(
+                        "Skipping {} ({:?}): {}",
+                        class.name, ctx.role, ctx.role_reason
+                    );
+                    continue;
+                }
+            }
+
+            // Fall back to pattern exclusion if no graph context
+            if ctx.is_none() && self.is_excluded_pattern(&class.name) {
+                debug!("Skipping excluded pattern: {}", class.name);
+                continue;
+            }
+
+            // Get adjusted thresholds based on role
+            let (max_methods, max_lines) = ctx
+                .map(|c| c.adjusted_thresholds(self.thresholds.max_methods, self.thresholds.max_lines))
+                .unwrap_or((self.thresholds.max_methods, self.thresholds.max_lines));
+
+            let (critical_methods, critical_lines) = ctx
+                .map(|c| c.adjusted_thresholds(self.thresholds.critical_methods, self.thresholds.critical_lines))
+                .unwrap_or((self.thresholds.critical_methods, self.thresholds.critical_lines));
+
+            // Check if it's a god class with adjusted thresholds
+            if let Some(reason) = self.is_god_class(
+                method_count,
+                complexity,
+                loc,
+                max_methods,
+                critical_methods,
+                max_lines,
+                critical_lines,
+            ) {
+                let role_info = ctx.map(|c| (&c.role, c.role_reason.as_str()));
+
                 findings.push(self.create_finding(
-                    class.qualified_name.clone(),
                     class.name.clone(),
                     class.file_path.clone(),
                     method_count,
@@ -385,11 +507,111 @@ impl Detector for GodClassDetector {
                     Some(class.line_start),
                     Some(class.line_end),
                     &reason,
+                    role_info,
                 ));
             }
         }
+
+        info!(
+            "GodClassDetector: analyzed {} classes, found {} issues",
+            graph.get_classes().len(),
+            findings.len()
+        );
 
         Ok(findings)
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::{CodeNode, GraphStore};
+
+    fn create_test_class(name: &str, methods: usize, loc: u32, complexity: i64) -> CodeNode {
+        CodeNode::class(name, "test.py")
+            .with_qualified_name(&format!("test::{}", name))
+            .with_lines(1, loc)
+            .with_property("methodCount", methods as i64)
+            .with_property("complexity", complexity)
+    }
+
+    #[test]
+    fn test_skip_framework_class() {
+        let store = GraphStore::in_memory();
+        store.add_node(create_test_class("Flask", 50, 2000, 150));
+
+        let detector = GodClassDetector::new();
+        let findings = detector.detect(&store).unwrap();
+
+        assert!(
+            findings.is_empty(),
+            "Framework core class Flask should not be flagged"
+        );
+    }
+
+    #[test]
+    fn test_skip_application_pattern() {
+        let store = GraphStore::in_memory();
+        store.add_node(create_test_class("MyApplication", 40, 1500, 120));
+
+        let detector = GodClassDetector::new();
+        let findings = detector.detect(&store).unwrap();
+
+        assert!(
+            findings.is_empty(),
+            "Class matching Application pattern should not be flagged"
+        );
+    }
+
+    #[test]
+    fn test_flag_actual_god_class() {
+        let store = GraphStore::in_memory();
+        store.add_node(create_test_class("OrderProcessor", 35, 1200, 180));
+
+        let detector = GodClassDetector::new();
+        let findings = detector.detect(&store).unwrap();
+
+        assert_eq!(findings.len(), 1, "Actual god class should be flagged");
+        assert!(findings[0].title.contains("OrderProcessor"));
+    }
+
+    #[test]
+    fn test_thresholds() {
+        let detector = GodClassDetector::new();
+
+        // Just under thresholds - no flag
+        assert!(detector
+            .is_god_class(19, 99, 499, 20, 30, 500, 1000)
+            .is_none());
+
+        // Single violation at regular threshold - NOT enough (need 2+ or 1 critical)
+        assert!(detector
+            .is_god_class(20, 50, 400, 20, 30, 500, 1000)
+            .is_none());
+
+        // Two regular violations - flag
+        assert!(detector
+            .is_god_class(25, 120, 400, 20, 30, 500, 1000)
+            .is_some());
+
+        // Single critical violation - flag
+        assert!(detector
+            .is_god_class(30, 50, 400, 20, 30, 500, 1000)
+            .is_some());
+
+        // Multiple violations - definitely flag
+        assert!(detector
+            .is_god_class(25, 120, 700, 20, 30, 500, 1000)
+            .is_some());
+    }
+
+    #[test]
+    fn test_excluded_patterns() {
+        let detector = GodClassDetector::new();
+
+        assert!(detector.is_excluded_pattern("DatabaseClient"));
+        assert!(detector.is_excluded_pattern("UserManager"));
+        assert!(detector.is_excluded_pattern("EventFacade"));
+        assert!(!detector.is_excluded_pattern("OrderProcessor"));
+    }
+}

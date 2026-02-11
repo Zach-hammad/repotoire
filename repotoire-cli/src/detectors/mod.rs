@@ -124,6 +124,9 @@ pub mod taint;
 // Function context and role inference
 pub mod function_context;
 
+// Class context and role inference
+pub mod class_context;
+
 // Framework/ORM detection for reducing false positives
 pub mod framework_detection;
 
