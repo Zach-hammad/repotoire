@@ -11,7 +11,7 @@
 
 use crate::config::{load_project_config, ProjectConfig};
 use crate::detectors::{
-    default_detectors, DetectorEngine, Detector, IncrementalCache,
+    default_detectors_with_config, DetectorEngine, Detector, IncrementalCache,
     VotingEngine, VotingStrategy, ConfidenceMethod, SeverityResolution,
 };
 use crate::git;
@@ -506,7 +506,7 @@ pub fn run(
     // Register all default detectors (skip any in skip_detector list)
     let skip_set: HashSet<&str> = skip_detector.iter().map(|s| s.as_str()).collect();
 
-    for detector in default_detectors(&repo_path) {
+    for detector in default_detectors_with_config(&repo_path, &project_config) {
         let name = detector.name();
         if !skip_set.contains(name) {
             engine.register(detector);

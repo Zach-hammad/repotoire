@@ -323,20 +323,17 @@ impl Detector for LongParameterListDetector {
 
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
-    }    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+    }
+
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         
         for func in graph.get_functions() {
             let param_count = func.param_count().unwrap_or(0) as usize;
             
-            if param_count > 5 {
-                let severity = if param_count > 10 {
-                    Severity::High
-                } else if param_count > 7 {
-                    Severity::Medium
-                } else {
-                    Severity::Low
-                };
+            // Use configured thresholds instead of hardcoded values
+            if param_count > self.thresholds.max_params {
+                let severity = self.calculate_severity(param_count);
                 
                 findings.push(Finding {
                     id: Uuid::new_v4().to_string(),
@@ -344,14 +341,14 @@ impl Detector for LongParameterListDetector {
                     severity,
                     title: format!("Long parameter list: {}", func.name),
                     description: format!(
-                        "Function '{}' has {} parameters. Consider using a config object.",
-                        func.name, param_count
+                        "Function '{}' has {} parameters (threshold: {}). Consider using a config object.",
+                        func.name, param_count, self.thresholds.max_params
                     ),
                     affected_files: vec![func.file_path.clone().into()],
                     line_start: Some(func.line_start),
                     line_end: Some(func.line_end),
                     suggested_fix: Some("Group related parameters into a configuration object or class".to_string()),
-                    estimated_effort: Some("Small (30 min)".to_string()),
+                    estimated_effort: Some(self.estimate_effort(param_count)),
                     category: Some("quality".to_string()),
                     cwe_id: None,
                     why_it_matters: Some("Long parameter lists make functions hard to call and understand".to_string()),

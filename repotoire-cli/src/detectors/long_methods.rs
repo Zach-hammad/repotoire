@@ -9,13 +9,30 @@ use uuid::Uuid;
 
 pub struct LongMethodsDetector {
     repository_path: PathBuf,
+    config: DetectorConfig,
     max_findings: usize,
     threshold: u32,
 }
 
 impl LongMethodsDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
-        Self { repository_path: repository_path.into(), max_findings: 100, threshold: 50 }
+        Self { 
+            repository_path: repository_path.into(), 
+            config: DetectorConfig::new(),
+            max_findings: 100, 
+            threshold: 50,
+        }
+    }
+
+    /// Create with custom config (reads max_lines threshold from project config)
+    pub fn with_config(repository_path: impl Into<PathBuf>, config: DetectorConfig) -> Self {
+        let threshold = config.get_option_or("max_lines", 50) as u32;
+        Self { 
+            repository_path: repository_path.into(), 
+            max_findings: 100, 
+            threshold,
+            config,
+        }
     }
 }
 

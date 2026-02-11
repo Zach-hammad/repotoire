@@ -94,11 +94,21 @@ impl GodClassDetector {
     }
 
     /// Create with custom config
+    /// 
+    /// Supports both naming conventions:
+    /// - max_methods / method_count
+    /// - max_lines / loc
     pub fn with_config(config: DetectorConfig) -> Self {
         let thresholds = GodClassThresholds {
-            max_methods: config.get_option_or("max_methods", 20),
+            // Support both "max_methods" and "method_count" from config
+            max_methods: config.get_option("max_methods")
+                .or_else(|| config.get_option("method_count"))
+                .unwrap_or(20),
             critical_methods: config.get_option_or("critical_methods", 30),
-            max_lines: config.get_option_or("max_lines", 500),
+            // Support both "max_lines" and "loc" from config
+            max_lines: config.get_option("max_lines")
+                .or_else(|| config.get_option("loc"))
+                .unwrap_or(500),
             critical_lines: config.get_option_or("critical_lines", 1000),
             max_complexity: config.get_option_or("max_complexity", 100),
             critical_complexity: config.get_option_or("critical_complexity", 200),

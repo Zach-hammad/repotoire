@@ -443,7 +443,10 @@ pub fn default_detectors_with_config(repository_path: &Path, project_config: &Pr
         // More code quality detectors
         Arc::new(DebugCodeDetector::new(repository_path)),
         Arc::new(CommentedCodeDetector::new(repository_path)),
-        Arc::new(LongMethodsDetector::new(repository_path)),
+        Arc::new(LongMethodsDetector::with_config(
+            repository_path,
+            DetectorConfig::from_project_config("long-methods", project_config)
+        )),
         Arc::new(DuplicateCodeDetector::new(repository_path)),
         Arc::new(UnreachableCodeDetector::new(repository_path)),
         Arc::new(StringConcatLoopDetector::new(repository_path)),
