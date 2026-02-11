@@ -97,6 +97,42 @@ impl DetectorConfig {
     }
 }
 
+/// Check if a file path appears to be a test file
+/// Used by security detectors to avoid flagging test certificates, test fixtures, etc.
+pub fn is_test_file(path: &std::path::Path) -> bool {
+    let path_str = path.to_string_lossy().to_lowercase();
+    let filename = path.file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    
+    // Go test files
+    path_str.ends_with("_test.go") ||
+    // Python test files
+    path_str.ends_with("_test.py") ||
+    filename.starts_with("test_") ||  // test_foo.py
+    // Test directories
+    path_str.contains("/tests/") ||
+    path_str.contains("/test/") ||
+    path_str.contains("/__tests__/") ||
+    // Ruby/JS spec files
+    path_str.contains("/spec/") ||
+    path_str.ends_with("_spec.rb") ||
+    path_str.ends_with(".test.ts") ||
+    path_str.ends_with(".test.js") ||
+    path_str.ends_with(".test.tsx") ||
+    path_str.ends_with(".test.jsx") ||
+    path_str.ends_with(".spec.ts") ||
+    path_str.ends_with(".spec.js") ||
+    path_str.ends_with(".spec.tsx") ||
+    path_str.ends_with(".spec.jsx") ||
+    // Test fixtures/data
+    path_str.contains("/fixtures/") ||
+    path_str.contains("/testdata/") ||
+    path_str.contains("/__fixtures__/") ||
+    path_str.contains("/__mocks__/")
+}
+
 /// Trait for all code smell detectors
 ///
 /// Detectors analyze the code graph to find issues like:
@@ -268,5 +304,18 @@ mod tests {
         assert_eq!(summary.detectors_succeeded, 1);
         assert_eq!(summary.detectors_failed, 1);
         assert_eq!(summary.total_duration_ms, 150);
+    }
+    
+    #[test]
+    fn test_is_test_file() {
+        use super::is_test_file;
+        use std::path::Path;
+        
+        assert!(is_test_file(Path::new("foo_test.go")));
+        assert!(is_test_file(Path::new("test_foo.py")));
+        assert!(is_test_file(Path::new("src/tests/helper.py")));
+        assert!(is_test_file(Path::new("app.spec.ts")));
+        assert!(!is_test_file(Path::new("src/main.py")));
+        assert!(!is_test_file(Path::new("testing_utils.py"))); // "testing" != "test"
     }
 }

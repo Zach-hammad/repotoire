@@ -3,7 +3,7 @@
 //! Detects hardcoded secrets, API keys, passwords, and tokens in source code.
 //! CWE-798: Use of Hard-coded Credentials
 
-use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -111,6 +111,11 @@ impl SecretDetector {
     
     fn scan_file(&self, path: &Path) -> Vec<Finding> {
         let mut findings = vec![];
+        
+        // Skip test files - they often contain test certificates/keys
+        if is_test_file(path) {
+            return findings;
+        }
         
         // Use global cache for file content
         let content = match crate::cache::global_cache().get_content(path) {

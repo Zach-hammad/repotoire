@@ -21,22 +21,32 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 use uuid::Uuid;
 
-/// Dangerous code execution functions
+/// Dangerous code execution functions (without parens - used in regex)
 const CODE_EXEC_FUNCTIONS: &[&str] = &[
     "eval",
     "exec",
-    "compile",
     "__import__",
     "import_module",
-    "system",
-    "popen",
-    "call",
-    "run",
-    "Popen",
-    "check_output",
-    "check_call",
-    "getoutput",
-    "getstatusoutput",
+];
+
+/// Patterns that require a module prefix to avoid false positives
+/// e.g. subprocess.run() is dangerous, but plugins.run() is not
+const SHELL_EXEC_PREFIXES: &[&str] = &[
+    r"os\.system",
+    r"os\.popen",
+    r"subprocess\.call",
+    r"subprocess\.run",
+    r"subprocess\.Popen",
+    r"subprocess\.check_output",
+    r"subprocess\.check_call",
+    r"subprocess\.getoutput",
+    r"subprocess\.getstatusoutput",
+    r"child_process\.exec",
+    r"child_process\.spawn",
+    "execSync",
+    "spawnSync",
+    "shell_exec",
+    "proc_open",
 ];
 
 /// Default file patterns to exclude
@@ -92,30 +102,33 @@ impl EvalDetector {
             });
 
         // Compile regex patterns
-        let func_names = CODE_EXEC_FUNCTIONS.join("|");
+        // Combine both simple functions and prefixed shell functions
+        let simple_funcs = CODE_EXEC_FUNCTIONS.join("|");
+        let shell_funcs = SHELL_EXEC_PREFIXES.join("|");
+        let func_names = format!("{}|{}", simple_funcs, shell_funcs);
 
         let variable_arg_pattern = Regex::new(&format!(
-            r"\b({func_names})\s*\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*[,)]"
+            r"({func_names})\s*\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*[,)]"
         ))
         .expect("Invalid regex");
 
         let fstring_arg_pattern = Regex::new(&format!(
-            r#"\b({func_names})\s*\(\s*f["']"#
+            r#"({func_names})\s*\(\s*f["']"#
         ))
         .expect("Invalid regex");
 
         let concat_arg_pattern = Regex::new(&format!(
-            r"\b({func_names})\s*\([^)]*\+"
+            r"({func_names})\s*\([^)]*\+"
         ))
         .expect("Invalid regex");
 
         let format_arg_pattern = Regex::new(&format!(
-            r"\b({func_names})\s*\([^)]*\.format\s*\("
+            r"({func_names})\s*\([^)]*\.format\s*\("
         ))
         .expect("Invalid regex");
 
         let percent_arg_pattern = Regex::new(&format!(
-            r"\b({func_names})\s*\([^)]*%\s*"
+            r"({func_names})\s*\([^)]*%\s*"
         ))
         .expect("Invalid regex");
 
@@ -193,8 +206,13 @@ impl EvalDetector {
         }
 
         // Check if line contains a code exec function
-        let has_exec_func = CODE_EXEC_FUNCTIONS.iter().any(|f| line.contains(f));
-        if !has_exec_func {
+        let has_simple_exec = CODE_EXEC_FUNCTIONS.iter().any(|f| line.contains(f));
+        let has_shell_exec = SHELL_EXEC_PREFIXES.iter().any(|f| {
+            // Remove regex escapes for simple contains check
+            let plain = f.replace(r"\.", ".");
+            line.contains(&plain)
+        });
+        if !has_simple_exec && !has_shell_exec {
             return None;
         }
 

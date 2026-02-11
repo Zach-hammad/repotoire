@@ -1,6 +1,6 @@
 //! XSS Detection
 
-use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -41,6 +41,9 @@ impl Detector for XssDetector {
             
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "js"|"ts"|"jsx"|"tsx"|"vue"|"html"|"php") { continue; }
+            
+            // Skip test files - they often have test fixtures with XSS patterns
+            if is_test_file(path) { continue; }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
