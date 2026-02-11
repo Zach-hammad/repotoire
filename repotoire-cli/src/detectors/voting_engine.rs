@@ -236,14 +236,28 @@ impl VotingEngine {
                     rejected_count += 1;
                 }
             } else {
-                // Multiple detectors - calculate consensus
+                // Multiple findings in this group - check for consensus
                 let consensus = self.calculate_consensus(group_findings);
 
                 if consensus.has_consensus && consensus.confidence >= self.confidence_threshold {
+                    // True consensus: multiple detectors agree - merge into one finding
                     let merged = self.create_consensus_finding(group_findings, &consensus);
                     consensus_findings.push(merged);
                     boosted_count += 1;
+                } else if consensus.vote_count == 1 {
+                    // No consensus: all findings from same detector
+                    // Keep the highest-severity finding as a regular (non-consensus) finding
+                    let mut sorted = group_findings.to_vec();
+                    sorted.sort_by(|a, b| b.severity.cmp(&a.severity));
+                    let best = &sorted[0];
+                    let confidence = self.get_finding_confidence(best);
+                    if confidence >= self.confidence_threshold {
+                        consensus_findings.push(best.clone());
+                    } else {
+                        rejected_count += 1;
+                    }
                 } else {
+                    // Multiple detectors but below consensus threshold - reject
                     rejected_count += 1;
                 }
             }
@@ -290,18 +304,21 @@ impl VotingEngine {
         // Get issue category to prevent merging different issue types
         let category = self.get_issue_category(finding);
 
+        // Extract entity name from title (e.g., "God class: Flask" -> "Flask")
+        let entity_name = self.extract_entity_name(&finding.title);
+
         // Build key from affected nodes/files
         let location = if !finding.affected_files.is_empty() {
             let file = finding.affected_files[0].to_string_lossy();
             match (finding.line_start, finding.line_end) {
                 (Some(start), Some(end)) => {
-                    // Use line bucket for proximity matching
-                    let bucket = start / 5;
-                    format!("{}:{}:{}", file, bucket, end / 5)
+                    // Use exact line range for precise matching
+                    // Only group findings that overlap significantly
+                    format!("{}:{}-{}", file, start, end)
                 }
                 (Some(start), None) => {
-                    let bucket = start / 5;
-                    format!("{}:{}", file, bucket)
+                    // Single line - use exact line
+                    format!("{}:{}", file, start)
                 }
                 _ => file.to_string(),
             }
@@ -309,7 +326,29 @@ impl VotingEngine {
             "unknown".to_string()
         };
 
-        format!("{}::{}", category, location)
+        // Include entity name in key if available for better deduplication
+        if !entity_name.is_empty() {
+            format!("{}::{}::{}", category, entity_name, location)
+        } else {
+            format!("{}::{}", category, location)
+        }
+    }
+
+    /// Extract entity name from finding title (function/class name)
+    fn extract_entity_name(&self, title: &str) -> String {
+        // Common patterns: "Issue Type: entity_name", "Issue Type in entity_name"
+        if let Some(pos) = title.find(": ") {
+            let after_colon = &title[pos + 2..];
+            // Take first word (the entity name)
+            after_colon
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .trim_matches(|c: char| !c.is_alphanumeric() && c != '_')
+                .to_string()
+        } else {
+            String::new()
+        }
     }
 
     /// Determine the category/type of issue for grouping
@@ -369,6 +408,12 @@ impl VotingEngine {
     fn check_consensus(&self, findings: &[Finding], unique_detectors: &[String]) -> bool {
         let detector_count = unique_detectors.len();
 
+        // CRITICAL: Consensus requires multiple DIFFERENT detectors
+        // Multiple findings from the same detector is NOT consensus
+        if detector_count < 2 {
+            return false;
+        }
+
         match self.strategy {
             VotingStrategy::Unanimous => {
                 // All findings must be from different detectors
@@ -379,10 +424,10 @@ impl VotingEngine {
                 detector_count >= 2
             }
             VotingStrategy::Weighted => {
-                // Calculate weighted vote score
-                let total_weight: f64 = findings
+                // Calculate weighted vote score from UNIQUE detectors only
+                let total_weight: f64 = unique_detectors
                     .iter()
-                    .map(|f| self.get_detector_weight(&f.detector))
+                    .map(|d| self.get_detector_weight(d))
                     .sum();
                 // Need combined weight >= 2.0 for consensus
                 total_weight >= 2.0
@@ -390,7 +435,7 @@ impl VotingEngine {
             VotingStrategy::Threshold => {
                 // Check if aggregate confidence meets threshold
                 let confidence = self.calculate_confidence(findings);
-                confidence >= self.confidence_threshold
+                confidence >= self.confidence_threshold && detector_count >= 2
             }
         }
     }
