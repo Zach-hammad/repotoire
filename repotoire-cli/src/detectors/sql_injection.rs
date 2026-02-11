@@ -595,8 +595,22 @@ impl SQLInjectionDetector {
             Severity::High
         };
 
+        // Calculate confidence based on how strongly the pattern matched
+        let confidence = if has_direct_sql_context && is_self_evident_sql {
+            0.95 // Very high confidence - direct SQL sink with string interpolation
+        } else if has_direct_sql_context {
+            0.85 // High confidence - SQL context detected on same line
+        } else {
+            0.70 // Moderate confidence - SQL context from surrounding lines only
+        };
+
         Finding {
-            id: deterministic_finding_id("SQLInjectionDetector", &path.to_string_lossy(), 0, "Unknown"),
+            id: deterministic_finding_id(
+                "SQLInjectionDetector",
+                file_path,
+                line_start,
+                pattern_type,
+            ),
             detector: "SQLInjectionDetector".to_string(),
             severity,
             title,
@@ -613,6 +627,7 @@ impl SQLInjectionDetector {
                  to access, modify, or delete sensitive data in the database."
                     .to_string(),
             ),
+            confidence: Some(confidence),
         }
     }
 }
@@ -640,17 +655,154 @@ impl Detector for SQLInjectionDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
-        debug!("Starting SQL injection detection");
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
+        debug!("Starting SQL injection detection with taint analysis");
 
-        let findings = self.scan_source_files();
+        // Step 1: Run pattern-based detection (existing logic)
+        let mut findings = self.scan_source_files();
+
+        // Step 2: Run graph-based taint analysis to find data flow paths
+        let taint_paths = self
+            .taint_analyzer
+            .trace_taint(graph, TaintCategory::SqlInjection);
+        let taint_result = TaintAnalysisResult::from_paths(taint_paths);
+
+        debug!(
+            "Taint analysis found {} paths ({} vulnerable, {} sanitized)",
+            taint_result.paths.len(),
+            taint_result.vulnerable_count,
+            taint_result.sanitized_count
+        );
+
+        // Step 3: Enhance findings with taint analysis results
+        // - If a finding has a taint path with no sanitizer → Critical
+        // - If a finding has a taint path with sanitizer → downgrade to Info/skip
+        // - If pattern match but no taint path → keep as High/Medium
+        for finding in &mut findings {
+            if let (Some(file_path), Some(line)) =
+                (finding.affected_files.first(), finding.line_start)
+            {
+                let file_str = file_path.to_string_lossy();
+
+                // Check if there's a taint path that includes this file/location
+                let matching_path = taint_result
+                    .paths
+                    .iter()
+                    .find(|p| p.sink_file == file_str || p.source_file == file_str);
+
+                if let Some(path) = matching_path {
+                    if path.is_sanitized {
+                        // Sanitizer found in the data flow path - downgrade severity
+                        debug!(
+                            "Finding at {}:{} has sanitized taint path via '{}'",
+                            file_str,
+                            line,
+                            path.sanitizer.as_deref().unwrap_or("unknown")
+                        );
+                        finding.severity = Severity::Info;
+                        finding.description = format!(
+                            "{}\n\n**Taint Analysis Note**: A sanitizer function (`{}`) was found \
+                             in the data flow path, which may mitigate this vulnerability. \
+                             Please verify the sanitizer is applied correctly.",
+                            finding.description,
+                            path.sanitizer.as_deref().unwrap_or("unknown")
+                        );
+                    } else {
+                        // Unsanitized taint path confirmed - upgrade to Critical
+                        debug!(
+                            "Finding at {}:{} has unsanitized taint path: {}",
+                            file_str,
+                            line,
+                            path.path_string()
+                        );
+                        finding.severity = Severity::Critical;
+                        finding.description = format!(
+                            "{}\n\n**Taint Analysis Confirmed**: Data flow analysis traced a path \
+                             from user input to this SQL sink without sanitization:\n\n\
+                             `{}`\n\n\
+                             This significantly increases confidence that this is a real vulnerability.",
+                            finding.description,
+                            path.path_string()
+                        );
+                    }
+                }
+            }
+        }
+
+        // Step 4: Add findings for taint paths that weren't caught by pattern matching
+        for path in taint_result.vulnerable_paths() {
+            // Check if we already have a finding for this location
+            let already_reported = findings.iter().any(|f| {
+                f.affected_files
+                    .first()
+                    .map(|p| p.to_string_lossy() == path.sink_file)
+                    .unwrap_or(false)
+                    && f.line_start == Some(path.sink_line)
+            });
+
+            if !already_reported {
+                findings.push(self.create_taint_finding(path));
+            }
+        }
+
+        // Filter out Info-severity findings (sanitized paths)
+        findings.retain(|f| f.severity != Severity::Info);
 
         info!(
-            "SQLInjectionDetector found {} potential vulnerabilities",
+            "SQLInjectionDetector found {} potential vulnerabilities (after taint analysis)",
             findings.len()
         );
 
         Ok(findings)
+    }
+}
+
+impl SQLInjectionDetector {
+    /// Create a finding from a taint analysis path
+    fn create_taint_finding(&self, path: &crate::detectors::taint::TaintPath) -> Finding {
+        let description = format!(
+            "**SQL Injection via Data Flow**\n\n\
+             Taint analysis traced a path from user input to a SQL sink:\n\n\
+             **Source**: `{}` in `{}`:{}\n\
+             **Sink**: `{}` in `{}`:{}\n\
+             **Path**: `{}`\n\n\
+             This vulnerability was detected through data flow analysis, which traced \
+             how user-controlled data propagates through function calls to reach a \
+             dangerous SQL operation without proper sanitization.",
+            path.source_function,
+            path.source_file,
+            path.source_line,
+            path.sink_function,
+            path.sink_file,
+            path.sink_line,
+            path.path_string()
+        );
+
+        Finding {
+            id: deterministic_finding_id(
+                "SQLInjectionDetector",
+                &path.sink_file,
+                path.sink_line,
+                "taint_flow"
+            ),
+            detector: "SQLInjectionDetector".to_string(),
+            severity: Severity::Critical,
+            title: "SQL Injection (Confirmed via Taint Analysis)".to_string(),
+            description,
+            affected_files: vec![PathBuf::from(&path.sink_file)],
+            line_start: Some(path.sink_line),
+            line_end: Some(path.sink_line),
+            suggested_fix: Some(Self::get_fix_examples(Self::detect_language(&path.sink_file)).to_string()),
+            estimated_effort: Some("Medium (1-4 hours)".to_string()),
+            category: Some("security".to_string()),
+            cwe_id: Some("CWE-89".to_string()),
+            why_it_matters: Some(
+                "This SQL injection was confirmed through data flow analysis, tracking user input \
+                 from its source to the dangerous SQL operation. This is a high-confidence finding."
+                    .to_string(),
+            ),
+            confidence: None,
+        }
     }
 }
 

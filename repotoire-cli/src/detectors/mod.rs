@@ -118,6 +118,9 @@ mod sql_injection;
 mod taint_detector;
 mod unsafe_template;
 
+// Framework/ORM detection for reducing false positives
+pub mod framework_detection;
+
 // Misc detectors
 mod generator_misuse;
 mod infinite_loop;
