@@ -271,18 +271,48 @@ Be precise. Make minimal changes. Test if possible."#,
         
         let stderr_file = stdout_file.try_clone().ok();
         
-        // Spawn Claude Code with proper args
-        let result = Command::new("claude")
-            .args([
-                "--print",
-                "--dangerously-skip-permissions",
-                "--permission-mode", "bypassPermissions",
-                &task
-            ])
-            .current_dir(&self.repo_path)
-            .stdout(Stdio::from(stdout_file))
-            .stderr(stderr_file.map(Stdio::from).unwrap_or(Stdio::null()))
-            .spawn();
+        // Build finding JSON for the agent script
+        let finding_json = serde_json::json!({
+            "index": index,
+            "title": finding.title,
+            "severity": format!("{:?}", finding.severity),
+            "description": finding.description,
+            "suggested_fix": finding.suggested_fix,
+            "affected_files": finding.affected_files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+            "line_start": finding.line_start,
+            "line_end": finding.line_end,
+        });
+        
+        // Try Agent SDK script first, fall back to Claude CLI
+        let venv_python = self.repo_path.join(".venv/bin/python");
+        let agent_script = self.repo_path.join("scripts/fix_agent.py");
+        
+        let result = if venv_python.exists() && agent_script.exists() {
+            // Use Agent SDK
+            Command::new(&venv_python)
+                .args([
+                    agent_script.to_str().unwrap(),
+                    "--finding-json", &finding_json.to_string(),
+                    "--repo-path", self.repo_path.to_str().unwrap(),
+                ])
+                .current_dir(&self.repo_path)
+                .stdout(Stdio::from(stdout_file))
+                .stderr(stderr_file.map(Stdio::from).unwrap_or(Stdio::null()))
+                .spawn()
+        } else {
+            // Fall back to Claude CLI
+            Command::new("claude")
+                .args([
+                    "--print",
+                    "--dangerously-skip-permissions",
+                    "--permission-mode", "bypassPermissions",
+                    &task
+                ])
+                .current_dir(&self.repo_path)
+                .stdout(Stdio::from(stdout_file))
+                .stderr(stderr_file.map(Stdio::from).unwrap_or(Stdio::null()))
+                .spawn()
+        };
         
         match result {
             Ok(child) => {
@@ -485,6 +515,13 @@ fn ui(f: &mut Frame, app: &mut App) {
 }
 
 fn render_agents_panel(f: &mut Frame, area: Rect, app: &App) {
+    // Split area: top for agent list, bottom for log output
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(6.min(app.agents.len() as u16 + 2)), Constraint::Min(5)])
+        .split(area);
+    
+    // Agent list
     let items: Vec<ListItem> = app.agents.iter().map(|agent| {
         let (status_icon, status_color) = match &agent.status {
             AgentStatus::Running => ("⏳", Color::Yellow),
@@ -504,8 +541,41 @@ fn render_agents_panel(f: &mut Frame, area: Rect, app: &App) {
     }).collect();
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(" Running Agents (press 'a' to close) "));
-    f.render_widget(list, area);
+        .block(Block::default().borders(Borders::ALL).title(" Agents (press 'a' to close) "));
+    f.render_widget(list, chunks[0]);
+    
+    // Show log output from the most recent running agent
+    let log_lines: Vec<Line> = app.agents.iter()
+        .filter(|a| matches!(a.status, AgentStatus::Running))
+        .last()
+        .map(|agent| {
+            tail_file(&agent.log_file, 15)
+                .into_iter()
+                .map(|line| {
+                    // Color-code based on emoji prefixes
+                    let style = if line.starts_with("🚀") || line.starts_with("✅") {
+                        Style::default().fg(Color::Green)
+                    } else if line.starts_with("❌") || line.starts_with("💥") {
+                        Style::default().fg(Color::Red)
+                    } else if line.starts_with("🔧") {
+                        Style::default().fg(Color::Yellow)
+                    } else if line.starts_with("💭") {
+                        Style::default().fg(Color::Cyan)
+                    } else if line.starts_with("📋") {
+                        Style::default().fg(Color::DarkGray)
+                    } else {
+                        Style::default()
+                    };
+                    Line::styled(line, style)
+                })
+                .collect()
+        })
+        .unwrap_or_else(|| vec![Line::raw(" No running agents - press 'F' on a finding to launch one")]);
+    
+    let log_widget = Paragraph::new(log_lines)
+        .block(Block::default().borders(Borders::ALL).title(" Agent Output "))
+        .wrap(Wrap { trim: false });
+    f.render_widget(log_widget, chunks[1]);
 }
 
 fn render_list(f: &mut Frame, area: Rect, app: &mut App) {
