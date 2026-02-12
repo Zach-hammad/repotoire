@@ -1,5 +1,5 @@
 # Ignore build artifacts
 target/
 
-# Ignore test fixtures
+# Ignore test fixtures (intentional bad code)
 tests/fixtures/
