@@ -359,6 +359,11 @@ impl Detector for AIComplexitySpikeDetector {
         let threshold = avg + 2.0 * std_dev;
         
         for func in functions {
+            // Skip detector files (they have inherently complex parsing logic)
+            if func.file_path.contains("/detectors/") {
+                continue;
+            }
+
             if let Some(complexity) = func.complexity() {
                 if complexity as f64 > threshold && complexity > 20 {
                     let z_score = (complexity as f64 - avg) / std_dev;

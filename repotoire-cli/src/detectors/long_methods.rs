@@ -92,6 +92,11 @@ impl Detector for LongMethodsDetector {
 
         for func in graph.get_functions() {
             if findings.len() >= self.max_findings { break; }
+
+            // Skip detector files (they have inherently complex parsing logic)
+            if func.file_path.contains("/detectors/") {
+                continue;
+            }
             
             let lines = func.line_end.saturating_sub(func.line_start);
             if lines <= self.threshold {

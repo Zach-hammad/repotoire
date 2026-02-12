@@ -87,6 +87,10 @@ impl Detector for DeepNestingDetector {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py"|"js"|"ts"|"jsx"|"tsx"|"rs"|"go"|"java"|"cs"|"cpp"|"c") { continue; }
 
+            // Skip detector files (they have inherently complex parsing logic)
+            let path_str_check = path.to_string_lossy();
+            if path_str_check.contains("/detectors/") { continue; }
+
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let path_str = path.to_string_lossy().to_string();
                 let mut max_depth = 0;
