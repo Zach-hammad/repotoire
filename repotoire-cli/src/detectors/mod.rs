@@ -367,7 +367,6 @@ pub use external_tool::{
     get_graph_context,
     get_js_exec_command,
     get_js_runtime,
-    is_python_tool_installed,
     is_tool_installed,
     run_external_tool,
     run_js_tool,

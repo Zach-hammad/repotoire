@@ -390,23 +390,6 @@ pub fn is_tool_installed(tool: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Check if a Python tool is installed (via pip)
-pub fn is_python_tool_installed(tool: &str) -> bool {
-    // Try running the tool directly first
-    if is_tool_installed(tool) {
-        return true;
-    }
-
-    // Try via python -m
-    Command::new("python")
-        .args(["-m", tool, "--version"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

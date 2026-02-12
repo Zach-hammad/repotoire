@@ -72,6 +72,26 @@ struct AnalysisConfig {
     is_incremental_mode: bool,
 }
 
+/// Result of environment setup phase
+struct EnvironmentSetup {
+    repo_path: PathBuf,
+    project_config: ProjectConfig,
+    config: AnalysisConfig,
+    repotoire_dir: PathBuf,
+    incremental_cache: IncrementalCache,
+    quiet_mode: bool,
+}
+
+/// Result of score calculation phase
+struct ScoreResult {
+    overall_score: f64,
+    structure_score: f64,
+    quality_score: f64,
+    architecture_score: f64,
+    grade: String,
+    breakdown: crate::scoring::ScoreBreakdown,
+}
+
 /// Run the analyze command
 pub fn run(
     path: &Path,
@@ -93,120 +113,197 @@ pub fn run(
 ) -> Result<()> {
     let start_time = Instant::now();
 
-    // Validate repository path
-    let repo_path = path
-        .canonicalize()
-        .with_context(|| format!("Repository path does not exist: {}", path.display()))?;
+    // Phase 1: Validate repository and setup environment
+    let mut env = setup_environment(
+        path, format, no_emoji, thorough, no_git, workers, per_page,
+        fail_on, incremental, since.is_some()
+    )?;
 
-    if !repo_path.is_dir() {
-        anyhow::bail!("Path is not a directory: {}", repo_path.display());
-    }
-
-    // Load project configuration (repotoire.toml, .repotoirerc.json, etc.)
-    let project_config = load_project_config(&repo_path);
-    
-    // Apply CLI defaults from project config (CLI args override config)
-    let config = apply_config_defaults(
-        no_emoji, thorough, no_git, workers, per_page, fail_on,
-        incremental, since.is_some(), &project_config
-    );
-
-    // Print header
-    // Suppress progress output for machine-readable formats
-    let quiet_mode = format == "json" || format == "sarif";
-    
-    print_header(&repo_path, config.no_emoji, format);
-
-    // Create cache directory (~/.cache/repotoire/<repo-hash>/)
-    let repotoire_dir = crate::cache::ensure_cache_dir(&repo_path)
-        .with_context(|| "Failed to create cache directory")?;
-
-    // Initialize incremental cache for file fingerprinting
-    let incremental_cache_dir = repotoire_dir.join("incremental");
-    let mut incremental_cache = IncrementalCache::new(&incremental_cache_dir);
-
-    // Set up progress UI
-    let multi = MultiProgress::new();
-    let spinner_style = create_spinner_style();
-    let bar_style = create_bar_style();
-
-    // Step 1: Collect files to analyze
-    let file_result = collect_files_for_analysis(
-        &repo_path, &since, config.is_incremental_mode,
-        &mut incremental_cache, &multi, &spinner_style
+    // Phase 2: Initialize graph and collect files
+    let (graph, file_result, parse_result) = initialize_graph(
+        &env, &since, &MultiProgress::new()
     )?;
 
     if file_result.all_files.is_empty() {
-        if !quiet_mode {
+        if !env.quiet_mode {
             println!("\n{}No source files found to analyze.", style("⚠️  ").yellow());
         }
         return Ok(());
     }
 
-    if file_result.files_to_parse.is_empty() && config.is_incremental_mode && !quiet_mode {
+    // Phase 3: Run detectors
+    let multi = MultiProgress::new();
+    let spinner_style = create_spinner_style();
+    
+    let mut findings = execute_detection_phase(
+        &env, &graph, &file_result, &skip_detector, &multi, &spinner_style
+    )?;
+
+    // Phase 4: Post-process findings
+    update_incremental_cache(
+        env.config.is_incremental_mode, &mut env.incremental_cache,
+        &file_result.files_to_parse, &findings
+    );
+    apply_detector_overrides(&mut findings, &env.project_config);
+
+    // Phase 5: Calculate scores and build report
+    let score_result = calculate_scores(&graph, &env.project_config, &findings);
+    
+    let report = build_health_report(
+        &score_result, &mut findings, &severity, top, page, per_page,
+        file_result.files_to_parse.len(), parse_result.total_functions, parse_result.total_classes
+    );
+
+    // Phase 6: Generate output
+    generate_reports(
+        &report, &findings, format, output_path, &env.repotoire_dir,
+        report.1, env.config.no_emoji, explain_score, &score_result,
+        &graph, &env.project_config
+    )?;
+
+    // Final summary
+    print_final_summary(env.quiet_mode, env.config.no_emoji, start_time);
+
+    // CI/CD threshold check
+    check_fail_threshold(&env.config.fail_on, &report.0)?;
+
+    Ok(())
+}
+
+/// Phase 1: Validate repository path and setup analysis environment
+fn setup_environment(
+    path: &Path,
+    format: &str,
+    no_emoji: bool,
+    thorough: bool,
+    no_git: bool,
+    workers: usize,
+    per_page: usize,
+    fail_on: Option<String>,
+    incremental: bool,
+    has_since: bool,
+) -> Result<EnvironmentSetup> {
+    let repo_path = path.canonicalize()
+        .with_context(|| format!("Repository path does not exist: {}", path.display()))?;
+    if !repo_path.is_dir() {
+        anyhow::bail!("Path is not a directory: {}", repo_path.display());
+    }
+
+    let project_config = load_project_config(&repo_path);
+    let config = apply_config_defaults(
+        no_emoji, thorough, no_git, workers, per_page, fail_on,
+        incremental, has_since, &project_config
+    );
+
+    let quiet_mode = format == "json" || format == "sarif";
+    print_header(&repo_path, config.no_emoji, format);
+
+    let repotoire_dir = crate::cache::ensure_cache_dir(&repo_path)
+        .with_context(|| "Failed to create cache directory")?;
+    let incremental_cache = IncrementalCache::new(&repotoire_dir.join("incremental"));
+
+    Ok(EnvironmentSetup {
+        repo_path,
+        project_config,
+        config,
+        repotoire_dir,
+        incremental_cache,
+        quiet_mode,
+    })
+}
+
+/// Phase 2: Initialize graph database, collect files, and parse
+fn initialize_graph(
+    env: &EnvironmentSetup,
+    since: &Option<String>,
+    multi: &MultiProgress,
+) -> Result<(Arc<GraphStore>, FileCollectionResult, ParsePhaseResult)> {
+    let spinner_style = create_spinner_style();
+    let bar_style = create_bar_style();
+
+    // Collect files - need mutable cache temporarily
+    let mut cache_clone = IncrementalCache::new(&env.repotoire_dir.join("incremental"));
+    let file_result = collect_files_for_analysis(
+        &env.repo_path, since, env.config.is_incremental_mode,
+        &mut cache_clone, multi, &spinner_style
+    )?;
+
+    if file_result.all_files.is_empty() {
+        // Return early with empty results
+        return Ok((
+            Arc::new(GraphStore::new(&env.repotoire_dir.join("graph_db"))?),
+            file_result,
+            ParsePhaseResult { parse_results: vec![], total_functions: 0, total_classes: 0 }
+        ));
+    }
+
+    if file_result.files_to_parse.is_empty() && env.config.is_incremental_mode && !env.quiet_mode {
         println!("\n{}No files changed since last run. Using cached results.", style("✓ ").green());
     }
 
-    // Step 2: Initialize graph database
-    let db_path = repotoire_dir.join("graph_db");
-    if !quiet_mode {
-        let icon_graph = if config.no_emoji { "" } else { "🕸️  " };
+    // Initialize graph database
+    let db_path = env.repotoire_dir.join("graph_db");
+    if !env.quiet_mode {
+        let icon_graph = if env.config.no_emoji { "" } else { "🕸️  " };
         println!("{}Initializing graph database...", style(icon_graph).bold());
     }
     let graph = Arc::new(GraphStore::new(&db_path).with_context(|| "Failed to initialize graph database")?);
 
-    // Step 3: Parse files and build graph
-    let parse_result = parse_files(&file_result.files_to_parse, &multi, &bar_style, config.is_incremental_mode)?;
+    // Parse files and build graph
+    let parse_result = parse_files(&file_result.files_to_parse, multi, &bar_style, env.config.is_incremental_mode)?;
     
-    build_graph(
-        &graph, &repo_path, &parse_result.parse_results,
-        &multi, &bar_style
-    )?;
+    build_graph(&graph, &env.repo_path, &parse_result.parse_results, multi, &bar_style)?;
 
-    // Pre-warm file cache for faster detector execution
-    crate::cache::warm_global_cache(&repo_path, SUPPORTED_EXTENSIONS);
+    // Pre-warm file cache
+    crate::cache::warm_global_cache(&env.repo_path, SUPPORTED_EXTENSIONS);
 
-    // Step 4: Run git enrichment and detectors
+    Ok((graph, file_result, parse_result))
+}
+
+/// Phase 3: Run git enrichment and detectors
+fn execute_detection_phase(
+    env: &EnvironmentSetup,
+    graph: &Arc<GraphStore>,
+    file_result: &FileCollectionResult,
+    skip_detector: &[String],
+    multi: &MultiProgress,
+    spinner_style: &ProgressStyle,
+) -> Result<Vec<Finding>> {
+    // Start git enrichment in background
     let git_handle = start_git_enrichment(
-        config.no_git, &repo_path, Arc::clone(&graph),
-        &multi, &spinner_style
+        env.config.no_git, &env.repo_path, Arc::clone(graph),
+        multi, spinner_style
     );
 
+    // Run detectors
     let mut findings = run_detectors(
-        &graph, &repo_path, &project_config, &skip_detector,
-        config.thorough, config.workers, &multi, &spinner_style, quiet_mode
+        graph, &env.repo_path, &env.project_config, skip_detector,
+        env.config.thorough, env.config.workers, multi, spinner_style, env.quiet_mode
     )?;
 
-    // Step 5: Apply voting engine
-    let (voting_stats, cached_count) = apply_voting(
-        &mut findings, file_result.cached_findings,
-        config.is_incremental_mode, &multi, &spinner_style
-    );
-
-    // Update incremental cache
-    update_incremental_cache(
-        config.is_incremental_mode, &mut incremental_cache,
-        &file_result.files_to_parse, &findings
+    // Apply voting engine
+    let (_voting_stats, _cached_count) = apply_voting(
+        &mut findings, file_result.cached_findings.clone(),
+        env.config.is_incremental_mode, multi, spinner_style
     );
 
     // Wait for git enrichment
     finish_git_enrichment(git_handle);
 
-    // Step 6: Apply detector config overrides
-    apply_detector_overrides(&mut findings, &project_config);
+    Ok(findings)
+}
 
-    // Step 7: Calculate health scores using graph-aware scorer
-    let scorer = crate::scoring::GraphScorer::new(&graph, &project_config);
-    let score_breakdown = scorer.calculate(&findings);
+/// Phase 5: Calculate health scores using graph-aware scorer
+fn calculate_scores(
+    graph: &Arc<GraphStore>,
+    project_config: &ProjectConfig,
+    findings: &[Finding],
+) -> ScoreResult {
+    let scorer = crate::scoring::GraphScorer::new(graph, project_config);
+    let breakdown = scorer.calculate(findings);
     
-    let overall_score = score_breakdown.overall_score;
-    let structure_score = score_breakdown.structure.final_score;
-    let quality_score = score_breakdown.quality.final_score;
-    let architecture_score = score_breakdown.architecture.final_score;
-    let grade = score_breakdown.grade.clone();
-
     // Log graph metrics
-    let metrics = &score_breakdown.graph_metrics;
+    let metrics = &breakdown.graph_metrics;
     tracing::info!(
         "Graph metrics: {} modules, {:.1}% coupling, {:.1}% cohesion, {} cycles, {:.1}% simple fns",
         metrics.module_count,
@@ -216,58 +313,95 @@ pub fn run(
         metrics.simple_function_ratio * 100.0
     );
 
-    // Step 8: Filter and paginate findings
-    let all_findings_summary = FindingsSummary::from_findings(&findings);
+    ScoreResult {
+        overall_score: breakdown.overall_score,
+        structure_score: breakdown.structure.final_score,
+        quality_score: breakdown.quality.final_score,
+        architecture_score: breakdown.architecture.final_score,
+        grade: breakdown.grade.clone(),
+        breakdown,
+    }
+}
+
+/// Build the health report with filtered and paginated findings
+fn build_health_report(
+    score_result: &ScoreResult,
+    findings: &mut Vec<Finding>,
+    severity: &Option<String>,
+    top: Option<usize>,
+    page: usize,
+    per_page: usize,
+    total_files: usize,
+    total_functions: usize,
+    total_classes: usize,
+) -> (HealthReport, Option<(usize, usize, usize, usize)>, Vec<Finding>) {
     let all_findings = findings.clone();
 
-    filter_findings(&mut findings, &severity, top);
-    let display_summary = FindingsSummary::from_findings(&findings);
-    let displayed_findings = findings.len();
+    filter_findings(findings, severity, top);
+    let display_summary = FindingsSummary::from_findings(findings);
 
-    let (paginated_findings, pagination_info) = paginate_findings(findings, page, per_page);
+    let (paginated_findings, pagination_info) = paginate_findings(findings.clone(), page, per_page);
 
-    // Build report
     let report = HealthReport {
-        overall_score,
-        grade: grade.clone(),
-        structure_score,
-        quality_score,
-        architecture_score: Some(architecture_score),
+        overall_score: score_result.overall_score,
+        grade: score_result.grade.clone(),
+        structure_score: score_result.structure_score,
+        quality_score: score_result.quality_score,
+        architecture_score: Some(score_result.architecture_score),
         findings: paginated_findings,
         findings_summary: display_summary,
-        total_files: file_result.files_to_parse.len(),
-        total_functions: parse_result.total_functions,
-        total_classes: parse_result.total_classes,
+        total_files,
+        total_functions,
+        total_classes,
     };
 
-    // Step 9: Output results
+    (report, pagination_info, all_findings)
+}
+
+/// Phase 6: Generate and output reports
+fn generate_reports(
+    report_data: &(HealthReport, Option<(usize, usize, usize, usize)>, Vec<Finding>),
+    findings: &[Finding],
+    format: &str,
+    output_path: Option<&Path>,
+    repotoire_dir: &Path,
+    pagination_info: Option<(usize, usize, usize, usize)>,
+    no_emoji: bool,
+    explain_score: bool,
+    score_result: &ScoreResult,
+    graph: &Arc<GraphStore>,
+    project_config: &ProjectConfig,
+) -> Result<()> {
+    let (report, _, all_findings) = report_data;
+    let displayed_findings = findings.len();
+
     format_and_output(
-        &report, &all_findings, format, output_path,
-        &repotoire_dir, pagination_info, displayed_findings, config.no_emoji
+        report, all_findings, format, output_path,
+        repotoire_dir, pagination_info, displayed_findings, no_emoji
     )?;
 
     // Show score explanation if requested
     if explain_score && format == "text" {
         println!("\n{}", style("─".repeat(60)).dim());
-        let explanation = scorer.explain(&score_breakdown);
+        let scorer = crate::scoring::GraphScorer::new(graph, project_config);
+        let explanation = scorer.explain(&score_result.breakdown);
         println!("{}", explanation);
     }
 
-    // Final summary (suppress for machine-readable formats)
+    Ok(())
+}
+
+/// Print final summary message
+fn print_final_summary(quiet_mode: bool, no_emoji: bool, start_time: Instant) {
     if !quiet_mode {
         let elapsed = start_time.elapsed();
-        let icon_done = if config.no_emoji { "" } else { "✨ " };
+        let icon_done = if no_emoji { "" } else { "✨ " };
         println!(
             "\n{}Analysis complete in {:.2}s",
             style(icon_done).bold(),
             elapsed.as_secs_f64()
         );
     }
-
-    // Exit with code 1 if --fail-on threshold is met (for CI/CD)
-    check_fail_threshold(&config.fail_on, &report)?;
-
-    Ok(())
 }
 
 /// Apply CLI defaults from project config

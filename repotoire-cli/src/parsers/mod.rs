@@ -70,11 +70,6 @@ pub fn language_for_extension(ext: &str) -> Option<&'static str> {
     }
 }
 
-/// Check if a file extension is supported
-pub fn is_supported_extension(ext: &str) -> bool {
-    language_for_extension(ext).is_some()
-}
-
 /// Get all supported file extensions
 pub fn supported_extensions() -> &'static [&'static str] {
     &[

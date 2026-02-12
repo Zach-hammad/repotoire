@@ -7,11 +7,9 @@
 //! 4. Enrich with git history (if available)
 //! 5. Run detectors
 
-use anyhow::Result;
 use std::path::Path;
-use tracing::{debug, info};
 
-use crate::git::{self, EnrichmentStats, GitHistory};
+use crate::git::EnrichmentStats;
 use crate::graph::GraphStore;
 
 /// Full analysis pipeline.
@@ -43,47 +41,6 @@ impl Pipeline {
     pub fn with_repo_id(mut self, repo_id: impl Into<String>) -> Self {
         self.repo_id = Some(repo_id.into());
         self
-    }
-
-    /// Run the full ingestion pipeline.
-    ///
-    /// # Arguments
-    /// * `repo_path` - Path to the repository to analyze
-    pub fn ingest(&self, repo_path: &Path) -> Result<IngestStats> {
-        let mut stats = IngestStats::default();
-
-        // TODO: Walk files, parse, insert into graph
-        // (existing ingestion logic would go here)
-
-        // Enrich with git history if enabled
-        if self.enable_git_enrichment {
-            match self.enrich_with_git(repo_path) {
-                Ok(git_stats) => {
-                    stats.git_enrichment = Some(git_stats);
-                }
-                Err(e) => {
-                    debug!("Git enrichment skipped or failed: {}", e);
-                }
-            }
-        }
-
-        Ok(stats)
-    }
-
-    /// Enrich the graph with git history data.
-    fn enrich_with_git(&self, repo_path: &Path) -> Result<EnrichmentStats> {
-        git::enrichment::enrich_graph_with_git(
-            repo_path,
-            &self.graph,
-            self.repo_id.as_deref(),
-        )
-    }
-
-    /// Run git enrichment on an already-populated graph.
-    ///
-    /// Use this when you've already ingested code and want to add git data.
-    pub fn enrich_git_only(&self, repo_path: &Path) -> Result<EnrichmentStats> {
-        self.enrich_with_git(repo_path)
     }
 
     /// Get a reference to the graph client.
@@ -136,6 +93,7 @@ impl IngestStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Result;
     use tempfile::tempdir;
 
     #[test]

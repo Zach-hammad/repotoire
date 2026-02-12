@@ -4,6 +4,7 @@
 //! No C++ dependencies, builds everywhere.
 
 use anyhow::{Context, Result};
+use petgraph::algo::tarjan_scc;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;
@@ -642,90 +643,171 @@ impl GraphStore {
     }
 
     // ==================== Cycle Detection ====================
+    //
+    // Uses Tarjan's SCC algorithm for efficient cycle detection.
+    // Instead of finding all possible cycles (which can be exponential),
+    // we find strongly connected components (SCCs) - any SCC with >1 node
+    // represents a circular dependency.
+    //
+    // This approach:
+    // 1. Runs in O(V + E) time
+    // 2. Reports each cycle exactly once (no duplicates)
+    // 3. Handles large codebases efficiently
 
-    /// Find circular dependencies in imports
+    /// Find circular dependencies in imports using SCC
     pub fn find_import_cycles(&self) -> Vec<Vec<String>> {
-        self.find_cycles(EdgeKind::Imports)
+        self.find_cycles_scc(EdgeKind::Imports)
     }
 
-    /// Find circular dependencies in calls
+    /// Find circular dependencies in calls using SCC
     pub fn find_call_cycles(&self) -> Vec<Vec<String>> {
-        self.find_cycles(EdgeKind::Calls)
+        self.find_cycles_scc(EdgeKind::Calls)
     }
 
-    /// Find cycles for a specific edge kind
-    fn find_cycles(&self, edge_kind: EdgeKind) -> Vec<Vec<String>> {
+    /// Find cycles using Tarjan's SCC algorithm
+    /// 
+    /// Returns strongly connected components with >1 node, which represent cycles.
+    /// Each SCC is returned as a list of qualified names.
+    fn find_cycles_scc(&self, edge_kind: EdgeKind) -> Vec<Vec<String>> {
         let graph = self.graph.read().unwrap();
-        let mut cycles = Vec::new();
-        let mut visited = HashSet::new();
-        let mut rec_stack = HashSet::new();
-        let mut path = Vec::new();
-
-        for node_idx in graph.node_indices() {
-            if !visited.contains(&node_idx) {
-                self.find_cycles_dfs(
-                    node_idx,
-                    &edge_kind,
-                    &graph,
-                    &mut visited,
-                    &mut rec_stack,
-                    &mut path,
-                    &mut cycles,
-                );
-            }
+        
+        // Build a filtered subgraph with only edges of the specified kind
+        // This is more efficient than filtering during SCC traversal
+        let mut filtered_graph: DiGraph<NodeIndex, ()> = DiGraph::new();
+        let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+        let mut reverse_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+        
+        // Add all nodes that have at least one edge of the specified kind
+        let relevant_nodes: HashSet<NodeIndex> = graph
+            .edge_references()
+            .filter(|e| {
+                if e.weight().kind != edge_kind {
+                    return false;
+                }
+                // Skip type-only imports
+                if edge_kind == EdgeKind::Imports {
+                    if let Some(is_type_only) = e.weight().properties.get("is_type_only") {
+                        if is_type_only == "true" {
+                            return false;
+                        }
+                    }
+                }
+                true
+            })
+            .flat_map(|e| [e.source(), e.target()])
+            .collect();
+        
+        for orig_idx in relevant_nodes {
+            let new_idx = filtered_graph.add_node(orig_idx);
+            idx_map.insert(orig_idx, new_idx);
+            reverse_map.insert(new_idx, orig_idx);
         }
-
-        cycles
-    }
-
-    fn find_cycles_dfs(
-        &self,
-        node: NodeIndex,
-        edge_kind: &EdgeKind,
-        graph: &DiGraph<CodeNode, CodeEdge>,
-        visited: &mut HashSet<NodeIndex>,
-        rec_stack: &mut HashSet<NodeIndex>,
-        path: &mut Vec<NodeIndex>,
-        cycles: &mut Vec<Vec<String>>,
-    ) {
-        visited.insert(node);
-        rec_stack.insert(node);
-        path.push(node);
-
-        for edge in graph.edges_directed(node, Direction::Outgoing) {
-            if edge.weight().kind != *edge_kind {
+        
+        // Add filtered edges
+        for edge in graph.edge_references() {
+            if edge.weight().kind != edge_kind {
                 continue;
             }
-            
-            // Skip type-only imports - they don't create runtime circular dependencies
-            if *edge_kind == EdgeKind::Imports {
+            // Skip type-only imports
+            if edge_kind == EdgeKind::Imports {
                 if let Some(is_type_only) = edge.weight().properties.get("is_type_only") {
                     if is_type_only == "true" {
                         continue;
                     }
                 }
             }
-
-            let target = edge.target();
-
-            if !visited.contains(&target) {
-                self.find_cycles_dfs(target, edge_kind, graph, visited, rec_stack, path, cycles);
-            } else if rec_stack.contains(&target) {
-                // Found a cycle
-                let cycle_start = path.iter().position(|&n| n == target).unwrap();
-                let cycle: Vec<String> = path[cycle_start..]
+            
+            if let (Some(&from), Some(&to)) = (idx_map.get(&edge.source()), idx_map.get(&edge.target())) {
+                filtered_graph.add_edge(from, to, ());
+            }
+        }
+        
+        // Run Tarjan's SCC algorithm on the filtered graph
+        let sccs = tarjan_scc(&filtered_graph);
+        
+        // Convert SCCs back to qualified names
+        // Only keep SCCs with >1 node (actual cycles)
+        let mut cycles: Vec<Vec<String>> = sccs
+            .into_iter()
+            .filter(|scc| scc.len() > 1)
+            .map(|scc| {
+                let mut names: Vec<String> = scc
                     .iter()
-                    .filter_map(|&idx| graph.node_weight(idx))
+                    .filter_map(|&filtered_idx| reverse_map.get(&filtered_idx))
+                    .filter_map(|&orig_idx| graph.node_weight(orig_idx))
                     .map(|n| n.qualified_name.clone())
                     .collect();
-                if cycle.len() >= 2 {
-                    cycles.push(cycle);
+                
+                // Sort for consistent ordering and deduplication
+                names.sort();
+                names
+            })
+            .collect();
+        
+        // Deduplicate (shouldn't be needed with SCC, but just in case)
+        cycles.sort();
+        cycles.dedup();
+        
+        // Sort by size (largest cycles first - they're usually most important)
+        cycles.sort_by(|a, b| b.len().cmp(&a.len()));
+        
+        cycles
+    }
+
+    /// Find the minimal cycle through a specific node (for detailed reporting)
+    /// 
+    /// This is useful when you want to show the shortest cycle involving a particular file.
+    pub fn find_minimal_cycle(&self, start_qn: &str, edge_kind: EdgeKind) -> Option<Vec<String>> {
+        let graph = self.graph.read().unwrap();
+        let index = self.node_index.read().unwrap();
+        
+        let start_idx = index.get(start_qn)?;
+        
+        // BFS to find shortest cycle back to start
+        let mut queue = std::collections::VecDeque::new();
+        let mut visited: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+        
+        queue.push_back((*start_idx, vec![*start_idx]));
+        visited.insert(*start_idx, vec![*start_idx]);
+        
+        while let Some((current, path)) = queue.pop_front() {
+            for edge in graph.edges_directed(current, Direction::Outgoing) {
+                if edge.weight().kind != edge_kind {
+                    continue;
+                }
+                
+                // Skip type-only imports
+                if edge_kind == EdgeKind::Imports {
+                    if let Some(is_type_only) = edge.weight().properties.get("is_type_only") {
+                        if is_type_only == "true" {
+                            continue;
+                        }
+                    }
+                }
+                
+                let target = edge.target();
+                
+                // Found cycle back to start!
+                if target == *start_idx && path.len() > 1 {
+                    return Some(
+                        path.iter()
+                            .filter_map(|&idx| graph.node_weight(idx))
+                            .map(|n| n.qualified_name.clone())
+                            .collect()
+                    );
+                }
+                
+                // Continue BFS if not visited
+                if !visited.contains_key(&target) {
+                    let mut new_path = path.clone();
+                    new_path.push(target);
+                    visited.insert(target, new_path.clone());
+                    queue.push_back((target, new_path));
                 }
             }
         }
-
-        path.pop();
-        rec_stack.remove(&node);
+        
+        None
     }
 
     // ==================== Persistence ====================
@@ -875,5 +957,129 @@ mod tests {
             let store = GraphStore::new(&path).unwrap();
             assert_eq!(store.get_files().len(), 1);
         }
+    }
+
+    #[test]
+    fn test_scc_cycle_detection_simple() {
+        // A -> B -> C -> A (simple cycle)
+        let store = GraphStore::in_memory();
+        
+        store.add_node(CodeNode::file("a.py"));
+        store.add_node(CodeNode::file("b.py"));
+        store.add_node(CodeNode::file("c.py"));
+        
+        store.add_edge_by_name("a.py", "b.py", CodeEdge::imports());
+        store.add_edge_by_name("b.py", "c.py", CodeEdge::imports());
+        store.add_edge_by_name("c.py", "a.py", CodeEdge::imports());
+        
+        let cycles = store.find_import_cycles();
+        assert_eq!(cycles.len(), 1, "Should find exactly 1 cycle");
+        assert_eq!(cycles[0].len(), 3, "Cycle should have 3 nodes");
+    }
+
+    #[test]
+    fn test_scc_cycle_detection_no_duplicate() {
+        // The old algorithm would report this cycle multiple times
+        // from different starting points. SCC reports it exactly once.
+        let store = GraphStore::in_memory();
+        
+        // Create a larger cycle: A -> B -> C -> D -> E -> A
+        for c in ['a', 'b', 'c', 'd', 'e'] {
+            store.add_node(CodeNode::file(&format!("{}.py", c)));
+        }
+        
+        store.add_edge_by_name("a.py", "b.py", CodeEdge::imports());
+        store.add_edge_by_name("b.py", "c.py", CodeEdge::imports());
+        store.add_edge_by_name("c.py", "d.py", CodeEdge::imports());
+        store.add_edge_by_name("d.py", "e.py", CodeEdge::imports());
+        store.add_edge_by_name("e.py", "a.py", CodeEdge::imports());
+        
+        let cycles = store.find_import_cycles();
+        assert_eq!(cycles.len(), 1, "SCC should report exactly 1 cycle, not 5");
+        assert_eq!(cycles[0].len(), 5, "Cycle should have 5 nodes");
+    }
+
+    #[test]
+    fn test_scc_multiple_independent_cycles() {
+        // Two independent cycles
+        let store = GraphStore::in_memory();
+        
+        // Cycle 1: A -> B -> A
+        store.add_node(CodeNode::file("a.py"));
+        store.add_node(CodeNode::file("b.py"));
+        store.add_edge_by_name("a.py", "b.py", CodeEdge::imports());
+        store.add_edge_by_name("b.py", "a.py", CodeEdge::imports());
+        
+        // Cycle 2: X -> Y -> Z -> X
+        store.add_node(CodeNode::file("x.py"));
+        store.add_node(CodeNode::file("y.py"));
+        store.add_node(CodeNode::file("z.py"));
+        store.add_edge_by_name("x.py", "y.py", CodeEdge::imports());
+        store.add_edge_by_name("y.py", "z.py", CodeEdge::imports());
+        store.add_edge_by_name("z.py", "x.py", CodeEdge::imports());
+        
+        let cycles = store.find_import_cycles();
+        assert_eq!(cycles.len(), 2, "Should find 2 independent cycles");
+    }
+
+    #[test]
+    fn test_scc_large_interconnected() {
+        // Worst case for old algorithm: fully connected component
+        // Old algo would find O(n!) cycles, SCC finds 1
+        let store = GraphStore::in_memory();
+        
+        let names: Vec<String> = (0..5).map(|i| format!("file{}.py", i)).collect();
+        for name in &names {
+            store.add_node(CodeNode::file(name));
+        }
+        
+        // Create edges making it fully connected (worst case for naive cycle detection)
+        for src in &names {
+            for dst in &names {
+                if src != dst {
+                    store.add_edge_by_name(src, dst, CodeEdge::imports());
+                }
+            }
+        }
+        
+        let cycles = store.find_import_cycles();
+        // SCC will find exactly 1 strongly connected component
+        assert_eq!(cycles.len(), 1, "Fully connected graph = 1 SCC");
+        assert_eq!(cycles[0].len(), 5, "SCC should have all 5 nodes");
+    }
+
+    #[test]
+    fn test_scc_no_cycle() {
+        // Linear chain: no cycle
+        let store = GraphStore::in_memory();
+        
+        store.add_node(CodeNode::file("a.py"));
+        store.add_node(CodeNode::file("b.py"));
+        store.add_node(CodeNode::file("c.py"));
+        
+        store.add_edge_by_name("a.py", "b.py", CodeEdge::imports());
+        store.add_edge_by_name("b.py", "c.py", CodeEdge::imports());
+        
+        let cycles = store.find_import_cycles();
+        assert!(cycles.is_empty(), "Linear chain should have no cycles");
+    }
+
+    #[test]
+    fn test_minimal_cycle() {
+        let store = GraphStore::in_memory();
+        
+        store.add_node(CodeNode::file("a.py"));
+        store.add_node(CodeNode::file("b.py"));
+        store.add_node(CodeNode::file("c.py"));
+        
+        store.add_edge_by_name("a.py", "b.py", CodeEdge::imports());
+        store.add_edge_by_name("b.py", "c.py", CodeEdge::imports());
+        store.add_edge_by_name("c.py", "a.py", CodeEdge::imports());
+        
+        let cycle = store.find_minimal_cycle("a.py", EdgeKind::Imports);
+        assert!(cycle.is_some(), "Should find cycle through a.py");
+        let cycle = cycle.unwrap();
+        assert_eq!(cycle.len(), 3, "Minimal cycle should have 3 nodes");
+        assert_eq!(cycle[0], "a.py", "Cycle should start with a.py");
     }
 }

@@ -99,6 +99,26 @@ impl CircularDependencyDetector {
         }
     }
 
+    /// Find entry points into the SCC (files that have external imports but are in the SCC)
+    fn find_scc_entry_points(&self, scc_files: &[String], graph: &GraphStore) -> Vec<(String, usize)> {
+        let scc_set: std::collections::HashSet<&str> = scc_files.iter().map(|s| s.as_str()).collect();
+        let imports = graph.get_imports();
+        
+        let mut external_imports: HashMap<String, usize> = HashMap::new();
+        
+        for (src, dst) in &imports {
+            // Count how many times a file in the SCC is imported from OUTSIDE the SCC
+            if !scc_set.contains(src.as_str()) && scc_set.contains(dst.as_str()) {
+                *external_imports.entry(dst.clone()).or_insert(0) += 1;
+            }
+        }
+        
+        let mut entries: Vec<_> = external_imports.into_iter().collect();
+        entries.sort_by(|a, b| b.1.cmp(&a.1)); // Sort by import count descending
+        entries.truncate(5); // Keep top 5
+        entries
+    }
+
     /// Generate fix suggestion based on cycle analysis
     fn suggest_fix(cycle_length: usize, coupling: &CouplingAnalysis) -> String {
         let mut suggestion = String::new();
@@ -152,58 +172,89 @@ impl CircularDependencyDetector {
         }
     }
 
-    /// Create a finding from a cycle with coupling analysis
-    fn create_finding(&self, cycle_files: Vec<String>, cycle_length: usize, coupling: CouplingAnalysis) -> Finding {
+    /// Create a finding from an SCC with coupling analysis
+    fn create_finding(&self, scc_files: Vec<String>, scc_size: usize, coupling: CouplingAnalysis, graph: &GraphStore) -> Finding {
         let finding_id = Uuid::new_v4().to_string();
         let max_coupling = coupling.edge_strengths.values().max().copied().unwrap_or(1);
-        let severity = Self::calculate_severity(cycle_length, max_coupling);
+        let severity = Self::calculate_severity(scc_size, max_coupling);
 
-        // Format cycle for display
-        let display_files: Vec<&str> = cycle_files
-            .iter()
-            .take(5)
-            .map(|f| f.rsplit('/').next().unwrap_or(f))
-            .collect();
-
-        let mut cycle_display = display_files.join(" → ");
-        if cycle_length > 5 {
-            cycle_display.push_str(&format!(" ... ({} files total)", cycle_length));
-        }
-        
-        // Add coupling info to description
-        let mut description = format!("Found circular import chain: {}", cycle_display);
-        
-        if let Some((from, to, strength)) = &coupling.weakest_link {
-            let from_name = from.rsplit('/').next().unwrap_or(from);
-            let to_name = to.rsplit('/').next().unwrap_or(to);
-            description.push_str(&format!(
-                "\n\n**Weakest link:** `{}` → `{}` ({} imports)",
-                from_name, to_name, strength
-            ));
-        }
-        
-        if let Some((from, to, strength)) = &coupling.strongest_link {
-            if coupling.weakest_link.as_ref().map(|(f, t, _)| (f, t)) != Some((&from, &to)) {
+        // For small SCCs, show the exact cycle; for large ones, show summary
+        let (title, description) = if scc_size <= 5 {
+            // Small cycle - show exact files
+            let display_files: Vec<&str> = scc_files
+                .iter()
+                .map(|f| f.rsplit('/').next().unwrap_or(f))
+                .collect();
+            let cycle_display = display_files.join(" ↔ ");
+            
+            let mut desc = format!("Mutual dependency between: {}", cycle_display);
+            
+            if let Some((from, to, strength)) = &coupling.weakest_link {
                 let from_name = from.rsplit('/').next().unwrap_or(from);
                 let to_name = to.rsplit('/').next().unwrap_or(to);
-                description.push_str(&format!(
-                    "\n**Tightest coupling:** `{}` → `{}` ({} imports)",
-                    from_name, to_name, strength
+                desc.push_str(&format!(
+                    "\n\n**Weakest link to break:** `{}` → `{}` ({} import{})",
+                    from_name, to_name, strength, if *strength == 1 { "" } else { "s" }
                 ));
             }
-        }
+            
+            (format!("Circular dependency: {} files", scc_size), desc)
+        } else {
+            // Large SCC - provide analysis summary
+            let entry_points = self.find_scc_entry_points(&scc_files, graph);
+            
+            let mut desc = format!(
+                "**Large dependency web:** {} interconnected files form a strongly connected component.\n\n",
+                scc_size
+            );
+            
+            // Show top files that could be refactoring targets
+            let display_files: Vec<&str> = scc_files
+                .iter()
+                .take(8)
+                .map(|f| f.rsplit('/').next().unwrap_or(f))
+                .collect();
+            desc.push_str(&format!("**Files involved (showing 8/{}):**\n", scc_size));
+            for f in &display_files {
+                desc.push_str(&format!("  • `{}`\n", f));
+            }
+            if scc_size > 8 {
+                desc.push_str(&format!("  ...and {} more\n", scc_size - 8));
+            }
+            
+            // Show entry points (high-value refactoring targets)
+            if !entry_points.is_empty() {
+                desc.push_str("\n**Entry points (imported from outside the cycle):**\n");
+                for (file, count) in &entry_points {
+                    let name = file.rsplit('/').next().unwrap_or(file);
+                    desc.push_str(&format!("  • `{}` (imported {} time{})\n", name, count, if *count == 1 { "" } else { "s" }));
+                }
+            }
+            
+            // Show best edge to break
+            if let Some((from, to, strength)) = &coupling.weakest_link {
+                let from_name = from.rsplit('/').next().unwrap_or(from);
+                let to_name = to.rsplit('/').next().unwrap_or(to);
+                desc.push_str(&format!(
+                    "\n**Weakest link to break:** `{}` → `{}` ({} import{})",
+                    from_name, to_name, strength, if *strength == 1 { "" } else { "s" }
+                ));
+            }
+            
+            (format!("Large circular dependency web: {} files", scc_size), desc)
+        };
 
         Finding {
             id: finding_id,
             detector: "CircularDependencyDetector".to_string(),
             severity,
-            title: format!("Circular dependency involving {} files", cycle_length),
+            title,
             description,
-            affected_files: cycle_files.iter().map(PathBuf::from).collect(),
+            affected_files: scc_files.iter().map(PathBuf::from).collect(),
             line_start: None,
             line_end: None,
-            suggested_fix: Some(Self::suggest_fix(cycle_length, &coupling)),
-            estimated_effort: Some(Self::estimate_effort(cycle_length)),
+            suggested_fix: Some(Self::suggest_fix(scc_size, &coupling)),
+            estimated_effort: Some(Self::estimate_effort(scc_size)),
             category: Some("architecture".to_string()),
             cwe_id: None,
             why_it_matters: Some(
@@ -257,9 +308,9 @@ impl Detector for CircularDependencyDetector {
         let mut seen_cycles: std::collections::HashSet<Vec<String>> =
             std::collections::HashSet::new();
 
-        for cycle in cycles {
+        for scc in cycles {
             // Normalize for deduplication
-            let mut normalized = cycle.clone();
+            let mut normalized = scc.clone();
             normalized.sort();
             
             if seen_cycles.contains(&normalized) {
@@ -267,12 +318,12 @@ impl Detector for CircularDependencyDetector {
             }
             seen_cycles.insert(normalized);
 
-            let cycle_length = cycle.len();
+            let scc_size = scc.len();
             
             // Analyze coupling strength to find the best place to break
-            let coupling = self.analyze_coupling(&cycle, graph);
+            let coupling = self.analyze_coupling(&scc, graph);
             
-            findings.push(self.create_finding(cycle, cycle_length, coupling));
+            findings.push(self.create_finding(scc, scc_size, coupling, graph));
         }
 
         // Sort by severity (highest first)
