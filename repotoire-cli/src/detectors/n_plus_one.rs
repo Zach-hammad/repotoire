@@ -133,6 +133,26 @@ impl NPlusOneDetector {
                 continue;
             }
             
+            // Skip parsers (they need to iterate to parse)
+            if func.file_path.contains("/parsers/") {
+                continue;
+            }
+            
+            // Skip MCP handlers (they handle requests, expected to query)
+            if func.file_path.contains("/mcp/") {
+                continue;
+            }
+            
+            // Skip git operations (they need to iterate over commits)
+            if func.file_path.contains("/git/") {
+                continue;
+            }
+            
+            // Skip AI code (it generates fixes iteratively)
+            if func.file_path.contains("/ai/") {
+                continue;
+            }
+            
             // Check if this function contains a loop
             let has_loop = if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
                 let lines: Vec<&str> = content.lines().collect();

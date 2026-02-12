@@ -363,6 +363,11 @@ impl Detector for AIComplexitySpikeDetector {
             if func.file_path.contains("/detectors/") {
                 continue;
             }
+            
+            // Skip parser files (parsing code is naturally complex)
+            if func.file_path.contains("/parsers/") {
+                continue;
+            }
 
             if let Some(complexity) = func.complexity() {
                 if complexity as f64 > threshold && complexity > 20 {

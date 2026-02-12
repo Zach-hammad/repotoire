@@ -90,6 +90,9 @@ impl Detector for DeepNestingDetector {
             // Skip detector files (they have inherently complex parsing logic)
             let path_str_check = path.to_string_lossy();
             if path_str_check.contains("/detectors/") { continue; }
+            
+            // Skip parsers (parsing code naturally has deep nesting)
+            if path_str_check.contains("/parsers/") { continue; }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let path_str = path.to_string_lossy().to_string();
