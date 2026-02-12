@@ -1,4 +1,11 @@
 //! Interactive TUI for browsing findings
+//!
+//! Keys:
+//! - j/k or Up/Down: Navigate findings
+//! - Enter: Toggle detail view
+//! - f: Fix current finding with AI
+//! - F: Launch agent to fix + create PR
+//! - q/Esc: Quit
 
 use anyhow::Result;
 use crossterm::{
@@ -13,6 +20,7 @@ use ratatui::{
 use std::fs;
 use std::io;
 use std::path::Path;
+use std::process::Command;
 
 use crate::models::{Finding, Severity};
 
@@ -41,6 +49,7 @@ pub struct App {
     repo_path: std::path::PathBuf,
     code_cache: Option<Vec<(u32, String)>>,
     cached_index: Option<usize>,
+    status_message: Option<(String, bool)>, // (message, is_error)
 }
 
 impl App {
@@ -56,7 +65,77 @@ impl App {
             repo_path,
             code_cache: None,
             cached_index: None,
+            status_message: None,
         }
+    }
+    
+    /// Launch Claude Code agent to fix the current finding and create a PR
+    fn launch_agent(&mut self) -> Option<String> {
+        let finding = self.selected_finding()?;
+        let index = self.list_state.selected()? + 1;
+        
+        let file = finding.affected_files.first()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        
+        let line_info = finding.line_start
+            .map(|l| format!(":{}", l))
+            .unwrap_or_default();
+        
+        // Create a task description for the agent
+        let task = format!(
+            "Fix this code issue and create a PR:\n\n\
+             **Finding:** {}\n\
+             **Severity:** {:?}\n\
+             **File:** {}{}\n\
+             **Description:** {}\n\n\
+             Steps:\n\
+             1. Create a new branch: fix/finding-{}\n\
+             2. Fix the issue in {}\n\
+             3. Commit with a descriptive message\n\
+             4. Push and create a PR\n\n\
+             {}",
+            finding.title,
+            finding.severity,
+            file,
+            line_info,
+            finding.description,
+            index,
+            file,
+            finding.suggested_fix.as_deref().unwrap_or("Apply the appropriate fix based on the description.")
+        );
+        
+        // Try to spawn Claude Code in background
+        let result = Command::new("claude")
+            .args(["--print", "--dangerously-skip-permissions", &task])
+            .current_dir(&self.repo_path)
+            .spawn();
+        
+        match result {
+            Ok(child) => {
+                Some(format!("🚀 Agent launched (PID: {}) - fixing finding #{}", child.id(), index))
+            }
+            Err(e) => {
+                // Try openclaw coding-agent as fallback
+                if let Ok(child) = Command::new("openclaw")
+                    .args(["coding-agent", "claude", "--", "--print", &task])
+                    .current_dir(&self.repo_path)
+                    .spawn()
+                {
+                    Some(format!("🚀 Agent launched via OpenClaw (PID: {})", child.id()))
+                } else {
+                    Some(format!("❌ Failed to launch agent: {}. Install Claude Code: npm i -g @anthropic-ai/claude-code", e))
+                }
+            }
+        }
+    }
+    
+    /// Run the built-in fix command for the current finding
+    fn run_fix(&self) -> Option<String> {
+        let index = self.list_state.selected()? + 1;
+        
+        // We can't run fix interactively from TUI, so just show the command
+        Some(format!("Run: repotoire fix {}", index))
     }
 
     fn get_code_snippet(&mut self) -> Option<&Vec<(u32, String)>> {
@@ -182,6 +261,19 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                             app.previous();
                         }
                     }
+                    KeyCode::Char('f') => {
+                        // Show fix command hint
+                        if let Some(msg) = app.run_fix() {
+                            app.status_message = Some((msg, false));
+                        }
+                    }
+                    KeyCode::Char('F') => {
+                        // Launch agent to fix + PR
+                        if let Some(msg) = app.launch_agent() {
+                            let is_error = msg.starts_with("❌");
+                            app.status_message = Some((msg, is_error));
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -229,10 +321,33 @@ fn ui(f: &mut Frame, app: &mut App) {
         render_detail(f, main_chunks[1], &finding, code.as_ref());
     }
 
-    // Footer
-    let help = " j/k:Navigate  Enter:Toggle  q:Quit";
-    let footer = Paragraph::new(help)
-        .style(Style::default().fg(Color::DarkGray));
+    // Footer - show status message if present, otherwise help
+    let footer_text = if let Some((msg, is_error)) = &app.status_message {
+        Line::from(vec![
+            Span::styled(
+                format!(" {} ", msg),
+                if *is_error {
+                    Style::default().fg(Color::Red)
+                } else {
+                    Style::default().fg(Color::Green)
+                }
+            ),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled(" j/k", Style::default().fg(Color::Cyan)),
+            Span::raw(":Nav  "),
+            Span::styled("Enter", Style::default().fg(Color::Cyan)),
+            Span::raw(":Details  "),
+            Span::styled("f", Style::default().fg(Color::Yellow)),
+            Span::raw(":Fix  "),
+            Span::styled("F", Style::default().fg(Color::Green).bold()),
+            Span::raw(":Agent+PR  "),
+            Span::styled("q", Style::default().fg(Color::Cyan)),
+            Span::raw(":Quit"),
+        ])
+    };
+    let footer = Paragraph::new(footer_text);
     f.render_widget(footer, chunks[2]);
 }
 
