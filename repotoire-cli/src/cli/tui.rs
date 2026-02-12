@@ -140,7 +140,7 @@ fn get_agent_log_dir(repo_path: &Path) -> PathBuf {
 fn tail_file(path: &Path, n: usize) -> Vec<String> {
     if let Ok(file) = File::open(path) {
         let reader = BufReader::new(file);
-        let lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+        let lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
         lines.into_iter().rev().take(n).rev().collect()
     } else {
         vec![]

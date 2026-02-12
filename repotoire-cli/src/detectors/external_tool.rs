@@ -271,7 +271,7 @@ fn run_with_timeout(
                         let reader = BufReader::new(s);
                         reader
                             .lines()
-                            .filter_map(|l| l.ok())
+                            .map_while(Result::ok)
                             .collect::<Vec<_>>()
                             .join("\n")
                     })
@@ -284,7 +284,7 @@ fn run_with_timeout(
                         let reader = BufReader::new(s);
                         reader
                             .lines()
-                            .filter_map(|l| l.ok())
+                            .map_while(Result::ok)
                             .collect::<Vec<_>>()
                             .join("\n")
                     })

@@ -19,11 +19,16 @@ use uuid::Uuid;
 
 static LOOP_PATTERN: OnceLock<Regex> = OnceLock::new();
 static STRING_CONCAT: OnceLock<Regex> = OnceLock::new();
+static FOR_VAR_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 fn loop_pattern() -> &'static Regex {
     LOOP_PATTERN.get_or_init(|| {
         Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|\.map\(|\.each|for\s*\(|while\s*\()").unwrap()
     })
+}
+
+fn for_var_pattern() -> &'static Regex {
+    FOR_VAR_PATTERN.get_or_init(|| Regex::new(r"for\s+(\w+)\s+in").unwrap())
 }
 
 fn string_concat() -> &'static Regex {
@@ -159,10 +164,7 @@ impl Detector for StringConcatLoopDetector {
                         brace_depth = 0;
 
                         // Try to extract loop variable for context
-                        if let Some(caps) = Regex::new(r"for\s+(\w+)\s+in")
-                            .ok()
-                            .and_then(|r| r.captures(line))
-                        {
+                        if let Some(caps) = for_var_pattern().captures(line) {
                             _loop_var = caps
                                 .get(1)
                                 .map(|m| m.as_str().to_string())
