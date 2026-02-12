@@ -141,18 +141,6 @@ impl AIMissingTestsDetector {
 
         false
     }
-
-    /// Get possible test function names for a given function
-    fn get_test_function_variants(&self, func_name: &str) -> Vec<String> {
-        let name_lower = func_name.to_lowercase();
-        let mut variants = vec![
-            format!("test_{}", name_lower),
-            format!("test{}", name_lower),
-            format!("{}_test", name_lower),
-        ];
-
-        // For methods, also check class-based test names
-        if name_lower.contains('_') {
             for part in name_lower.split('_') {
                 if part.len() > 2 {
                     variants.push(format!("test_{}", part));
