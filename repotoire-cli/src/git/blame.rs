@@ -116,23 +116,22 @@ pub struct GitBlame {
 
 impl GitBlame {
     /// Open a repository for blame analysis.
-    pub fn open(path: &Path) -> Result<Self> {
-        let repo = Repository::discover(path)
-            .with_context(|| format!("Failed to open git repository at {:?}", path))?;
-        let repo_path = repo.workdir().unwrap_or(repo.path()).to_path_buf();
-
-        // Load disk cache from ~/.cache/repotoire/<repo>/git_cache.json
-        let cache_path = crate::cache::get_git_cache_path(&repo_path);
-        let disk_cache = GitCache::load(&cache_path);
-
-        Ok(Self {
-            repo,
-            repo_path,
-            file_cache: Arc::new(DashMap::new()),
-            disk_cache: Arc::new(std::sync::RwLock::new(disk_cache)),
-            cache_path,
-        })
-    }
+pub fn open(path: &Path) -> Result<Self> {
+    let repo = Repository::discover(path)?;
+    let repo_path = repo.workdir().unwrap_or(repo.path()).to_path_buf();
+    
+    // Load disk cache from ~/.cache/repotoire/<repo>/git_cache.json
+    let cache_path = crate::cache::get_git_cache_path(&repo_path);
+    let disk_cache = GitCache::load(&cache_path)?;
+    
+    Ok(Self {
+        repo,
+        repo_path,
+        file_cache: Arc::new(DashMap::new()),
+        disk_cache: Arc::new(std::sync::RwLock::new(disk_cache)),
+        cache_path,
+    })
+}
 
     /// Save the disk cache.
     pub fn save_cache(&self) -> Result<()> {
