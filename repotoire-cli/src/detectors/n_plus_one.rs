@@ -123,6 +123,16 @@ impl NPlusOneDetector {
                 continue;
             }
             
+            // Skip detector files (they iterate over graph nodes, not DB)
+            if func.file_path.contains("/detectors/") {
+                continue;
+            }
+            
+            // Skip CLI files (they orchestrate analysis, expected patterns)
+            if func.file_path.contains("/cli/") {
+                continue;
+            }
+            
             // Check if this function contains a loop
             let has_loop = if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
                 let lines: Vec<&str> = content.lines().collect();

@@ -157,6 +157,9 @@ impl Detector for SyncInAsyncDetector {
             let path_str = path.to_string_lossy().to_string();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py"|"js"|"ts"|"jsx"|"tsx"|"rs") { continue; }
+            
+            // Skip detector files (contain regex patterns as strings)
+            if path_str.contains("/detectors/") { continue; }
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 let lines: Vec<&str> = content.lines().collect();
