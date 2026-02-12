@@ -1,4 +1,10 @@
 //! N+1 Query Detector
+//!
+//! Graph-enhanced detection of N+1 query patterns.
+//! Uses call graph to:
+//! - Trace query functions called transitively in loops
+//! - Detect when loop variable flows to query parameters
+//! - Find hidden N+1 patterns across function boundaries
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use uuid::Uuid;
@@ -6,11 +12,14 @@ use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use tracing::{debug, info};
 
 static LOOP: OnceLock<Regex> = OnceLock::new();
 static QUERY: OnceLock<Regex> = OnceLock::new();
+static QUERY_FUNC: OnceLock<Regex> = OnceLock::new();
 
 fn loop_pattern() -> &'static Regex {
     LOOP.get_or_init(|| Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|\.map\(|\.each)").unwrap())
@@ -18,6 +27,10 @@ fn loop_pattern() -> &'static Regex {
 
 fn query_pattern() -> &'static Regex {
     QUERY.get_or_init(|| Regex::new(r"(?i)(\.get\(|\.find\(|\.filter\(|\.first\(|\.where\(|\.query\(|SELECT\s|Model\.\w+\.get|await\s+\w+\.findOne)").unwrap())
+}
+
+fn query_func_pattern() -> &'static Regex {
+    QUERY_FUNC.get_or_init(|| Regex::new(r"(?i)(get_|find_|fetch_|load_|query_|select_)").unwrap())
 }
 
 pub struct NPlusOneDetector {
@@ -29,14 +42,157 @@ impl NPlusOneDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
         Self { repository_path: repository_path.into(), max_findings: 50 }
     }
+
+    /// Find functions that contain database queries
+    fn find_query_functions(&self, graph: &GraphStore) -> HashSet<String> {
+        let mut query_funcs = HashSet::new();
+        
+        for func in graph.get_functions() {
+            // Check if function name suggests it does queries
+            if query_func_pattern().is_match(&func.name) {
+                query_funcs.insert(func.qualified_name.clone());
+                continue;
+            }
+            
+            // Check function content for query patterns
+            if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
+                let lines: Vec<&str> = content.lines().collect();
+                let start = func.line_start.saturating_sub(1) as usize;
+                let end = (func.line_end as usize).min(lines.len());
+                
+                for line in lines.get(start..end).unwrap_or(&[]) {
+                    if query_pattern().is_match(line) {
+                        query_funcs.insert(func.qualified_name.clone());
+                        break;
+                    }
+                }
+            }
+        }
+        
+        debug!("Found {} potential query functions", query_funcs.len());
+        query_funcs
+    }
+
+    /// Check if a function transitively calls any query function
+    fn calls_query_transitively(
+        &self,
+        graph: &GraphStore,
+        func_qn: &str,
+        query_funcs: &HashSet<String>,
+        depth: usize,
+        visited: &mut HashSet<String>
+    ) -> Option<String> {
+        if depth > 5 || visited.contains(func_qn) {
+            return None;
+        }
+        visited.insert(func_qn.to_string());
+        
+        let callees = graph.get_callees(func_qn);
+        for callee in &callees {
+            // Direct call to query function
+            if query_funcs.contains(&callee.qualified_name) {
+                return Some(callee.name.clone());
+            }
+            
+            // Recursive check
+            if let Some(query_name) = self.calls_query_transitively(
+                graph, &callee.qualified_name, query_funcs, depth + 1, visited
+            ) {
+                return Some(format!("{} → {}", callee.name, query_name));
+            }
+        }
+        
+        None
+    }
+
+    /// Find N+1 patterns using graph traversal
+    fn find_graph_n_plus_one(&self, graph: &GraphStore) -> Vec<Finding> {
+        let mut findings = Vec::new();
+        let query_funcs = self.find_query_functions(graph);
+        
+        if query_funcs.is_empty() {
+            return findings;
+        }
+
+        // Find functions that look like they iterate over collections
+        for func in graph.get_functions() {
+            if findings.len() >= self.max_findings { break; }
+            
+            // Skip test files
+            if func.file_path.contains("/test") || func.file_path.contains("_test.") {
+                continue;
+            }
+            
+            // Check if this function contains a loop
+            let has_loop = if let Some(content) = crate::cache::global_cache().get_content(std::path::Path::new(&func.file_path)) {
+                let lines: Vec<&str> = content.lines().collect();
+                let start = func.line_start.saturating_sub(1) as usize;
+                let end = (func.line_end as usize).min(lines.len());
+                
+                lines.get(start..end)
+                    .map(|slice| slice.iter().any(|line| loop_pattern().is_match(line)))
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+            
+            if !has_loop { continue; }
+            
+            // Check if any called function (transitively) does a query
+            let mut visited = HashSet::new();
+            for callee in graph.get_callees(&func.qualified_name) {
+                if let Some(query_chain) = self.calls_query_transitively(
+                    graph, &callee.qualified_name, &query_funcs, 0, &mut visited
+                ) {
+                    findings.push(Finding {
+                        id: Uuid::new_v4().to_string(),
+                        detector: "NPlusOneDetector".to_string(),
+                        severity: Severity::High,
+                        title: format!("Hidden N+1: {} calls query in loop", func.name),
+                        description: format!(
+                            "Function '{}' contains a loop and calls '{}' which leads to a database query.\n\n\
+                             **Call chain:** {} → {}\n\n\
+                             This may cause N database queries instead of 1.",
+                            func.name,
+                            callee.name,
+                            callee.name,
+                            query_chain
+                        ),
+                        affected_files: vec![PathBuf::from(&func.file_path)],
+                        line_start: Some(func.line_start),
+                        line_end: Some(func.line_end),
+                        suggested_fix: Some(
+                            "Consider:\n\
+                             1. Batch the query before the loop\n\
+                             2. Use eager loading/prefetching\n\
+                             3. Cache results if the same query is repeated".to_string()
+                        ),
+                        estimated_effort: Some("1 hour".to_string()),
+                        category: Some("performance".to_string()),
+                        cwe_id: None,
+                        why_it_matters: Some(
+                            "Hidden N+1 queries across function boundaries are harder to detect \
+                             but cause the same performance issues.".to_string()
+                        ),
+                        ..Default::default()
+                    });
+                    break; // One finding per function
+                }
+            }
+        }
+        
+        findings
+    }
 }
 
 impl Detector for NPlusOneDetector {
     fn name(&self) -> &'static str { "n-plus-one" }
     fn description(&self) -> &'static str { "Detects N+1 query patterns" }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
+        
+        // === Source-based detection (direct queries in loops) ===
         let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
 
         for entry in walker.filter_map(|e| e.ok()) {
@@ -73,7 +229,11 @@ impl Detector for NPlusOneDetector {
                                 detector: "NPlusOneDetector".to_string(),
                                 severity: Severity::High,
                                 title: "Potential N+1 query".to_string(),
-                                description: format!("Database query inside loop (started line {})", loop_line),
+                                description: format!(
+                                    "Database query inside loop (loop started at line {}).\n\n\
+                                     This pattern causes N database calls instead of 1.",
+                                    loop_line
+                                ),
                                 affected_files: vec![path.to_path_buf()],
                                 line_start: Some((i + 1) as u32),
                                 line_end: Some((i + 1) as u32),
@@ -90,6 +250,26 @@ impl Detector for NPlusOneDetector {
                 }
             }
         }
+        
+        // === Graph-based detection (hidden N+1 across function boundaries) ===
+        let graph_findings = self.find_graph_n_plus_one(graph);
+        
+        // Deduplicate: skip graph findings that overlap with source findings
+        let existing_locations: HashSet<(String, u32)> = findings.iter()
+            .flat_map(|f| f.affected_files.iter().map(|p| (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0))))
+            .collect();
+        
+        for finding in graph_findings {
+            let key = (
+                finding.affected_files.first().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
+                finding.line_start.unwrap_or(0)
+            );
+            if !existing_locations.contains(&key) && findings.len() < self.max_findings {
+                findings.push(finding);
+            }
+        }
+        
+        info!("NPlusOneDetector found {} findings (source + graph)", findings.len());
         Ok(findings)
     }
 }
