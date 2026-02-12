@@ -1,4 +1,10 @@
 //! Implicit Coercion Detector (JavaScript)
+//!
+//! Graph-enhanced detection of == instead of ===.
+//! Uses graph to:
+//! - Prioritize issues in heavily-called functions
+//! - Reduce severity for dead code
+//! - Identify route handlers (higher risk)
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use uuid::Uuid;
@@ -8,6 +14,7 @@ use anyhow::Result;
 use regex::Regex;
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use tracing::info;
 
 static LOOSE_EQUALITY: OnceLock<Regex> = OnceLock::new();
 
@@ -24,13 +31,56 @@ impl ImplicitCoercionDetector {
     pub fn new(repository_path: impl Into<PathBuf>) -> Self {
         Self { repository_path: repository_path.into(), max_findings: 100 }
     }
+
+    /// Find containing function and get its context
+    fn find_function_context(graph: &GraphStore, file_path: &str, line: u32) -> Option<(String, usize, bool)> {
+        graph.get_functions()
+            .into_iter()
+            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
+            .map(|f| {
+                let callers = graph.get_callers(&f.qualified_name);
+                let caller_count = callers.len();
+                
+                // Check if this is a route handler
+                let name_lower = f.name.to_lowercase();
+                let is_handler = name_lower.contains("handler") ||
+                    name_lower.contains("route") ||
+                    name_lower.contains("controller") ||
+                    name_lower.starts_with("get") ||
+                    name_lower.starts_with("post") ||
+                    name_lower.starts_with("put") ||
+                    name_lower.starts_with("delete") ||
+                    name_lower.starts_with("handle");
+                
+                (f.name, caller_count, is_handler)
+            })
+    }
+
+    /// Check if function is dead code (no callers, not an entry point)
+    fn is_dead_code(graph: &GraphStore, file_path: &str, line: u32) -> bool {
+        if let Some(func) = graph.get_functions()
+            .into_iter()
+            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line) 
+        {
+            let callers = graph.get_callers(&func.qualified_name);
+            let name_lower = func.name.to_lowercase();
+            let is_entry = name_lower == "main" || 
+                          name_lower.starts_with("test") ||
+                          name_lower.contains("handler") ||
+                          name_lower.contains("route") ||
+                          func.get_bool("is_exported").unwrap_or(false);
+            callers.is_empty() && !is_entry
+        } else {
+            false
+        }
+    }
 }
 
 impl Detector for ImplicitCoercionDetector {
     fn name(&self) -> &'static str { "implicit-coercion" }
     fn description(&self) -> &'static str { "Detects == instead of ===" }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         let walker = ignore::WalkBuilder::new(&self.repository_path).hidden(false).git_ignore(true).build();
 
@@ -41,6 +91,8 @@ impl Detector for ImplicitCoercionDetector {
             
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "js"|"ts"|"jsx"|"tsx") { continue; }
+            
+            let path_str = path.to_string_lossy().to_string();
 
             if let Some(content) = crate::cache::global_cache().get_content(path) {
                 for (i, line) in content.lines().enumerate() {
@@ -51,27 +103,90 @@ impl Detector for ImplicitCoercionDetector {
                     if loose_equality().is_match(line) && !line.contains("===") && !line.contains("!==") {
                         // Skip null checks which are sometimes intentional
                         if line.contains("== null") || line.contains("null ==") { continue; }
+                        // Skip undefined checks
+                        if line.contains("== undefined") || line.contains("undefined ==") { continue; }
+                        
+                        let line_num = (i + 1) as u32;
+                        
+                        // Graph-enhanced analysis
+                        let func_context = Self::find_function_context(graph, &path_str, line_num);
+                        let is_dead = Self::is_dead_code(graph, &path_str, line_num);
+                        
+                        // Calculate severity with graph context
+                        let mut severity = Severity::Low;
+                        
+                        // Reduce severity for dead code
+                        if is_dead {
+                            severity = Severity::Low;
+                        } else if let Some((_, callers, is_handler)) = &func_context {
+                            // Boost for route handlers (user input)
+                            if *is_handler {
+                                severity = Severity::Medium;
+                            }
+                            // Boost for heavily-used functions
+                            else if *callers >= 10 {
+                                severity = Severity::Medium;
+                            }
+                        }
+                        
+                        // Build notes
+                        let mut notes = Vec::new();
+                        if let Some((func_name, callers, is_handler)) = &func_context {
+                            notes.push(format!("📦 In function: `{}` ({} callers)", func_name, callers));
+                            if *is_handler {
+                                notes.push("🌐 Route handler (processes user input)".to_string());
+                            }
+                        }
+                        if is_dead {
+                            notes.push("💀 In unused code".to_string());
+                        }
+                        
+                        let context_notes = if notes.is_empty() {
+                            String::new()
+                        } else {
+                            format!("\n\n**Analysis:**\n{}", notes.join("\n"))
+                        };
                         
                         findings.push(Finding {
                             id: Uuid::new_v4().to_string(),
                             detector: "ImplicitCoercionDetector".to_string(),
-                            severity: Severity::Low,
+                            severity,
                             title: "Loose equality (==) used".to_string(),
-                            description: "== performs type coercion which can cause bugs.".to_string(),
+                            description: format!(
+                                "== performs type coercion which can cause subtle bugs.{}",
+                                context_notes
+                            ),
                             affected_files: vec![path.to_path_buf()],
-                            line_start: Some((i + 1) as u32),
-                            line_end: Some((i + 1) as u32),
-                            suggested_fix: Some("Use === for strict equality.".to_string()),
+                            line_start: Some(line_num),
+                            line_end: Some(line_num),
+                            suggested_fix: Some(
+                                "Use === for strict equality:\n\
+                                 ```javascript\n\
+                                 // Instead of:\n\
+                                 if (value == 'string') { ... }\n\
+                                 \n\
+                                 // Use:\n\
+                                 if (value === 'string') { ... }\n\
+                                 ```".to_string()
+                            ),
                             estimated_effort: Some("2 minutes".to_string()),
                             category: Some("code-quality".to_string()),
                             cwe_id: None,
-                            why_it_matters: Some("Type coercion causes subtle bugs.".to_string()),
+                            why_it_matters: Some(
+                                "Type coercion in == can cause unexpected behavior:\n\
+                                 • '1' == 1 is true\n\
+                                 • '' == false is true\n\
+                                 • [] == false is true\n\
+                                 Use === to compare both value AND type.".to_string()
+                            ),
                             ..Default::default()
                         });
                     }
                 }
             }
         }
+        
+        info!("ImplicitCoercionDetector found {} findings (graph-aware)", findings.len());
         Ok(findings)
     }
 }
