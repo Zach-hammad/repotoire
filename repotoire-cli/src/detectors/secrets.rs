@@ -368,6 +368,11 @@ impl Detector for SecretDetector {
                 continue;
             }
 
+            // Skip detector files (contain regex patterns that look like secrets)
+            if path_str.contains("/detectors/") && path_str.ends_with(".rs") {
+                continue;
+            }
+
             // Only scan text files
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             let scannable = matches!(ext, 

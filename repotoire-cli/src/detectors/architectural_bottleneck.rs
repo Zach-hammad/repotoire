@@ -286,6 +286,16 @@ impl Detector for ArchitecturalBottleneckDetector {
         );
 
         for func in funcs {
+            // Skip by name pattern (CLI entry points, common utilities)
+            if self.should_skip_by_name(&func.name) {
+                continue;
+            }
+
+            // Skip CLI entry points (expected to coordinate many things)
+            if func.file_path.contains("/cli/") && (func.name == "run" || func.name == "execute" || func.name == "main") {
+                continue;
+            }
+
             // Get context for this function
             let ctx = contexts.get(&func.qualified_name);
 

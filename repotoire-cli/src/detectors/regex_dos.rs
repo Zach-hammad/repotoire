@@ -146,6 +146,9 @@ impl Detector for RegexDosDetector {
             // Skip test files
             if path_str.contains("test") || path_str.contains("spec") { continue; }
             
+            // Skip detector files (contain example patterns for documentation)
+            if path_str.contains("/detectors/") && path_str.ends_with(".rs") { continue; }
+            
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !matches!(ext, "py"|"js"|"ts"|"java"|"rs"|"go"|"rb"|"php") { continue; }
 
