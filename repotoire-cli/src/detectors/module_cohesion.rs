@@ -516,7 +516,7 @@ impl Detector for ModuleCohesionDetector {
                         id: Uuid::new_v4().to_string(),
                         detector: "ModuleCohesionDetector".to_string(),
                         severity: Severity::Medium,
-                        title: format!("Low Module Cohesion"),
+                        title: "Low Module Cohesion".to_string(),
                         description: format!(
                             "File '{}' has low cohesion: {} internal calls vs {} external calls ({:.0}% cohesion).",
                             file.file_path, internal, external, cohesion * 100.0

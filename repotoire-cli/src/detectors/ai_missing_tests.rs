@@ -498,7 +498,7 @@ impl Detector for AIMissingTestsDetector {
             
             // Get complexity from context or graph
             let complexity = if let Some(ctx) = contexts.get(&func.qualified_name) {
-                ctx.complexity.unwrap_or(1) as i64
+                ctx.complexity.unwrap_or(1)
             } else {
                 func.complexity().unwrap_or(1)
             };

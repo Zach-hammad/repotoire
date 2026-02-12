@@ -180,11 +180,10 @@ impl Detector for SyncInAsyncDetector {
                     }
                     
                     // Check if we've left async scope (Python indentation)
-                    if in_async && ext == "py" && !line.trim().is_empty() {
-                        if current_indent <= async_indent && i > 0 && !async_func().is_match(line) {
+                    if in_async && ext == "py" && !line.trim().is_empty()
+                        && current_indent <= async_indent && i > 0 && !async_func().is_match(line) {
                             in_async = false;
                         }
-                    }
                     
                     if !in_async { continue; }
                     

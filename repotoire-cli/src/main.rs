@@ -5,6 +5,13 @@
 
 // Allow dead code for public API methods exposed for library users and future features
 #![allow(dead_code)]
+// Allow structural patterns common in detector/parser architecture
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::if_same_then_else)]
+#![allow(clippy::only_used_in_recursion)]
+#![allow(clippy::needless_update)]
+#![allow(clippy::upper_case_acronyms)]
+#![allow(clippy::type_complexity)]
 
 pub mod ai;
 pub mod cache;

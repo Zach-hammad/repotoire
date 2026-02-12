@@ -63,9 +63,9 @@ fn extract_functions(
     let query = Query::new(&language.into(), query_str).context("Failed to create function query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         let mut func_node = None;
         let mut name = String::new();
         let mut params_node = None;
@@ -189,9 +189,9 @@ fn extract_structs(
     let query = Query::new(&language.into(), query_str).context("Failed to create struct query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         let mut node = None;
         let mut name = String::new();
         let mut is_typedef = false;
@@ -264,15 +264,15 @@ fn extract_includes(root: &Node, source: &[u8], result: &mut ParseResult) -> Res
     let query = Query::new(&language.into(), query_str).context("Failed to create include query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         for capture in m.captures.iter() {
             if let Ok(text) = capture.node.utf8_text(source) {
                 // Remove quotes or angle brackets
                 let import = text
-                    .trim_start_matches(|c| c == '"' || c == '<')
-                    .trim_end_matches(|c| c == '"' || c == '>')
+                    .trim_start_matches(['"', '<'])
+                    .trim_end_matches(['"', '>'])
                     .to_string();
                 if !import.is_empty() {
                     result.imports.push(ImportInfo::runtime(import));

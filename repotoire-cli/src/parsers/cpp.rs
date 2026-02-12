@@ -63,9 +63,9 @@ fn extract_functions(
     let query = Query::new(&language.into(), query_str).context("Failed to create function query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         let mut func_node = None;
         let mut name = String::new();
         let mut params_node = None;
@@ -138,9 +138,9 @@ fn extract_classes(
     let query = Query::new(&language.into(), query_str).context("Failed to create class query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         let mut class_node = None;
         let mut name = String::new();
         let mut body_node = None;
@@ -212,9 +212,9 @@ fn extract_class_methods(
     let query = Query::new(&language.into(), query_str).context("Failed to create method query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *body, source);
+    let matches = cursor.matches(&query, *body, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         let mut method_node = None;
         let mut name = String::new();
         let mut params_node = None;
@@ -277,9 +277,9 @@ fn extract_structs(
     let query = Query::new(&language.into(), query_str).context("Failed to create struct query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         let mut struct_node = None;
         let mut name = String::new();
 
@@ -329,9 +329,9 @@ fn extract_includes(root: &Node, source: &[u8], result: &mut ParseResult) -> Res
     let query = Query::new(&language.into(), query_str).context("Failed to create include query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         for capture in m.captures.iter() {
             let path_text = capture.node.utf8_text(source).unwrap_or("");
             // Remove quotes or angle brackets
@@ -370,9 +370,9 @@ fn extract_calls(
     let query = Query::new(&language.into(), query_str).context("Failed to create call query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         let mut call_node = None;
         let mut callee_name = String::new();
 

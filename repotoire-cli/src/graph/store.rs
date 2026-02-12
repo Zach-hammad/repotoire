@@ -383,7 +383,7 @@ impl GraphStore {
             .node_weights()
             .filter(|n| {
                 n.kind == NodeKind::Function
-                    && n.complexity().map_or(false, |c| c >= min_complexity)
+                    && n.complexity().is_some_and(|c| c >= min_complexity)
             })
             .cloned()
             .collect()
@@ -397,7 +397,7 @@ impl GraphStore {
             .node_weights()
             .filter(|n| {
                 n.kind == NodeKind::Function
-                    && n.param_count().map_or(false, |p| p >= min_params)
+                    && n.param_count().is_some_and(|p| p >= min_params)
             })
             .cloned()
             .collect()
@@ -799,10 +799,10 @@ impl GraphStore {
                 }
                 
                 // Continue BFS if not visited
-                if !visited.contains_key(&target) {
+                if let std::collections::hash_map::Entry::Vacant(e) = visited.entry(target) {
                     let mut new_path = path.clone();
                     new_path.push(target);
-                    visited.insert(target, new_path.clone());
+                    e.insert(new_path.clone());
                     queue.push_back((target, new_path));
                 }
             }

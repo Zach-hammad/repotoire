@@ -360,7 +360,7 @@ impl Detector for RuffImportDetector {
             );
 
             findings.push(Finding {
-                id: format!("ruff_imports_{}", rel_path.replace('/', "_").replace('.', "_")),
+                id: format!("ruff_imports_{}", rel_path.replace(['/', '.'], "_")),
                 detector: "RuffImportDetector".to_string(),
                 severity,
                 title: format!("Unused imports in {}", Path::new(&rel_path).file_name().map(|n| n.to_string_lossy()).unwrap_or_default()),

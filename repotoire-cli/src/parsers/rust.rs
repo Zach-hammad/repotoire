@@ -67,9 +67,9 @@ fn extract_functions(
     let query = Query::new(&language.into(), query_str).context("Failed to create function query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         let mut func_node = None;
         let mut name = String::new();
         let mut params_node = None;
@@ -411,9 +411,9 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Resu
     let query = Query::new(&language.into(), query_str).context("Failed to create import query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         for capture in m.captures.iter() {
             if let Ok(text) = capture.node.utf8_text(source) {
                 // Clean up the import path

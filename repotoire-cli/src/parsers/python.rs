@@ -74,9 +74,9 @@ fn extract_functions(
     let query = Query::new(&language.into(), query_str).context("Failed to create function query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         let mut func_node = None;
         let mut name = String::new();
         let mut params_node = None;

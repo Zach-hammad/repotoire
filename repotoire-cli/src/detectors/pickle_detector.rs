@@ -175,11 +175,10 @@ impl PickleDeserializationDetector {
         }
 
         // Pattern 2: torch.load() without weights_only=True
-        if self.torch_load_pattern.is_match(line) {
-            if !self.torch_safe_pattern.is_match(line) {
+        if self.torch_load_pattern.is_match(line)
+            && !self.torch_safe_pattern.is_match(line) {
                 return Some("torch_load_unsafe");
             }
-        }
 
         // Pattern 3: joblib.load() - uses pickle internally
         if self.joblib_load_pattern.is_match(line) {
@@ -187,18 +186,16 @@ impl PickleDeserializationDetector {
         }
 
         // Pattern 4: numpy.load() with allow_pickle=True
-        if self.numpy_load_pattern.is_match(line) {
-            if self.numpy_pickle_pattern.is_match(line) {
+        if self.numpy_load_pattern.is_match(line)
+            && self.numpy_pickle_pattern.is_match(line) {
                 return Some("numpy_pickle");
             }
-        }
 
         // Pattern 5: yaml.load() without SafeLoader
-        if self.yaml_load_pattern.is_match(line) {
-            if !self.yaml_safe_loaders.is_match(line) && !line.to_lowercase().contains("safe_load") {
+        if self.yaml_load_pattern.is_match(line)
+            && !self.yaml_safe_loaders.is_match(line) && !line.to_lowercase().contains("safe_load") {
                 return Some("yaml_unsafe");
             }
-        }
 
         // Pattern 6: marshal.load() - bytecode execution
         if self.marshal_load_pattern.is_match(line) {

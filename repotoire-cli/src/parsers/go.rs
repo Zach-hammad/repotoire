@@ -62,9 +62,9 @@ fn extract_functions(
     let query = Query::new(&language.into(), func_query_str).context("Failed to create function query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         let mut func_node = None;
         let mut name = String::new();
         let mut params_node = None;
@@ -132,9 +132,9 @@ fn extract_methods(
     let query = Query::new(&language.into(), method_query_str).context("Failed to create method query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         let mut method_node = None;
         let mut name = String::new();
         let mut receiver_node = None;
@@ -264,9 +264,9 @@ fn extract_structs_and_interfaces(
     let query = Query::new(&language.into(), query_str).context("Failed to create type query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         let mut decl_node = None;
         let mut name = String::new();
         let mut _is_struct = false;
@@ -367,9 +367,9 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Resu
     let query = Query::new(&language.into(), query_str).context("Failed to create import query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         for capture in m.captures.iter() {
             if let Ok(text) = capture.node.utf8_text(source) {
                 // Remove quotes from import path

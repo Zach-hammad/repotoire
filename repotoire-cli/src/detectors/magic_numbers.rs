@@ -52,7 +52,7 @@ fn suggest_constant_name(num: i64, context_line: &str) -> String {
     if line_lower.contains("width") || line_lower.contains("height") {
         return format!("DIMENSION_{}", num);
     }
-    if num >= 200 && num < 600 && (line_lower.contains("status") || line_lower.contains("http")) {
+    if (200..600).contains(&num) && (line_lower.contains("status") || line_lower.contains("http")) {
         return format!("HTTP_STATUS_{}", num);
     }
     

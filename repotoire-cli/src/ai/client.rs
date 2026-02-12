@@ -203,7 +203,7 @@ impl AiClient {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 // Check if any model is available
-                stdout.lines().skip(1).next().is_some()
+                stdout.lines().nth(1).is_some()
             }
             Err(_) => false
         }

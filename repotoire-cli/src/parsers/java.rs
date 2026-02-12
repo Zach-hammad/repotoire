@@ -416,9 +416,9 @@ fn extract_imports(root: &Node, source: &[u8], result: &mut ParseResult) -> Resu
     let query = Query::new(&language.into(), query_str).context("Failed to create import query")?;
 
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, *root, source);
+    let matches = cursor.matches(&query, *root, source);
 
-    while let Some(m) = matches.next() {
+    for m in matches {
         for capture in m.captures.iter() {
             if let Ok(text) = capture.node.utf8_text(source) {
                 result.imports.push(ImportInfo::runtime(text.to_string()));

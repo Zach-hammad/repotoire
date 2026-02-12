@@ -584,7 +584,7 @@ fn parse_files(
         .par_iter()
         .filter_map(|file_path| {
             let count = counter.fetch_add(1, Ordering::Relaxed);
-            if count % 100 == 0 {
+            if count.is_multiple_of(100) {
                 parse_bar.set_position(count as u64);
             }
             
@@ -1096,7 +1096,7 @@ fn paginate_findings(
     let displayed_findings = findings.len();
 
     if per_page > 0 {
-        let total_pages = (displayed_findings + per_page - 1) / per_page;
+        let total_pages = displayed_findings.div_ceil(per_page);
         let page = page.max(1).min(total_pages.max(1));
         let start = (page - 1) * per_page;
         let end = (start + per_page).min(displayed_findings);

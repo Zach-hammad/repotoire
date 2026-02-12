@@ -140,7 +140,7 @@ impl AIComplexitySpikeDetector {
         let mean = sum as f64 / n as f64;
 
         // Calculate median
-        let median = if n % 2 == 0 {
+        let median = if n.is_multiple_of(2) {
             (sorted[n / 2 - 1] as f64 + sorted[n / 2] as f64) / 2.0
         } else {
             sorted[n / 2] as f64

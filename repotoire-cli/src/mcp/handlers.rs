@@ -517,7 +517,7 @@ pub async fn handle_ask(state: &HandlerState, args: &Value) -> Result<Value> {
 pub async fn handle_generate_fix(state: &HandlerState, args: &Value) -> Result<Value> {
     // BYOK: Use local AI if user provided their own key
     if let Some(backend) = &state.ai_backend {
-        return handle_generate_fix_local(state, args, backend.clone()).await;
+        return handle_generate_fix_local(state, args, *backend).await;
     }
 
     // Cloud PRO fallback

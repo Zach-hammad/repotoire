@@ -183,8 +183,8 @@ impl Detector for DjangoSecurityDetector {
                     }
                     
                     // Check DEBUG setting
-                    if debug_true().is_match(line) {
-                        if fname.contains("settings") && !fname.contains("dev") && !fname.contains("local") && !fname.contains("test") {
+                    if debug_true().is_match(line)
+                        && fname.contains("settings") && !fname.contains("dev") && !fname.contains("local") && !fname.contains("test") {
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "DjangoSecurityDetector".to_string(),
@@ -221,11 +221,10 @@ impl Detector for DjangoSecurityDetector {
                                 ..Default::default()
                             });
                         }
-                    }
                     
                     // Check hardcoded SECRET_KEY
-                    if secret_key().is_match(line) && !line.contains("os.environ") && !line.contains("env(") {
-                        if fname.contains("settings") && !fname.contains("dev") && !fname.contains("local") {
+                    if secret_key().is_match(line) && !line.contains("os.environ") && !line.contains("env(")
+                        && fname.contains("settings") && !fname.contains("dev") && !fname.contains("local") {
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "DjangoSecurityDetector".to_string(),
@@ -248,11 +247,10 @@ impl Detector for DjangoSecurityDetector {
                                 ..Default::default()
                             });
                         }
-                    }
                     
                     // Check ALLOWED_HOSTS wildcard
-                    if allowed_hosts().is_match(line) {
-                        if fname.contains("settings") && !fname.contains("dev") && !fname.contains("local") {
+                    if allowed_hosts().is_match(line)
+                        && fname.contains("settings") && !fname.contains("dev") && !fname.contains("local") {
                             findings.push(Finding {
                                 id: Uuid::new_v4().to_string(),
                                 detector: "DjangoSecurityDetector".to_string(),
@@ -270,7 +268,6 @@ impl Detector for DjangoSecurityDetector {
                                 ..Default::default()
                             });
                         }
-                    }
                     
                     // Check raw SQL
                     if raw_sql().is_match(line) {

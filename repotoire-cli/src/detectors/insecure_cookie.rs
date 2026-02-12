@@ -174,8 +174,7 @@ impl Detector for InsecureCookieDetector {
                         // Build language-specific fix
                         let ext_str = ext;
                         let suggestion = match ext_str {
-                            "py" => format!(
-                                "```python\n\
+                            "py" => "```python\n\
                                  response.set_cookie(\n\
                                      'cookie_name',\n\
                                      value,\n\
@@ -183,26 +182,21 @@ impl Detector for InsecureCookieDetector {
                                      secure=True,     # HTTPS only\n\
                                      samesite='Lax'   # CSRF protection\n\
                                  )\n\
-                                 ```"
-                            ),
-                            "js" | "ts" => format!(
-                                "```javascript\n\
-                                 res.cookie('cookie_name', value, {{\n\
+                                 ```".to_string(),
+                            "js" | "ts" => "```javascript\n\
+                                 res.cookie('cookie_name', value, {\n\
                                      httpOnly: true,  // Prevents JavaScript access\n\
                                      secure: true,    // HTTPS only\n\
                                      sameSite: 'lax'  // CSRF protection\n\
-                                 }});\n\
-                                 ```"
-                            ),
-                            "php" => format!(
-                                "```php\n\
+                                 });\n\
+                                 ```".to_string(),
+                            "php" => "```php\n\
                                  setcookie('cookie_name', $value, [\n\
                                      'httponly' => true,\n\
                                      'secure' => true,\n\
                                      'samesite' => 'Lax'\n\
                                  ]);\n\
-                                 ```"
-                            ),
+                                 ```".to_string(),
                             _ => "Add httponly, secure, and samesite flags.".to_string(),
                         };
                         

@@ -120,13 +120,11 @@ impl EmptyCatchDetector {
             }
 
             // JS/TS/Java: catch (...) { }
-            if matches!(ext, "js" | "ts" | "jsx" | "tsx" | "java" | "cs") {
-                if trimmed.contains("catch") && trimmed.contains("{") && trimmed.contains("}") {
-                    if trimmed.ends_with("{ }") || trimmed.ends_with("{}") {
+            if matches!(ext, "js" | "ts" | "jsx" | "tsx" | "java" | "cs")
+                && trimmed.contains("catch") && trimmed.contains("{") && trimmed.contains("}")
+                    && (trimmed.ends_with("{ }") || trimmed.ends_with("{}")) {
                         is_empty_catch = true;
                     }
-                }
-            }
 
             if is_empty_catch {
                 // Find the try block and analyze it

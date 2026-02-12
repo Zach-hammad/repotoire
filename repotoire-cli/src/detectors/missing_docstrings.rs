@@ -67,12 +67,10 @@ impl MissingDocstringsDetector {
                 template
             },
             "js" | "ts" => {
-                let mut template = format!(
-                    "```javascript\n\
+                let mut template = "```javascript\n\
                      /**\n\
                      * Brief description of what the function does.\n\
-                     *\n"
-                );
+                     *\n".to_string();
                 if params > 0 {
                     for i in 0..params.min(3) {
                         template.push_str(&format!(" * @param {{type}} param{} - Description.\n", i + 1));
@@ -82,8 +80,7 @@ impl MissingDocstringsDetector {
                 template
             },
             "rs" => {
-                format!(
-                    "```rust\n\
+                "```rust\n\
                      /// Brief description of what the function does.\n\
                      ///\n\
                      /// # Arguments\n\
@@ -93,8 +90,7 @@ impl MissingDocstringsDetector {
                      /// # Returns\n\
                      ///\n\
                      /// Description of return value.\n\
-                     ```"
-                )
+                     ```".to_string()
             },
             "go" => {
                 format!(

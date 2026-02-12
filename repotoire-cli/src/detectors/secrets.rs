@@ -235,7 +235,7 @@ impl SecretDetector {
                     
                     // Determine effective severity based on context
                     let line_lower = line.to_lowercase();
-                    let mut effective_severity = pattern.severity.clone();
+                    let mut effective_severity = pattern.severity;
                     
                     // Dev fallback pattern: process.env.X || 'fallback' or process.env.X ?? 'fallback'
                     // These are typically local dev defaults, not production credentials

@@ -226,7 +226,7 @@ impl HealthScoreDeltaCalculator {
         let affected_metric = self.get_affected_metric(&finding.detector);
 
         // Classify impact level
-        let impact_level = self.classify_impact(score_delta, &current_grade != &new_grade);
+        let impact_level = self.classify_impact(score_delta, current_grade != new_grade);
 
         HealthScoreDelta {
             before_score: current_overall,

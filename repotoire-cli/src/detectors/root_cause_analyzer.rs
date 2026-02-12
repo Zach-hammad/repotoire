@@ -364,7 +364,7 @@ impl RootCauseAnalyzer {
         let class_name = god_class
             .title
             .split(':')
-            .last()
+            .next_back()
             .unwrap_or("the class")
             .trim();
 
@@ -486,7 +486,7 @@ impl RootCauseAnalyzer {
                     .root_cause_finding
                     .title
                     .split(':')
-                    .last()
+                    .next_back()
                     .unwrap_or("unknown")
                     .trim();
 

@@ -11,7 +11,6 @@ use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
-use serde_json;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::{debug, info};
@@ -566,7 +565,7 @@ impl DeadCodeDetector {
                  2. Check for dynamic calls (getattr, eval) that might use it\n\
                  3. Verify it's not an API endpoint or callback",
                 confidence * 100.0,
-                file_path.split('/').last().unwrap_or(&file_path)
+                file_path.split('/').next_back().unwrap_or(&file_path)
             )),
             estimated_effort: Some("Small (30-60 minutes)".to_string()),
             category: Some("dead_code".to_string()),
@@ -826,7 +825,7 @@ impl DeadCodeDetector {
                     || target_lower
                         .ends_with(&class_file.replace("/tmp/", "").replace("/home/", ""))
                     // Also check just the filename
-                    || class_file.split('/').last() == target_lower.split('/').last()
+                    || class_file.split('/').next_back() == target_lower.split('/').next_back()
             });
             if file_is_imported {
                 continue;
@@ -835,7 +834,7 @@ impl DeadCodeDetector {
             // Skip public classes (uppercase, no underscore prefix) in non-test files
             // These are likely exported and used elsewhere
             let is_public =
-                !name.starts_with('_') && name.chars().next().map_or(false, |c| c.is_uppercase());
+                !name.starts_with('_') && name.chars().next().is_some_and(|c| c.is_uppercase());
             let is_test_file = class_file.contains("/test") || class_file.contains("_test.");
             if is_public && !is_test_file {
                 continue;

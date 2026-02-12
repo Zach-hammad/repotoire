@@ -136,7 +136,7 @@ impl Detector for InsecureDeserializeDetector {
                         let has_validation = Self::has_validation(&lines, i);
                         
                         // Calculate severity
-                        let mut severity = base_severity.clone();
+                        let mut severity = base_severity;
                         
                         // Reduce if validation found
                         if has_validation {

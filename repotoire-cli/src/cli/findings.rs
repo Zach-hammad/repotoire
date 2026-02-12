@@ -108,7 +108,7 @@ pub fn run(path: &Path, index: Option<usize>, json: bool, top: Option<usize>, se
     // Apply pagination (per_page = 0 means all)
     let total_findings = findings.len();
     let (start_idx, end_idx, current_page, total_pages) = if per_page > 0 {
-        let total_pages = (total_findings + per_page - 1) / per_page;
+        let total_pages = total_findings.div_ceil(per_page);
         let current_page = page.max(1).min(total_pages.max(1));
         let start = (current_page - 1) * per_page;
         let end = (start + per_page).min(total_findings);

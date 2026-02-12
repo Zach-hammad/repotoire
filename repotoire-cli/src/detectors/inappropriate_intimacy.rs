@@ -367,7 +367,7 @@ impl Detector for InappropriateIntimacyDetector {
                     id: Uuid::new_v4().to_string(),
                     detector: "InappropriateIntimacyDetector".to_string(),
                     severity,
-                    title: format!("Inappropriate Intimacy"),
+                    title: "Inappropriate Intimacy".to_string(),
                     description: format!(
                         "Bidirectional coupling:\n\
                          - {} → {} ({} calls to {} functions)\n\

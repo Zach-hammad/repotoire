@@ -224,7 +224,7 @@ impl VotingEngine {
         let mut rejected_count = 0;
         let mut boosted_count = 0;
 
-        for (_entity_key, group_findings) in &groups {
+        for group_findings in groups.values() {
             if group_findings.len() == 1 {
                 // Single detector - check threshold
                 let finding = &group_findings[0];
@@ -579,7 +579,7 @@ impl VotingEngine {
         // Extract function name from title like "Architectural Bottleneck: is_sql_context"
         let func_name = title
             .split(':')
-            .last()
+            .next_back()
             .unwrap_or("")
             .trim()
             .to_lowercase();

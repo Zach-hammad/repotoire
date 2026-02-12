@@ -1,6 +1,6 @@
 # Detectors Reference
 
-Repotoire includes **95+ detectors** across multiple categories. All detectors run locally with no external API dependencies (except optional AI fixes).
+Repotoire includes **108 detectors** across multiple categories. All detectors run locally with no external API dependencies (except optional AI fixes).
 
 ---
 

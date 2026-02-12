@@ -222,14 +222,13 @@ impl EvalDetector {
         }
 
         // Skip if it's a safe literal-only pattern
-        if self.literal_string_pattern.is_match(line) {
-            if !self.variable_arg_pattern.is_match(line)
+        if self.literal_string_pattern.is_match(line)
+            && !self.variable_arg_pattern.is_match(line)
                 && !self.fstring_arg_pattern.is_match(line)
                 && !self.concat_arg_pattern.is_match(line)
             {
                 return None;
             }
-        }
 
         // Check for shell=True (high severity for subprocess calls)
         if let Some(caps) = self.shell_true_pattern.captures(line) {
@@ -440,10 +439,8 @@ impl EvalDetector {
             estimated_effort: Some("Medium (1-4 hours)".to_string()),
             category: Some("security".to_string()),
             cwe_id: Some(cwe.to_string()),
-            why_it_matters: Some(format!(
-                "Code execution vulnerabilities allow attackers to run arbitrary code on the server, \
-                 potentially leading to complete system compromise."
-            )),
+            why_it_matters: Some("Code execution vulnerabilities allow attackers to run arbitrary code on the server, \
+                 potentially leading to complete system compromise.".to_string()),
             ..Default::default()
         }
     }
@@ -544,7 +541,7 @@ impl Detector for EvalDetector {
             
             // Check if this finding has a confirmed taint path
             for taint in &taint_results {
-                if taint.sink_file == file_path && taint.sink_line as u32 == line {
+                if taint.sink_file == file_path && taint.sink_line == line {
                     if taint.is_sanitized {
                         // Sanitized path - downgrade to Low
                         finding.severity = Severity::Low;

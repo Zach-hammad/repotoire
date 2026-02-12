@@ -240,13 +240,11 @@ impl Detector for ShotgunSurgeryDetector {
                 affected_files: vec![class.file_path.clone().into()],
                 line_start: Some(class.line_start),
                 line_end: Some(class.line_end),
-                suggested_fix: Some(format!(
-                    "Options to reduce coupling:\n\
+                suggested_fix: Some("Options to reduce coupling:\n\
                      1. Create a Facade to limit the API surface\n\
                      2. Use interfaces/protocols to decouple\n\
                      3. Split into smaller, focused classes\n\
-                     4. Apply Dependency Injection pattern"
-                )),
+                     4. Apply Dependency Injection pattern".to_string()),
                 estimated_effort: Some(match severity {
                     Severity::Critical => "Large (1-2 days)",
                     Severity::High => "Large (4-8 hours)",

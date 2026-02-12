@@ -60,7 +60,7 @@ fn use_effect() -> &'static Regex {
 fn extract_hook_name(line: &str) -> Option<String> {
     if let Some(m) = hook_call().find(line) {
         let s = m.as_str();
-        Some(s.trim_end_matches(|c| c == '(' || c == ' ').to_string())
+        Some(s.trim_end_matches(['(', ' ']).to_string())
     } else {
         None
     }

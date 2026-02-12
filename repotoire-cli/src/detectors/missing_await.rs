@@ -135,14 +135,13 @@ impl Detector for MissingAwaitDetector {
                     }
                     
                     // JS/TS: track braces
-                    if in_async && matches!(ext, "js"|"ts"|"jsx"|"tsx") {
-                        if line.contains("}") && !line.contains("{") {
+                    if in_async && matches!(ext, "js"|"ts"|"jsx"|"tsx")
+                        && line.contains("}") && !line.contains("{") {
                             // Simplified scope tracking
                             if line.trim() == "}" || line.trim() == "};" {
                                 in_async = false;
                             }
                         }
-                    }
                     
                     if !in_async { continue; }
                     

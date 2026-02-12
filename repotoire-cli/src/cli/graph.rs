@@ -3,7 +3,6 @@
 use crate::graph::GraphStore;
 use anyhow::{Context, Result};
 use console::style;
-use serde_json;
 use std::path::Path;
 
 /// Run a query against the code graph

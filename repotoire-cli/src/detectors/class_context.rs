@@ -346,7 +346,7 @@ impl<'a> ClassContextBuilder<'a> {
         is_framework_path: bool,
     ) -> (ClassRole, String) {
         // Framework core: known names or patterns
-        if FRAMEWORK_CORE_NAMES.iter().any(|n| name == *n) {
+        if FRAMEWORK_CORE_NAMES.contains(&name) {
             return (ClassRole::FrameworkCore, format!("Known framework class: {}", name));
         }
         

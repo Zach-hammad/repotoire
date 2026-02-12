@@ -87,7 +87,7 @@ impl Detector for LogInjectionDetector {
             let line = finding.line_start.unwrap_or(0);
             
             for taint in &taint_results {
-                if taint.sink_file == file_path && taint.sink_line as u32 == line {
+                if taint.sink_file == file_path && taint.sink_line == line {
                     if taint.is_sanitized {
                         finding.severity = Severity::Low;
                     } else {

@@ -119,7 +119,7 @@ impl GeneratorMisuseDetector {
             for caller in callers {
                 if let Ok(content) = std::fs::read_to_string(&caller.file_path) {
                     // Check if caller iterates lazily (for loop) vs list()
-                    let has_lazy = content.contains(&format!("for ")) && 
+                    let has_lazy = content.contains(&"for ".to_string()) && 
                                    content.contains(&format!("{}(", func_name));
                     let has_list = content.contains(&format!("list({}(", func_name));
                     

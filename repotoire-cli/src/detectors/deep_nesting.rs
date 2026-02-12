@@ -26,9 +26,9 @@ impl DeepNestingDetector {
     }
 
     /// Find the function containing this line
-    fn find_containing_function<'a>(
+    fn find_containing_function(
         &self, 
-        graph: &'a GraphStore, 
+        graph: &GraphStore, 
         file_path: &str, 
         line: u32
     ) -> Option<crate::graph::CodeNode> {

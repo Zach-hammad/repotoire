@@ -185,7 +185,7 @@ impl SemgrepDetector {
         description.push_str("\n**Impact**: Security vulnerability detected by Semgrep pattern matching.\n");
 
         // Extract rule name from check_id
-        let rule_name = check_id.split('.').last().unwrap_or(check_id);
+        let rule_name = check_id.split('.').next_back().unwrap_or(check_id);
 
         let suggested_fix = Self::suggest_fix(metadata, message);
         let effort = Self::estimate_effort(severity_str);

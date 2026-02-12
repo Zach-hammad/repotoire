@@ -69,7 +69,7 @@ impl UnusedImportsDetector {
                     } else {
                         // Handle "from x import *" - skip these
                         if part != "*" {
-                            let name = part.split('.').last().unwrap_or(part);
+                            let name = part.split('.').next_back().unwrap_or(part);
                             symbols.push((name.to_string(), None));
                         }
                     }
@@ -200,12 +200,10 @@ impl Detector for UnusedImportsDetector {
                         } else {
                             continue;
                         }
+                    } else if trimmed.starts_with("import ") {
+                        Self::extract_js_imports(trimmed)
                     } else {
-                        if trimmed.starts_with("import ") {
-                            Self::extract_js_imports(trimmed)
-                        } else {
-                            continue;
-                        }
+                        continue;
                     };
                     
                     for (symbol, _alias) in imports {

@@ -217,7 +217,7 @@ impl<'a> GraphScorer<'a> {
         finding_count: usize,
         bonuses: Vec<(&str, f64)>,
     ) -> PillarBreakdown {
-        let base_score = (100.0 - penalty).max(25.0).min(100.0);
+        let base_score = (100.0 - penalty).clamp(25.0, 100.0);
         let total_bonus: f64 = bonuses.iter().map(|(_, b)| b).sum();
         let final_score = (base_score * (1.0 + total_bonus)).min(100.0);
 

@@ -250,7 +250,7 @@ impl FeatureEnvyDetector {
                  {} times compared to {} internal uses (ratio: {}x).\n\n\
                  This suggests the method may belong in a different class.",
                 method_simple,
-                owner_class.split('.').last().unwrap_or(&owner_class),
+                owner_class.split('.').next_back().unwrap_or(&owner_class),
                 external_uses,
                 internal_uses,
                 ratio_display
