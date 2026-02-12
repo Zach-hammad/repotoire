@@ -44,6 +44,10 @@ static ENTRY_POINTS: &[&str] = &[
     "deref",
     "serialize",
     "deserialize",
+    // Builder pattern (called on builder instances, not tracked in graph)
+    "build",
+    "with_config",
+    "with_thresholds",
 ];
 
 /// Framework-specific files where default exports are auto-loaded
