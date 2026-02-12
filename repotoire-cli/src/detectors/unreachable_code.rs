@@ -35,6 +35,8 @@ const ENTRY_POINT_PATTERNS: &[&str] = &[
     "new", "default", "from", "into", "try_from", "try_into",
     "clone", "fmt", "eq", "cmp", "hash", "drop", "deref",
     "serialize", "deserialize", "build", "parse", "validate",
+    // Builder pattern methods (called on builder instances, not tracked in graph)
+    "with_", "set_", "add_", "find", "calculate", "analyze",
 ];
 
 /// Paths that indicate entry points
