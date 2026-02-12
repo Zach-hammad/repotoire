@@ -310,6 +310,27 @@ impl SecretDetector {
     }
 }
 
+impl SecretDetector {
+    /// Find containing function
+    fn find_containing_function(graph: &GraphStore, file_path: &str, line: u32) -> Option<(String, usize, bool)> {
+        graph.get_functions()
+            .into_iter()
+            .find(|f| f.file_path == file_path && f.line_start <= line && f.line_end >= line)
+            .map(|f| {
+                let callers = graph.get_callers(&f.qualified_name);
+                let name_lower = f.name.to_lowercase();
+                
+                // Check if this is a config/init function
+                let is_config = name_lower.contains("config") ||
+                    name_lower.contains("init") ||
+                    name_lower.contains("setup") ||
+                    name_lower.contains("settings");
+                
+                (f.name, callers.len(), is_config)
+            })
+    }
+}
+
 impl Detector for SecretDetector {
     fn name(&self) -> &'static str {
         "secret-detection"
@@ -319,7 +340,7 @@ impl Detector for SecretDetector {
         "Detects hardcoded secrets, API keys, and passwords"
     }
 
-    fn detect(&self, _graph: &GraphStore) -> Result<Vec<Finding>> {
+    fn detect(&self, graph: &GraphStore) -> Result<Vec<Finding>> {
         let mut findings = vec![];
         
         let walker = ignore::WalkBuilder::new(&self.repository_path)
@@ -362,6 +383,33 @@ impl Detector for SecretDetector {
 
             debug!("Scanning for secrets: {}", path.display());
             findings.extend(self.scan_file(path));
+        }
+
+        // Enrich findings with graph context
+        for finding in &mut findings {
+            if let (Some(file_path), Some(line)) = (finding.affected_files.first(), finding.line_start) {
+                let path_str = file_path.to_string_lossy().to_string();
+                
+                if let Some((func_name, callers, is_config)) = Self::find_containing_function(graph, &path_str, line) {
+                    let mut notes = Vec::new();
+                    notes.push(format!("📦 In function: `{}` ({} callers)", func_name, callers));
+                    
+                    if is_config {
+                        notes.push("⚙️ In config/setup function".to_string());
+                        // Config functions with secrets are more expected but still bad
+                        if finding.severity == Severity::Critical {
+                            finding.severity = Severity::High;
+                        }
+                    }
+                    
+                    // Boost severity if function has many callers (widely used)
+                    if callers > 10 && finding.severity == Severity::High {
+                        finding.severity = Severity::Critical;
+                    }
+                    
+                    finding.description = format!("{}\n\n**Context:**\n{}", finding.description, notes.join("\n"));
+                }
+            }
         }
 
         Ok(findings)
