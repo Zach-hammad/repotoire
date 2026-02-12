@@ -30,6 +30,11 @@ const ENTRY_POINT_PATTERNS: &[&str] = &[
     "handle", "on_", "get_", "post_", "put_", "delete_", "patch_",
     "__init__", "__new__", "__call__", "__enter__", "__exit__",
     "configure", "register", "setup_", "create_app",
+    // Rust trait methods (called via trait dispatch, not visible in call graph)
+    "detect", "name", "description", "category", "config",
+    "new", "default", "from", "into", "try_from", "try_into",
+    "clone", "fmt", "eq", "cmp", "hash", "drop", "deref",
+    "serialize", "deserialize", "build", "parse", "validate",
 ];
 
 /// Paths that indicate entry points
